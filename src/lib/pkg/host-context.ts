@@ -14,10 +14,15 @@ import type {
 } from '@modelcontextprotocol/ext-apps/app-bridge';
 
 import { useIkengaStore } from '@/lib/ikenga/theme-store';
+import { supabase } from '@/lib/supabase';
 
 export interface RoyaltiAuth {
   token: string;
   pkg_id: string;
+  /** Current user's Supabase access token. Pkgs use this to authenticate
+   *  their own vendored Supabase client against the same project the shell
+   *  reads from. `null` when the user is signed out — pkgs run anon-only. */
+  supabaseJwt: string | null;
 }
 
 export function buildHostContext(opts: {
@@ -36,8 +41,23 @@ export function buildHostContext(opts: {
     royaltiAuth: {
       token: opts.authToken,
       pkg_id: opts.pkgId,
+      supabaseJwt: currentSupabaseJwt(),
     } satisfies RoyaltiAuth,
   };
+}
+
+/** Read the current Supabase access token without forcing a refresh. The
+ *  client persists it in localStorage and exposes it via `getSession()`;
+ *  this returns `null` when no session is present (signed out). */
+function currentSupabaseJwt(): string | null {
+  // supabase-js v2 caches the session on the client object; reading it from
+  // the public API is async (`getSession`), but the synchronous handshake
+  // here can't await. The client also exposes the token synchronously via
+  // its internal `auth` storage — we tap that to avoid round-tripping.
+  // If supabase-js changes shape, we silently fall back to `null` and the
+  // pkg's queries will run anon-only until the next host-context-changed.
+  const auth = (supabase as unknown as { auth?: { currentSession?: { access_token?: string } } }).auth;
+  return auth?.currentSession?.access_token ?? null;
 }
 
 // Read the resolved values of CSS custom properties from the host's `:root`.

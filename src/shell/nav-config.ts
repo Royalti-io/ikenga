@@ -45,7 +45,7 @@ export const NAV_GROUPS: NavGroup[] = [
     label: 'Daily Ops',
     items: [
       { to: '/mail/triage', label: 'Triage', Icon: Filter },
-      { to: '/tasks', label: 'Tasks', Icon: CheckSquare },
+      { to: '/pkg/com.ikenga.tasks/', label: 'Tasks', Icon: CheckSquare },
       { to: '/mail/all', label: 'Emails', Icon: Mail },
       { to: '/mail/drafts', label: 'Reply Drafts', Icon: MailCheck },
       { to: '/calendar', label: 'Calendar', Icon: CalendarIcon },
