@@ -853,6 +853,27 @@ export async function pkgKernelStatus(): Promise<PkgKernelStatus> {
   return invoke<PkgKernelStatus>("pkg_kernel_status");
 }
 
+export interface PkgDiscovered {
+  id: string;
+  name: string;
+  version: string;
+  install_path: string;
+  valid: boolean;
+  error: string | null;
+  installed: boolean;
+  compatible: boolean;
+}
+
+/**
+ * Dev-mode helper: scan a workspace directory for sibling pkgs without
+ * installing anything. Pass `workspaceDir` explicitly, or omit to fall back
+ * to the `IKENGA_WORKSPACE_DIR` env var on the Rust side. Returns an empty
+ * list when neither is set.
+ */
+export async function pkgDiscoverWorkspace(workspaceDir?: string): Promise<PkgDiscovered[]> {
+  return invoke<PkgDiscovered[]>("pkg_discover_workspace", { workspaceDir });
+}
+
 /**
  * Restart a supervised pkg's sidecar. Resets Blocked / Crashed / Parked
  * back to Spawning and breaks any pending retry sleep so the supervisor

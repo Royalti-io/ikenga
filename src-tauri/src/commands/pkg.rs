@@ -9,7 +9,7 @@ use serde::Serialize;
 use tauri::State;
 
 use crate::pkg::registries::SettingsRegistry;
-use crate::pkg::{InstalledSummary, Kernel, KernelStatus};
+use crate::pkg::{DiscoveredPkg, InstalledSummary, Kernel, KernelStatus};
 
 /// State wrapper so the kernel can be stored in Tauri state behind an Arc.
 pub struct KernelState(pub Arc<Kernel>);
@@ -44,6 +44,28 @@ pub fn pkg_uninstall(kernel: State<'_, KernelState>, pkg_id: String) -> Result<(
 #[tauri::command]
 pub fn pkg_kernel_status(kernel: State<'_, KernelState>) -> KernelStatus {
     kernel.0.status()
+}
+
+/// Dev-mode helper: scan a workspace directory (e.g.
+/// `~/royalti-co/ikenga/pkgs`) for sibling pkgs and return manifest metadata
+/// without installing anything. The FE surfaces this in the Pkg Manager so
+/// the user can install workspace pkgs with one click during local dev.
+///
+/// If `workspace_dir` is `None`, falls back to the `IKENGA_WORKSPACE_DIR`
+/// env var. Returns an empty list when neither is set or the path is missing
+/// — never fails.
+#[tauri::command]
+pub fn pkg_discover_workspace(
+    kernel: State<'_, KernelState>,
+    workspace_dir: Option<String>,
+) -> Vec<DiscoveredPkg> {
+    let path = workspace_dir
+        .or_else(|| std::env::var("IKENGA_WORKSPACE_DIR").ok())
+        .map(PathBuf::from);
+    match path {
+        Some(p) => kernel.0.discover_workspace(&p),
+        None => Vec::new(),
+    }
 }
 
 /// Read a manifest at the given install path WITHOUT registering it. Used

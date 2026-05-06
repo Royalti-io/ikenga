@@ -81,3 +81,10 @@ regex = "1"
 [features]
 # this feature is used for production builds or when a dev server is not specified, DO NOT REMOVE!!
 custom-protocol = ["tauri/custom-protocol"]
+
+# Stand-alone workspace declaration so cargo doesn't fold this crate into
+# the parent royalti-co monorepo workspace. The shell repo lives under the
+# gitignored ikenga/ workspace folder; without this, cargo walks up and
+# picks up royalti-co/Cargo.toml's [workspace] which lists the OLD path
+# (ikenga-desktop/src-tauri).
+[workspace]
