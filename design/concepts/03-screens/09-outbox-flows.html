@@ -1,0 +1,919 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="A" data-mode="dark" data-density="comfortable" data-workspace="outbox">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Ikenga · Rung 3 · Screen 09 · Outbox · Pages + flows</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,400;1,9..144,500&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="../_shared/tokens.css" />
+<link rel="stylesheet" href="../_shared/components.css" />
+<link rel="stylesheet" href="../_shared/shell.css" />
+<style>
+  /* === Page chrome (shared with 04 outbox-approvals) ============= */
+  .page { max-width: 1480px; margin: 0 auto; padding: 0 var(--space-12) var(--space-12); }
+  .controls { margin: 0 calc(-1 * var(--space-12)) var(--space-8); }
+  header { padding-top: var(--space-8); }
+  section { margin-top: var(--space-12); }
+
+  /* Section subhead used between mini-frames */
+  .frame-tag {
+    font-family: var(--font-mono); font-size: 11px;
+    letter-spacing: .12em; text-transform: uppercase;
+    color: var(--fg-faint); margin-bottom: var(--space-3);
+  }
+  .frame-tag .num { color: var(--tint-fg-active, var(--primary)); margin-right: var(--space-2); }
+  .frame-note {
+    font-size: var(--text-caption); color: var(--fg-muted); line-height: 1.55;
+    max-width: 72ch; margin: var(--space-2) 0 var(--space-5);
+  }
+
+  /* A "mini-frame" = a bordered surface that hosts a compressed pane.
+     Used to show a half-dozen outbox surfaces side-by-side without
+     each one needing its own full-page mock. */
+  .mini-frame {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    box-shadow: 0 12px 32px -16px rgba(0,0,0,.5);
+  }
+  .mini-frame-head {
+    display: flex; align-items: center; gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border-bottom: 1px solid var(--border-soft);
+    background: var(--bg-sunken);
+  }
+  .mini-frame-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--tint-fg-active, var(--primary)); flex-shrink: 0; }
+  .mini-frame-title { font-family: var(--font-mono); font-size: 11px; letter-spacing: .04em; color: var(--fg-muted); }
+  .mini-frame-meta { margin-left: auto; font-family: var(--font-mono); font-size: 10px; color: var(--fg-faint); letter-spacing: .04em; }
+
+  /* Two- and three-up grids of mini-frames */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-6); }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: var(--space-5); }
+  @media (max-width: 1100px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }
+
+  /* === Outbox tab strip (sub-routes inside /outbox) ============== */
+  .ob-subnav {
+    display: flex; gap: 0; padding: 0 var(--space-3);
+    border-bottom: 1px solid var(--border-soft);
+    background: var(--bg-surface);
+  }
+  .ob-subnav button {
+    background: none; border: 0; cursor: pointer;
+    padding: var(--space-3) var(--space-4) calc(var(--space-3) - 2px);
+    font-family: inherit; font-size: var(--text-body-sm); font-weight: 500;
+    color: var(--fg-muted);
+    border-bottom: 2px solid transparent;
+    display: inline-flex; align-items: center; gap: var(--space-2);
+    transition: color var(--motion-fast) var(--ease-calm), border-color var(--motion-fast) var(--ease-calm);
+  }
+  .ob-subnav button:hover { color: var(--fg); }
+  .ob-subnav button.is-on {
+    color: var(--tint-fg-active, var(--primary));
+    border-bottom-color: var(--tint-fg-active, var(--primary));
+  }
+  .ob-subnav-count {
+    font-family: var(--font-mono); font-size: 10px; letter-spacing: .04em;
+    color: var(--fg-faint);
+    background: var(--bg-base); border: 1px solid var(--border-soft);
+    border-radius: var(--radius-pill);
+    padding: 1px 6px;
+  }
+  .ob-subnav button.is-on .ob-subnav-count {
+    color: var(--tint-fg-active, var(--primary));
+    border-color: color-mix(in srgb, var(--tint-fg-active, var(--primary)) 30%, var(--border));
+  }
+
+  /* === Generic compact rows ===================================== */
+  .row {
+    padding: 10px var(--space-3);
+    border-bottom: 1px solid var(--border-soft);
+    display: grid; grid-template-columns: 1fr auto; gap: var(--space-2);
+    align-items: center;
+    cursor: pointer;
+  }
+  .row:hover { background: var(--bg-raised); }
+  .row.is-on { background: var(--bg-raised); border-left: 2px solid var(--tint-fg-active, var(--primary)); padding-left: calc(var(--space-3) - 2px); }
+  .row-title { font-size: var(--text-body-sm); color: var(--fg); font-weight: 500; }
+  .row-sub  { font-size: var(--text-caption); color: var(--fg-muted); margin-top: 2px; line-height: 1.45; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; }
+  .row-meta { font-family: var(--font-mono); font-size: 10.5px; color: var(--fg-faint); letter-spacing: .04em; text-align: right; flex-shrink: 0; }
+  .row-chips { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px; }
+
+  /* Chip variants — borrow from 04 */
+  .chip {
+    font-family: var(--font-mono); font-size: 9.5px; letter-spacing: .06em; text-transform: uppercase;
+    padding: 2px 6px; border-radius: var(--radius-xs);
+    background: var(--bg-sunken); color: var(--fg-muted);
+    border: 1px solid var(--border-soft);
+    display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;
+  }
+  .chip svg { width: 10px; height: 10px; }
+  .chip.resend   { color: hsl(170,40%,58%); border-color: hsl(170,30%,28%); background: hsl(170,30%,12%); }
+  .chip.listmonk { color: hsl(42,82%,60%);  border-color: hsl(42,40%,28%);  background: hsl(42,40%,12%); }
+  .chip.smtp     { color: hsl(220,40%,68%); border-color: hsl(220,28%,28%); background: hsl(220,28%,12%); }
+  .chip.buffer   { color: hsl(280,50%,68%); border-color: hsl(280,28%,28%); background: hsl(280,28%,12%); }
+  .chip.linkedin { color: hsl(210,55%,68%); border-color: hsl(210,32%,28%); background: hsl(210,32%,12%); }
+  .chip.x        { color: hsl(36,30%,82%);  border-color: hsl(36,15%,28%);  background: hsl(36,15%,12%); }
+  .chip.instagram{ color: hsl(330,55%,68%); border-color: hsl(330,30%,28%); background: hsl(330,30%,12%); }
+  .chip.tint {
+    color: var(--tint-fg-active, var(--primary));
+    border-color: color-mix(in srgb, var(--tint-fg-active, var(--primary)) 30%, var(--border));
+    background: color-mix(in srgb, var(--tint-fg-active, var(--primary)) 14%, transparent);
+  }
+  .chip.warn { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 30%, var(--border)); background: color-mix(in srgb, var(--danger) 14%, transparent); }
+  .chip.ok   { color: var(--achievement); border-color: var(--achievement-soft); background: var(--achievement-soft); }
+  [data-mode="light"] .chip.resend   { color: hsl(170,50%,28%); border-color: hsl(170,40%,80%); background: hsl(170,30%,94%); }
+  [data-mode="light"] .chip.listmonk { color: hsl(42,80%,30%);  border-color: hsl(42,60%,80%);  background: hsl(42,60%,94%); }
+  [data-mode="light"] .chip.smtp     { color: hsl(220,50%,32%); border-color: hsl(220,40%,80%); background: hsl(220,40%,94%); }
+  [data-mode="light"] .chip.buffer   { color: hsl(280,50%,32%); border-color: hsl(280,40%,80%); background: hsl(280,40%,94%); }
+  [data-mode="light"] .chip.linkedin { color: hsl(210,55%,32%); border-color: hsl(210,40%,80%); background: hsl(210,40%,94%); }
+  [data-mode="light"] .chip.instagram{ color: hsl(330,55%,32%); border-color: hsl(330,40%,80%); background: hsl(330,40%,94%); }
+
+  /* Section header inside a list */
+  .row-section {
+    padding: var(--space-2) var(--space-3); font-family: var(--font-mono);
+    font-size: 10px; letter-spacing: .12em; text-transform: uppercase;
+    color: var(--fg-faint); background: var(--bg-sunken);
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .row-section .ct { color: var(--fg-muted); margin-left: var(--space-2); }
+
+  /* === Sequence stepper ======================================== */
+  .seq-stepper {
+    display: grid; grid-template-columns: 28px 1fr; gap: 0;
+    padding: var(--space-3);
+  }
+  .seq-rail {
+    position: relative;
+    border-left: 1px dashed var(--border);
+    margin-left: 13px;
+  }
+  .seq-step { position: relative; padding-bottom: var(--space-4); }
+  .seq-step:last-child { padding-bottom: 0; }
+  .seq-dot {
+    position: absolute; left: -23px; top: 2px;
+    width: 18px; height: 18px; border-radius: 50%;
+    background: var(--bg-base); border: 2px solid var(--border);
+    display: grid; place-items: center;
+    font-family: var(--font-mono); font-size: 9px; color: var(--fg-muted);
+  }
+  .seq-step.is-done .seq-dot { background: var(--achievement); border-color: var(--achievement); color: var(--bg-base); }
+  .seq-step.is-active .seq-dot { background: var(--tint-fg-active, var(--primary)); border-color: var(--tint-fg-active, var(--primary)); color: var(--primary-fg); }
+  .seq-step.is-pending .seq-dot { background: var(--bg-base); border-color: var(--border); color: var(--fg-faint); }
+  .seq-head {
+    display: flex; align-items: baseline; gap: var(--space-2);
+    margin-bottom: 4px;
+  }
+  .seq-name { font-size: var(--text-body-sm); color: var(--fg); font-weight: 500; }
+  .seq-time { font-family: var(--font-mono); font-size: 10px; color: var(--fg-faint); letter-spacing: .04em; }
+  .seq-prev { font-size: var(--text-caption); color: var(--fg-muted); line-height: 1.5; margin-bottom: 4px; }
+  .seq-actions { display: flex; gap: 4px; flex-wrap: wrap; }
+
+  /* === Social composer ========================================= */
+  .social-card {
+    padding: var(--space-3);
+    display: grid; gap: var(--space-3);
+  }
+  .social-platforms {
+    display: flex; gap: 4px; flex-wrap: wrap;
+  }
+  .platform-pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px var(--space-2);
+    background: var(--bg-base); border: 1px solid var(--border-soft);
+    border-radius: var(--radius-pill);
+    font-size: 11px; color: var(--fg-muted);
+    cursor: pointer;
+  }
+  .platform-pill.is-on { background: color-mix(in srgb, var(--tint-fg-active, var(--primary)) 14%, var(--bg-base)); border-color: var(--tint-fg-active, var(--primary)); color: var(--tint-fg-active, var(--primary)); }
+  .platform-pill svg { width: 12px; height: 12px; }
+  .social-body {
+    background: var(--bg-sunken); border: 1px solid var(--border-soft);
+    border-radius: var(--radius-md); padding: var(--space-3);
+    font-size: var(--text-body-sm); color: var(--fg); line-height: 1.55;
+    min-height: 100px;
+  }
+  .social-foot {
+    display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap;
+    font-family: var(--font-mono); font-size: 10px; color: var(--fg-faint); letter-spacing: .04em;
+  }
+  .social-foot .ct { color: var(--fg-muted); }
+  .char-bar {
+    height: 4px; background: var(--bg-base); border-radius: 2px;
+    overflow: hidden; flex: 1; min-width: 80px;
+    border: 1px solid var(--border-soft);
+  }
+  .char-bar > div { height: 100%; background: var(--achievement); transition: width var(--motion-base) var(--ease-calm); }
+  .char-bar > div.warn { background: hsl(42,82%,56%); }
+  .char-bar > div.over { background: var(--danger); }
+
+  /* === Newsletter section editor =============================== */
+  .nl-section {
+    border-bottom: 1px solid var(--border-soft);
+    padding: var(--space-3);
+    display: grid; grid-template-columns: 14px 1fr; gap: var(--space-3);
+  }
+  .nl-handle {
+    width: 14px; height: 14px;
+    border: 1px dashed var(--border);
+    border-radius: 2px;
+    cursor: grab;
+    display: grid; place-items: center;
+    color: var(--fg-faint); font-size: 9px;
+    margin-top: 4px;
+  }
+  .nl-section h4 {
+    font-family: var(--font-display); font-weight: 500;
+    font-size: var(--text-body); color: var(--fg);
+    margin: 0 0 4px;
+  }
+  .nl-section .nl-body {
+    font-size: var(--text-caption); color: var(--fg-muted); line-height: 1.55;
+  }
+  .nl-add {
+    padding: var(--space-3);
+    text-align: center;
+    font-family: var(--font-mono); font-size: 10px; color: var(--fg-faint); letter-spacing: .08em;
+    cursor: pointer;
+    background: var(--bg-sunken);
+  }
+  .nl-add:hover { color: var(--tint-fg-active, var(--primary)); }
+
+  /* === Sent log ================================================ */
+  .sent-row {
+    padding: 10px var(--space-3);
+    border-bottom: 1px solid var(--border-soft);
+    display: grid; grid-template-columns: 32px 1fr auto; gap: var(--space-2);
+    align-items: center;
+  }
+  .sent-icon {
+    width: 28px; height: 28px;
+    border-radius: var(--radius-sm);
+    background: var(--bg-base); border: 1px solid var(--border-soft);
+    display: grid; place-items: center; color: var(--fg-muted);
+  }
+  .sent-icon svg { width: 14px; height: 14px; }
+
+  /* === Action ladder (cross-cutting flow diagram) =============== */
+  .ladder {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: var(--space-2);
+    padding: var(--space-4);
+  }
+  .ladder-step {
+    background: var(--bg-sunken); border: 1px solid var(--border-soft);
+    border-radius: var(--radius-md);
+    padding: var(--space-3);
+    display: grid; gap: var(--space-2);
+    position: relative;
+  }
+  .ladder-step::after {
+    content: '→';
+    position: absolute; right: -14px; top: 50%; transform: translateY(-50%);
+    font-family: var(--font-mono); color: var(--fg-faint);
+    font-size: 14px;
+    z-index: 1;
+  }
+  .ladder-step:last-child::after { display: none; }
+  .ladder-step h5 {
+    margin: 0; font-family: var(--font-mono); font-size: 10px;
+    letter-spacing: .08em; text-transform: uppercase;
+    color: var(--tint-fg-active, var(--primary));
+  }
+  .ladder-step p {
+    margin: 0; font-size: var(--text-caption); color: var(--fg-muted); line-height: 1.5;
+  }
+  .ladder-step kbd {
+    background: var(--bg-base); border: 1px solid var(--border-soft);
+    border-radius: var(--radius-xs); padding: 1px 5px;
+    font-family: var(--font-mono); font-size: 10px; color: var(--fg);
+  }
+  @media (max-width: 1100px) { .ladder { grid-template-columns: 1fr 1fr; } .ladder-step::after { display: none; } }
+
+  /* === Modal frames (for resume-session picker + new-session) === */
+  .modal-frame {
+    max-width: 620px; margin: 0 auto;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: 0 32px 64px -16px rgba(0,0,0,.6);
+    overflow: hidden;
+  }
+  .modal-head {
+    padding: var(--space-4) var(--space-5);
+    border-bottom: 1px solid var(--border-soft);
+    background: var(--bg-sunken);
+  }
+  .modal-head h3 {
+    margin: 0; font-family: var(--font-display); font-weight: 500;
+    font-size: var(--text-h3); color: var(--fg);
+  }
+  .modal-head p { margin: 4px 0 0; font-size: var(--text-caption); color: var(--fg-muted); line-height: 1.5; }
+  .modal-body { padding: var(--space-4) var(--space-5); }
+  .modal-foot {
+    padding: var(--space-3) var(--space-5);
+    border-top: 1px solid var(--border-soft);
+    background: var(--bg-sunken);
+    display: flex; align-items: center; gap: var(--space-2);
+  }
+  .modal-foot .spacer { flex: 1; }
+
+  .field { display: grid; gap: var(--space-1); margin-bottom: var(--space-3); }
+  .field label {
+    font-family: var(--font-mono); font-size: 10px;
+    letter-spacing: .08em; text-transform: uppercase;
+    color: var(--fg-faint);
+  }
+  .field input, .field select, .field textarea {
+    width: 100%;
+    background: var(--bg-base); border: 1px solid var(--border-soft);
+    border-radius: var(--radius-sm);
+    padding: 8px var(--space-2);
+    color: var(--fg); font-family: inherit; font-size: var(--text-body-sm);
+    outline: none;
+    transition: border-color var(--motion-fast) var(--ease-calm);
+  }
+  .field input:focus, .field select:focus, .field textarea:focus {
+    border-color: var(--tint-fg-active, var(--primary));
+  }
+  .field textarea { min-height: 80px; resize: vertical; line-height: 1.55; }
+
+  /* Session pick row */
+  .pick-row {
+    display: grid; grid-template-columns: 16px 1fr auto; gap: var(--space-2);
+    align-items: center;
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-sm);
+    background: var(--bg-base);
+    margin-bottom: 6px;
+    cursor: pointer;
+    transition: border-color var(--motion-fast) var(--ease-calm), background var(--motion-fast) var(--ease-calm);
+  }
+  .pick-row:hover { border-color: var(--border); background: var(--bg-raised); }
+  .pick-row.is-on { border-color: var(--tint-fg-active, var(--primary)); background: color-mix(in srgb, var(--tint-fg-active, var(--primary)) 8%, var(--bg-base)); }
+  .pick-row .radio {
+    width: 14px; height: 14px; border-radius: 50%;
+    border: 1px solid var(--border);
+    display: grid; place-items: center;
+  }
+  .pick-row.is-on .radio { border-color: var(--tint-fg-active, var(--primary)); }
+  .pick-row.is-on .radio::after {
+    content: ''; width: 7px; height: 7px; border-radius: 50%;
+    background: var(--tint-fg-active, var(--primary));
+  }
+  .pick-row .pick-meta {
+    font-family: var(--font-mono); font-size: 10px;
+    color: var(--fg-faint); letter-spacing: .04em; text-align: right;
+    line-height: 1.4;
+  }
+  .pick-row .pick-title { font-size: var(--text-body-sm); color: var(--fg); font-weight: 500; }
+  .pick-row .pick-sub { font-size: var(--text-caption); color: var(--fg-muted); margin-top: 2px; }
+  .pick-row.is-new { border-style: dashed; }
+  .pick-row.is-new .pick-title { color: var(--tint-fg-active, var(--primary)); }
+
+  /* Live pulse (sage) for in-flight sessions, copied from 06-sessions */
+  .pulse {
+    display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+    background: hsl(150, 40%, 55%);
+    box-shadow: 0 0 0 0 hsl(150, 40%, 55%, .5);
+    animation: pulse 1.6s var(--ease-calm) infinite;
+    margin-right: 6px; vertical-align: middle;
+  }
+  @keyframes pulse {
+    0%   { box-shadow: 0 0 0 0 hsl(150, 40%, 55%, .55); }
+    70%  { box-shadow: 0 0 0 7px hsl(150, 40%, 55%, 0); }
+    100% { box-shadow: 0 0 0 0 hsl(150, 40%, 55%, 0); }
+  }
+
+  /* Hand-off arrows (compact diagram showing dock-chat / session detail
+     destinations from a draft) */
+  .handoff {
+    display: grid;
+    grid-template-columns: 1fr 32px 1fr;
+    gap: var(--space-3);
+    padding: var(--space-4);
+    align-items: stretch;
+  }
+  .handoff-card {
+    background: var(--bg-sunken); border: 1px solid var(--border-soft);
+    border-radius: var(--radius-md);
+    padding: var(--space-3);
+    display: grid; gap: 6px;
+  }
+  .handoff-card h5 {
+    margin: 0; font-family: var(--font-mono); font-size: 10px;
+    letter-spacing: .08em; text-transform: uppercase;
+    color: var(--tint-fg-active, var(--primary));
+  }
+  .handoff-card p { margin: 0; font-size: var(--text-caption); color: var(--fg-muted); line-height: 1.5; }
+  .handoff-card .src { display: flex; align-items: center; gap: 6px; font-size: var(--text-body-sm); color: var(--fg); font-weight: 500; }
+  .handoff-arrow {
+    display: grid; place-items: center;
+    font-family: var(--font-mono); font-size: 18px; color: var(--fg-faint);
+  }
+  .handoff-targets {
+    display: grid; gap: var(--space-2);
+  }
+  @media (max-width: 1100px) {
+    .handoff { grid-template-columns: 1fr; }
+    .handoff-arrow { transform: rotate(90deg); }
+  }
+
+  footer {
+    margin-top: var(--space-12);
+    padding-top: var(--space-5);
+    border-top: 1px solid var(--border-soft);
+    font-family: var(--font-mono); font-size: 11px;
+    color: var(--fg-faint); letter-spacing: .06em;
+    display: flex; justify-content: space-between;
+  }
+  footer a { color: var(--fg-muted); text-decoration: none; border-bottom: 1px solid var(--border-soft); }
+  footer a:hover { color: var(--achievement); }
+</style>
+</head>
+<body>
+
+<!-- Controls bar -->
+<div class="controls" data-controls-bar data-current="outbox-flows" data-show-workspace="1" data-show-dock="1"></div>
+
+<div class="page">
+
+  <header>
+    <div class="eyebrow"><span class="eyebrow-dot" style="background: var(--tint-outbox-fg);"></span> Ikenga · Design / Rung 3 / Screen 09 · Outbox · Pages + flows</div>
+    <h1 class="title">The full <em>queue</em>, end to end.</h1>
+    <p class="lede">Screen 04 dialed in the approval row. This screen is about everything around it — the four <em>channels</em> (Email / Newsletter / Sequences / Social) that share one Outbox sidebar, the three <em>views</em> each channel exposes (Queue · Schedule · Sent), the action ladder a draft walks (edit → save → schedule → approve → send → log), and the Claude session hand-off: send the draft into chat for a quick rewrite, continue an existing session, or spawn a fresh one with the draft as seed prompt.</p>
+  </header>
+
+  <!-- ============================================================
+       SECTION A · Outbox sub-route navigation
+       ============================================================ -->
+  <section>
+    <div class="frame-tag"><span class="num">A</span>Channels in the sidebar · views in the content</div>
+    <div class="frame-note">/outbox owns four <em>channels</em> — Email, Newsletter, Sequences, Social — surfaced as first-class entries in the Outbox sidebar's <strong>Channels</strong> group. There is no outer channel tab strip; the sidebar already tells you which channel is active, and a duplicate row of tabs would just compete for attention. Inside each channel, three <em>views</em> are pinned to the top of the content body: <strong>Queue</strong> (drafts awaiting), <strong>Schedule</strong> (calendar of approved + cooling), <strong>Sent</strong> (history + per-channel charts). There is no outer "Sent" tab either — sending happens by channel, so reading sent does too.</div>
+
+    <div class="mini-frame">
+      <div class="mini-frame-head">
+        <div class="mini-frame-dot"></div>
+        <div class="mini-frame-title">/outbox sidebar · Channels group</div>
+        <div class="mini-frame-meta">15 awaiting · 4 sequences active</div>
+      </div>
+      <div style="display: grid; grid-template-columns: 240px 1fr; gap: 0;">
+        <div style="background: var(--bg-base); border-right: 1px solid var(--border-soft); padding: var(--space-3); display: grid; gap: var(--space-2); font-family: var(--font-mono); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--fg-faint);">
+          <div>Channels</div>
+          <div style="display: grid; gap: 2px; font-family: inherit; font-size: 12.5px; letter-spacing: 0; text-transform: none; color: var(--fg-muted);">
+            <div style="padding: 6px var(--space-2); border-radius: var(--radius-sm); display: flex; gap: var(--space-2); align-items: center;"><span style="width: 14px; opacity: .6;">✉</span> Email <span style="margin-left: auto; font-family: var(--font-mono); font-size: 10px; color: var(--fg-faint);">5</span></div>
+            <div style="padding: 6px var(--space-2); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--tint-fg-active, var(--primary)) 14%, transparent); color: var(--tint-fg-active, var(--primary)); display: flex; gap: var(--space-2); align-items: center;"><span style="width: 14px;">▦</span> Newsletter <span style="margin-left: auto; font-family: var(--font-mono); font-size: 10px;">2</span> <span style="width: 6px; height: 6px; border-radius: 50%; background: var(--danger);" title="alert"></span></div>
+            <div style="padding: 6px var(--space-2); border-radius: var(--radius-sm); display: flex; gap: var(--space-2); align-items: center;"><span style="width: 14px; opacity: .6;">⌘</span> Sequences <span style="margin-left: auto; font-family: var(--font-mono); font-size: 10px; color: var(--fg-faint);">4</span></div>
+            <div style="padding: 6px var(--space-2); border-radius: var(--radius-sm); display: flex; gap: var(--space-2); align-items: center;"><span style="width: 14px; opacity: .6;">⊕</span> Social <span style="margin-left: auto; font-family: var(--font-mono); font-size: 10px; color: var(--fg-faint);">4</span></div>
+          </div>
+        </div>
+        <div style="padding: var(--space-4); font-size: var(--text-caption); color: var(--fg-muted); line-height: 1.65;">
+          Counts on each channel row are <strong style="color: var(--fg);">ready-to-approve only</strong> — drafts past their cooling period, ready for the eye. Cooling drafts don't inflate the badge. The Newsletter row additionally shows a red dot when a send in the last 30d breached deliverability thresholds (bounce > 2% or complaint > 0.1%).<br><br>
+          URL: <code style="font-family: var(--font-mono); font-size: 11.5px; color: var(--tint-fg-active);">/outbox/email</code> · <code style="font-family: var(--font-mono); font-size: 11.5px; color: var(--tint-fg-active);">/outbox/newsletter</code> · <code style="font-family: var(--font-mono); font-size: 11.5px; color: var(--tint-fg-active);">/outbox/sequences</code> · <code style="font-family: var(--font-mono); font-size: 11.5px; color: var(--tint-fg-active);">/outbox/social</code>. Bare <code style="font-family: var(--font-mono); font-size: 11.5px; color: var(--tint-fg-active);">/outbox</code> redirects to the channel with the most ready drafts (smart-landing).
+        </div>
+      </div>
+    </div>
+
+    <div class="mini-frame" style="margin-top: var(--space-4);">
+      <div class="mini-frame-head">
+        <div class="mini-frame-dot"></div>
+        <div class="mini-frame-title">/outbox/&lt;channel&gt;/* · view tab strip (in-content)</div>
+        <div class="mini-frame-meta">three views · same grammar in every channel</div>
+      </div>
+      <div style="display: flex; gap: 4px; padding: var(--space-2) var(--space-3); background: var(--bg-surface); border-bottom: 1px solid var(--border-soft);">
+        <button style="background: color-mix(in srgb, var(--tint-fg-active, var(--primary)) 14%, var(--bg-base)); border: 1px solid var(--tint-fg-active, var(--primary)); color: var(--tint-fg-active, var(--primary)); border-radius: var(--radius-pill); padding: 4px var(--space-2); font: inherit; font-size: 11.5px; display: inline-flex; align-items: center; gap: var(--space-1);">Approval queue <span style="font-family: var(--font-mono); font-size: 10px; letter-spacing: .04em; color: color-mix(in srgb, var(--tint-fg-active, var(--primary)) 70%, var(--fg-muted));">2</span></button>
+        <button style="background: var(--bg-base); border: 1px solid var(--border-soft); color: var(--fg-muted); border-radius: var(--radius-pill); padding: 4px var(--space-2); font: inherit; font-size: 11.5px; display: inline-flex; align-items: center; gap: var(--space-1);">Schedule <span style="font-family: var(--font-mono); font-size: 10px; letter-spacing: .04em; color: var(--fg-faint);">5</span></button>
+        <button style="background: var(--bg-base); border: 1px solid var(--border-soft); color: var(--fg-muted); border-radius: var(--radius-pill); padding: 4px var(--space-2); font: inherit; font-size: 11.5px; display: inline-flex; align-items: center; gap: var(--space-1);">Sent <span style="font-family: var(--font-mono); font-size: 10px; letter-spacing: .04em; color: var(--fg-faint);">76</span></button>
+      </div>
+      <div style="padding: var(--space-4); font-size: var(--text-caption); color: var(--fg-muted); line-height: 1.6; display: grid; gap: var(--space-2);">
+        <div><strong style="color: var(--fg);">Approval queue</strong> · master/detail of drafts in <em>draft</em>/<em>pending_review</em>. Each channel renders its channel-specific detail pane (Newsletter: cooling banner + scorecard; Email: subject/body editor; Social: per-platform char counters; Sequences: step preview).</div>
+        <div><strong style="color: var(--fg);">Schedule</strong> · calendar of approved + cooling sends. Newsletter uses a 3-week Lagos-TZ strip; Email/Social use the same grid; Sequences swaps the calendar for an "Active runs" timeline (cohorts × steps), since sequences fire on a per-recipient cadence rather than a single timestamp.</div>
+        <div><strong style="color: var(--fg);">Sent</strong> · history table by default; <em>?view=charts</em> toggles to per-channel charts (engagement / deliverability / drilldown). The smart-landing redirect on <code style="font-family:var(--font-mono);font-size:10.5px;">/outbox/&lt;channel&gt;</code> sends you to the most useful view: ready drafts → Approval queue, only cooling → Approval queue?focus=cooling, nothing pending → Schedule, on a charts day → Sent?view=charts.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       SECTION B · The action ladder (cross-cutting flow)
+       ============================================================ -->
+  <section>
+    <div class="frame-tag"><span class="num">B</span>The draft's life · 6 steps from agent to log</div>
+    <div class="frame-note">Every draft (email, newsletter section, sequence step, social post) walks the same ladder. The Claude session hand-off lives between <em>edit</em> and <em>approve</em> — it's the escape hatch when in-place editing isn't enough. After <em>send</em>, the row moves to <code style="font-family:var(--font-mono);font-size:10.5px;">/outbox/&lt;channel&gt;/sent</code> and the Supabase row gets a sent timestamp + provider message-id.</div>
+
+    <div class="mini-frame">
+      <div class="mini-frame-head">
+        <div class="mini-frame-dot"></div>
+        <div class="mini-frame-title">Draft lifecycle · status transitions</div>
+        <div class="mini-frame-meta">drafted → edited → scheduled → approved → sending → sent</div>
+      </div>
+      <div class="ladder">
+        <div class="ladder-step">
+          <h5>1 · Drafted</h5>
+          <p>Agent writes into <code style="font-family:var(--font-mono);font-size:10.5px;">email_drafts</code> with <code style="font-family:var(--font-mono);font-size:10.5px;">status='draft'</code>. Lands in /outbox/email.</p>
+        </div>
+        <div class="ladder-step">
+          <h5>2 · Edit in place</h5>
+          <p>Subject input + body textarea autosave. <kbd>⌘</kbd><kbd>S</kbd> saves; status stays <em>draft</em> but row gets <em>edited</em> tick.</p>
+        </div>
+        <div class="ladder-step">
+          <h5>3 · Hand-off (optional)</h5>
+          <p>Stuck on tone? <kbd>⌘</kbd><kbd>K</kbd> sends draft + context to dock chat. Or "Continue session" opens the Claude session that wrote it.</p>
+        </div>
+        <div class="ladder-step">
+          <h5>4 · Schedule</h5>
+          <p>Pick a send time (default: agent-suggested). Status → <em>scheduled</em>. Quiet-hours rules in /settings auto-shift weekend sends.</p>
+        </div>
+        <div class="ladder-step">
+          <h5>5 · Approve &amp; send</h5>
+          <p><kbd>⌘</kbd><kbd>↵</kbd> flips to <em>approved</em>. The actions sidecar's poller picks it up and dispatches via Resend / Listmonk / SMTP / Buffer.</p>
+        </div>
+        <div class="ladder-step">
+          <h5>6 · Sent + logged</h5>
+          <p>Provider message-id + timestamp persisted. Row moves to <code style="font-family:var(--font-mono);font-size:10.5px;">/outbox/&lt;ch&gt;/sent</code>. Webhooks (Resend) update bounce/open later.</p>
+        </div>
+      </div>
+      <div style="padding: var(--space-3) var(--space-4); border-top: 1px solid var(--border-soft); background: var(--bg-sunken); font-size: var(--text-caption); color: var(--fg-muted); line-height: 1.55;">
+        <strong style="color: var(--fg);">Newsletter fork ·</strong> the newsletter pipeline inserts a <em>cooling</em> step between <em>drafted</em> and <em>edit</em>. The Approve button is locked for 2h after queue-insert (<code style="font-family:var(--font-mono);font-size:10.5px;">reviewable_after = now + 2h</code>) so you actually read the draft. See <a href="./11-outbox-newsletter.html" style="color: var(--tint-fg-active); text-decoration: none; border-bottom: 1px solid color-mix(in srgb, var(--tint-fg-active) 30%, var(--border));">screen 11 §C</a> for the live countdown UI.
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       SECTION C · Pointer cards · per-route depth screens
+       ============================================================ -->
+  <section>
+    <div class="frame-tag"><span class="num">C</span>Per-route depth · pointer cards</div>
+    <div class="frame-note">This screen is the <em>grammar</em> — sub-route nav, action ladder, Claude hand-off. Each sub-route gets its own deep dive with real schema, real edge cases, and route-specific behaviour the compact-frame format can't carry. Cards below link out (or flag pending). Compact frames previously inlined here were misleading on the details that matter most (e.g. newsletter cooling), so they're gone.</div>
+
+    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-3);" class="depth-cards">
+      <a href="./04-outbox-approvals.html" style="text-decoration: none; color: inherit;">
+        <div class="mini-frame" style="cursor: pointer; height: 100%;">
+          <div class="mini-frame-head">
+            <div class="mini-frame-dot"></div>
+            <div class="mini-frame-title">04 · Email</div>
+            <div class="mini-frame-meta" style="color: hsl(38, 75%, 60%);">queue only</div>
+          </div>
+          <div style="padding: var(--space-3); display: grid; gap: var(--space-2);">
+            <div style="font-family: var(--font-display); font-weight: 500; font-size: 17px; color: var(--fg); line-height: 1.25;">Email</div>
+            <div style="font-size: var(--text-caption); color: var(--fg-muted); line-height: 1.5;">Master/detail with editable subject + body, channel-aware chips (Resend / Listmonk / SMTP), bulk select, sticky approve footer.</div>
+            <div style="font-family: var(--font-mono); font-size: 9.5px; letter-spacing: .04em; color: var(--fg-faint); padding-top: 4px; border-top: 1px dashed var(--border-soft);">→ /queue · /schedule TK · /sent TK</div>
+            <div style="font-family: var(--font-mono); font-size: 10px; color: var(--tint-fg-active); letter-spacing: .04em; margin-top: 2px;">Open 04 →</div>
+          </div>
+        </div>
+      </a>
+
+      <a href="./11-outbox-newsletter.html" style="text-decoration: none; color: inherit;">
+        <div class="mini-frame" style="cursor: pointer; height: 100%;">
+          <div class="mini-frame-head">
+            <div class="mini-frame-dot"></div>
+            <div class="mini-frame-title">11 · Newsletter</div>
+            <div class="mini-frame-meta" style="color: var(--achievement);">all 3 views</div>
+          </div>
+          <div style="padding: var(--space-3); display: grid; gap: var(--space-2);">
+            <div style="font-family: var(--font-display); font-weight: 500; font-size: 17px; color: var(--fg); line-height: 1.25;">Newsletter</div>
+            <div style="font-size: var(--text-caption); color: var(--fg-muted); line-height: 1.5;">2h cooling countdown, 8-cell quality scorecard from <code style="font-family:var(--font-mono);font-size:10.5px;">metadata.quality.*</code>, anti-pattern fix-in-chat, schedule calendar, engagement charts, investor-update variant.</div>
+            <div style="font-family: var(--font-mono); font-size: 9.5px; letter-spacing: .04em; color: var(--fg-faint); padding-top: 4px; border-top: 1px dashed var(--border-soft);">→ /queue · /schedule · /sent (table+charts)</div>
+            <div style="font-family: var(--font-mono); font-size: 10px; color: var(--tint-fg-active); letter-spacing: .04em; margin-top: 2px;">Open 11 →</div>
+          </div>
+        </div>
+      </a>
+
+      <div class="mini-frame" style="height: 100%; opacity: .55;">
+        <div class="mini-frame-head">
+          <div class="mini-frame-dot" style="background: var(--fg-faint);"></div>
+          <div class="mini-frame-title">12 · Sequences</div>
+          <div class="mini-frame-meta">pending</div>
+        </div>
+        <div style="padding: var(--space-3); display: grid; gap: var(--space-2);">
+          <div style="font-family: var(--font-display); font-weight: 500; font-size: 17px; color: var(--fg); line-height: 1.25;">Sequences</div>
+          <div style="font-size: var(--text-caption); color: var(--fg-muted); line-height: 1.5;">Day-N stepper with done/active/pending states, cohort tracking, pause/skip semantics, evergreen vs. one-shot drips.</div>
+          <div style="font-family: var(--font-mono); font-size: 9.5px; letter-spacing: .04em; color: var(--fg-faint); padding-top: 4px; border-top: 1px dashed var(--border-soft);">→ /queue (drafts) · /active (runs) · /sent · special-cased: no calendar</div>
+          <div style="font-family: var(--font-mono); font-size: 10px; color: var(--fg-faint); letter-spacing: .04em; margin-top: 2px;">depth screen TK</div>
+        </div>
+      </div>
+
+      <div class="mini-frame" style="height: 100%; opacity: .55;">
+        <div class="mini-frame-head">
+          <div class="mini-frame-dot" style="background: var(--fg-faint);"></div>
+          <div class="mini-frame-title">13 · Social</div>
+          <div class="mini-frame-meta">pending</div>
+        </div>
+        <div style="padding: var(--space-3); display: grid; gap: var(--space-2);">
+          <div style="font-family: var(--font-display); font-weight: 500; font-size: 17px; color: var(--fg); line-height: 1.25;">Social</div>
+          <div style="font-size: var(--text-caption); color: var(--fg-muted); line-height: 1.5;">Per-platform char-limit (LinkedIn 3000 / X 280 / IG 2200), thread-split UX when X overflows, Buffer schedule integration, image attachment per platform.</div>
+          <div style="font-family: var(--font-mono); font-size: 9.5px; letter-spacing: .04em; color: var(--fg-faint); padding-top: 4px; border-top: 1px dashed var(--border-soft);">→ /queue · /schedule (Buffer slots) · /sent</div>
+          <div style="font-family: var(--font-mono); font-size: 10px; color: var(--fg-faint); letter-spacing: .04em; margin-top: 2px;">depth screen TK</div>
+        </div>
+      </div>
+    </div>
+
+    <style>
+      @media (max-width: 1100px) {
+        .depth-cards { grid-template-columns: 1fr 1fr !important; }
+      }
+      @media (max-width: 640px) {
+        .depth-cards { grid-template-columns: 1fr !important; }
+      }
+    </style>
+  </section>
+
+  <!-- ============================================================
+       SECTION H · Claude session hand-off (the heart of this screen)
+       ============================================================ -->
+  <section>
+    <div class="frame-tag"><span class="num">H</span>Claude session hand-off · three destinations from one draft</div>
+    <div class="frame-note">In-place editing covers ~80% of approvals. The other 20% — tone rewrites, fresh-context regeneration, "this isn't what I meant" — needs a real conversation. Three escape hatches, all reachable from any draft's footer.</div>
+
+    <div class="mini-frame">
+      <div class="mini-frame-head">
+        <div class="mini-frame-dot"></div>
+        <div class="mini-frame-title">From a draft → conversation</div>
+        <div class="mini-frame-meta">⌘K · ⌘⇧K · ⌘⇧N</div>
+      </div>
+      <div class="handoff">
+        <div class="handoff-card">
+          <div class="src" style="font-family: var(--font-display); font-size: 16px;">Open draft</div>
+          <p>Re: Catalog import — Valentim. Edited body, scheduled 17:00. Currently in /outbox/email detail pane.</p>
+          <div style="display: flex; gap: 4px; flex-wrap: wrap;">
+            <span class="chip smtp">SMTP</span>
+            <span class="chip">PA · Opus 4.7</span>
+            <span class="chip tint">Scheduled · 17:00</span>
+          </div>
+        </div>
+
+        <div class="handoff-arrow">→</div>
+
+        <div class="handoff-targets">
+          <div class="handoff-card">
+            <h5>1 · Send to chat <kbd style="background:var(--bg-base);border:1px solid var(--border-soft);border-radius:var(--radius-xs);padding:1px 5px;font-family:var(--font-mono);font-size:10px;color:var(--fg);">⌘K</kbd></h5>
+            <p>Drops the draft + thread context into the dock chat. Keeps the row in /outbox; Claude responds in the dock. Iterating doesn't mutate the draft until you click "Apply to draft" on a chat reply.</p>
+          </div>
+          <div class="handoff-card">
+            <h5>2 · Continue session <kbd style="background:var(--bg-base);border:1px solid var(--border-soft);border-radius:var(--radius-xs);padding:1px 5px;font-family:var(--font-mono);font-size:10px;color:var(--fg);">⌘⇧K</kbd></h5>
+            <p>Opens a picker (panel I) with sessions tied to this agent / thread / sender. Pick one → resumes the JSONL, navigates to /sessions/&lt;id&gt;, prefills composer with "Rewrite this draft: …".</p>
+          </div>
+          <div class="handoff-card">
+            <h5>3 · New session <kbd style="background:var(--bg-base);border:1px solid var(--border-soft);border-radius:var(--radius-xs);padding:1px 5px;font-family:var(--font-mono);font-size:10px;color:var(--fg);">⌘⇧N</kbd></h5>
+            <p>NewSessionDialog (panel J) with the draft as preset prompt. Pick agent (PA / CMO / CBO …) and project root; spawn lands at /sessions/&lt;new-id&gt;.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       SECTION I · Resume picker modal
+       ============================================================ -->
+  <section>
+    <div class="frame-tag"><span class="num">I</span>Continue session · picker</div>
+    <div class="frame-note">Filtered to sessions where (a) the agent matches, (b) the cwd is the same project, or (c) a recent message in the JSONL mentions the draft id / recipient. Live sessions float to the top with a sage pulse. "Start fresh" sits at the bottom as the dashed escape.</div>
+
+    <div class="modal-frame">
+      <div class="modal-head">
+        <h3>Continue a Claude session</h3>
+        <p>Re: Catalog import — Valentim · drafted by PA agent · /home/nedjamez/royalti-co/ikenga-desktop</p>
+      </div>
+      <div class="modal-body">
+        <div style="font-family: var(--font-mono); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--fg-faint); margin-bottom: var(--space-2);">Live · 1</div>
+        <div class="pick-row is-on">
+          <div class="radio"></div>
+          <div>
+            <div class="pick-title"><span class="pulse"></span>PA · Catalog import follow-ups</div>
+            <div class="pick-sub">12 messages · last reply 14:22 · "Body still too brusque, pull warmth from the Mavin reply"</div>
+          </div>
+          <div class="pick-meta">
+            <div>4f8e2…b91</div>
+            <div>~/ikenga-desktop</div>
+          </div>
+        </div>
+
+        <div style="font-family: var(--font-mono); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--fg-faint); margin: var(--space-3) 0 var(--space-2);">Recent · same agent + project · 3</div>
+        <div class="pick-row">
+          <div class="radio"></div>
+          <div>
+            <div class="pick-title">PA · Valentim onboarding triage</div>
+            <div class="pick-sub">28 messages · 2d ago · drafted 4 emails to Valentim incl. catalog-import + zero-earnings explainer</div>
+          </div>
+          <div class="pick-meta">
+            <div>9c1a4…2ef</div>
+            <div>2d ago</div>
+          </div>
+        </div>
+        <div class="pick-row">
+          <div class="radio"></div>
+          <div>
+            <div class="pick-title">PA · Tenant 590 schema disparity</div>
+            <div class="pick-sub">7 messages · 4d ago · diagnosed v_sales_data Pandora/Physical mismatch</div>
+          </div>
+          <div class="pick-meta">
+            <div>a02f1…77c</div>
+            <div>4d ago</div>
+          </div>
+        </div>
+        <div class="pick-row">
+          <div class="radio"></div>
+          <div>
+            <div class="pick-title">PA · Inbox triage · 2026-04-30</div>
+            <div class="pick-sub">61 messages · 4d ago · daily inbox-review run</div>
+          </div>
+          <div class="pick-meta">
+            <div>5b8d3…a04</div>
+            <div>4d ago</div>
+          </div>
+        </div>
+
+        <div style="margin-top: var(--space-3);">
+          <div class="pick-row is-new">
+            <div class="radio"></div>
+            <div>
+              <div class="pick-title">+ Start a fresh session instead</div>
+              <div class="pick-sub">Opens NewSessionDialog with this draft as preset prompt.</div>
+            </div>
+            <div class="pick-meta">⌘⇧N</div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <span style="font-family: var(--font-mono); font-size: 10.5px; color: var(--fg-faint); letter-spacing: .04em;">Resumed sessions inherit context — no need to re-paste the draft.</span>
+        <span class="spacer"></span>
+        <button class="btn btn-sm">Cancel</button>
+        <button class="btn btn-sm" style="background: var(--tint-fg-active); color: var(--primary-fg); border-color: var(--tint-fg-active);">Resume &amp; open</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       SECTION J · New-session dialog
+       ============================================================ -->
+  <section>
+    <div class="frame-tag"><span class="num">J</span>Start a fresh session · NewSessionDialog</div>
+    <div class="frame-note">Mirror of <code style="font-family:var(--font-mono);font-size:11.5px;">src/shell/sessions/new-session-dialog.tsx</code>. When invoked from a draft, the prompt textarea is pre-filled with a structured rewrite request. Agent + project default to the draft's origin; user can override. Submit calls <code style="font-family:var(--font-mono);font-size:11.5px;">claude_spawn_session</code> via the Tauri bridge and navigates to the placeholder URL until <code style="font-family:var(--font-mono);font-size:11.5px;">system:init</code> arrives with the real id.</div>
+
+    <div class="modal-frame">
+      <div class="modal-head">
+        <h3>New Claude session</h3>
+        <p>Spawned from <strong style="color: var(--fg);">/outbox/email · 4f8e2</strong> · the draft below seeds the first message.</p>
+      </div>
+      <div class="modal-body">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3);">
+          <div class="field">
+            <label>Agent</label>
+            <select>
+              <option>PA · drafted this email</option>
+              <option>CMO · marketing</option>
+              <option>CBO · partnerships</option>
+              <option>CFO · financials</option>
+              <option>CPO · product</option>
+              <option>(none — generic Claude)</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Model</label>
+            <select>
+              <option>Opus 4.7 · 1M context</option>
+              <option>Sonnet 4.6</option>
+              <option>Haiku 4.5</option>
+            </select>
+          </div>
+        </div>
+        <div class="field">
+          <label>Project root (cwd)</label>
+          <select>
+            <option>~/royalti-co/ikenga-desktop · this app</option>
+            <option>~/royalti-co/ikenga · scripts + lib</option>
+            <option>~/royalti-co · monorepo root</option>
+            <option>~/royalti-co/royalti-server-v2.6</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Permission mode</label>
+          <select>
+            <option>default · prompt for risky tools</option>
+            <option>acceptEdits · auto-approve writes</option>
+            <option>plan · plan first, no edits</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Initial prompt <span style="color: var(--fg-faint); font-family: var(--font-mono); font-size: 10px;">· seeded from draft</span></label>
+          <textarea>Rewrite the draft below to keep the technical specifics (schema disparity, Pandora/Physical patch) but warm the tone — Valentim's a partner, not a ticket.
+
+— DRAFT —
+Subject: Re: Catalog import — files ready for processing
+
+Olá Valentim,
+Recebido. O zero em v_sales_data é uma divergência de schema entre Pandora e Physical (já temos um patch); o cálculo só corre depois disso.
+Vou processar agora e mando os números até ao fim do dia.
+Um abraço,
+Chinedum</textarea>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <span style="font-family: var(--font-mono); font-size: 10.5px; color: var(--fg-faint); letter-spacing: .04em;">Spawn lands at /sessions/pending-… and re-routes once Claude reports its session id.</span>
+        <span class="spacer"></span>
+        <button class="btn btn-sm">Cancel</button>
+        <button class="btn btn-sm" style="background: var(--tint-fg-active); color: var(--primary-fg); border-color: var(--tint-fg-active);">Spawn &amp; open</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       SECTION K · Bridge back · "Apply to draft"
+       ============================================================ -->
+  <section>
+    <div class="frame-tag"><span class="num">K</span>Round-trip · pulling rewrites back into the draft</div>
+    <div class="frame-note">Hand-off is one direction; the return trip matters more. Inside any chat thread (dock or /sessions/&lt;id&gt;), Claude messages get an "Apply to draft" affordance when the originating context was a draft. Click it → the draft's body is replaced (with old version stashed in <code style="font-family:var(--font-mono);font-size:11.5px;">prior_versions[]</code> for undo) and the user is bounced back to /outbox/email/&lt;id&gt; with the new body shown + a one-click revert.</div>
+
+    <div class="mini-frame">
+      <div class="mini-frame-head">
+        <div class="mini-frame-dot"></div>
+        <div class="mini-frame-title">Chat reply with apply-to-draft affordance</div>
+        <div class="mini-frame-meta">/sessions/4f8e2…b91 · message 14</div>
+      </div>
+      <div style="padding: var(--space-4); display: grid; gap: var(--space-3);">
+        <div style="display: flex; gap: var(--space-2); align-items: start;">
+          <div style="width: 24px; height: 24px; border-radius: 50%; background: linear-gradient(135deg, color-mix(in srgb, var(--tint-fg-active) 30%, transparent), var(--tint-fg-active)); display: grid; place-items: center; font-family: var(--font-mono); font-size: 10px; color: var(--bg-base); flex-shrink: 0;">C</div>
+          <div style="flex: 1; background: var(--bg-sunken); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-3);">
+            <div style="font-size: var(--text-body-sm); color: var(--fg); line-height: 1.6; white-space: pre-wrap;">Olá Valentim,
+
+Obrigado pela paciência. Encontrámos a causa do zero — uma divergência de schema entre os ficheiros Pandora e Physical que bloqueia a v_sales_data. Já temos o patch e estamos a aplicá-lo agora; o cálculo do royalty corre logo a seguir.
+
+Mando-te os números ainda hoje, antes do fim do dia. Se houver algo no entretanto, diz-me directamente.
+
+Um abraço,
+Chinedum</div>
+            <div style="display: flex; gap: var(--space-2); margin-top: var(--space-3); padding-top: var(--space-2); border-top: 1px solid var(--border-soft);">
+              <button class="btn btn-sm" style="background: var(--tint-fg-active); color: var(--primary-fg); border-color: var(--tint-fg-active);">Apply to draft 4f8e2 ↩</button>
+              <button class="btn btn-sm">Copy</button>
+              <span style="flex:1"></span>
+              <span style="font-family: var(--font-mono); font-size: 10px; color: var(--fg-faint); letter-spacing: .04em; align-self: center;">+12 words · warmer · 14:24</span>
+            </div>
+          </div>
+        </div>
+        <div style="font-size: var(--text-caption); color: var(--fg-muted); line-height: 1.55; padding: var(--space-2) var(--space-3); background: var(--bg-base); border-left: 2px solid var(--tint-fg-active); border-radius: var(--radius-sm);">
+          On apply: <code style="font-family:var(--font-mono);font-size:11px;">email_drafts</code> row gets the new body, <code style="font-family:var(--font-mono);font-size:11px;">prior_versions[]</code> appended with the old one + chat msg id. Toast: <em>"Draft updated from session 4f8e2 · undo"</em>. Schedule + status are preserved.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       SECTION L · Keyboard map summary
+       ============================================================ -->
+  <section>
+    <div class="frame-tag"><span class="num">L</span>Keyboard map · Outbox-wide</div>
+    <div class="frame-note">Approval velocity is the whole point. Same shortcuts everywhere a draft lives — email row, newsletter section, sequence step, social platform variant.</div>
+
+    <div class="mini-frame">
+      <div class="mini-frame-head">
+        <div class="mini-frame-dot"></div>
+        <div class="mini-frame-title">Shortcuts</div>
+        <div class="mini-frame-meta">consistent across /outbox/*</div>
+      </div>
+      <div style="padding: var(--space-4); display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2) var(--space-6); font-size: var(--text-body-sm);">
+        <div style="display: flex; align-items: center; gap: var(--space-2);"><kbd style="background:var(--bg-base);border:1px solid var(--border-soft);border-radius:var(--radius-xs);padding:1px 6px;font-family:var(--font-mono);font-size:10.5px;">J</kbd> <kbd style="background:var(--bg-base);border:1px solid var(--border-soft);border-radius:var(--radius-xs);padding:1px 6px;font-family:var(--font-mono);font-size:10.5px;">K</kbd> <span style="color: var(--fg-muted);">prev / next draft</span></div>
+        <div style="display: flex; align-items: center; gap: var(--space-2);"><kbd style="background:var(--bg-base);border:1px solid var(--border-soft);border-radius:var(--radius-xs);padding:1px 6px;font-family:var(--font-mono);font-size:10.5px;">⌘</kbd><kbd style="background:var(--bg-base);border:1px solid var(--border-soft);border-radius:var(--radius-xs);padding:1px 6px;font-family:var(--font-mono);font-size:10.5px;">S</kbd> <span style="color: var(--fg-muted);">save edits (no status change)</span></div>
+        <div style="display: flex; align-items: center; gap: var(--space-2);"><kbd style="background:var(--bg-base);border:1px solid var(--border-soft);border-radius:var(--radius-xs);padding:1px 6px;font-family:var(--font-mono);font-size:10.5px;">⌘</kbd><kbd style="background:var(--bg-base);border:1px solid var(--border-soft);border-radius:var(--radius-xs);padding:1px 6px;font-family:var(--font-mono);font-size:10.5px;">↵</kbd> <span style="color: var(--fg-muted);">approve &amp; send</span></div>
+        <div style="display: flex; align-items: center; gap: var(--space-2);"><kbd style="background:var(--bg-base);border:1px solid var(--border-soft);border-radius:var(--radius-xs);padding:1px 6px;font-family:var(--font-mono);font-size:10.5px;">⌘</kbd><kbd style="background:var(--bg-base);border:1px solid var(--border-soft);border-radius:var(--radius-xs);padding:1px 6px;font-family:var(--font-mono);font-size:10.5px;">⇧</kbd><kbd style="background:var(--bg-base);border:1px solid var(--border-soft);border-radius:var(--radius-xs);padding:1px 6px;font-family:var(--font-mono);font-size:10.5px;">↵</kbd> <span style="color: var(--fg-muted);">approve &amp; next</span></div>
+        <div style="display: flex; align-items: center; gap: var(--space-2);"><kbd style="background:var(--bg-base);border:1px solid var(--border-soft);border-radius:var(--radius-xs);padding:1px 6px;font-family:var(--font-mono);font-size:10.5px;">⌘</kbd><kbd style="background:var(--bg-base);border:1px solid var(--border-soft);border-radius:var(--radius-xs);padding:1px 6px;font-family:var(--font-mono);font-size:10.5px;">K</kbd> <span style="color: var(--fg-muted);">send to dock chat</span></div>
+        <div style="display: flex; align-items: center; gap: var(--space-2);"><kbd style="background:var(--bg-base);border:1px solid var(--border-soft);border-radius:var(--radius-xs);padding:1px 6px;font-family:var(--font-mono);font-size:10.5px;">⌘</kbd><kbd style="background:var(--bg-base);border:1px solid var(--border-soft);border-radius:var(--radius-xs);padding:1px 6px;font-family:var(--font-mono);font-size:10.5px;">⇧</kbd><kbd style="background:var(--bg-base);border:1px solid var(--border-soft);border-radius:var(--radius-xs);padding:1px 6px;font-family:var(--font-mono);font-size:10.5px;">K</kbd> <span style="color: var(--fg-muted);">continue Claude session (picker)</span></div>
+        <div style="display: flex; align-items: center; gap: var(--space-2);"><kbd style="background:var(--bg-base);border:1px solid var(--border-soft);border-radius:var(--radius-xs);padding:1px 6px;font-family:var(--font-mono);font-size:10.5px;">⌘</kbd><kbd style="background:var(--bg-base);border:1px solid var(--border-soft);border-radius:var(--radius-xs);padding:1px 6px;font-family:var(--font-mono);font-size:10.5px;">⇧</kbd><kbd style="background:var(--bg-base);border:1px solid var(--border-soft);border-radius:var(--radius-xs);padding:1px 6px;font-family:var(--font-mono);font-size:10.5px;">N</kbd> <span style="color: var(--fg-muted);">new Claude session (dialog)</span></div>
+        <div style="display: flex; align-items: center; gap: var(--space-2);"><kbd style="background:var(--bg-base);border:1px solid var(--border-soft);border-radius:var(--radius-xs);padding:1px 6px;font-family:var(--font-mono);font-size:10.5px;">⌘</kbd><kbd style="background:var(--bg-base);border:1px solid var(--border-soft);border-radius:var(--radius-xs);padding:1px 6px;font-family:var(--font-mono);font-size:10.5px;">⌫</kbd> <span style="color: var(--fg-muted);">reject + skip to next</span></div>
+        <div style="display: flex; align-items: center; gap: var(--space-2);"><kbd style="background:var(--bg-base);border:1px solid var(--border-soft);border-radius:var(--radius-xs);padding:1px 6px;font-family:var(--font-mono);font-size:10.5px;">X</kbd> <span style="color: var(--fg-muted);">toggle bulk-select on row</span></div>
+        <div style="display: flex; align-items: center; gap: var(--space-2);"><kbd style="background:var(--bg-base);border:1px solid var(--border-soft);border-radius:var(--radius-xs);padding:1px 6px;font-family:var(--font-mono);font-size:10.5px;">⇧</kbd><kbd style="background:var(--bg-base);border:1px solid var(--border-soft);border-radius:var(--radius-xs);padding:1px 6px;font-family:var(--font-mono);font-size:10.5px;">A</kbd> <span style="color: var(--fg-muted);">approve all bulk-selected</span></div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <span>Ikenga · Ikenga · Rung 3 · Screen 09 — Outbox · Pages + flows · 2026-05-04</span>
+    <span><a href="./08-tasks.html">← Tasks</a> · <a href="./index.html">Index</a> · <a href="./04-outbox-approvals.html">Outbox · Approvals →</a></span>
+  </footer>
+
+</div>
+
+<script src="../_shared/shell.js"></script>
+<script src="../_shared/controls.js"></script>
+<script>
+  // -------- Sub-route nav switching (visual demo only) --------
+  document.querySelectorAll('#subnav button').forEach(function (b) {
+    b.addEventListener('click', function () {
+      document.querySelectorAll('#subnav button').forEach(function (x) { x.classList.remove('is-on'); });
+      b.classList.add('is-on');
+    });
+  });
+
+  // -------- Pick-row exclusive selection --------
+  document.querySelectorAll('.pick-row').forEach(function (r) {
+    r.addEventListener('click', function () {
+      r.parentElement.querySelectorAll('.pick-row').forEach(function (x) { x.classList.remove('is-on'); });
+      r.classList.add('is-on');
+    });
+  });
+</script>
+
+</body>
+</html>

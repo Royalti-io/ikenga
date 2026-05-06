@@ -1,0 +1,1081 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="A" data-mode="dark" data-density="comfortable" data-workspace="outbox">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>15 · Outbox · Unified (Option A)</title>
+<link rel="stylesheet" href="../_shared/tokens.css">
+<link rel="stylesheet" href="../_shared/shell.css">
+<link rel="stylesheet" href="../_shared/page.css">
+<style>
+  /* === Inner-tab strip ========================================== */
+  .nl-inner-tabs {
+    display: flex; gap: 4px;
+    padding: var(--space-2) var(--space-3);
+    border-bottom: 1px solid var(--border-soft);
+    background: var(--bg-surface);
+  }
+  .nl-inner-tabs button {
+    background: var(--bg-base); border: 1px solid var(--border-soft);
+    border-radius: var(--radius-pill);
+    padding: 4px var(--space-2);
+    font-family: inherit; font-size: 11.5px;
+    color: var(--fg-muted); cursor: pointer;
+    display: inline-flex; align-items: center; gap: var(--space-1);
+  }
+  .nl-inner-tabs button.is-on {
+    background: color-mix(in srgb, var(--tint-fg-active, var(--primary)) 14%, var(--bg-base));
+    border-color: var(--tint-fg-active, var(--primary));
+    color: var(--tint-fg-active, var(--primary));
+  }
+  .nl-inner-tabs .ct {
+    font-family: var(--font-mono); font-size: 10px; letter-spacing: .04em;
+    color: var(--fg-faint);
+  }
+  .nl-inner-tabs button.is-on .ct {
+    color: color-mix(in srgb, var(--tint-fg-active, var(--primary)) 70%, var(--fg-muted));
+  }
+
+  /* === Outer outbox sub-nav ==================================== */
+  .ob-subnav {
+    display: flex; gap: 4px;
+    padding: var(--space-2) var(--space-4);
+    border-bottom: 1px solid var(--border-soft);
+    background: var(--bg-surface);
+  }
+  .ob-subnav button {
+    background: transparent; border: 0;
+    padding: 6px var(--space-3);
+    font-family: inherit; font-size: var(--text-body-sm);
+    color: var(--fg-muted); cursor: pointer;
+    border-radius: var(--radius-sm);
+    display: inline-flex; align-items: center; gap: var(--space-2);
+  }
+  .ob-subnav button:hover { color: var(--fg); }
+  .ob-subnav button.is-on {
+    color: var(--tint-fg-active, var(--primary));
+    background: color-mix(in srgb, var(--tint-fg-active, var(--primary)) 8%, transparent);
+  }
+  .ob-subnav-count {
+    font-family: var(--font-mono); font-size: 10px;
+    letter-spacing: .04em; color: var(--fg-faint);
+    padding: 1px 6px; border: 1px solid var(--border-soft);
+    border-radius: var(--radius-pill); background: var(--bg-base);
+  }
+  .ob-subnav button.is-on .ob-subnav-count {
+    color: var(--tint-fg-active, var(--primary));
+    border-color: color-mix(in srgb, var(--tint-fg-active, var(--primary)) 30%, var(--border));
+  }
+  .ob-subnav-alert {
+    display: inline-block; width: 6px; height: 6px;
+    border-radius: 50%; background: var(--danger); margin-left: 4px;
+  }
+
+  /* === Outbox header ========================================== */
+  .ob-header {
+    padding: var(--space-3) var(--space-4) var(--space-2);
+    background: color-mix(in srgb, var(--tint-outbox-fg, var(--tint-fg-active)) 4%, var(--bg-base));
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .ob-header h1 {
+    font-family: var(--font-display); font-weight: 500;
+    font-size: 22px; line-height: 1.2; margin: 0;
+    color: var(--fg); display: inline-flex; align-items: center; gap: var(--space-2);
+  }
+  .ob-header h1 svg { width: 18px; height: 18px; color: var(--tint-fg-active, var(--primary)); }
+  .ob-header .sub {
+    font-size: var(--text-body-sm); color: var(--fg-muted);
+    margin: 4px 0 0;
+  }
+  .ob-header .meta {
+    margin-left: auto;
+    font-family: var(--font-mono); font-size: 11px;
+    color: var(--fg-faint); letter-spacing: .04em;
+  }
+
+  /* === Master / detail split ==================================== */
+  .nl-split {
+    display: grid;
+    grid-template-columns: 320px 1fr;
+    min-height: 0; height: 100%;
+  }
+  .nl-master {
+    border-right: 1px solid var(--border-soft);
+    overflow-y: auto;
+    background: var(--bg-base);
+  }
+  .nl-master-group-head {
+    font-family: var(--font-mono); font-size: 10px;
+    letter-spacing: .08em; text-transform: uppercase;
+    color: var(--fg-faint);
+    padding: var(--space-2) var(--space-3);
+    background: var(--bg-sunken);
+    border-bottom: 1px solid var(--border-soft);
+    position: sticky; top: 0; z-index: 1;
+  }
+  .nl-row {
+    padding: var(--space-3);
+    border-bottom: 1px solid var(--border-soft);
+    display: grid; grid-template-columns: 1fr auto; gap: var(--space-3);
+    cursor: pointer;
+  }
+  .nl-row:hover { background: var(--bg-raised); }
+  .nl-row.is-on {
+    background: var(--bg-raised);
+    border-left: 2px solid var(--tint-fg-active, var(--primary));
+    padding-left: calc(var(--space-3) - 2px);
+  }
+  .nl-row-head { display: flex; gap: 4px; align-items: center; margin-bottom: 4px; }
+  .nl-row-subj {
+    font-family: var(--font-display); font-weight: 500;
+    font-size: var(--text-body-sm); color: var(--fg); line-height: 1.3;
+    margin-bottom: 2px;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .nl-row-pre {
+    font-size: 11px; color: var(--fg-muted); line-height: 1.45;
+    overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  }
+  .nl-row-meta {
+    font-family: var(--font-mono); font-size: 10px;
+    color: var(--fg-faint); letter-spacing: .04em;
+    text-align: right; line-height: 1.45;
+  }
+  .nl-row-meta .when.cool { color: hsl(38, 75%, 60%); }
+
+  .chip {
+    font-family: var(--font-mono); font-size: 9.5px; letter-spacing: .06em; text-transform: uppercase;
+    padding: 2px 6px; border-radius: var(--radius-xs);
+    background: var(--bg-sunken); color: var(--fg-muted);
+    border: 1px solid var(--border-soft);
+    display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;
+  }
+  .chip.tint {
+    color: var(--tint-fg-active, var(--primary));
+    border-color: color-mix(in srgb, var(--tint-fg-active, var(--primary)) 30%, var(--border));
+    background: color-mix(in srgb, var(--tint-fg-active, var(--primary)) 14%, transparent);
+  }
+  .chip.ok { color: var(--achievement); border-color: var(--achievement-soft); background: var(--achievement-soft); }
+  .chip.cool { color: hsl(38, 75%, 60%); border-color: hsl(38, 50%, 30%); background: hsl(38, 50%, 12%); }
+
+  /* === Detail panes ============================================ */
+  .nl-detail {
+    display: flex; flex-direction: column;
+    min-width: 0; min-height: 0;
+    background: var(--bg-surface);
+    overflow-y: auto;
+  }
+
+  /* Cooling banner */
+  .nl-cool {
+    background: color-mix(in srgb, hsl(38, 75%, 50%) 14%, var(--bg-surface));
+    border-bottom: 1px solid hsl(38, 50%, 28%);
+    padding: var(--space-2) var(--space-4);
+    display: flex; align-items: center; gap: var(--space-2);
+    font-size: var(--text-body-sm); color: hsl(38, 75%, 70%);
+  }
+  .nl-cool svg { width: 14px; height: 14px; flex-shrink: 0; }
+  .nl-cool .countdown { font-family: var(--font-mono); font-weight: 600; margin-left: 2px; }
+  .nl-cool .progress {
+    width: 120px; height: 4px;
+    background: color-mix(in srgb, hsl(38, 75%, 50%) 20%, var(--bg-base));
+    border-radius: 2px; overflow: hidden; flex-shrink: 0;
+    margin-left: auto;
+  }
+  .nl-cool .progress > div { height: 100%; background: hsl(38, 75%, 55%); width: 63%; }
+  .nl-cool .meter {
+    font-family: var(--font-mono); font-size: 10px; letter-spacing: .04em;
+    flex-shrink: 0;
+  }
+
+  /* Subject card */
+  .nl-subj-card {
+    padding: var(--space-3) var(--space-4);
+    border-bottom: 1px solid var(--border-soft);
+    background: var(--bg-surface);
+    display: grid; gap: var(--space-2);
+  }
+  .nl-subj-row {
+    display: grid; grid-template-columns: 80px 1fr;
+    gap: var(--space-2); align-items: center;
+  }
+  .nl-subj-row .lbl {
+    font-family: var(--font-mono); font-size: 10px;
+    letter-spacing: .08em; text-transform: uppercase;
+    color: var(--fg-faint); text-align: right;
+  }
+  .nl-subj-row input {
+    width: 100%;
+    background: transparent; border: 0;
+    border-bottom: 1px dashed transparent;
+    padding: 4px var(--space-1);
+    color: var(--fg);
+    font-family: inherit; font-size: var(--text-body);
+    outline: none;
+  }
+  .nl-subj-row input:hover { border-bottom-color: var(--border-soft); }
+  .nl-subj-row.alt input { font-style: italic; color: var(--fg-muted); }
+  .nl-subj-card .pre-row {
+    display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap;
+    font-size: var(--text-caption); color: var(--fg-muted);
+    padding-top: var(--space-1);
+    border-top: 1px dashed var(--border-soft);
+  }
+
+  /* Quality scorecard */
+  .nl-quality-grid {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 0;
+    background: var(--bg-sunken);
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .nl-quality-cell {
+    padding: var(--space-3);
+    border-right: 1px solid var(--border-soft);
+    border-bottom: 1px solid var(--border-soft);
+    display: grid; gap: 4px;
+  }
+  .nl-quality-cell:nth-child(4n) { border-right: 0; }
+  .nl-quality-cell .qlabel {
+    font-family: var(--font-mono); font-size: 9.5px;
+    letter-spacing: .08em; text-transform: uppercase;
+    color: var(--fg-faint);
+  }
+  .nl-quality-cell .qvalue {
+    font-family: var(--font-display); font-weight: 500;
+    font-size: 18px; line-height: 1.1; color: var(--fg);
+    display: flex; align-items: baseline; gap: 4px;
+  }
+  .nl-quality-cell .qvalue .qsub {
+    font-family: var(--font-mono); font-size: 11px;
+    color: var(--fg-muted); font-weight: 400; letter-spacing: .04em;
+  }
+  .nl-quality-cell.ok    .qvalue { color: var(--achievement); }
+  .nl-quality-cell.warn  .qvalue { color: hsl(38, 75%, 60%); }
+  .nl-quality-cell .qbar {
+    height: 4px; background: var(--bg-base);
+    border-radius: 2px; overflow: hidden;
+    border: 1px solid var(--border-soft);
+    margin-top: 2px;
+  }
+  .nl-quality-cell .qbar > div { height: 100%; background: var(--achievement); }
+  .nl-quality-cell.warn .qbar > div { background: hsl(38, 75%, 55%); }
+
+  /* Action footer */
+  .nl-actions {
+    border-top: 1px solid var(--border-soft);
+    padding: var(--space-3) var(--space-4);
+    display: flex; align-items: center; gap: var(--space-2);
+    flex-wrap: wrap;
+    background: var(--bg-surface);
+    margin-top: auto;
+  }
+  .nl-actions .meta {
+    font-family: var(--font-mono); font-size: 10.5px;
+    color: var(--fg-faint); letter-spacing: .04em;
+  }
+  .nl-actions .spacer { flex: 1; }
+  .nl-actions .primary {
+    background: var(--tint-fg-active, var(--primary));
+    border-color: var(--tint-fg-active, var(--primary));
+    color: var(--primary-fg);
+    font-weight: 600;
+    padding: 0 var(--space-4);
+  }
+  .nl-actions .primary:disabled {
+    opacity: .45; cursor: not-allowed;
+    background: var(--bg-raised); border-color: var(--border);
+    color: var(--fg-faint);
+  }
+
+  /* Body editor */
+  .nl-body-pane { padding: var(--space-3) var(--space-4); }
+  .nl-body-textarea {
+    width: 100%;
+    background: var(--bg-base);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-sm);
+    padding: var(--space-3);
+    color: var(--fg);
+    font-family: var(--font-mono); font-size: var(--text-code);
+    line-height: 1.6; resize: none;
+    min-height: 180px;
+    outline: none;
+  }
+
+  /* === Email-specific tweaks =================================== */
+  .em-detail-meta {
+    padding: var(--space-3) var(--space-4);
+    border-bottom: 1px solid var(--border-soft);
+    background: var(--bg-surface);
+    display: grid; grid-template-columns: 80px 1fr; gap: var(--space-2);
+    font-size: var(--text-body-sm);
+  }
+  .em-detail-meta .lbl {
+    font-family: var(--font-mono); font-size: 10px;
+    letter-spacing: .08em; text-transform: uppercase;
+    color: var(--fg-faint); text-align: right; padding-top: 2px;
+  }
+  .em-detail-meta .val { color: var(--fg); }
+  .em-detail-meta .val .sub { color: var(--fg-muted); font-size: 11px; }
+
+  /* === Schedule calendar ====================================== */
+  .nl-cal-wrap { padding: var(--space-3); }
+  .nl-cal-week {
+    display: grid; grid-template-columns: 80px repeat(7, 1fr);
+    border-top: 1px solid var(--border-soft);
+  }
+  .nl-cal-week.head {
+    background: var(--bg-sunken);
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .nl-cal-cell {
+    padding: 8px; border-right: 1px solid var(--border-soft);
+    min-height: 86px;
+  }
+  .nl-cal-cell:last-child { border-right: 0; }
+  .nl-cal-cell.label {
+    font-family: var(--font-mono); font-size: 10px;
+    letter-spacing: .08em; text-transform: uppercase;
+    color: var(--fg-faint);
+    background: var(--bg-sunken);
+  }
+  .nl-cal-week.head .nl-cal-cell {
+    min-height: 0; text-align: center;
+    font-family: var(--font-mono); font-size: 10px;
+    letter-spacing: .08em; text-transform: uppercase;
+    color: var(--fg-faint); padding: var(--space-2) 4px;
+  }
+  .nl-cal-week.head .nl-cal-cell.is-today { color: var(--tint-fg-active, var(--primary)); }
+  .nl-cal-day-num {
+    font-family: var(--font-mono); font-size: 11px; color: var(--fg-muted);
+    margin-bottom: 6px; letter-spacing: .04em;
+  }
+  .nl-cal-cell.is-today .nl-cal-day-num {
+    color: var(--tint-fg-active, var(--primary)); font-weight: 600;
+  }
+  .nl-cal-pill {
+    display: block; width: 100%; text-align: left;
+    background: color-mix(in srgb, var(--tint-fg-active, var(--primary)) 14%, var(--bg-surface));
+    border: 1px solid color-mix(in srgb, var(--tint-fg-active, var(--primary)) 30%, var(--border));
+    border-radius: var(--radius-sm);
+    padding: 4px 6px; margin-bottom: 4px;
+    font-size: 10.5px; color: var(--fg);
+    line-height: 1.3; cursor: pointer;
+  }
+  .nl-cal-pill .ptime {
+    font-family: var(--font-mono); font-size: 9.5px;
+    color: var(--tint-fg-active, var(--primary));
+    letter-spacing: .04em; display: block; margin-bottom: 2px;
+  }
+  .nl-cal-pill.cool {
+    background: color-mix(in srgb, hsl(38, 75%, 50%) 14%, var(--bg-surface));
+    border-color: hsl(38, 50%, 30%);
+  }
+  .nl-cal-pill.cool .ptime { color: hsl(38, 75%, 60%); }
+  .nl-cal-pill.investor {
+    background: color-mix(in srgb, hsl(150, 50%, 50%) 14%, var(--bg-surface));
+    border-color: hsl(150, 35%, 30%);
+  }
+  .nl-cal-pill.investor .ptime { color: hsl(150, 50%, 62%); }
+  .nl-cal-pill.sent {
+    background: var(--bg-base);
+    border-style: dashed; opacity: .7;
+  }
+  .nl-cal-pill.sent .ptime { color: var(--fg-faint); }
+
+  /* === Charts grid ============================================ */
+  .nl-charts-grid {
+    padding: var(--space-4);
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: var(--space-4);
+  }
+  .nl-charts-grid .full { grid-column: 1 / -1; }
+  .nl-chart-card {
+    background: var(--bg-sunken);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+  }
+  .nl-chart-head {
+    padding: var(--space-3) var(--space-3) var(--space-2);
+    display: flex; align-items: baseline; gap: var(--space-2); flex-wrap: wrap;
+    border-bottom: 1px solid var(--border-soft);
+    background: var(--bg-surface);
+  }
+  .nl-chart-head h4 {
+    margin: 0;
+    font-family: var(--font-display); font-weight: 500;
+    font-size: var(--text-body); color: var(--fg);
+  }
+  .nl-chart-head .scale {
+    font-family: var(--font-mono); font-size: 10px;
+    color: var(--fg-faint); letter-spacing: .04em;
+  }
+  .nl-chart-head .legend { margin-left: auto; display: flex; gap: var(--space-2); }
+  .nl-chart-legend-item {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-family: var(--font-mono); font-size: 10px;
+    color: var(--fg-muted); letter-spacing: .04em;
+  }
+  .nl-chart-legend-item .dot { width: 8px; height: 8px; border-radius: 2px; }
+  .nl-chart-body { padding: var(--space-3); }
+  .nl-chart-svg { display: block; width: 100%; height: auto; }
+  .nl-chart-svg .grid line { stroke: var(--border-soft); stroke-width: 1; stroke-dasharray: 2 3; opacity: .6; }
+  .nl-chart-svg .axis text { font-family: var(--font-mono); font-size: 9px; fill: var(--fg-faint); letter-spacing: .04em; }
+  .nl-chart-svg .axis line { stroke: var(--border-soft); stroke-width: 1; }
+  .nl-chart-svg .threshold { stroke-dasharray: 4 3; stroke-width: 1; }
+  .nl-chart-svg .threshold-warn   { stroke: hsl(38, 75%, 55%); }
+  .nl-chart-svg .threshold-danger { stroke: var(--danger); }
+  .nl-chart-svg .threshold-label { font-family: var(--font-mono); font-size: 8.5px; letter-spacing: .04em; }
+  .nl-chart-svg .threshold-label.warn   { fill: hsl(38, 75%, 60%); }
+  .nl-chart-svg .threshold-label.danger { fill: var(--danger); }
+  .nl-chart-svg .line-open      { stroke: var(--achievement); fill: none; stroke-width: 1.6; }
+  .nl-chart-svg .line-click     { stroke: var(--tint-fg-active, var(--primary)); fill: none; stroke-width: 1.6; }
+  .nl-chart-svg .line-bounce    { stroke: hsl(38, 75%, 55%); fill: none; stroke-width: 1.6; }
+  .nl-chart-svg .line-complaint { stroke: var(--danger); fill: none; stroke-width: 1.6; }
+  .nl-chart-svg .dot { r: 2.4; stroke: var(--bg-sunken); stroke-width: 1.2; }
+  .nl-chart-svg .dot-open      { fill: var(--achievement); }
+  .nl-chart-svg .dot-click     { fill: var(--tint-fg-active, var(--primary)); }
+  .nl-chart-svg .dot-bounce    { fill: hsl(38, 75%, 55%); }
+  .nl-chart-svg .dot-complaint { fill: var(--danger); }
+  .nl-chart-svg .bar-open  { fill: var(--achievement); }
+  .nl-chart-svg .bar-click { fill: var(--tint-fg-active, var(--primary)); }
+
+  /* Health alert strip */
+  .nl-health-strip {
+    padding: var(--space-3) var(--space-4);
+    background: color-mix(in srgb, hsl(38, 75%, 50%) 8%, var(--bg-surface));
+    border-bottom: 1px solid hsl(38, 50%, 30%);
+  }
+  .nl-health-row {
+    display: grid; grid-template-columns: 24px 1fr auto; gap: var(--space-2);
+    align-items: center;
+    font-size: var(--text-body-sm); color: var(--fg);
+  }
+  .nl-health-row .mark {
+    width: 20px; height: 20px; border-radius: 50%;
+    background: hsl(38, 75%, 55%);
+    display: grid; place-items: center;
+    font-family: var(--font-mono); font-size: 11px; font-weight: 600;
+    color: white;
+  }
+  .nl-health-row .meta {
+    font-family: var(--font-mono); font-size: 10px;
+    color: var(--fg-faint); letter-spacing: .04em;
+  }
+
+  /* Sent table */
+  .nl-sent-table { width: 100%; border-collapse: collapse; font-size: var(--text-body-sm); }
+  .nl-sent-table th {
+    text-align: left; padding: 8px var(--space-3);
+    background: var(--bg-sunken);
+    border-bottom: 1px solid var(--border-soft);
+    font-family: var(--font-mono); font-size: 10px;
+    letter-spacing: .08em; text-transform: uppercase;
+    color: var(--fg-faint); font-weight: 500;
+  }
+  .nl-sent-table td {
+    padding: 10px var(--space-3);
+    border-bottom: 1px solid var(--border-soft);
+    color: var(--fg); vertical-align: top;
+  }
+  .nl-sent-table .num { font-family: var(--font-mono); font-size: 11.5px; text-align: right; }
+  .nl-sent-table .pct.ok   { color: var(--achievement); }
+  .nl-sent-table .pct.warn { color: hsl(38, 75%, 60%); }
+  .nl-sent-table .meta {
+    font-family: var(--font-mono); font-size: 10px;
+    color: var(--fg-faint); letter-spacing: .04em; margin-top: 2px;
+  }
+
+  .nl-sent-toolbar {
+    padding: var(--space-2) var(--space-3);
+    border-bottom: 1px solid var(--border-soft);
+    display: flex; align-items: center; gap: var(--space-2);
+    background: var(--bg-surface);
+  }
+  .ob-filter-chip {
+    background: var(--bg-base); border: 1px solid var(--border-soft);
+    color: var(--fg-muted);
+    border-radius: var(--radius-pill);
+    padding: 3px var(--space-2);
+    font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .04em;
+    cursor: pointer;
+  }
+  .ob-filter-chip.is-on {
+    background: color-mix(in srgb, var(--tint-fg-active, var(--primary)) 14%, var(--bg-base));
+    border-color: var(--tint-fg-active, var(--primary));
+    color: var(--tint-fg-active, var(--primary));
+  }
+  .nl-view-toggle {
+    margin-left: auto;
+    display: inline-flex;
+    background: var(--bg-base); border: 1px solid var(--border-soft);
+    border-radius: var(--radius-sm); overflow: hidden;
+  }
+  .nl-view-toggle button {
+    background: none; border: 0; padding: 4px var(--space-2);
+    font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .04em;
+    text-transform: uppercase; color: var(--fg-muted); cursor: pointer;
+  }
+  .nl-view-toggle button.is-on { background: var(--bg-raised); color: var(--fg); }
+
+  /* === Variant switcher (per-screen) =========================== */
+  .variant-bar {
+    position: sticky; top: 0; z-index: 20;
+    background: var(--bg-base);
+    border-bottom: 1px solid var(--border-soft);
+    padding: var(--space-3) var(--space-4);
+    display: flex; gap: var(--space-3); align-items: center; flex-wrap: wrap;
+  }
+  .variant-bar h3 {
+    margin: 0; font-family: var(--font-mono); font-size: 11px;
+    letter-spacing: .08em; text-transform: uppercase; color: var(--fg-faint);
+  }
+  .variant-bar .group { display: inline-flex; gap: 4px; }
+  .variant-bar button {
+    background: var(--bg-base); border: 1px solid var(--border-soft);
+    color: var(--fg-muted);
+    border-radius: var(--radius-pill);
+    padding: 4px var(--space-2);
+    font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .04em;
+    cursor: pointer;
+  }
+  .variant-bar button.is-on {
+    background: color-mix(in srgb, var(--tint-fg-active, var(--primary)) 14%, var(--bg-base));
+    border-color: var(--tint-fg-active, var(--primary));
+    color: var(--tint-fg-active, var(--primary));
+  }
+  .variant-bar .url {
+    margin-left: auto;
+    font-family: var(--font-mono); font-size: 11px;
+    color: var(--tint-fg-active, var(--primary));
+    background: var(--bg-sunken); padding: 2px 8px;
+    border-radius: var(--radius-pill); border: 1px solid var(--border-soft);
+  }
+</style>
+</head>
+<body data-page-section="screens">
+
+<header data-page-header data-eyebrow="design"></header>
+
+<main class="page" style="padding: var(--space-6);">
+  <div style="max-width: 1280px; margin: 0 auto;">
+    <h1 class="title" style="font-family: var(--font-display); font-weight: 500; font-size: 36px; letter-spacing: -.018em; color: var(--fg); margin: 0 0 var(--space-2);">Outbox · <em>unified</em>.</h1>
+    <p class="lede" style="font-size: var(--text-body); color: var(--fg-muted); line-height: 1.6; margin: 0 0 var(--space-6); max-width: 70ch;">Option A in the chrome — four channels, three views each, no outer Sent. Use the variant bar below to switch between channel × view combos. The shell stays put; only the content body swaps.</p>
+
+    <!-- ============================================================
+         FULL-WINDOW MOCKUP (single, switchable)
+         ============================================================ -->
+    <div class="variant-bar">
+      <h3>Channel</h3>
+      <div class="group" id="channel-group">
+        <button data-ch="email">Email</button>
+        <button data-ch="newsletter" class="is-on">Newsletter</button>
+        <button data-ch="sequences" disabled style="opacity: .4;">Sequences</button>
+        <button data-ch="social" disabled style="opacity: .4;">Social</button>
+      </div>
+      <h3 style="margin-left: var(--space-3);">View</h3>
+      <div class="group" id="view-group">
+        <button data-view="queue" class="is-on">Queue</button>
+        <button data-view="schedule">Schedule</button>
+        <button data-view="sent">Sent</button>
+      </div>
+      <span class="url" id="url-pill">/outbox/newsletter/queue</span>
+    </div>
+
+    <div id="shell-slot" style="margin-top: var(--space-3);"></div>
+  </div>
+</main>
+
+<footer style="padding: var(--space-4) var(--space-6); border-top: 1px solid var(--border-soft); margin-top: var(--space-6); display: flex; justify-content: space-between; font-family: var(--font-mono); font-size: 11px; color: var(--fg-faint); letter-spacing: .04em;">
+  <span>Ikenga · Ikenga · Rung 3 · Screen 15 — Outbox · Unified · 2026-05-04</span>
+  <span><a href="./11-outbox-newsletter.html" style="color: var(--fg-muted);">← 11 · Newsletter</a> · <a href="./09-outbox-flows.html" style="color: var(--fg-muted);">09 · Outbox flows</a></span>
+</footer>
+
+<script src="../_shared/shell.js"></script>
+<script src="../_shared/controls.js"></script>
+<script>
+  var I = Shell.ICONS;
+
+  // Outbox sidebar — Option A model. No top-level "Sent" entry; channels
+  // are first-class. Views (Queue/Schedule/Sent) live inside each channel.
+  var ICN_MAIL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7l9 6 9-6"/><rect x="3" y="5" width="18" height="14" rx="2"/></svg>';
+  var ICN_NL   = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 4h16v16H4z"/><line x1="4" y1="9" x2="20" y2="9"/><line x1="9" y1="13" x2="16" y2="13"/><line x1="9" y1="16" x2="14" y2="16"/></svg>';
+  var ICN_SEQ  = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="6" cy="6" r="2"/><circle cx="18" cy="6" r="2"/><circle cx="18" cy="18" r="2"/><polyline points="6 8 6 16 16 16"/></svg>';
+  var ICN_SOC  = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.5" y1="13.5" x2="15.5" y2="17.5"/><line x1="15.5" y1="6.5" x2="8.5" y2="10.5"/></svg>';
+
+  var OUTBOX_SIDEBAR = {
+    head: { mark: I.outbox, name: 'Outbox', mode: '15 awaiting · 4 sequences active' },
+    groups: [
+      { label: 'Channels', items: [
+        { label: 'Email',      icon: ICN_MAIL, count: 5 },
+        { label: 'Newsletter', icon: ICN_NL,   count: 2, active: true, hot: true },
+        { label: 'Sequences',  icon: ICN_SEQ,  count: 4 },
+        { label: 'Social',     icon: ICN_SOC,  count: 4 }
+      ]},
+      { label: 'By agent', items: [
+        { label: 'PA',  icon: I.user, count: 4 },
+        { label: 'CMO', icon: I.user, count: 5 },
+        { label: 'CBO', icon: I.user, count: 2 }
+      ]}
+    ]
+  };
+
+  // Outbox header (the bit above the inner-tabs) is shared across channels.
+  function obHeader(channel) {
+    var titles = {
+      email:      { name: 'Email',      sub: 'Outbound replies, cold sends, transactional drafts.' },
+      newsletter: { name: 'Newsletter', sub: 'Monthly cadence, 2h cooling, quality scorecard, anti-pattern fixes.' },
+      sequences:  { name: 'Sequences',  sub: 'Drip campaigns, evergreen onboarding, cohort-aware automation.' },
+      social:     { name: 'Social',     sub: 'LinkedIn, X, Instagram. Buffer-scheduled, per-platform char limits.' }
+    };
+    var t = titles[channel] || titles.newsletter;
+    return ''
+      + '<div class="ob-header">'
+      +   '<h1>' + I.outbox + 'Outbox · ' + t.name + '</h1>'
+      +   '<p class="sub">' + t.sub + '</p>'
+      + '</div>';
+    // Channel selection lives in the sidebar (Channels group). No outer
+    // tab strip — the sidebar already tells you which channel is active,
+    // and a duplicate row of tabs would just compete for attention.
+  }
+
+  function innerTabs(channel, view) {
+    var counts = {
+      email:      { queue: 5,  schedule: 2, sent: 74 },
+      newsletter: { queue: 2,  schedule: 5, sent: 76 },
+      sequences:  { queue: 4,  schedule: 0, sent: 0  },
+      social:     { queue: 4,  schedule: 6, sent: 46 }
+    };
+    var c = counts[channel] || counts.newsletter;
+    function tab(key, label, ct) {
+      var on = view === key ? ' is-on' : '';
+      return '<button class="' + on + '">' + label + (ct != null ? '<span class="ct">' + ct + '</span>' : '') + '</button>';
+    }
+    return ''
+      + '<div class="nl-inner-tabs">'
+      +   tab('queue',    'Approval queue', c.queue)
+      +   tab('schedule', 'Schedule',       c.schedule)
+      +   tab('sent',     'Sent',           c.sent)
+      + '</div>';
+  }
+
+  // === Newsletter / Queue ====================================================
+  function nlQueueBody() {
+    return ''
+      + '<div class="nl-split">'
+
+      // MASTER PANE
+      +   '<div class="nl-master">'
+      +     '<div class="nl-master-group-head">Cooling · 1</div>'
+      +     '<div class="nl-row">'
+      +       '<div>'
+      +         '<div class="nl-row-head"><span class="chip tint">Newsletter</span><span class="chip cool">cooling 47m</span></div>'
+      +         '<div class="nl-row-subj">You can deliver from Royalti now</div>'
+      +         '<div class="nl-row-pre">End-to-end FUGA delivery, bulk validate/retry, catalog import…</div>'
+      +       '</div>'
+      +       '<div class="nl-row-meta"><div class="when cool">approve in 47m</div></div>'
+      +     '</div>'
+
+      +     '<div class="nl-master-group-head">Ready to review · 1</div>'
+      +     '<div class="nl-row is-on">'
+      +       '<div>'
+      +         '<div class="nl-row-head"><span class="chip tint">Newsletter</span><span class="chip ok">quality 86</span></div>'
+      +         '<div class="nl-row-subj">Schema patches that unblocked tenant 590</div>'
+      +         '<div class="nl-row-pre">A short note on what shipped this month and the work that earned it.</div>'
+      +       '</div>'
+      +       '<div class="nl-row-meta"><div class="when">Tue · 06 May · 10:00</div></div>'
+      +     '</div>'
+
+      +     '<div class="nl-master-group-head">Approved · 0</div>'
+      +   '</div>'
+
+      // DETAIL PANE
+      +   '<div class="nl-detail">'
+      +     '<div class="nl-subj-card">'
+      +       '<div class="nl-subj-row"><span class="lbl">Subject</span><input value="Schema patches that unblocked tenant 590"/></div>'
+      +       '<div class="nl-subj-row alt"><span class="lbl">A/B alt</span><input value="The shape disparity that was eating royalty data"/></div>'
+      +       '<div class="nl-subj-row"><span class="lbl">Preheader</span><input value="A short note on what shipped this month and the work that earned it."/></div>'
+      +       '<div class="pre-row">'
+      +         '<span class="chip">listmonk · From <strong style="color:var(--fg);margin-left:4px;">Ruby &lt;ruby@royalti.io&gt;</strong></span>'
+      +         '<span style="flex:1"></span>'
+      +         '<span style="font-family: var(--font-mono); font-size: 10px;">subject · 47 chars · alt · 50 chars · pre · 81 chars</span>'
+      +       '</div>'
+      +     '</div>'
+
+      // 8-cell scorecard
+      +     '<div class="nl-quality-grid">'
+      +       cell('ok',   'Quality score',         '86',   '/ 100',                 86)
+      +       cell('ok',   'Word count',            '412',  'target 350-500',        82)
+      +       cell('ok',   'Claims verified',       '7 / 7','all sources OK',        100)
+      +       cell('warn', 'Anti-patterns',         '2',    '2 minor · 0 blocking',  30)
+      +       cell('ok',   'Section variety',       '0.82', 'good mix',              82)
+      +       cell('ok',   'Freshness',             'OK',   'no repeats < 60d',      100)
+      +       cell('warn', 'Previously featured',   '1',    'FUGA delivery · Mar',   50)
+      +       cell('ok',   'CTAs · exclamations',   '2 / 0','on-brand',              100)
+      +     '</div>'
+
+      // body editor (just a placeholder paragraph in the mock)
+      +     '<div class="nl-body-pane">'
+      +       '<textarea class="nl-body-textarea" disabled>Hi {{first_name}},\n\nQuick May note. We’ve been heads-down on one thing this month — closing the loop between tracking royalties and delivering the music that earns them. As of last week, you can do both inside Royalti.\n\nWhat shipped · 6 things\n  - End-to-end FUGA delivery\n  - FUGA catalog import\n  - Bulk validate &amp; retry\n  - Stuck-file sweep\n  - Excel orchestrator (~10× faster)\n  - DDEX charter · Believe joined\n\n…</textarea>'
+      +     '</div>'
+
+      // Action footer
+      +     '<div class="nl-actions">'
+      +       '<button class="btn btn-sm">↩ Back to list</button>'
+      +       '<button class="btn btn-sm">⌘ Send to chat</button>'
+      +       '<button class="btn btn-sm">⏭ Skip month</button>'
+      +       '<button class="btn btn-sm" style="color: var(--danger); border-color: color-mix(in srgb, var(--danger) 30%, var(--border));">✕ Reject…</button>'
+      +       '<span class="spacer"></span>'
+      +       '<span class="meta">scheduled · Tue 06 May 10:00 Lagos · Listmonk · 2,104 recipients</span>'
+      +       '<button class="btn btn-sm">💾 Save edits</button>'
+      +       '<button class="btn btn-sm primary">✓ Approve &amp; Schedule</button>'
+      +     '</div>'
+
+      +   '</div>'
+
+      + '</div>';
+  }
+
+  function cell(state, label, value, sub, bar) {
+    return ''
+      + '<div class="nl-quality-cell ' + state + '">'
+      +   '<div class="qlabel">' + label + '</div>'
+      +   '<div class="qvalue">' + value + ' <span class="qsub">' + sub + '</span></div>'
+      +   '<div class="qbar"><div style="width: ' + bar + '%"></div></div>'
+      + '</div>';
+  }
+
+  // === Newsletter / Schedule =================================================
+  function nlScheduleBody() {
+    function pill(cls, time, subj) {
+      return '<button class="nl-cal-pill ' + cls + '"><span class="ptime">' + time + '</span>' + subj + '</button>';
+    }
+    function row(label, days) {
+      var html = '<div class="nl-cal-week"><div class="nl-cal-cell label">' + label + '</div>';
+      days.forEach(function (d) {
+        html += '<div class="nl-cal-cell' + (d.today ? ' is-today' : '') + '">'
+              + '<div class="nl-cal-day-num">' + d.num + (d.today ? ' · today' : '') + '</div>'
+              + (d.pills || []).join('') + '</div>';
+      });
+      html += '</div>';
+      return html;
+    }
+
+    return ''
+      + '<div class="nl-cal-wrap">'
+      +   '<div class="nl-cal-week head">'
+      +     '<div class="nl-cal-cell label">Week</div>'
+      +     '<div class="nl-cal-cell">Mon</div><div class="nl-cal-cell">Tue</div>'
+      +     '<div class="nl-cal-cell">Wed</div><div class="nl-cal-cell">Thu</div>'
+      +     '<div class="nl-cal-cell">Fri</div><div class="nl-cal-cell">Sat</div>'
+      +     '<div class="nl-cal-cell is-today">Sun</div>'
+      +   '</div>'
+      +   row('28 Apr · last', [
+            { num: '28', pills: [pill('sent', '10:00', 'Schema patches')] },
+            { num: '29' }, { num: '30' }, { num: '01' }, { num: '02' }, { num: '03' }, { num: '04', today: true }
+          ])
+      +   row('05 May · this week', [
+            { num: '05' },
+            { num: '06', pills: [pill('cool', '10:00', 'You can deliver from Royalti')] },
+            { num: '07' }, { num: '08', pills: [pill('investor', '14:00', 'Investor Update — May')] },
+            { num: '09' }, { num: '10' }, { num: '11' }
+          ])
+      +   row('12 May · next week', [
+            { num: '12' }, { num: '13', pills: [pill('', '10:00', '(no draft yet)')] },
+            { num: '14' }, { num: '15' }, { num: '16' }, { num: '17' }, { num: '18' }
+          ])
+      + '</div>';
+  }
+
+  // === Newsletter / Sent · charts ============================================
+  function nlSentBody() {
+    return ''
+      + '<div class="nl-sent-toolbar">'
+      +   '<button class="ob-filter-chip is-on">All types</button>'
+      +   '<button class="ob-filter-chip">Newsletter</button>'
+      +   '<button class="ob-filter-chip">Investor update</button>'
+      +   '<span style="width:1px;align-self:stretch;background:var(--border-soft);margin:0 4px"></span>'
+      +   '<button class="ob-filter-chip is-on">All channels</button>'
+      +   '<button class="ob-filter-chip">listmonk</button>'
+      +   '<button class="ob-filter-chip">resend</button>'
+      +   '<div class="nl-view-toggle"><button>Table</button><button class="is-on">Charts</button></div>'
+      + '</div>'
+
+      // Health alert strip
+      + '<div class="nl-health-strip">'
+      +   '<div class="nl-health-row">'
+      +     '<div class="mark">!</div>'
+      +     '<div><strong style="color: var(--fg);">L5 Winback · Day 7</strong> — bounce <strong style="color: hsl(38, 75%, 60%);">2.3%</strong>, complaint <strong>0.04%</strong>. Trim suppressed addresses before next round.</div>'
+      +     '<div class="meta">22 Apr · 12d ago · 388 recipients</div>'
+      +   '</div>'
+      + '</div>'
+
+      // Charts grid
+      + '<div class="nl-charts-grid">'
+
+      // Engagement trend
+      +   '<div class="nl-chart-card">'
+      +     '<div class="nl-chart-head">'
+      +       '<h4>Engagement trend</h4>'
+      +       '<span class="scale">last 11 editions · open + click</span>'
+      +       '<span class="legend">'
+      +         '<span class="nl-chart-legend-item"><span class="dot" style="background: var(--achievement);"></span> open %</span>'
+      +         '<span class="nl-chart-legend-item"><span class="dot" style="background: var(--tint-fg-active);"></span> click %</span>'
+      +       '</span>'
+      +     '</div>'
+      +     '<div class="nl-chart-body">'
+      +       '<svg class="nl-chart-svg" viewBox="0 0 600 180">'
+      +         '<g class="grid">'
+      +           '<line x1="40" x2="588" y1="20"  y2="20"/>'
+      +           '<line x1="40" x2="588" y1="76"  y2="76"/>'
+      +           '<line x1="40" x2="588" y1="132" y2="132"/>'
+      +         '</g>'
+      +         '<g class="axis">'
+      +           '<text x="34" y="24"  text-anchor="end">50%</text>'
+      +           '<text x="34" y="80"  text-anchor="end">25%</text>'
+      +           '<text x="34" y="136" text-anchor="end">0%</text>'
+      +           '<line x1="40" x2="588" y1="132" y2="132"/>'
+      +         '</g>'
+      +         '<polyline class="line-open"  points="40,69 95,63 150,65 204,60 259,67 314,65 369,72 424,80 478,74 533,58 588,46"/>'
+      +         '<polyline class="line-click" points="40,119 95,116 150,116 204,114 259,117 314,116 369,119 424,123 478,121 533,112 588,107"/>'
+      +         '<g>'
+      +           '<circle class="dot dot-open" cx="40"  cy="69"/><circle class="dot dot-open" cx="95"  cy="63"/>'
+      +           '<circle class="dot dot-open" cx="150" cy="65"/><circle class="dot dot-open" cx="204" cy="60"/>'
+      +           '<circle class="dot dot-open" cx="259" cy="67"/><circle class="dot dot-open" cx="314" cy="65"/>'
+      +           '<circle class="dot dot-open" cx="369" cy="72"/><circle class="dot dot-open" cx="424" cy="80"/>'
+      +           '<circle class="dot dot-open" cx="478" cy="74"/><circle class="dot dot-open" cx="533" cy="58"/>'
+      +           '<circle class="dot dot-open" cx="588" cy="46"/>'
+      +           '<circle class="dot dot-click" cx="40"  cy="119"/><circle class="dot dot-click" cx="95"  cy="116"/>'
+      +           '<circle class="dot dot-click" cx="150" cy="116"/><circle class="dot dot-click" cx="204" cy="114"/>'
+      +           '<circle class="dot dot-click" cx="259" cy="117"/><circle class="dot dot-click" cx="314" cy="116"/>'
+      +           '<circle class="dot dot-click" cx="369" cy="119"/><circle class="dot dot-click" cx="424" cy="123"/>'
+      +           '<circle class="dot dot-click" cx="478" cy="121"/><circle class="dot dot-click" cx="533" cy="112"/>'
+      +           '<circle class="dot dot-click" cx="588" cy="107"/>'
+      +         '</g>'
+      +         '<g class="axis">'
+      +           '<text x="40"  y="156">04 Feb</text>'
+      +           '<text x="588" y="156" text-anchor="end">29 Apr</text>'
+      +         '</g>'
+      +       '</svg>'
+      +     '</div>'
+      +   '</div>'
+
+      // Deliverability trend (compact)
+      +   '<div class="nl-chart-card">'
+      +     '<div class="nl-chart-head">'
+      +       '<h4>Deliverability</h4>'
+      +       '<span class="scale">bounce + complaint × 10</span>'
+      +       '<span class="legend">'
+      +         '<span class="nl-chart-legend-item"><span class="dot" style="background: hsl(38,75%,55%);"></span> bounce</span>'
+      +         '<span class="nl-chart-legend-item"><span class="dot" style="background: var(--danger);"></span> complaint</span>'
+      +       '</span>'
+      +     '</div>'
+      +     '<div class="nl-chart-body">'
+      +       '<svg class="nl-chart-svg" viewBox="0 0 600 180">'
+      +         '<g class="grid">'
+      +           '<line x1="40" x2="588" y1="20"  y2="20"/>'
+      +           '<line x1="40" x2="588" y1="65"  y2="65"/>'
+      +           '<line x1="40" x2="588" y1="110" y2="110"/>'
+      +           '<line x1="40" x2="588" y1="132" y2="132"/>'
+      +         '</g>'
+      +         '<line class="threshold threshold-danger" x1="40" x2="588" y1="20" y2="20"/>'
+      +         '<text x="588" y="16" text-anchor="end" class="threshold-label danger">5% bounce ceiling</text>'
+      +         '<line class="threshold threshold-warn" x1="40" x2="588" y1="87" y2="87"/>'
+      +         '<text x="40" y="84" class="threshold-label warn">2% bounce warning</text>'
+      +         '<polyline class="line-bounce"    points="40,85 95,92 150,98 204,101 259,83 314,89 369,69 424,47 478,76 533,80 588,112"/>'
+      +         '<polyline class="line-complaint" points="40,123 95,121 150,123 204,119 259,114 314,121 369,110 424,92 478,112 533,123 588,121"/>'
+      +       '</svg>'
+      +     '</div>'
+      +   '</div>'
+
+      // Edition comparator — full width for readability
+      +   '<div class="nl-chart-card full">'
+      +     '<div class="nl-chart-head">'
+      +       '<h4>Edition comparator</h4>'
+      +       '<span class="scale">last 6 editions · open % / click %</span>'
+      +     '</div>'
+      +     '<div class="nl-chart-body">'
+      +       '<svg class="nl-chart-svg" viewBox="0 0 600 180">'
+      +         '<g class="grid">'
+      +           '<line x1="40" x2="588" y1="20" y2="20"/>'
+      +           '<line x1="40" x2="588" y1="80" y2="80"/>'
+      +           '<line x1="40" x2="588" y1="140" y2="140"/>'
+      +         '</g>'
+      +         '<g class="axis">'
+      +           '<text x="34" y="24" text-anchor="end">50%</text>'
+      +           '<text x="34" y="84" text-anchor="end">25%</text>'
+      +           '<text x="34" y="144" text-anchor="end">0%</text>'
+      +         '</g>'
+      // 6 editions, slot width ~90px starting at 50
+      +         bar( 60, 28, 'open')  + bar( 86,  6, 'click') + label( 86, '04 Mar', '28% / 6%')
+      +         bar(151, 30, 'open')  + bar(177,  7, 'click') + label(177, '11 Mar', '30% / 7%')
+      +         bar(242, 27, 'open')  + bar(268,  6, 'click') + label(268, '18 Mar', '27% / 6%')
+      +         bar(333, 23, 'open')  + bar(359,  4, 'click') + label(359, '25 Mar ↓', '23% / 4%')
+      +         bar(424, 42, 'open')  + bar(450,  9, 'click') + label(450, '22 Apr', '42% / 9%')
+      +         bar(515, 38, 'open')  + bar(541, 11, 'click') + label(541, '29 Apr ✓', '38% / 11%')
+      +       '</svg>'
+      +     '</div>'
+      +   '</div>'
+
+      + '</div>';
+  }
+  function bar(x, valuePct, kind) {
+    var h = (valuePct / 50) * 120;
+    var y = 140 - h;
+    return '<rect class="bar-' + kind + '" x="' + x + '" y="' + y.toFixed(1) + '" width="22" height="' + h.toFixed(1) + '" />';
+  }
+  function label(cx, top, bottom) {
+    return '<text x="' + cx + '" y="158" text-anchor="middle" class="threshold-label" style="fill: var(--fg-faint);">' + top + '</text>'
+         + '<text x="' + cx + '" y="170" text-anchor="middle" class="threshold-label" style="fill: var(--fg-faint);">' + bottom + '</text>';
+  }
+
+  // === Email / Queue =========================================================
+  function emQueueBody() {
+    return ''
+      + '<div class="nl-split">'
+
+      // Master
+      +   '<div class="nl-master">'
+      +     '<div class="nl-master-group-head">Today · 3</div>'
+      +     '<div class="nl-row is-on">'
+      +       '<div>'
+      +         '<div class="nl-row-head"><span class="chip" style="color: hsl(220,40%,68%); border-color: hsl(220,28%,28%); background: hsl(220,28%,12%);">SMTP</span><span class="chip">Reply</span></div>'
+      +         '<div class="nl-row-subj">Re: Royalti onboarding · file processing</div>'
+      +         '<div class="nl-row-pre">Valentim — sorry for the delay. The Pandora schema disparity is fixed in tonight’s deploy.</div>'
+      +       '</div>'
+      +       '<div class="nl-row-meta"><div class="when">2h overdue</div></div>'
+      +     '</div>'
+      +     '<div class="nl-row">'
+      +       '<div>'
+      +         '<div class="nl-row-head"><span class="chip" style="color: hsl(170,40%,58%); border-color: hsl(170,30%,28%); background: hsl(170,30%,12%);">RESEND</span></div>'
+      +         '<div class="nl-row-subj">Welcome — your Royalti tenant is ready</div>'
+      +         '<div class="nl-row-pre">Hi {{first_name}}, here’s a 3-minute orientation…</div>'
+      +       '</div>'
+      +       '<div class="nl-row-meta"><div class="when">today · 14:30</div></div>'
+      +     '</div>'
+      +     '<div class="nl-row">'
+      +       '<div>'
+      +         '<div class="nl-row-head"><span class="chip" style="color: hsl(42,82%,60%); border-color: hsl(42,40%,28%); background: hsl(42,40%,12%);">LISTMONK</span></div>'
+      +         '<div class="nl-row-subj">Q2 product roundup · for label admins</div>'
+      +         '<div class="nl-row-pre">A short note for label admins on what shipped this quarter.</div>'
+      +       '</div>'
+      +       '<div class="nl-row-meta"><div class="when">today · 16:00</div></div>'
+      +     '</div>'
+
+      +     '<div class="nl-master-group-head">Tomorrow · 2</div>'
+      +     '<div class="nl-row">'
+      +       '<div>'
+      +         '<div class="nl-row-head"><span class="chip" style="color: hsl(170,40%,58%); border-color: hsl(170,30%,28%); background: hsl(170,30%,12%);">RESEND</span></div>'
+      +         '<div class="nl-row-subj">Quick check-in · still using Royalti?</div>'
+      +         '<div class="nl-row-pre">Hey, we noticed you signed up but haven’t imported a catalog yet…</div>'
+      +       '</div>'
+      +       '<div class="nl-row-meta"><div class="when">Mon 09:00</div></div>'
+      +     '</div>'
+      +   '</div>'
+
+      // Detail
+      +   '<div class="nl-detail">'
+      +     '<div class="em-detail-meta">'
+      +       '<span class="lbl">From</span><span class="val">Chinedum &lt;chinedum@royalti.io&gt; <span class="sub">via SMTP</span></span>'
+      +       '<span class="lbl">To</span><span class="val">Valentim de Carvalho &lt;valentim@valentimdc.pt&gt;</span>'
+      +       '<span class="lbl">Reply-to</span><span class="val">chinedum@royalti.io <span class="sub">(thread mfvqi5pz)</span></span>'
+      +     '</div>'
+
+      +     '<div class="nl-subj-card">'
+      +       '<div class="nl-subj-row"><span class="lbl">Subject</span><input value="Re: Royalti onboarding · file processing"/></div>'
+      +       '<div class="pre-row">'
+      +         '<span class="chip">SMTP · thread reply</span>'
+      +         '<span style="flex:1"></span>'
+      +         '<span style="font-family: var(--font-mono); font-size: 10px;">subject · 42 chars</span>'
+      +       '</div>'
+      +     '</div>'
+
+      +     '<div class="nl-body-pane">'
+      +       '<textarea class="nl-body-textarea" disabled>Valentim,\n\nSorry for the delay. The schema disparity that was eating Pandora and Physical revenue rows is fixed in tonight’s deploy. Your catalog will recompute against v_sales_data on the next run; you’ll see real numbers in the dashboard by Wed morning.\n\nHappy to jump on a call once you’ve seen the updated figures.\n\nChi</textarea>'
+      +     '</div>'
+
+      +     '<div class="nl-actions">'
+      +       '<button class="btn btn-sm">↩ Back to list</button>'
+      +       '<button class="btn btn-sm">⌘ Send to chat</button>'
+      +       '<span class="spacer"></span>'
+      +       '<span class="meta">scheduled · today 14:30 · SMTP</span>'
+      +       '<button class="btn btn-sm">💾 Save</button>'
+      +       '<button class="btn btn-sm primary">✓ Approve &amp; Send</button>'
+      +     '</div>'
+      +   '</div>'
+      + '</div>';
+  }
+
+  // === Routing ===============================================================
+  var params = new URLSearchParams(window.location.search);
+  var state = {
+    channel: params.get('ch') || 'newsletter',
+    view: params.get('view') || 'queue'
+  };
+
+  function bodyFor(channel, view) {
+    if (channel === 'newsletter') {
+      if (view === 'schedule') return nlScheduleBody();
+      if (view === 'sent')     return nlSentBody();
+      return nlQueueBody();
+    }
+    if (channel === 'email') {
+      // Same flat list for all views in this mock — only queue is built.
+      if (view === 'queue') return emQueueBody();
+      return '<div style="padding: var(--space-8); text-align: center; color: var(--fg-muted);"><p>Email · ' + view + ' — view stubbed in mock; depth screen TK.</p></div>';
+    }
+    return '<div style="padding: var(--space-8); text-align: center; color: var(--fg-muted);"><p>' + channel + ' · ' + view + ' — depth screen TK.</p></div>';
+  }
+
+  function render() {
+    var contentBody = ''
+      + '<div class="content" style="display: flex; flex-direction: column; min-height: 0;">'
+      +   obHeader(state.channel)
+      +   innerTabs(state.channel, state.view)
+      +   '<div style="flex: 1; min-height: 0; overflow: auto;">'
+      +     bodyFor(state.channel, state.view)
+      +   '</div>'
+      + '</div>';
+
+    document.getElementById('shell-slot').innerHTML = Shell.layout({
+      title: 'ikenga · /outbox/' + state.channel + '/' + state.view,
+      sidebarState: 'expanded',
+      dockState: 'collapsed',
+      height: 760,
+      activityBar: Shell.activityBar({ active: 'outbox', badged: ['mail', 'outbox', 'agents'] }),
+      sidebar: Shell.sidebar(OUTBOX_SIDEBAR),
+      content: contentBody,
+      dock: Shell.dock({ state: 'collapsed', tabs: [{ key: 'chat', label: 'Chat', icon: I.chat, active: true, pinned: true }, { key: 'terminal', label: 'Terminal', icon: I.terminal }, { key: 'viewer', label: 'Viewer', icon: I.artifact }], body: '' })
+    });
+    document.getElementById('url-pill').textContent = '/outbox/' + state.channel + '/' + state.view;
+
+    // Reflect variant-bar selection
+    document.querySelectorAll('#channel-group button[data-ch]').forEach(function (b) {
+      b.classList.toggle('is-on', b.dataset.ch === state.channel);
+    });
+    document.querySelectorAll('#view-group button[data-view]').forEach(function (b) {
+      b.classList.toggle('is-on', b.dataset.view === state.view);
+    });
+  }
+
+  // Wire variant-bar
+  document.querySelectorAll('#channel-group button[data-ch]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      if (b.disabled) return;
+      state.channel = b.dataset.ch;
+      render();
+    });
+  });
+  document.querySelectorAll('#view-group button[data-view]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      state.view = b.dataset.view;
+      render();
+    });
+  });
+
+  render();
+</script>
+
+</body>
+</html>

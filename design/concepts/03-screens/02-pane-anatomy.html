@@ -1,0 +1,1297 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="A" data-mode="dark" data-density="comfortable" data-workspace="mail">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Ikenga · Rung 3 · Pane anatomy</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,400;1,9..144,500&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="../_shared/tokens.css" />
+<link rel="stylesheet" href="../_shared/components.css" />
+<link rel="stylesheet" href="../_shared/shell.css" />
+<style>
+  /* === Page chrome (matches 00-shell.html / 01-inbox.html) ====== */
+  .page { max-width: 1480px; margin: 0 auto; padding: 0 var(--space-12) var(--space-12); }
+  .controls { margin: 0 calc(-1 * var(--space-12)) var(--space-8); }
+  header { padding-top: var(--space-8); }
+  section { margin-top: var(--space-12); }
+
+  /* Eyebrow / lede / section-tag come from components.css; ensure spacing */
+  .lede { max-width: 64ch; }
+
+  /* === Frame grid =============================================== */
+  .frames {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--space-6);
+    margin-top: var(--space-6);
+  }
+  .frames.frames-3 { grid-template-columns: repeat(3, 1fr); }
+  .frames.frames-1 { grid-template-columns: 1fr; }
+
+  .frame { display: grid; gap: var(--space-2); }
+  .frame-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); }
+  .frame-title {
+    font-family: var(--font-display); font-weight: 500;
+    font-size: var(--text-h3); color: var(--fg);
+    letter-spacing: -.005em;
+  }
+  .frame-tag {
+    font-family: var(--font-mono); font-size: 10px;
+    letter-spacing: .08em; text-transform: uppercase;
+    color: var(--fg-faint);
+  }
+  .frame-note {
+    font-size: var(--text-caption); color: var(--fg-muted);
+    line-height: 1.55;
+  }
+
+  /* === Mini pane (the .content chrome, scaled down) ============ */
+  .mini-pane {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    height: 280px;
+    display: grid;
+    grid-template-rows: auto 1fr;
+    position: relative;
+    transition: border-color var(--motion-base) var(--ease-calm);
+  }
+  /* Focused pane = primary border on top edge ONLY (unobtrusive, like VS Code) */
+  .mini-pane.is-focused {
+    border-color: var(--border);
+  }
+  .mini-pane.is-focused::before {
+    content: '';
+    position: absolute; left: 0; right: 0; top: 0; height: 2px;
+    background: var(--tint-fg-active, var(--primary));
+    z-index: 6;
+  }
+  .mini-pane.is-unfocused .content-tabs { background: var(--bg-sunken); opacity: .92; }
+  .mini-pane.is-unfocused .content-body { opacity: .82; }
+
+  /* Single-route variant: hide tab strip, show breadcrumb instead */
+  .mini-pane .pane-breadcrumb {
+    display: flex; align-items: center; gap: var(--space-2);
+    height: 32px; padding: 0 var(--space-3);
+    background: var(--bg-sunken);
+    border-bottom: 1px solid var(--border-soft);
+    font-family: var(--font-mono); font-size: 10.5px;
+    color: var(--fg-faint); letter-spacing: .04em;
+  }
+  .mini-pane .pane-breadcrumb svg { width: 12px; height: 12px; opacity: .7; }
+  .mini-pane .pane-breadcrumb-sep { color: var(--fg-faint); opacity: .5; }
+  .mini-pane .pane-breadcrumb-active { color: var(--fg); }
+  .mini-pane .pane-breadcrumb-spacer { flex: 1; }
+
+  /* Compact mini tab strip (smaller than full content-tabs, but density-responsive) */
+  .mini-pane .content-tabs { height: calc(var(--tab-h) - 6px); }
+  .mini-pane .content-tab { height: calc(var(--tab-h) - 6px); padding: 0 10px; font-size: 12px; }
+  .mini-pane .content-tab svg { width: 12px; height: 12px; }
+  .mini-pane .content-tabs-actions .btn-icon { height: 24px; width: 24px; }
+  .mini-pane .content-tabs-actions .btn-icon svg { width: 12px; height: 12px; }
+
+  /* Action cluster styling (refresh / split-h / split-v / close + .pane-actions-divider)
+     lives in _shared/shell.css — see src/shell/panes/pane-toolbar.tsx for source-of-truth. */
+
+  .mini-pane .content-body {
+    padding: var(--space-3) var(--space-4);
+    font-size: 12px; color: var(--fg-muted); line-height: 1.55;
+  }
+
+  /* Mock list rows for the body so frames feel alive */
+  .mock-list { display: grid; gap: 6px; }
+  .mock-row {
+    display: grid; grid-template-columns: 14px 1fr auto; gap: var(--space-2);
+    padding: var(--row-pad-y) 8px; border-radius: var(--radius-xs);
+    align-items: center;
+  }
+  .mock-row + .mock-row { border-top: 1px solid var(--border-soft); border-radius: 0; }
+  .mock-row-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--primary); }
+  .mock-row-dot.dim { background: var(--fg-faint); opacity: .4; }
+  .mock-row-text { font-size: 12px; color: var(--fg); }
+  .mock-row-meta { font-family: var(--font-mono); font-size: 10px; color: var(--fg-faint); }
+
+  /* === Body states ============================================== */
+  .state-loading { display: grid; gap: var(--space-2); }
+  .skel {
+    height: 12px; border-radius: var(--radius-xs);
+    background: linear-gradient(90deg, var(--bg-raised) 0%, var(--bg-sunken) 50%, var(--bg-raised) 100%);
+    background-size: 200% 100%;
+    animation: skel-shimmer 1.6s linear infinite;
+  }
+  .skel.short { width: 40%; } .skel.med { width: 70%; } .skel.full { width: 100%; }
+  @keyframes skel-shimmer {
+    0%   { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+
+  .state-empty {
+    display: grid; place-items: center; height: 100%;
+    text-align: center; gap: var(--space-2); padding: var(--space-4);
+  }
+  .state-empty .ring {
+    width: 40px; height: 40px; border-radius: 50%;
+    border: 1px dashed var(--border); display: grid; place-items: center;
+    color: var(--fg-faint); margin-bottom: 4px;
+  }
+  .state-empty-title { font-size: 12.5px; color: var(--fg); font-weight: 500; }
+  .state-empty-body { font-size: 11.5px; color: var(--fg-muted); max-width: 28ch; line-height: 1.5; }
+
+  .state-error {
+    display: grid; gap: var(--space-2);
+    padding: var(--space-3);
+    border: 1px solid var(--danger-soft);
+    background: color-mix(in srgb, var(--danger) 6%, transparent);
+    border-radius: var(--radius-sm);
+  }
+  .state-error-head { display: flex; align-items: center; gap: var(--space-2); color: var(--danger); font-weight: 500; font-size: 12px; }
+  .state-error-head svg { width: 14px; height: 14px; }
+  .state-error-body { font-size: 11.5px; color: var(--fg-muted); line-height: 1.5; }
+  .state-error-foot { display: flex; gap: var(--space-2); margin-top: var(--space-1); }
+
+  /* === Tab strip variants showcase ============================== */
+  .tabstrip-showcase { background: var(--bg-sunken); border: 1px solid var(--border-soft); border-radius: var(--radius-sm); overflow: hidden; }
+  .tabstrip-showcase .content-tabs { height: 38px; }
+  .tabstrip-row {
+    display: flex; align-items: center; gap: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    border-top: 1px solid var(--border-soft);
+    background: var(--bg-surface);
+    font-size: 11.5px; color: var(--fg-muted);
+  }
+  .tabstrip-row strong { color: var(--fg); font-weight: 500; }
+
+  /* Pinned tab: icon-only square, primary-tinted on hover */
+  .content-tab.pinned-only { padding: 0 6px; }
+  .content-tab.pinned-only .label { display: none; }
+  .content-tab.pinned-only .pin { display: none; }
+  .content-tab.pinned-only .close { display: none; }
+  .content-tab.pinned-only svg { width: 14px; height: 14px; }
+
+  /* Dirty dot replaces close X */
+  .content-tab.is-dirty .close { display: none; }
+  .content-tab.is-dirty .dirty-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--achievement);
+    margin-left: var(--space-1);
+  }
+  .content-tab .dirty-dot { display: none; }
+
+  /* Tab count badge */
+  .content-tab .tab-count {
+    font-family: var(--font-mono); font-size: 9.5px;
+    padding: 1px 5px; border-radius: var(--radius-pill);
+    background: var(--bg-raised); color: var(--fg-muted);
+    line-height: 1.2;
+  }
+  .content-tab.is-on .tab-count { background: var(--primary-soft); color: var(--primary); }
+
+  /* Hover variant for showcase */
+  .content-tab.show-hover { color: var(--fg-muted); background: var(--bg-raised); }
+
+  /* Dragging tab in the strip: ghost (the slot left behind) */
+  .content-tab.show-dragging-slot {
+    color: transparent;
+    background: repeating-linear-gradient(
+      45deg,
+      transparent 0 4px,
+      var(--bg-raised) 4px 8px
+    );
+    pointer-events: none;
+  }
+
+  /* Floating dragged-tab ghost (pointer) */
+  .drag-ghost {
+    display: inline-flex; align-items: center; gap: var(--space-2);
+    height: 32px; padding: 0 var(--space-3);
+    background: var(--bg-raised); border: 1px solid var(--primary);
+    border-radius: var(--radius-sm);
+    box-shadow: var(--shadow-3);
+    color: var(--fg); font-size: 12px;
+    transform: rotate(-1deg);
+  }
+  .drag-ghost svg { width: 13px; height: 13px; color: var(--tint-fg-active, var(--primary)); }
+  .drag-ghost-foot {
+    font-family: var(--font-mono); font-size: 10px;
+    color: var(--fg-faint); letter-spacing: .04em; margin-top: var(--space-2);
+  }
+
+  /* Force the inactive-hairline hover state visible in 3b documentation
+     (you can't hover a static frame). Mirrors the :hover rule in shell.css. */
+  .content-tabs.tabstrip-ws-mixed .content-tab.show-ws-hover:not(.is-on)::after { opacity: .55; }
+  .content-tab.show-ws-hover { color: var(--fg-muted); background: var(--bg-raised); }
+
+  /* === Overflow scroll (tab strip with too many tabs) =========== */
+  .overflow-frame {
+    position: relative;
+    background: var(--bg-base);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-md);
+    height: 280px;
+    display: grid;
+    grid-template-rows: auto 1fr;
+    overflow: hidden;
+  }
+
+  /* The tab strip itself becomes horizontally scrollable; scrollbar hidden
+     (matches dock-head-tabs convention in shell.css). */
+  .overflow-frame .content-tabs {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    scrollbar-width: none;
+    height: calc(var(--tab-h) - 6px);
+    position: relative;
+    padding: 0;
+  }
+  .overflow-frame .content-tabs::-webkit-scrollbar { display: none; }
+
+  /* Every tab in this strip is no-shrink and density-aware. */
+  .overflow-frame .content-tab {
+    height: calc(var(--tab-h) - 6px);
+    flex-shrink: 0;
+    padding: 0 10px;
+    font-size: 12px;
+  }
+
+  /* Pinned cluster (icon-only tabs at left): one sticky wrapper so multiple
+     pinned tabs stack naturally without each overlapping the previous. */
+  .overflow-frame .pinned-cluster {
+    position: sticky;
+    left: 0;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    background: var(--bg-sunken);
+    border-right: 1px solid var(--border-soft);
+    height: 100%;
+    flex-shrink: 0;
+  }
+  .overflow-frame .pinned-cluster .content-tab.pinned-only {
+    padding: 0 6px;
+    background: transparent;
+  }
+  .overflow-frame .pinned-cluster .content-tab.pinned-only.is-on { background: var(--bg-surface); }
+
+  /* "+" actions cluster: position-sticky right edge. */
+  .overflow-frame .content-tabs-actions {
+    position: sticky;
+    right: 0;
+    z-index: 2;
+    margin-left: 0; /* override any margin-left:auto */
+    padding: 0 4px;
+    background: var(--bg-sunken);
+    border-left: 1px solid var(--border-soft);
+    flex-shrink: 0;
+    height: 100%;
+    display: flex; align-items: center;
+  }
+
+  /* Edge fade gradients tell the user "more tabs that way."
+     Pseudo-elements on the frame itself, sit above the strip but below
+     the sticky pinned/actions clusters (which have z-index 2). */
+  .overflow-frame::before,
+  .overflow-frame::after {
+    content: '';
+    position: absolute;
+    top: 1px; /* respect frame border */
+    width: 36px;
+    height: calc(var(--tab-h) - 6px);
+    pointer-events: none;
+    z-index: 1;
+    transition: opacity var(--motion-fast) var(--ease-calm);
+  }
+  .overflow-frame::before {
+    left: 0;
+    background: linear-gradient(90deg, var(--bg-sunken) 0%, transparent 100%);
+  }
+  .overflow-frame::after {
+    right: 0;
+    background: linear-gradient(270deg, var(--bg-sunken) 0%, transparent 100%);
+  }
+  /* State-driven fade visibility */
+  .overflow-frame[data-scroll="start"]::before { opacity: 0; }
+  .overflow-frame[data-scroll="end"]::after    { opacity: 0; }
+
+  /* The body below the strip — shows the active tab's pretend route content
+     so the frame feels alive, not just a header demo. */
+  .overflow-frame .content-body {
+    padding: var(--space-3) var(--space-4);
+    font-size: 12px; color: var(--fg-muted); line-height: 1.55;
+  }
+
+  /* === Drop zones overlay (full-frame demo) ===================== */
+  .drop-frame {
+    position: relative;
+    background: var(--bg-base);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-md);
+    height: 280px; overflow: hidden;
+  }
+  .drop-frame .content-tabs { height: calc(var(--tab-h) - 6px); }
+  .drop-frame .content-tab { height: calc(var(--tab-h) - 6px); font-size: 12px; padding: 0 10px; }
+  .drop-frame .drop-overlay { opacity: 1; pointer-events: none; }
+  .drop-frame .drop-zone {
+    position: relative;
+    background: color-mix(in srgb, var(--primary) 10%, transparent);
+    border: 1px dashed color-mix(in srgb, var(--primary) 40%, transparent);
+    color: var(--fg-faint); font-size: 10px; font-family: var(--font-mono);
+    letter-spacing: .08em; text-transform: uppercase;
+    display: grid; place-items: center;
+  }
+  .drop-frame .drop-zone.is-target {
+    background: color-mix(in srgb, var(--primary) 22%, transparent);
+    border-color: var(--primary);
+    color: var(--primary);
+  }
+  .drop-frame .drop-zone-center { background: transparent; border-color: transparent; }
+  .drop-frame .drop-zone-center.is-target {
+    background: color-mix(in srgb, var(--primary) 18%, transparent);
+    border-color: var(--primary);
+    color: var(--primary);
+  }
+
+  /* === Iyke shimmer demo ======================================== */
+  .iyke-frame .content-body {
+    position: relative;
+    /* shimmer baseline lives in shell.css; we just need the overlay */
+  }
+
+  /* === New-tab "+" menu popover demo ============================ */
+  .menu-stage {
+    position: relative;
+    background: var(--bg-base);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-md);
+    height: 380px; overflow: hidden;
+    padding-top: 38px;
+  }
+  .menu-stage-tabs {
+    position: absolute; top: 0; left: 0; right: 0;
+    background: var(--bg-sunken);
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .menu-stage .content-tabs { height: 38px; }
+  .menu-stage .content-tab { height: 38px; }
+  .menu-stage-anchor-line {
+    position: absolute;
+    border-left: 1px dashed var(--primary);
+    width: 1px; opacity: .35;
+  }
+
+  .new-tab-menu {
+    position: absolute;
+    width: 320px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-3);
+    overflow: hidden;
+  }
+  .new-tab-menu-input {
+    display: flex; align-items: center; gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border-bottom: 1px solid var(--border-soft);
+    background: var(--bg-sunken);
+  }
+  .new-tab-menu-input svg { width: 13px; height: 13px; color: var(--fg-faint); }
+  .new-tab-menu-input input {
+    flex: 1; background: transparent; border: 0; outline: none;
+    color: var(--fg); font-family: inherit; font-size: var(--text-body-sm);
+  }
+  .new-tab-menu-input input::placeholder { color: var(--fg-faint); }
+  .new-tab-menu-input kbd {
+    font-family: var(--font-mono); font-size: 10px; color: var(--fg-faint);
+    background: var(--bg-base); border: 1px solid var(--border-soft);
+    border-radius: var(--radius-xs); padding: 0 5px;
+  }
+  .new-tab-menu-list { padding: var(--space-1); max-height: 320px; overflow-y: auto; }
+  .new-tab-menu-group-label {
+    font-family: var(--font-mono); font-size: 9.5px;
+    letter-spacing: .14em; text-transform: uppercase;
+    color: var(--fg-faint);
+    padding: var(--space-2) var(--space-2) 4px;
+  }
+  .new-tab-menu-item {
+    display: flex; align-items: center; gap: var(--space-2);
+    padding: 6px 8px; border-radius: var(--radius-xs);
+    font-size: 12px; color: var(--fg);
+    cursor: pointer;
+  }
+  .new-tab-menu-item:hover,
+  .new-tab-menu-item.is-on {
+    background: var(--bg-raised);
+  }
+  .new-tab-menu-item.is-on { color: var(--fg); }
+  .new-tab-menu-item.is-on::before {
+    content: ''; width: 2px; align-self: stretch;
+    background: var(--tint-fg-active, var(--primary));
+    border-radius: 2px;
+    margin: 2px -4px 2px -8px;
+  }
+  .new-tab-menu-item svg { width: 13px; height: 13px; color: var(--fg-faint); flex-shrink: 0; }
+  .new-tab-menu-item.is-on svg { color: var(--tint-fg-active, var(--primary)); }
+  .new-tab-menu-item .label { flex: 1; }
+  .new-tab-menu-item .detail { font-family: var(--font-mono); font-size: 10px; color: var(--fg-faint); }
+  .new-tab-menu-item kbd {
+    font-family: var(--font-mono); font-size: 10px; color: var(--fg-faint);
+    background: var(--bg-base); border: 1px solid var(--border-soft);
+    border-radius: var(--radius-xs); padding: 0 5px;
+  }
+  .new-tab-menu-foot {
+    border-top: 1px solid var(--border-soft);
+    background: var(--bg-sunken);
+    padding: var(--space-2) var(--space-3);
+    display: flex; gap: var(--space-3);
+    font-family: var(--font-mono); font-size: 10px;
+    color: var(--fg-faint); letter-spacing: .04em;
+  }
+
+  /* === Annotation legend at top of each section ================ */
+  .legend {
+    display: flex; flex-wrap: wrap; gap: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-sm);
+    background: var(--bg-sunken);
+    font-family: var(--font-mono); font-size: 10.5px;
+    color: var(--fg-muted); letter-spacing: .04em;
+  }
+  .legend-item { display: flex; align-items: center; gap: var(--space-2); }
+  .legend-swatch { width: 12px; height: 12px; border-radius: var(--radius-xs); }
+
+  footer {
+    margin-top: var(--space-12);
+    padding-top: var(--space-5);
+    border-top: 1px solid var(--border-soft);
+    font-family: var(--font-mono); font-size: 11px;
+    color: var(--fg-faint); letter-spacing: .06em;
+    display: flex; justify-content: space-between;
+  }
+  footer a { color: var(--fg-muted); text-decoration: none; border-bottom: 1px solid var(--border-soft); }
+  footer a:hover { color: var(--achievement); }
+</style>
+</head>
+<body>
+
+<!-- Controls bar — rendered by _shared/controls.js (Theme · Mode · Density · Workspace · Screens). -->
+<div class="controls" data-controls-bar data-current="pane-anatomy" data-show-workspace="1"></div>
+
+<div class="page">
+
+  <header>
+    <div class="eyebrow"><span class="eyebrow-dot"></span> Ikenga · Design / Rung 3 / Screen 02 · Pane anatomy</div>
+    <h1 class="title">The pane is the <em>unit of work.</em></h1>
+    <p class="lede">Every workspace lives inside a pane. Every pane has the same chrome — tab strip, body, drop zones — and the same set of states: focused, idle, loading, empty, errored, working. This page locks those states before we paint a single full route.</p>
+  </header>
+
+  <!-- ============================================================
+       1 · Pane chrome states
+       ============================================================ -->
+  <section>
+    <div class="section-tag">1 · Chrome states · focus + tabs</div>
+
+    <div class="legend">
+      <span class="legend-item"><span class="legend-swatch" style="background:var(--tint-fg-active);"></span> Focused — top edge accent</span>
+      <span class="legend-item"><span class="legend-swatch" style="background:var(--border-soft);"></span> Unfocused — desaturated, no accent</span>
+      <span class="legend-item">Single-route panes hide the tab strip and show a breadcrumb instead</span>
+    </div>
+
+    <div class="frames">
+
+      <!-- Focused, with tabs -->
+      <div class="frame">
+        <div class="frame-head">
+          <span class="frame-title">Focused · with tabs</span>
+          <span class="frame-tag">multi-tab leaf</span>
+        </div>
+        <div class="mini-pane is-focused">
+          <div class="content-tabs tabstrip-ws-mixed">
+            <button class="content-tab is-on" data-ws="mail"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7l9 6 9-6"/><rect x="3" y="5" width="18" height="14" rx="2"/></svg><span class="label">Inbox</span></button>
+            <button class="content-tab" data-ws="mail"><span class="label">Triage</span></button>
+            <button class="content-tab" data-ws="outbox"><span class="label">Drafts</span></button>
+            <span class="content-tabs-actions">
+              <button class="btn-icon" title="New tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg></button>
+              <span class="pane-actions-divider" aria-hidden="true"></span>
+              <button class="btn-icon" title="Refresh pane"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><polyline points="21 3 21 8 16 8"/></svg></button>
+              <button class="btn-icon" title="Split right (⌘\)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 3v18"/></svg></button>
+              <button class="btn-icon" title="Split down (⌘⇧\)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 12h18"/></svg></button>
+              <button class="btn-icon" title="Close pane" data-danger><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="6" y1="6" x2="18" y2="18"/><line x1="6" y1="18" x2="18" y2="6"/></svg></button>
+            </span>
+          </div>
+          <div class="content-body">
+            <div class="mock-list">
+              <div class="mock-row"><span class="mock-row-dot"></span><span class="mock-row-text">Re: Catalog import</span><span class="mock-row-meta">14:02</span></div>
+              <div class="mock-row"><span class="mock-row-dot dim"></span><span class="mock-row-text">Stripe · Subscription renewed</span><span class="mock-row-meta">11:48</span></div>
+              <div class="mock-row"><span class="mock-row-dot dim"></span><span class="mock-row-text">LIRS · PAYE Reminder</span><span class="mock-row-meta">09:22</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="frame-note">Active leaf in a multi-pane layout. Top-edge accent uses the workspace tint, not a heavy 4px border around the whole frame — this keeps split layouts calm.</div>
+      </div>
+
+      <!-- Unfocused, with tabs -->
+      <div class="frame">
+        <div class="frame-head">
+          <span class="frame-title">Unfocused · with tabs</span>
+          <span class="frame-tag">sibling leaf</span>
+        </div>
+        <div class="mini-pane is-unfocused">
+          <div class="content-tabs">
+            <button class="content-tab is-on" data-ws="agents"><span class="label">Tasks</span></button>
+            <button class="content-tab" data-ws="agents"><span class="label">Cron</span></button>
+            <span class="content-tabs-actions">
+              <button class="btn-icon" title="New tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg></button>
+              <span class="pane-actions-divider" aria-hidden="true"></span>
+              <button class="btn-icon" title="Refresh pane"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><polyline points="21 3 21 8 16 8"/></svg></button>
+              <button class="btn-icon" title="Split right (⌘\)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 3v18"/></svg></button>
+              <button class="btn-icon" title="Split down (⌘⇧\)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 12h18"/></svg></button>
+              <button class="btn-icon" title="Close pane" data-danger><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="6" y1="6" x2="18" y2="18"/><line x1="6" y1="18" x2="18" y2="6"/></svg></button>
+            </span>
+          </div>
+          <div class="content-body">
+            <div class="mock-list">
+              <div class="mock-row"><span class="mock-row-dot dim"></span><span class="mock-row-text">Process April Verto statements</span><span class="mock-row-meta">cfo</span></div>
+              <div class="mock-row"><span class="mock-row-dot dim"></span><span class="mock-row-text">Schedule Q2 board prep</span><span class="mock-row-meta">ceo</span></div>
+              <div class="mock-row"><span class="mock-row-dot dim"></span><span class="mock-row-text">Reply to Listmonk bounce</span><span class="mock-row-meta">pa</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="frame-note">Same frame, no accent stripe. Body fades to ~82%. Hovering or clicking restores focus instantly — no animation budget to refocus.</div>
+      </div>
+
+      <!-- Focused, single route -->
+      <div class="frame">
+        <div class="frame-head">
+          <span class="frame-title">Focused · single route</span>
+          <span class="frame-tag">no tabs</span>
+        </div>
+        <div class="mini-pane is-focused">
+          <div class="pane-breadcrumb">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4"/></svg>
+            <span>settings</span>
+            <span class="pane-breadcrumb-sep">/</span>
+            <span class="pane-breadcrumb-active">accounts</span>
+            <span class="pane-breadcrumb-spacer"></span>
+            <span>⌘W close</span>
+          </div>
+          <div class="content-body">
+            <div class="mock-list">
+              <div class="mock-row"><span class="mock-row-dot"></span><span class="mock-row-text">chinedum@royalti.io</span><span class="mock-row-meta">primary</span></div>
+              <div class="mock-row"><span class="mock-row-dot dim"></span><span class="mock-row-text">ned@getroyalti.com</span><span class="mock-row-meta">cold outreach</span></div>
+              <div class="mock-row"><span class="mock-row-dot dim"></span><span class="mock-row-text">finance@royalti.io</span><span class="mock-row-meta">noreply</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="frame-note">Single-tab leaves trade the strip for a path breadcrumb — saves 6px and signals "this is the only thing here, you can ⌘W to close."</div>
+      </div>
+
+      <!-- Iyke shimmer overlay -->
+      <div class="frame">
+        <div class="frame-head">
+          <span class="frame-title">Working · iyke shimmer</span>
+          <span class="frame-tag">activity overlay</span>
+        </div>
+        <div class="mini-pane is-focused iyke-frame">
+          <div class="content-tabs">
+            <button class="content-tab is-on" data-ws="outbox"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg><span class="label">Approvals</span></button>
+            <button class="content-tab" data-ws="outbox"><span class="label">Sent</span></button>
+          </div>
+          <div class="content-body pane-iyke-overlay">
+            <div class="mock-list">
+              <div class="mock-row"><span class="mock-row-dot"></span><span class="mock-row-text">Drafting reply to Valentim…</span><span class="mock-row-meta">claude</span></div>
+              <div class="mock-row"><span class="mock-row-dot dim"></span><span class="mock-row-text">Newsletter · April · final pass</span><span class="mock-row-meta">cmo</span></div>
+              <div class="mock-row"><span class="mock-row-dot dim"></span><span class="mock-row-text">Outreach · BMG follow-up</span><span class="mock-row-meta">cbo</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="frame-note">An agent is actively writing into this pane. Bottom-edge shimmer (achievement gold, 2.6s loop) — the same primitive used by the activity bar's badged-mode indicator. Distinct from "loading" which freezes the body.</div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ============================================================
+       2 · Body states (loading / empty / error)
+       ============================================================ -->
+  <section>
+    <div class="section-tag">2 · Body states · what fills the .content-body</div>
+
+    <div class="frames frames-3">
+
+      <!-- Loading -->
+      <div class="frame">
+        <div class="frame-head"><span class="frame-title">Loading</span><span class="frame-tag">first paint</span></div>
+        <div class="mini-pane is-focused">
+          <div class="content-tabs">
+            <button class="content-tab is-on" data-ws="mail"><span class="label">Inbox</span></button>
+          </div>
+          <div class="content-body">
+            <div class="state-loading">
+              <div class="skel short"></div>
+              <div class="skel full"></div>
+              <div class="skel med"></div>
+              <div class="skel full"></div>
+              <div class="skel short"></div>
+              <div class="skel med"></div>
+            </div>
+          </div>
+        </div>
+        <div class="frame-note">Skeleton bars use existing tokens — gradient between `--bg-raised` and `--bg-sunken`. 1.6s shimmer. Not used for &lt;200ms loads.</div>
+      </div>
+
+      <!-- Empty -->
+      <div class="frame">
+        <div class="frame-head"><span class="frame-title">Empty</span><span class="frame-tag">zero state</span></div>
+        <div class="mini-pane is-focused">
+          <div class="content-tabs">
+            <button class="content-tab is-on" data-ws="mail"><span class="label">Triage</span></button>
+          </div>
+          <div class="content-body">
+            <div class="state-empty">
+              <div class="ring">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><polyline points="20 6 9 17 4 12"/></svg>
+              </div>
+              <div class="state-empty-title">Inbox zero.</div>
+              <div class="state-empty-body">Nothing to triage. Last cleared 14:02 today — Valentim's catalog reply.</div>
+            </div>
+          </div>
+        </div>
+        <div class="frame-note">Empty isn't an error. Concrete copy that names the last meaningful event — "Inbox zero, last cleared at 14:02" — beats a generic icon-only "all caught up."</div>
+      </div>
+
+      <!-- Error -->
+      <div class="frame">
+        <div class="frame-head"><span class="frame-title">Error</span><span class="frame-tag">recoverable</span></div>
+        <div class="mini-pane is-focused">
+          <div class="content-tabs">
+            <button class="content-tab is-on" data-ws="agents"><span class="label">Cron</span></button>
+          </div>
+          <div class="content-body">
+            <div class="state-error">
+              <div class="state-error-head">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12" y2="16"/></svg>
+                <span>Failed to load agent_runs</span>
+              </div>
+              <div class="state-error-body">Supabase returned 503 (3 retries). Last successful fetch 4m ago. Local SQLite cache still available.</div>
+              <div class="state-error-foot">
+                <button class="btn btn-sm">Retry</button>
+                <button class="btn btn-sm">Use cache</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="frame-note">Error tints the body with `--danger` at 6%, never replaces it. Always says <em>what failed</em>, <em>what's still available</em>, and gives ≥1 action. No bare "Try again."</div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ============================================================
+       3 · Tab variants
+       ============================================================ -->
+  <section>
+    <div class="section-tag">3 · Tab variants · hover, active, pinned, dirty, count, dragging</div>
+
+    <div class="tabstrip-showcase">
+      <div class="content-tabs tabstrip-ws-mixed">
+        <!-- Pinned (icon-only) -->
+        <button class="content-tab pinned-only is-on" data-ws="mail" title="Inbox · pinned"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7l9 6 9-6"/><rect x="3" y="5" width="18" height="14" rx="2"/></svg></button>
+        <button class="content-tab pinned-only" data-ws="agents" title="Chat · pinned"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></button>
+
+        <!-- Hover -->
+        <button class="content-tab show-hover" data-ws="mail"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><polygon points="4 5 20 5 14 12 14 19 10 19 10 12"/></svg><span class="label">Triage</span><span class="close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="6" y1="6" x2="18" y2="18"/><line x1="6" y1="18" x2="18" y2="6"/></svg></span></button>
+
+        <!-- Active + count -->
+        <button class="content-tab is-on" data-ws="outbox"><span class="label">Drafts</span><span class="tab-count">3</span><span class="close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="6" y1="6" x2="18" y2="18"/><line x1="6" y1="18" x2="18" y2="6"/></svg></span></button>
+
+        <!-- Dirty -->
+        <button class="content-tab is-dirty" data-ws="outbox"><span class="label">Reply · Valentim</span><span class="dirty-dot"></span></button>
+
+        <!-- Idle -->
+        <button class="content-tab" data-ws="agents"><span class="label">Tasks</span><span class="close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="6" y1="6" x2="18" y2="18"/><line x1="6" y1="18" x2="18" y2="6"/></svg></span></button>
+
+        <!-- Dragging slot (the "tab being lifted") -->
+        <button class="content-tab show-dragging-slot" data-ws="sessions"><span class="label">Sessions</span></button>
+
+        <span class="content-tabs-actions">
+          <button class="btn-icon" title="New tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg></button>
+          <span class="pane-actions-divider" aria-hidden="true"></span>
+          <button class="btn-icon" title="Refresh pane"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><polyline points="21 3 21 8 16 8"/></svg></button>
+          <button class="btn-icon" title="Split right (⌘\)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 3v18"/></svg></button>
+          <button class="btn-icon" title="Split down (⌘⇧\)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 12h18"/></svg></button>
+          <button class="btn-icon" title="Close pane" data-danger><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="6" y1="6" x2="18" y2="18"/><line x1="6" y1="18" x2="18" y2="6"/></svg></button>
+        </span>
+      </div>
+      <div class="tabstrip-row">
+        <span><strong>Pinned</strong> — icon-only, 28px square, achievement-tinted on hover</span>
+        <span><strong>Hover</strong> — `--bg-raised`, faint fg → muted</span>
+        <span><strong>Active</strong> — 2px bottom border in tab's own workspace tint, surface bg, count badge inverts to primary-soft</span>
+        <span><strong>Dirty</strong> — replaces close-X with 8px achievement dot</span>
+        <span><strong>Dragging slot</strong> — striped placeholder where the lifted tab used to sit</span>
+      </div>
+    </div>
+
+    <div class="frames frames-3" style="margin-top: var(--space-6);">
+      <!-- Drag ghost demo -->
+      <div class="frame">
+        <div class="frame-head"><span class="frame-title">Dragged tab · pointer ghost</span><span class="frame-tag">cursor follow</span></div>
+        <div style="padding: var(--space-6) var(--space-4); background: var(--bg-base); border: 1px solid var(--border-soft); border-radius: var(--radius-md); display: grid; place-items: center; height: 140px;">
+          <span class="drag-ghost">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7l9 6 9-6"/><rect x="3" y="5" width="18" height="14" rx="2"/></svg>
+            <span>Inbox</span>
+          </span>
+        </div>
+        <div class="frame-note">Floats with the cursor at 50% opacity in real use; rotated 1° for "this isn't placed yet." Bordered with `--primary` so the eye can find it on dark backgrounds.</div>
+      </div>
+
+      <!-- New-tab "+" hint -->
+      <div class="frame">
+        <div class="frame-head"><span class="frame-title">"+" affordance</span><span class="frame-tag">end of strip</span></div>
+        <div style="padding: var(--space-3); background: var(--bg-base); border: 1px solid var(--border-soft); border-radius: var(--radius-md); height: 140px; display: grid; align-items: center;">
+          <div class="content-tabs tabstrip-ws-mixed" style="border:0; background:var(--bg-sunken); border-radius: var(--radius-sm);">
+            <button class="content-tab is-on" data-ws="mail"><span class="label">Inbox</span></button>
+            <button class="content-tab" data-ws="agents"><span class="label">Tasks</span></button>
+            <span class="content-tabs-actions">
+              <button class="btn-icon" title="New tab" style="background: var(--primary-soft); color: var(--primary);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg></button>
+            </span>
+          </div>
+        </div>
+        <div class="frame-note">Always pinned at the right edge of the strip. Hover state tints with `--primary-soft` (shown). Activates the menu in section 6.</div>
+      </div>
+
+      <!-- Tab order rules -->
+      <div class="frame">
+        <div class="frame-head"><span class="frame-title">Order rules</span><span class="frame-tag">left → right</span></div>
+        <div style="padding: var(--space-4); background: var(--bg-base); border: 1px solid var(--border-soft); border-radius: var(--radius-md); height: 140px; font-size: 12px; color: var(--fg-muted); line-height: 1.7;">
+          <div><span style="color:var(--fg);font-family:var(--font-mono);font-size:10.5px;letter-spacing:.06em;">1.</span> Pinned tabs cluster left, drag-locked between each other.</div>
+          <div><span style="color:var(--fg);font-family:var(--font-mono);font-size:10.5px;letter-spacing:.06em;">2.</span> Open tabs follow, draggable between themselves.</div>
+          <div><span style="color:var(--fg);font-family:var(--font-mono);font-size:10.5px;letter-spacing:.06em;">3.</span> Drag a normal tab onto a pinned tab → no swap, snaps back.</div>
+          <div><span style="color:var(--fg);font-family:var(--font-mono);font-size:10.5px;letter-spacing:.06em;">4.</span> Drop on "+" zone = open new tab to the right.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       3c · Pane action cluster · refresh / split / close
+       ============================================================ -->
+  <section>
+    <div class="section-tag">3c · Pane action cluster · refresh + split + close</div>
+
+    <p class="lede" style="font-size: var(--text-body-sm); margin-bottom: var(--space-4);">
+      Sitting flush against the right edge of every tab strip, after the <strong>"+"</strong> New-tab affordance,
+      is a cluster of pane-level actions: <strong>refresh</strong>, <strong>split right</strong>, <strong>split down</strong>, and <strong>close</strong>.
+      A 1px hairline divider separates the additive <strong>"+"</strong> (creates a new tab) from these structural/destructive
+      actions (operate on the whole pane). One-to-one with <code>src/shell/panes/pane-toolbar.tsx</code> — the design and
+      the implementation share the same affordances, icons, and shortcuts.
+    </p>
+
+    <div class="legend">
+      <span class="legend-item"><strong>Refresh</strong> — re-mounts the active view (forces query refetch + remounts iframes)</span>
+      <span class="legend-item"><strong>Split right (⌘\)</strong> · <strong>Split down (⌘⇧\)</strong> — disabled when leaf-count = 6 (max)</span>
+      <span class="legend-item"><strong>Close pane (⌘W on single-tab)</strong> — disabled on the last remaining leaf · hover tints with <code>--danger</code></span>
+    </div>
+
+    <div class="frames frames-3">
+
+      <!-- All actions visible -->
+      <div class="frame">
+        <div class="frame-head"><span class="frame-title">Default cluster</span><span class="frame-tag">all enabled</span></div>
+        <div class="mini-pane is-focused">
+          <div class="content-tabs tabstrip-ws-mixed">
+            <button class="content-tab is-on" data-ws="mail"><span class="label">Inbox</span></button>
+            <button class="content-tab" data-ws="agents"><span class="label">Tasks</span></button>
+            <span class="content-tabs-actions">
+              <button class="btn-icon" title="New tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg></button>
+              <span class="pane-actions-divider" aria-hidden="true"></span>
+              <button class="btn-icon" title="Refresh pane"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><polyline points="21 3 21 8 16 8"/></svg></button>
+              <button class="btn-icon" title="Split right (⌘\)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 3v18"/></svg></button>
+              <button class="btn-icon" title="Split down (⌘⇧\)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 12h18"/></svg></button>
+              <button class="btn-icon" title="Close pane" data-danger><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="6" y1="6" x2="18" y2="18"/><line x1="6" y1="18" x2="18" y2="6"/></svg></button>
+            </span>
+          </div>
+          <div class="content-body">
+            <div class="mock-list">
+              <div class="mock-row"><span class="mock-row-dot"></span><span class="mock-row-text">Re: Catalog import</span><span class="mock-row-meta">14:02</span></div>
+              <div class="mock-row"><span class="mock-row-dot dim"></span><span class="mock-row-text">Stripe · April · $499</span><span class="mock-row-meta">11:48</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="frame-note">Standard chrome. Reading left → right: tabs · "+" new-tab · hairline · refresh · split-right · split-down · close. The hairline is the seam between "create" and "alter/destroy" intent.</div>
+      </div>
+
+      <!-- Split limit reached -->
+      <div class="frame">
+        <div class="frame-head"><span class="frame-title">Split limit reached</span><span class="frame-tag">6 leaves</span></div>
+        <div class="mini-pane is-focused">
+          <div class="content-tabs tabstrip-ws-mixed">
+            <button class="content-tab is-on" data-ws="outbox"><span class="label">Drafts</span></button>
+            <span class="content-tabs-actions">
+              <button class="btn-icon" title="New tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg></button>
+              <span class="pane-actions-divider" aria-hidden="true"></span>
+              <button class="btn-icon" title="Refresh pane"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><polyline points="21 3 21 8 16 8"/></svg></button>
+              <button class="btn-icon" title="Max 6 panes" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 3v18"/></svg></button>
+              <button class="btn-icon" title="Max 6 panes" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 12h18"/></svg></button>
+              <button class="btn-icon" title="Close pane" data-danger><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="6" y1="6" x2="18" y2="18"/><line x1="6" y1="18" x2="18" y2="6"/></svg></button>
+            </span>
+          </div>
+          <div class="content-body">
+            <div class="state-empty">
+              <div class="ring"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="12" y1="3" x2="12" y2="21"/></svg></div>
+              <div class="state-empty-title">Six leaves open.</div>
+              <div class="state-empty-body">Close a pane before splitting again — the layout grid caps at 6 to keep tab targets thumb-sized on 13" screens.</div>
+            </div>
+          </div>
+        </div>
+        <div class="frame-note">Both split buttons go to 35% opacity, lose hover affordance, and swap their tooltip to "Max 6 panes." Matches <code>canSplit()</code> in <code>pane-store.ts</code>.</div>
+      </div>
+
+      <!-- Last leaf -->
+      <div class="frame">
+        <div class="frame-head"><span class="frame-title">Last leaf</span><span class="frame-tag">close blocked</span></div>
+        <div class="mini-pane is-focused">
+          <div class="content-tabs tabstrip-ws-mixed">
+            <button class="content-tab is-on" data-ws="mail"><span class="label">Inbox</span></button>
+            <span class="content-tabs-actions">
+              <button class="btn-icon" title="New tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg></button>
+              <span class="pane-actions-divider" aria-hidden="true"></span>
+              <button class="btn-icon" title="Refresh pane"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><polyline points="21 3 21 8 16 8"/></svg></button>
+              <button class="btn-icon" title="Split right (⌘\)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 3v18"/></svg></button>
+              <button class="btn-icon" title="Split down (⌘⇧\)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 12h18"/></svg></button>
+              <button class="btn-icon" title="Cannot close last pane" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="6" y1="6" x2="18" y2="18"/><line x1="6" y1="18" x2="18" y2="6"/></svg></button>
+            </span>
+          </div>
+          <div class="content-body">
+            <div class="mock-list">
+              <div class="mock-row"><span class="mock-row-dot"></span><span class="mock-row-text">Re: Catalog import</span><span class="mock-row-meta">14:02</span></div>
+              <div class="mock-row"><span class="mock-row-dot dim"></span><span class="mock-row-text">LIRS · PAYE Reminder</span><span class="mock-row-meta">09:22</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="frame-note">When <code>leafCount &lt;= 1</code>, close goes disabled — the pane tree must always have at least one leaf. Tabs themselves can still be closed individually until one remains.</div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ============================================================
+       3b · Workspace tint · per-tab classification
+       ============================================================ -->
+  <section>
+    <div class="section-tag">3b · Workspace tint · per-tab classification rule</div>
+
+    <p class="lede" style="font-size: var(--text-body-sm); margin-bottom: var(--space-4);">Each tab declares its workspace via <code>data-ws</code>. In <strong>workspace-mixed</strong> strips, inactive tabs render a 1px hairline at ~22% workspace-tint alpha; the active tab's bottom-border picks up its own workspace colour rather than the pane's. <strong>Single-workspace</strong> strips suppress the hairline — the pane focus accent already announces the workspace, so identical hairlines would just be noise. Pinned icon-only tabs skip the hairline (already self-identifying). Caller opts in by adding <code>.tabstrip-ws-mixed</code> to <code>.content-tabs</code>.</p>
+
+    <div class="legend">
+      <span class="legend-item">Inactive · 1px hairline at ~22% alpha · hover bumps to ~55%</span>
+      <span class="legend-item">Active · 2px solid in own workspace tint · always wins focus</span>
+      <span class="legend-item">Pinned icon-only · no hairline (icon already classifies)</span>
+    </div>
+
+    <div class="frames frames-3">
+
+      <!-- Mixed strip · default behaviour -->
+      <div class="frame">
+        <div class="frame-head">
+          <span class="frame-title">Mixed strip</span>
+          <span class="frame-tag">.tabstrip-ws-mixed</span>
+        </div>
+        <div class="mini-pane is-focused">
+          <div class="content-tabs tabstrip-ws-mixed">
+            <button class="content-tab is-on" data-ws="mail"><span class="label">Inbox</span></button>
+            <button class="content-tab" data-ws="mail"><span class="label">Triage</span></button>
+            <button class="content-tab" data-ws="outbox"><span class="label">Drafts</span><span class="tab-count">3</span></button>
+            <button class="content-tab" data-ws="agents"><span class="label">Tasks</span></button>
+            <button class="content-tab" data-ws="files"><span class="label">Finance</span></button>
+          </div>
+          <div class="content-body">
+            <div class="mock-list">
+              <div class="mock-row"><span class="mock-row-dot"></span><span class="mock-row-text">Re: Catalog import</span><span class="mock-row-meta">14:02</span></div>
+              <div class="mock-row"><span class="mock-row-dot dim"></span><span class="mock-row-text">Stripe · April · $499</span><span class="mock-row-meta">11:48</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="frame-note">Five tabs across four workspaces. Hairlines let you read the strip's typology in peripheral vision. Active tab wins via 2px solid line + bg-surface lift.</div>
+      </div>
+
+      <!-- Single-workspace: hairlines suppressed -->
+      <div class="frame">
+        <div class="frame-head">
+          <span class="frame-title">Single-workspace strip</span>
+          <span class="frame-tag">no opt-in needed</span>
+        </div>
+        <div class="mini-pane is-focused">
+          <div class="content-tabs">
+            <button class="content-tab is-on" data-ws="mail"><span class="label">Inbox</span></button>
+            <button class="content-tab" data-ws="mail"><span class="label">Triage</span></button>
+            <button class="content-tab" data-ws="mail"><span class="label">Drafts</span></button>
+            <button class="content-tab" data-ws="mail"><span class="label">All mail</span></button>
+          </div>
+          <div class="content-body">
+            <div class="mock-list">
+              <div class="mock-row"><span class="mock-row-dot"></span><span class="mock-row-text">Re: Catalog import</span><span class="mock-row-meta">14:02</span></div>
+              <div class="mock-row"><span class="mock-row-dot dim"></span><span class="mock-row-text">LIRS · PAYE Reminder</span><span class="mock-row-meta">09:22</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="frame-note">All tabs share one workspace — caller doesn't add <code>.tabstrip-ws-mixed</code>. The pane focus accent already says "this is a Mail pane"; identical hairlines would just restate it.</div>
+      </div>
+
+      <!-- Hover preview -->
+      <div class="frame">
+        <div class="frame-head">
+          <span class="frame-title">Hover preview</span>
+          <span class="frame-tag">~55% alpha</span>
+        </div>
+        <div class="mini-pane is-focused">
+          <div class="content-tabs tabstrip-ws-mixed">
+            <button class="content-tab is-on" data-ws="mail"><span class="label">Inbox</span></button>
+            <button class="content-tab show-ws-hover" data-ws="outbox"><span class="label">Drafts</span></button>
+            <button class="content-tab" data-ws="agents"><span class="label">Tasks</span></button>
+            <button class="content-tab" data-ws="files"><span class="label">Finance</span></button>
+          </div>
+          <div class="content-body">
+            <div class="mock-list">
+              <div class="mock-row"><span class="mock-row-dot"></span><span class="mock-row-text">Re: Catalog import</span><span class="mock-row-meta">14:02</span></div>
+              <div class="mock-row"><span class="mock-row-dot dim"></span><span class="mock-row-text">Stripe · April · $499</span><span class="mock-row-meta">11:48</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="frame-note">On hover, the inactive hairline bumps from ~22% to ~55% — the workspace tint previews "where this tab lives" before you click. Drafts (Outbox · rust) shown here as the hover target.</div>
+      </div>
+
+    </div>
+
+    <!-- Overflow showcase: where the rule earns the most -->
+    <div class="frames frames-1" style="margin-top: var(--space-6);">
+      <div class="frame">
+        <div class="frame-head">
+          <span class="frame-title">Overflow strip · where it earns the most</span>
+          <span class="frame-tag">12 tabs · 5 workspaces</span>
+        </div>
+        <div class="overflow-frame" data-scroll="start" data-overflow-frame>
+          <div class="content-tabs tabstrip-ws-mixed">
+            <span class="pinned-cluster">
+              <button class="content-tab pinned-only is-on" data-ws="mail" title="Inbox · pinned"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7l9 6 9-6"/><rect x="3" y="5" width="18" height="14" rx="2"/></svg></button>
+              <button class="content-tab pinned-only" data-ws="agents" title="Chat · pinned"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></button>
+            </span>
+            <button class="content-tab" data-ws="mail"><span class="label">Triage</span></button>
+            <button class="content-tab" data-ws="outbox"><span class="label">Drafts</span><span class="tab-count">3</span></button>
+            <button class="content-tab" data-ws="mail"><span class="label">All mail</span></button>
+            <button class="content-tab" data-ws="agents"><span class="label">Tasks</span></button>
+            <button class="content-tab" data-ws="agents"><span class="label">Cron</span></button>
+            <button class="content-tab" data-ws="agents"><span class="label">Agent runs</span></button>
+            <button class="content-tab" data-ws="sessions"><span class="label">Sessions</span></button>
+            <button class="content-tab" data-ws="outbox"><span class="label">Reply · Valentim</span></button>
+            <button class="content-tab" data-ws="outbox"><span class="label">Newsletter · April</span></button>
+            <button class="content-tab" data-ws="files"><span class="label">Finance</span></button>
+            <span class="content-tabs-actions">
+              <button class="btn-icon" title="New tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg></button>
+            </span>
+          </div>
+          <div class="content-body">
+            <div class="mock-list">
+              <div class="mock-row"><span class="mock-row-dot"></span><span class="mock-row-text">Re: Catalog import</span><span class="mock-row-meta">14:02</span></div>
+              <div class="mock-row"><span class="mock-row-dot dim"></span><span class="mock-row-text">Stripe · Subscription renewed</span><span class="mock-row-meta">11:48</span></div>
+              <div class="mock-row"><span class="mock-row-dot dim"></span><span class="mock-row-text">LIRS · PAYE Reminder</span><span class="mock-row-meta">09:22</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="frame-note">12 tabs across 5 workspaces — the rule's highest-payoff scenario. You can group-find without reading labels: "the rust ones are Outbox, the gold ones are Mail, the orange one is Sessions." Especially valuable when labels truncate at narrow widths. The same demo with three scroll positions appears in section 4.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       4 · Overflow scroll (too many tabs to fit)
+       ============================================================ -->
+  <section>
+    <div class="section-tag">4 · Overflow scroll · pinned cluster + scrollable middle + sticky actions</div>
+
+    <div class="legend">
+      <span class="legend-item">Pinned tabs anchor left · "+" actions anchor right · the middle scrolls</span>
+      <span class="legend-item">Edge fade gradients indicate "more tabs that way" — disappear at the boundary</span>
+      <span class="legend-item">Active tab auto-scrolls into view · workspace hairlines (rule 3b) help group-find</span>
+    </div>
+
+    <div class="frames frames-3">
+
+      <!-- At start -->
+      <div class="frame">
+        <div class="frame-head">
+          <span class="frame-title">Scrolled to start</span>
+          <span class="frame-tag">no left fade</span>
+        </div>
+        <div class="overflow-frame" data-scroll="start" data-overflow-frame>
+          <div class="content-tabs tabstrip-ws-mixed">
+            <span class="pinned-cluster">
+              <button class="content-tab pinned-only is-on" data-ws="mail" title="Inbox · pinned"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7l9 6 9-6"/><rect x="3" y="5" width="18" height="14" rx="2"/></svg></button>
+              <button class="content-tab pinned-only" data-ws="agents" title="Chat · pinned"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></button>
+            </span>
+            <button class="content-tab" data-ws="mail"><span class="label">Triage</span></button>
+            <button class="content-tab" data-ws="outbox"><span class="label">Drafts</span><span class="tab-count">3</span></button>
+            <button class="content-tab" data-ws="mail"><span class="label">All mail</span></button>
+            <button class="content-tab" data-ws="agents"><span class="label">Tasks</span></button>
+            <button class="content-tab" data-ws="agents"><span class="label">Cron</span></button>
+            <button class="content-tab" data-ws="agents"><span class="label">Agent runs</span></button>
+            <button class="content-tab" data-ws="sessions"><span class="label">Sessions</span></button>
+            <button class="content-tab" data-ws="outbox"><span class="label">Reply · Valentim</span></button>
+            <button class="content-tab" data-ws="outbox"><span class="label">Newsletter · April</span></button>
+            <button class="content-tab" data-ws="files"><span class="label">Finance</span></button>
+            <span class="content-tabs-actions">
+              <button class="btn-icon" title="New tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg></button>
+            </span>
+          </div>
+          <div class="content-body">
+            <div class="mock-list">
+              <div class="mock-row"><span class="mock-row-dot"></span><span class="mock-row-text">Re: Catalog import</span><span class="mock-row-meta">14:02</span></div>
+              <div class="mock-row"><span class="mock-row-dot dim"></span><span class="mock-row-text">Stripe · Subscription renewed</span><span class="mock-row-meta">11:48</span></div>
+              <div class="mock-row"><span class="mock-row-dot dim"></span><span class="mock-row-text">LIRS · PAYE Reminder</span><span class="mock-row-meta">09:22</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="frame-note">12 tabs in a 360px-wide leaf. Two pinned (Mail + Chat) lock to the left. Right fade signals "more tabs that way." Active tab is the first non-pinned, fully visible — no auto-scroll needed.</div>
+      </div>
+
+      <!-- In middle -->
+      <div class="frame">
+        <div class="frame-head">
+          <span class="frame-title">Scrolled mid-strip</span>
+          <span class="frame-tag">both fades</span>
+        </div>
+        <div class="overflow-frame" data-scroll="middle" data-overflow-frame>
+          <div class="content-tabs tabstrip-ws-mixed">
+            <span class="pinned-cluster">
+              <button class="content-tab pinned-only" data-ws="mail" title="Inbox · pinned"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7l9 6 9-6"/><rect x="3" y="5" width="18" height="14" rx="2"/></svg></button>
+              <button class="content-tab pinned-only" data-ws="agents" title="Chat · pinned"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></button>
+            </span>
+            <button class="content-tab" data-ws="mail"><span class="label">Triage</span></button>
+            <button class="content-tab" data-ws="outbox"><span class="label">Drafts</span><span class="tab-count">3</span></button>
+            <button class="content-tab" data-ws="mail"><span class="label">All mail</span></button>
+            <button class="content-tab is-on" data-ws="agents"><span class="label">Tasks</span><span class="tab-count">8</span></button>
+            <button class="content-tab" data-ws="agents"><span class="label">Cron</span></button>
+            <button class="content-tab" data-ws="agents"><span class="label">Agent runs</span></button>
+            <button class="content-tab" data-ws="sessions"><span class="label">Sessions</span></button>
+            <button class="content-tab" data-ws="outbox"><span class="label">Reply · Valentim</span></button>
+            <button class="content-tab" data-ws="outbox"><span class="label">Newsletter · April</span></button>
+            <button class="content-tab" data-ws="files"><span class="label">Finance</span></button>
+            <span class="content-tabs-actions">
+              <button class="btn-icon" title="New tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg></button>
+            </span>
+          </div>
+          <div class="content-body">
+            <div class="mock-list">
+              <div class="mock-row"><span class="mock-row-dot"></span><span class="mock-row-text">Reply to Valentim — catalog files</span><span class="mock-row-meta">today</span></div>
+              <div class="mock-row"><span class="mock-row-dot dim"></span><span class="mock-row-text">Tenant 590 v_sales_data patch</span><span class="mock-row-meta">today</span></div>
+              <div class="mock-row"><span class="mock-row-dot dim"></span><span class="mock-row-text">L5 winback April analysis</span><span class="mock-row-meta">today</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="frame-note">User clicked Tasks — strip auto-scrolled to keep it in view. Pinned cluster still anchored left, both edge fades active because there's content beyond both sides.</div>
+      </div>
+
+      <!-- At end -->
+      <div class="frame">
+        <div class="frame-head">
+          <span class="frame-title">Scrolled to end</span>
+          <span class="frame-tag">no right fade</span>
+        </div>
+        <div class="overflow-frame" data-scroll="end" data-overflow-frame>
+          <div class="content-tabs tabstrip-ws-mixed">
+            <span class="pinned-cluster">
+              <button class="content-tab pinned-only" data-ws="mail" title="Inbox · pinned"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7l9 6 9-6"/><rect x="3" y="5" width="18" height="14" rx="2"/></svg></button>
+              <button class="content-tab pinned-only" data-ws="agents" title="Chat · pinned"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></button>
+            </span>
+            <button class="content-tab" data-ws="mail"><span class="label">Triage</span></button>
+            <button class="content-tab" data-ws="outbox"><span class="label">Drafts</span><span class="tab-count">3</span></button>
+            <button class="content-tab" data-ws="mail"><span class="label">All mail</span></button>
+            <button class="content-tab" data-ws="agents"><span class="label">Tasks</span></button>
+            <button class="content-tab" data-ws="agents"><span class="label">Cron</span></button>
+            <button class="content-tab" data-ws="agents"><span class="label">Agent runs</span></button>
+            <button class="content-tab" data-ws="sessions"><span class="label">Sessions</span></button>
+            <button class="content-tab" data-ws="outbox"><span class="label">Reply · Valentim</span></button>
+            <button class="content-tab" data-ws="outbox"><span class="label">Newsletter · April</span></button>
+            <button class="content-tab is-on" data-ws="files"><span class="label">Finance</span></button>
+            <span class="content-tabs-actions">
+              <button class="btn-icon" title="New tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg></button>
+            </span>
+          </div>
+          <div class="content-body">
+            <div class="mock-list">
+              <div class="mock-row"><span class="mock-row-dot dim"></span><span class="mock-row-text">Stripe · April · $499 · royalti.io</span><span class="mock-row-meta">11:48</span></div>
+              <div class="mock-row"><span class="mock-row-dot dim"></span><span class="mock-row-text">Verto · April statement · ₦5,420,300</span><span class="mock-row-meta">Mon</span></div>
+              <div class="mock-row"><span class="mock-row-dot dim"></span><span class="mock-row-text">Inter-co · Dixtrit · ₦450,000 in</span><span class="mock-row-meta">Tue</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="frame-note">Last tab open. Strip is scrolled to its rightmost position — left fade visible, right fade hidden. "+" actions still pinned to the right, sitting flush against the last tab.</div>
+      </div>
+
+    </div>
+
+    <p class="lede" style="margin-top: var(--space-5); font-size: var(--text-body-sm);">No scroll buttons. The middle of the strip is mouse-wheel + trackpad-scrollable; the strip auto-scrolls to keep the active tab in view (browser convention). If a leaf gets so narrow that even pinned tabs overflow, an overflow menu collects the spillover — that's a Batch 3 detail, not designed here.</p>
+  </section>
+
+  <!-- ============================================================
+       5 · Drop zones
+       ============================================================ -->
+  <section>
+    <div class="section-tag">5 · Drop zones · 5-cell split overlay</div>
+
+    <div class="frames">
+      <div class="frame">
+        <div class="frame-head"><span class="frame-title">Drop overlay · idle hover</span><span class="frame-tag">no target</span></div>
+        <div class="drop-frame">
+          <div class="content-tabs tabstrip-ws-mixed">
+            <button class="content-tab is-on" data-ws="mail"><span class="label">Inbox</span></button>
+            <button class="content-tab show-dragging-slot" data-ws="agents"><span class="label">Tasks</span></button>
+          </div>
+          <div class="drop-overlay is-on">
+            <div class="drop-zone drop-zone-top">split top</div>
+            <div class="drop-zone drop-zone-left">split left</div>
+            <div class="drop-zone drop-zone-center">add tab</div>
+            <div class="drop-zone drop-zone-right">split right</div>
+            <div class="drop-zone drop-zone-bottom">split bottom</div>
+          </div>
+        </div>
+        <div class="frame-note">All five cells visible at 10% primary fill while a tab is being dragged. The center cell is transparent — drop here to add as a tab in this leaf.</div>
+      </div>
+
+      <div class="frame">
+        <div class="frame-head"><span class="frame-title">Drop overlay · target right</span><span class="frame-tag">would split</span></div>
+        <div class="drop-frame">
+          <div class="content-tabs tabstrip-ws-mixed">
+            <button class="content-tab is-on" data-ws="mail"><span class="label">Inbox</span></button>
+            <button class="content-tab show-dragging-slot" data-ws="agents"><span class="label">Tasks</span></button>
+          </div>
+          <div class="drop-overlay is-on">
+            <div class="drop-zone drop-zone-top">split top</div>
+            <div class="drop-zone drop-zone-left">split left</div>
+            <div class="drop-zone drop-zone-center">add tab</div>
+            <div class="drop-zone drop-zone-right is-target">split right</div>
+            <div class="drop-zone drop-zone-bottom">split bottom</div>
+          </div>
+        </div>
+        <div class="frame-note">Hovering a cell raises its fill to 22% and switches the dashed border to solid `--primary`. Drop creates a horizontal split with the dropped tab on the right.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       6 · New-tab "+" menu
+       ============================================================ -->
+  <section>
+    <div class="section-tag">6 · New-tab menu · cmdk popover</div>
+
+    <div class="frames frames-1">
+      <div class="frame">
+        <div class="frame-head"><span class="frame-title">Anchored to the "+" button</span><span class="frame-tag">⌘T also opens this</span></div>
+        <div class="menu-stage">
+          <div class="menu-stage-tabs">
+            <div class="content-tabs tabstrip-ws-mixed">
+              <button class="content-tab is-on" data-ws="mail" style="height:38px;"><span class="label">Inbox</span></button>
+              <button class="content-tab" data-ws="agents" style="height:38px;"><span class="label">Tasks</span></button>
+              <span class="content-tabs-actions" id="plus-anchor">
+                <button class="btn-icon" title="New tab" style="background: var(--primary-soft); color: var(--primary);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg></button>
+              </span>
+            </div>
+          </div>
+
+          <!-- Dashed line from "+" down to menu top-right -->
+          <div class="menu-stage-anchor-line" style="top: 38px; right: 24px; height: 16px;"></div>
+
+          <div class="new-tab-menu" style="top: 56px; right: 12px;">
+            <div class="new-tab-menu-input">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.5" y2="16.5"/></svg>
+              <input value="term" placeholder="Open…" />
+              <kbd>esc</kbd>
+            </div>
+            <div class="new-tab-menu-list">
+              <div class="new-tab-menu-group-label">Pane type</div>
+              <div class="new-tab-menu-item is-on">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+                <span class="label">Terminal (bash)</span>
+                <kbd>⌘T</kbd>
+              </div>
+              <div class="new-tab-menu-item">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+                <span class="label">Claude terminal</span>
+                <kbd>⌘⇧T</kbd>
+              </div>
+              <div class="new-tab-menu-item">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                <span class="label">New Chat</span>
+                <span class="detail">opens dialog</span>
+              </div>
+
+              <div class="new-tab-menu-group-label">Routes</div>
+              <div class="new-tab-menu-item">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7l9 6 9-6"/><rect x="3" y="5" width="18" height="14" rx="2"/></svg>
+                <span class="label">Mail · Inbox</span>
+                <span class="detail">/mail/inbox</span>
+              </div>
+              <div class="new-tab-menu-item">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><polygon points="4 5 20 5 14 12 14 19 10 19 10 12"/></svg>
+                <span class="label">Mail · Triage</span>
+                <span class="detail">/mail/triage</span>
+              </div>
+              <div class="new-tab-menu-item">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><polyline points="3 17 9 11 13 15 21 7"/></svg>
+                <span class="label">Tasks</span>
+                <span class="detail">/tasks</span>
+              </div>
+
+              <div class="new-tab-menu-group-label">Mini-apps</div>
+              <div class="new-tab-menu-item">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="5" width="18" height="14" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                <span class="label">Storyboard</span>
+                <span class="detail">Studio</span>
+              </div>
+            </div>
+            <div class="new-tab-menu-foot">
+              <span><kbd>↑↓</kbd> navigate</span>
+              <span><kbd>↵</kbd> open</span>
+              <span style="margin-left:auto;">⌘T also opens this menu</span>
+            </div>
+          </div>
+        </div>
+        <div class="frame-note">Same behavior as <code>src/shell/panes/new-tab-menu.tsx</code> — cmdk-driven, fuzzy search, four groups (Pane type / Routes / Mini-apps / Files). The popover anchors below-and-left of "+" so it doesn't overflow the right edge of narrow leaves.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       Footer
+       ============================================================ -->
+  <footer>
+    <span>Ikenga · Ikenga · Rung 3 · Screen 02 — Pane anatomy · 2026-05-03</span>
+    <span><a href="./01-inbox.html">← Inbox</a> · <a href="./03-pane-route.html">Pane · route view →</a> · <a href="./index.html">Index</a></span>
+  </footer>
+
+</div>
+
+<script src="../_shared/controls.js"></script>
+<script>
+  // Position the overflow demo strips so each shows the right scroll state.
+  // Re-runs on density change because tab-h shifts and so does scrollWidth.
+  function positionOverflowFrames() {
+    document.querySelectorAll('[data-overflow-frame]').forEach(function (frame) {
+      var strip = frame.querySelector('.content-tabs');
+      if (!strip) return;
+      var max = strip.scrollWidth - strip.clientWidth;
+      var state = frame.dataset.scroll;
+      if (state === 'start')       strip.scrollLeft = 0;
+      else if (state === 'middle') strip.scrollLeft = Math.max(0, Math.round(max / 2));
+      else if (state === 'end')    strip.scrollLeft = max;
+    });
+  }
+  positionOverflowFrames();
+  window.addEventListener('ikenga:change', positionOverflowFrames);
+  window.addEventListener('resize', positionOverflowFrames);
+</script>
+
+</body>
+</html>

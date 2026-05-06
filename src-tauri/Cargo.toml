@@ -1,0 +1,83 @@
+[package]
+name = "ikenga-desktop"
+version = "0.0.1"
+description = "PA Desktop — Tauri + xterm + portable-pty"
+authors = ["Ikenga"]
+edition = "2021"
+rust-version = "1.77"
+
+[lib]
+name = "ikenga_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-sql = { version = "2", features = ["sqlite"] }
+tauri-plugin-stronghold = "2"
+tauri-plugin-fs = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-os = "2"
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-clipboard-manager = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+portable-pty = "0.8"
+uuid = { version = "1", features = ["v4"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "net", "fs", "process", "io-util"] }
+dashmap = "6"
+shellexpand = "3"
+anyhow = "1"
+log = "0.4"
+axum = "0.7"
+tower-http = { version = "0.5", features = ["fs", "auth", "cors"] }
+tower = { version = "0.4", features = ["util"] }
+notify = "6"
+mime_guess = "2"
+glob = "0.3"
+trash = "5"
+hex = "0.4"
+rand = "0.8"
+keyring = "3"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
+# Synchronous HTTP client for the --screenshot CLI dispatch path. Runs before
+# the Tokio runtime exists, so reqwest/hyper would be overkill — ureq is
+# blocking and tiny. Localhost-only traffic, so we don't need TLS features.
+ureq = { version = "2", default-features = false, features = ["json"] }
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+# sqlx is used by tauri-plugin-sql under the hood; we depend on it directly
+# so db_query/db_exec can return JSON rows without bouncing through the plugin's
+# private internals. This is the cleanest path until tauri-plugin-sql exposes
+# its pool publicly. Keep features minimal.
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite", "json"] }
+# Used by render::process to parse Remotion CLI progress lines.
+regex = "1"
+# YAML frontmatter parsing for `.claude/agents/*.md`, `.claude/skills/*/SKILL.md`,
+# `.claude/commands/*.md`. Frontmatter has multi-line list values (skills-used,
+# allowed-tools) so a real YAML parser is required.
+serde_yaml = "0.9"
+# Cron scheduler for the pkg-kernel cron registry. Picked over a hand-rolled
+# tokio-interval loop so we get real cron-expression semantics (6-field with
+# seconds, used by smoke tests for `* * * * * *`).
+tokio-cron-scheduler = "0.13"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# Mac-only polish: window vibrancy + dock-tile badge for unread counts.
+# Verified-on-Mac is deferred to next-Mac-session per Phase 8 spec.
+window-vibrancy = "0.5"
+objc2 = "0.5"
+objc2-app-kit = { version = "0.2", features = ["NSApplication", "NSDockTile"] }
+objc2-foundation = { version = "0.2", features = ["NSString"] }
+
+[dev-dependencies]
+tempfile = "3"
+regex = "1"
+
+[features]
+# this feature is used for production builds or when a dev server is not specified, DO NOT REMOVE!!
+custom-protocol = ["tauri/custom-protocol"]

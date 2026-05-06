@@ -1,0 +1,31 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`bloom > snapshot: bloom outputs at frames 0,5,10,15,20 (startAt=0) 1`] = `
+[
+  0,
+  1.0893638123065892,
+  1.018656616072112,
+  0.9890516869179581,
+  1.002885056264305,
+]
+`;
+
+exports[`settle > snapshot: settle outputs at frames 0,5,10,15,20 (startAt=0) 1`] = `
+[
+  0,
+  0.48326197079792266,
+  0.8474168118078148,
+  0.965970675612253,
+  0.9942697559489602,
+]
+`;
+
+exports[`snap > snapshot: snap outputs at frames 0,5,10,15,20 (startAt=0) 1`] = `
+[
+  0,
+  0.6784752368544262,
+  1.0417636534031094,
+  1.031629799836953,
+  1.0005384179809678,
+]
+`;

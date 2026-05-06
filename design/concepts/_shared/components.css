@@ -1,0 +1,319 @@
+/* =================================================================
+   Ikenga · components.css — primitives shared across all design files
+   Locked spec: design/system/primitives.md
+   ================================================================= */
+
+/* === Sticky control bar (theme/mode/density picker) ============= */
+.controls {
+  position: sticky; top: 0; z-index: 100;
+  background: var(--bg-sunken);
+  border-bottom: 1px solid var(--border-soft);
+  backdrop-filter: blur(12px);
+  padding: var(--space-3) var(--space-12);
+  display: flex; align-items: center;
+  gap: var(--space-6); flex-wrap: wrap;
+}
+.control-group { display: flex; align-items: center; gap: var(--space-2); }
+.control-label {
+  font-family: var(--font-mono); font-size: 10.5px;
+  letter-spacing: .1em; text-transform: uppercase;
+  color: var(--fg-faint); margin-right: var(--space-1);
+}
+.seg {
+  display: inline-flex; background: var(--bg-base);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md); padding: 2px; gap: 2px;
+}
+.seg button, .seg a {
+  font-family: var(--font-body); font-size: 12px; font-weight: 500;
+  padding: 5px 10px; border-radius: var(--radius-sm);
+  border: 0; background: transparent; color: var(--fg-muted);
+  cursor: pointer; text-decoration: none;
+  display: inline-flex; align-items: center; gap: 6px;
+  transition: background var(--motion-fast) var(--ease-calm),
+              color var(--motion-fast) var(--ease-calm);
+}
+.seg button:hover, .seg a:hover { color: var(--fg); }
+.seg button.is-on, .seg a.is-on {
+  background: var(--bg-raised); color: var(--fg);
+  box-shadow: var(--shadow-1);
+}
+.seg-dot { width: 8px; height: 8px; border-radius: 50%; }
+
+/* === Screens dropdown (in controls bar) ======================== */
+.screens-dropdown { position: relative; display: inline-flex; }
+
+.screens-trigger {
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  font-family: var(--font-body); font-size: 12px; font-weight: 500;
+  height: 28px; padding: 0 10px;
+  background: var(--bg-base);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  color: var(--fg); cursor: pointer;
+  transition: border-color var(--motion-fast) var(--ease-calm),
+              background var(--motion-fast) var(--ease-calm);
+}
+.screens-trigger:hover { border-color: var(--fg-faint); }
+.screens-trigger:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.screens-trigger[aria-expanded="true"] {
+  border-color: var(--primary);
+  background: var(--bg-raised);
+}
+.screens-trigger svg {
+  width: 12px; height: 12px;
+  color: var(--fg-faint);
+  transition: transform var(--motion-fast) var(--ease-calm);
+}
+.screens-trigger[aria-expanded="true"] svg { transform: rotate(180deg); color: var(--primary); }
+
+.screens-menu {
+  position: absolute; top: calc(100% + 6px); right: 0;
+  z-index: 200;
+  min-width: 240px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-3);
+  padding: 4px;
+  display: grid; gap: 1px;
+}
+.screens-menu a {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  text-decoration: none;
+  color: var(--fg-muted);
+  font-size: var(--text-body-sm);
+  position: relative;
+  transition: background var(--motion-fast) var(--ease-calm),
+              color var(--motion-fast) var(--ease-calm);
+}
+.screens-menu a:hover { background: var(--bg-raised); color: var(--fg); }
+.screens-menu a.is-on {
+  background: var(--bg-raised);
+  color: var(--fg);
+}
+.screens-menu a.is-on::before {
+  content: '';
+  position: absolute; left: 2px; top: 8px; bottom: 8px;
+  width: 2px; border-radius: 2px;
+  background: var(--tint-fg-active, var(--primary));
+}
+.screens-menu-label { font-weight: 500; }
+.screens-menu-href {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--fg-faint);
+  letter-spacing: .04em;
+}
+
+/* === Page typography helpers =================================== */
+.eyebrow {
+  font-family: var(--font-mono); font-size: 11px;
+  letter-spacing: .14em; text-transform: uppercase;
+  color: var(--fg-faint); margin-bottom: var(--space-3);
+  display: flex; align-items: center; gap: var(--space-3);
+}
+.eyebrow-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--primary); }
+h1.title {
+  font-family: var(--font-display); font-weight: 500;
+  font-size: 64px; line-height: 1.04; letter-spacing: -.022em;
+  margin: 0 0 var(--space-4);
+}
+h1.title em { font-style: italic; font-weight: 400; color: var(--achievement); }
+.lede {
+  font-size: var(--text-body-lg); color: var(--fg-muted);
+  max-width: 64ch; margin: 0; line-height: 1.6;
+}
+.section-tag {
+  font-family: var(--font-mono); font-size: 11px;
+  letter-spacing: .16em; text-transform: uppercase;
+  color: var(--fg-faint);
+  display: flex; align-items: center; gap: var(--space-3);
+  margin-bottom: var(--space-5);
+}
+.section-tag::before { content: ''; width: 24px; height: 1px; background: var(--border); }
+.section-tag::after { content: ''; flex: 1; height: 1px; background: var(--border-soft); }
+
+/* === Button (page/action buttons) ============================== */
+.btn {
+  font-family: var(--font-body);
+  font-size: var(--text-body-sm); font-weight: 500;
+  padding: 0 var(--space-3); height: var(--btn-h);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--bg-surface); color: var(--fg);
+  cursor: pointer; white-space: nowrap;
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  transition: background var(--motion-fast) var(--ease-calm),
+              border-color var(--motion-fast) var(--ease-calm),
+              color var(--motion-fast) var(--ease-calm),
+              transform var(--motion-fast) var(--ease-calm);
+}
+.btn:hover { background: var(--bg-raised); }
+.btn:active { transform: translateY(0.5px); }
+.btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn svg { width: 14px; height: 14px; flex-shrink: 0; }
+
+.btn-sm { height: var(--btn-h-sm); padding: 0 var(--space-2); font-size: var(--text-caption); }
+.btn-lg { height: var(--btn-h-lg); padding: 0 var(--space-4); font-size: var(--text-body); }
+.btn-lg svg { width: 16px; height: 16px; }
+
+.btn-primary { background: var(--primary); border-color: var(--primary); color: var(--primary-fg); font-weight: 600; }
+.btn-primary:hover { filter: brightness(1.06); }
+.btn-secondary { background: var(--bg-raised); border-color: var(--border); }
+.btn-outline { background: transparent; }
+.btn-ghost { background: transparent; border-color: transparent; color: var(--fg-muted); }
+.btn-ghost:hover { background: var(--bg-raised); color: var(--fg); }
+.btn-destructive { background: var(--danger); border-color: var(--danger); color: hsl(0,0%,98%); font-weight: 600; }
+.btn-destructive:hover { filter: brightness(1.06); }
+
+/* === Icon button (toolbar / inline) ============================= */
+/* Variant 1: square borderless icon button (toolbars, reading pane) */
+.btn-icon {
+  width: 30px; height: 30px;
+  display: grid; place-items: center;
+  border-radius: var(--radius-sm);
+  border: 0; background: transparent;
+  color: var(--fg-muted); cursor: pointer;
+  transition: background var(--motion-fast) var(--ease-calm),
+              color var(--motion-fast) var(--ease-calm);
+}
+.btn-icon:hover { background: var(--bg-raised); color: var(--fg); }
+.btn-icon svg { width: 15px; height: 15px; }
+
+/* Variant 2: rail icon button (activity bar / dock collapsed strip) */
+/* This is the styling locked from 01-inbox.html. */
+.rail-icon {
+  width: 36px; height: 36px;
+  display: grid; place-items: center;
+  border-radius: var(--radius-md);
+  border: 0; background: transparent;
+  color: var(--fg-faint); cursor: pointer; position: relative;
+  transition: background var(--motion-fast) var(--ease-calm),
+              color var(--motion-fast) var(--ease-calm);
+}
+.rail-icon:hover { background: var(--bg-surface); color: var(--fg-muted); }
+.rail-icon svg { width: 18px; height: 18px; }
+
+/* On state — uses workspace tint */
+.rail-icon.is-on {
+  background: var(--bg-raised);
+  color: var(--tint-fg-active, var(--primary));
+}
+.rail-icon.is-on::before {
+  content: ''; position: absolute; left: -10px; top: 8px; bottom: 8px;
+  width: 2px; border-radius: 2px;
+  background: var(--tint-fg-active, var(--primary));
+}
+/* Right-edge variant — bracket on right side (used in dock pane) */
+.rail-icon.is-on.rail-right::before {
+  left: auto; right: -10px;
+}
+
+/* Status badge dot (overlaid top-right) */
+.rail-icon-badge {
+  position: absolute; top: 4px; right: 4px;
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--achievement);
+  border: 2px solid var(--bg-base);
+}
+
+/* === Form: input · textarea · select · switch · checkbox ======= */
+.input {
+  font-family: var(--font-body);
+  font-size: var(--text-body-sm); height: var(--input-h);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-sunken); color: var(--fg);
+  width: 100%;
+  transition: border-color var(--motion-fast) var(--ease-calm),
+              background var(--motion-fast) var(--ease-calm);
+}
+.input::placeholder { color: var(--fg-faint); }
+.input:hover { border-color: var(--fg-faint); }
+.input:focus { outline: none; border-color: var(--primary); background: var(--bg-surface); }
+.input:disabled { opacity: 0.5; cursor: not-allowed; }
+.input-error { border-color: var(--danger); }
+
+.textarea { padding: var(--space-2) var(--space-3); height: auto; min-height: 80px; line-height: var(--lead-body); resize: vertical; }
+
+.field { display: grid; gap: var(--space-1); }
+.field-label { font-size: var(--text-caption); font-weight: 500; color: var(--fg-muted); }
+.field-help { font-size: var(--text-micro); color: var(--fg-faint); font-family: var(--font-body); letter-spacing: 0; text-transform: none; }
+
+.input-group { display: flex; align-items: stretch; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-sunken); overflow: hidden; }
+.input-group:focus-within { border-color: var(--primary); }
+.input-group .input { border: 0; background: transparent; }
+.input-group .input:focus { background: transparent; }
+.input-addon {
+  display: flex; align-items: center; padding: 0 var(--space-3);
+  color: var(--fg-faint); font-size: var(--text-caption);
+  border-right: 1px solid var(--border-soft);
+}
+.input-addon-right { border-right: 0; border-left: 1px solid var(--border-soft); }
+.input-addon svg { width: 14px; height: 14px; }
+.input-addon kbd, kbd { font-family: var(--font-mono); font-size: 10px; color: var(--fg-faint); background: var(--bg-base); border: 1px solid var(--border-soft); border-radius: var(--radius-xs); padding: 0 5px; }
+
+/* === Badges / tags ============================================ */
+.badge {
+  font-family: var(--font-mono); font-size: 10px;
+  letter-spacing: .06em; text-transform: uppercase;
+  padding: 3px 8px; border-radius: var(--radius-xs);
+  background: var(--bg-sunken); color: var(--fg-muted);
+  border: 1px solid var(--border-soft);
+  display: inline-flex; align-items: center; gap: 4px;
+  white-space: nowrap;
+}
+.badge-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+.badge-primary     { color: var(--primary);     border-color: var(--primary-soft);     background: var(--primary-soft); }
+.badge-achievement { color: var(--achievement); border-color: var(--achievement-soft); background: var(--achievement-soft); }
+.badge-danger      { color: var(--danger);      border-color: var(--danger-soft);      background: var(--danger-soft); }
+.badge-systemic    { color: var(--systemic);    border-color: var(--systemic-soft);    background: var(--systemic-soft); }
+.badge-solid-primary { color: var(--primary-fg); background: var(--primary); border-color: var(--primary); }
+
+/* Mail-list tag aliases (mirror badges, used in dense rows) */
+.tag { font-family: var(--font-mono); font-size: 9.5px; letter-spacing: .06em; text-transform: uppercase; padding: 2px 6px; border-radius: var(--radius-xs); background: var(--bg-sunken); color: var(--fg-muted); border: 1px solid var(--border-soft); }
+.tag-deal    { color: var(--achievement); border-color: var(--achievement-soft); background: var(--achievement-soft); }
+.tag-warn    { color: var(--danger);      border-color: var(--danger-soft);      background: var(--danger-soft); }
+.tag-system  { color: var(--systemic);    border-color: var(--systemic-soft);    background: var(--systemic-soft); }
+.tag-primary { color: var(--primary);     border-color: var(--primary-soft);     background: var(--primary-soft); }
+
+/* === Avatar =================================================== */
+.avatar {
+  width: 32px; height: 32px; border-radius: 50%;
+  background: linear-gradient(135deg, var(--primary-soft), var(--primary));
+  display: grid; place-items: center;
+  font-family: var(--font-display); font-weight: 500;
+  font-size: 13px; color: var(--fg);
+  flex-shrink: 0; position: relative;
+}
+.avatar-sm { width: 22px; height: 22px; font-size: 11px; }
+.avatar-lg { width: 44px; height: 44px; font-size: 16px; }
+.avatar-amber { background: linear-gradient(135deg, var(--achievement-soft), var(--achievement)); }
+.avatar-danger { background: linear-gradient(135deg, var(--danger-soft), var(--danger)); }
+.avatar-systemic { background: linear-gradient(135deg, var(--systemic-soft), var(--systemic)); }
+
+/* === Tabs (section underline) ================================= */
+.tabs { display: flex; align-items: center; gap: 4px; border-bottom: 1px solid var(--border-soft); background: var(--bg-sunken); padding: 0 var(--space-4); }
+.tab {
+  padding: 0 var(--space-3); height: 44px; line-height: 44px;
+  font-size: var(--text-body-sm); color: var(--fg-faint);
+  cursor: pointer; border: 0; background: transparent;
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+  font-family: inherit;
+}
+.tab:hover { color: var(--fg); }
+.tab.is-on { color: var(--fg); border-bottom-color: var(--tint-fg-active, var(--primary)); }
+.tab-count { font-family: var(--font-mono); font-size: 10.5px; color: var(--fg-faint); margin-left: 6px; }
+.tab.is-on .tab-count { color: var(--tint-fg-active, var(--primary)); }
+
+/* === Separator ================================================ */
+.separator { height: 1px; background: var(--border-soft); width: 100%; }
+.separator-v { width: 1px; height: 24px; background: var(--border-soft); }

@@ -1,0 +1,389 @@
+/* =================================================================
+   Ikenga · shell.css — the desktop shell chrome
+   Layout: [ activity 56 | sidebar 8-30% | content+splits | dock 32-380 ]
+   Dock pane is global, persists across workspaces, participates in
+   the same drag/drop tab system as content panes.
+   ================================================================= */
+
+.shell-frame {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background: var(--bg-base);
+  box-shadow: var(--shadow-3);
+}
+
+.shell-titlebar {
+  height: 36px; background: var(--bg-sunken);
+  border-bottom: 1px solid var(--border-soft);
+  display: flex; align-items: center;
+  padding: 0 var(--space-3); gap: var(--space-2);
+}
+.shell-titlebar-dot { width: 11px; height: 11px; border-radius: 50%; }
+.shell-titlebar-dot:nth-child(1) { background: hsl(8,68%,55%); }
+.shell-titlebar-dot:nth-child(2) { background: hsl(42,78%,55%); }
+.shell-titlebar-dot:nth-child(3) { background: hsl(140,40%,50%); }
+.shell-titlebar-meta { margin: 0 auto; font-family: var(--font-mono); font-size: 11px; letter-spacing: .06em; color: var(--fg-faint); }
+
+/* Grid driven by data-attrs so screens can configure */
+.shell {
+  display: grid;
+  grid-template-columns:
+    var(--shell-activity-w, 56px)
+    var(--shell-sidebar-w, 240px)
+    1fr
+    var(--shell-dock-w, 36px);
+  height: var(--shell-h, 760px);
+}
+.shell[data-sidebar="collapsed"] { --shell-sidebar-w: 90px; }
+.shell[data-sidebar="hidden"]    { --shell-sidebar-w: 0; }
+.shell[data-dock="collapsed"]    { --shell-dock-w: 36px; }
+.shell[data-dock="expanded"]     { --shell-dock-w: 380px; }
+.shell[data-dock="wide"]         { --shell-dock-w: 480px; }
+.shell[data-dock="hidden"]       { --shell-dock-w: 0; }
+
+/* === Activity bar ============================================= */
+.activity {
+  background: var(--bg-base);
+  border-right: 1px solid var(--border-soft);
+  display: flex; flex-direction: column;
+  align-items: center;
+  padding: var(--space-3) 0;
+  gap: 2px;
+}
+.activity .horn-mark {
+  width: 30px; height: 30px;
+  margin-bottom: var(--space-3);
+  color: var(--primary);
+}
+.activity-spacer { flex: 1; }
+
+/* === Sidebar ================================================== */
+.sidebar {
+  background: var(--bg-surface);
+  border-right: 1px solid var(--border-soft);
+  overflow: hidden;
+  display: grid; grid-template-rows: auto 1fr auto;
+}
+.sidebar-head {
+  padding: var(--space-4) var(--space-3) var(--space-3);
+  background: linear-gradient(180deg, var(--tint-bg-active, var(--bg-surface)) 0%, var(--bg-surface) 100%);
+  border-bottom: 1px solid var(--border-soft);
+  display: flex; align-items: center; gap: var(--space-2);
+}
+.sidebar-head-mark { width: 22px; height: 22px; color: var(--tint-fg-active, var(--primary)); }
+.sidebar-head-name { font-family: var(--font-display); font-weight: 500; font-size: var(--text-h3); color: var(--fg); letter-spacing: -.005em; }
+.sidebar-head-mode {
+  font-family: var(--font-mono); font-size: 10px;
+  letter-spacing: .1em; text-transform: uppercase;
+  color: var(--fg-faint);
+  margin-left: auto;
+  padding: 2px 6px; border: 1px solid var(--border-soft);
+  border-radius: var(--radius-xs); background: var(--bg-base);
+}
+.sidebar-body { overflow-y: auto; padding: var(--space-3) var(--space-2); }
+.sidebar-foot {
+  border-top: 1px solid var(--border-soft);
+  padding: var(--space-2) var(--space-3);
+  display: flex; align-items: center; gap: var(--space-2);
+  background: var(--bg-sunken);
+}
+.sidebar-foot-name { font-size: var(--text-body-sm); color: var(--fg); }
+.sidebar-foot-host { font-family: var(--font-mono); font-size: 10px; color: var(--fg-faint); margin-left: auto; }
+
+.nav-group { margin-top: var(--space-3); }
+.nav-group:first-child { margin-top: 0; }
+.nav-group-label {
+  font-family: var(--font-mono); font-size: 9.5px;
+  letter-spacing: .14em; text-transform: uppercase;
+  color: var(--fg-faint);
+  padding: 0 var(--space-2) var(--space-1);
+}
+.nav-item {
+  display: flex; align-items: center; gap: var(--space-2);
+  padding: var(--row-pad-y) 8px;
+  border-radius: var(--radius-sm);
+  color: var(--fg-muted); font-size: var(--body-size);
+  cursor: pointer; position: relative;
+  transition: background var(--motion-fast) var(--ease-calm),
+              color var(--motion-fast) var(--ease-calm);
+}
+.nav-item svg { width: 14px; height: 14px; opacity: .85; }
+.nav-item-count { margin-left: auto; font-family: var(--font-mono); font-size: 10.5px; color: var(--fg-faint); }
+.nav-item:hover { background: var(--bg-raised); color: var(--fg); }
+.nav-item.is-on { background: var(--bg-raised); color: var(--fg); }
+.nav-item.is-on::before {
+  content: ''; position: absolute; left: -2px; top: 6px; bottom: 6px;
+  width: 2px; border-radius: 2px;
+  background: var(--tint-fg-active, var(--primary));
+}
+.nav-item.is-on svg { color: var(--tint-fg-active, var(--primary)); opacity: 1; }
+.nav-item.is-hot .nav-item-count { color: var(--achievement); }
+
+/* === Content area (route outlet, can split) =================== */
+.content {
+  background: var(--bg-surface);
+  overflow: hidden;
+  display: grid; grid-template-rows: auto 1fr;
+}
+.content-tabs {
+  display: flex; align-items: center; gap: 4px;
+  padding: 0 var(--space-2);
+  border-bottom: 1px solid var(--border-soft);
+  background: var(--bg-sunken);
+  height: var(--tab-h);
+}
+.content-tab {
+  height: var(--tab-h); padding: 0 var(--space-3);
+  display: flex; align-items: center; gap: var(--space-2);
+  font-size: var(--text-body-sm);
+  color: var(--fg-faint); cursor: pointer;
+  border: 0; background: transparent; font-family: inherit;
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+  position: relative;
+}
+.content-tab:hover { color: var(--fg-muted); }
+.content-tab.is-on {
+  color: var(--fg);
+  border-bottom-color: var(--tint-fg-active, var(--primary));
+  background: var(--bg-surface);
+}
+.content-tab svg { width: 13px; height: 13px; opacity: .8; }
+.content-tab.is-on svg { color: var(--tint-fg-active, var(--primary)); opacity: 1; }
+.content-tab .pin {
+  width: 12px; height: 12px; opacity: .6;
+}
+.content-tab.is-pinned .pin { opacity: 1; color: var(--achievement); }
+.content-tab .close {
+  width: 14px; height: 14px;
+  display: grid; place-items: center;
+  border-radius: var(--radius-xs);
+  opacity: .6;
+}
+.content-tab .close:hover { opacity: 1; background: var(--bg-raised); }
+.content-tabs-actions { margin-left: auto; display: flex; align-items: center; gap: 2px; padding-right: var(--space-1); }
+
+/* Pane action cluster — refresh / split-h / split-v / close.
+   Mirrors src/shell/panes/pane-toolbar.tsx. The hairline is the seam between
+   "create" intent (the "+" New-tab button on its left) and structural/destructive
+   intent (split, close) on its right. Place inside .content-tabs-actions, after
+   the "+" button:
+     <span class="content-tabs-actions">
+       <button class="btn-icon" title="New tab">+</button>
+       <span class="pane-actions-divider" aria-hidden="true"></span>
+       <button class="btn-icon" title="Refresh pane">…</button>
+       <button class="btn-icon" title="Split right (⌘\)">…</button>
+       <button class="btn-icon" title="Split down (⌘⇧\)">…</button>
+       <button class="btn-icon" title="Close pane" data-danger>×</button>
+     </span>
+*/
+.content-tabs-actions .pane-actions-divider {
+  width: 1px;
+  align-self: stretch;
+  background: var(--border-soft);
+  margin: 4px 4px;
+}
+.content-tabs-actions .btn-icon[data-danger]:hover {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+.content-tabs-actions .btn-icon[disabled],
+.content-tabs-actions .btn-icon[aria-disabled="true"] {
+  opacity: .35;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* === Workspace tint on tabs ===================================
+   Each tab declares its workspace via data-ws=""; that resolves to the
+   matching --tint-*-fg token. Used by:
+   - Active tabs in any strip (active border + icon pick up own ws colour)
+   - Inactive tabs in workspace-mixed strips (1px hairline at low alpha)
+   Single-workspace strips suppress inactive hairlines — the pane focus accent
+   already announces the workspace, identical hairlines would just be noise.
+   Caller opts in by adding `.tabstrip-ws-mixed` to `.content-tabs` when
+   the strip contains tabs from ≥2 distinct workspaces. */
+.content-tab[data-ws="app"]      { --tab-ws: var(--tint-app-fg); }
+.content-tab[data-ws="mail"]     { --tab-ws: var(--tint-mail-fg); }
+.content-tab[data-ws="outbox"]   { --tab-ws: var(--tint-outbox-fg); }
+.content-tab[data-ws="studio"]   { --tab-ws: var(--tint-studio-fg); }
+.content-tab[data-ws="agents"]   { --tab-ws: var(--tint-agents-fg); }
+.content-tab[data-ws="files"]    { --tab-ws: var(--tint-files-fg); }
+.content-tab[data-ws="sessions"] { --tab-ws: var(--tint-sessions-fg); }
+.content-tab[data-ws="settings"] { --tab-ws: var(--tint-settings-fg); }
+
+.content-tabs.tabstrip-ws-mixed .content-tab.is-on {
+  border-bottom-color: var(--tab-ws, var(--tint-fg-active, var(--primary)));
+}
+.content-tabs.tabstrip-ws-mixed .content-tab.is-on svg {
+  color: var(--tab-ws, var(--tint-fg-active, var(--primary)));
+}
+.content-tabs.tabstrip-ws-mixed .content-tab:not(.is-on)::after {
+  content: '';
+  position: absolute;
+  left: var(--space-2); right: var(--space-2); bottom: -1px;
+  height: 1px;
+  background: var(--tab-ws, transparent);
+  opacity: .22;
+  transition: opacity var(--motion-fast) var(--ease-calm);
+  pointer-events: none;
+}
+.content-tabs.tabstrip-ws-mixed .content-tab:not(.is-on):hover::after { opacity: .55; }
+.content-tabs.tabstrip-ws-mixed .content-tab.pinned-only:not(.is-on)::after { display: none; }
+
+.content-body {
+  overflow: auto;
+  background: var(--bg-surface);
+}
+
+/* Iyke shimmer overlay (per-pane activity) */
+.pane-iyke-overlay {
+  position: relative;
+}
+.pane-iyke-overlay::after {
+  content: '';
+  position: absolute; left: 0; right: 0; bottom: 0; height: 2px;
+  background: linear-gradient(90deg, transparent, var(--achievement), transparent);
+  animation: iyke-shimmer 2.6s linear infinite;
+  pointer-events: none;
+}
+@keyframes iyke-shimmer {
+  0%   { transform: translateX(-30%); opacity: 0.35; }
+  50%  { opacity: 0.9; }
+  100% { transform: translateX(130%); opacity: 0.35; }
+}
+
+/* Drop zones (visible when dragging a tab) */
+.drop-overlay {
+  position: absolute; inset: 0; pointer-events: none;
+  display: grid;
+  grid-template-areas:
+    ". top    ."
+    "left center right"
+    ".  bottom .";
+  grid-template-columns: 25% 1fr 25%;
+  grid-template-rows: 25% 1fr 25%;
+  opacity: 0; transition: opacity var(--motion-fast) var(--ease-calm);
+}
+.drop-overlay.is-on { opacity: 1; }
+.drop-zone {
+  border: 1px dashed transparent;
+  background: color-mix(in srgb, var(--primary) 8%, transparent);
+}
+.drop-zone.is-target {
+  background: color-mix(in srgb, var(--primary) 18%, transparent);
+  border-color: var(--primary);
+}
+.drop-zone-top    { grid-area: top; }
+.drop-zone-bottom { grid-area: bottom; }
+.drop-zone-left   { grid-area: left; }
+.drop-zone-right  { grid-area: right; }
+.drop-zone-center { grid-area: center; }
+
+/* === Dock pane (right edge, global, collapsible) =============== */
+.dock {
+  background: var(--bg-base);
+  border-left: 1px solid var(--border-soft);
+  display: grid; grid-template-rows: auto 1fr auto;
+  overflow: hidden;
+}
+
+/* Collapsed: shows tab icons as a vertical rail (global, persistent) */
+.dock[data-state="collapsed"] {
+  grid-template-rows: 1fr auto;
+}
+.dock-collapsed-rail {
+  display: flex; flex-direction: column; align-items: center;
+  padding: var(--space-3) 0; gap: 2px;
+}
+
+/* Expanded: tab strip + body + foot. The tab strip mirrors `.content-tabs`
+   exactly because tabs are bidirectional — drag a content tab into the dock
+   or vice-versa, the visual chrome must not shift on landing. The dock has a
+   fixed width so tabs scroll horizontally; actions stay pinned right. */
+.dock-head {
+  display: flex; align-items: stretch;
+  border-bottom: 1px solid var(--border-soft);
+  background: var(--bg-sunken);
+  height: var(--tab-h);
+  min-width: 0;
+}
+.dock-head-tabs {
+  display: flex; align-items: center; gap: 4px;
+  padding: 0 var(--space-2);
+  flex: 1 1 auto; min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.dock-head-tabs::-webkit-scrollbar { display: none; }
+.dock-head-actions {
+  display: flex; align-items: center; gap: 2px;
+  padding-right: var(--space-1);
+  flex-shrink: 0;
+  border-left: 1px solid var(--border-soft);
+  padding-left: var(--space-1);
+}
+.dock-tab {
+  height: var(--tab-h); padding: 0 var(--space-3);
+  display: flex; align-items: center; gap: var(--space-2);
+  font-size: var(--text-body-sm);
+  color: var(--fg-faint); cursor: pointer;
+  border: 0; background: transparent; font-family: inherit;
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+  position: relative;
+}
+.dock-tab:hover { color: var(--fg-muted); }
+.dock-tab.is-on {
+  color: var(--fg);
+  border-bottom-color: var(--tint-fg-active, var(--primary));
+  background: var(--bg-base);
+}
+.dock-tab svg { width: 13px; height: 13px; opacity: .8; }
+.dock-tab.is-on svg { color: var(--tint-fg-active, var(--primary)); opacity: 1; }
+.dock-tab .pin { width: 12px; height: 12px; opacity: .6; }
+.dock-tab.is-pinned .pin { opacity: 1; color: var(--achievement); }
+.dock-tab .close {
+  width: 14px; height: 14px;
+  display: grid; place-items: center;
+  border-radius: var(--radius-xs);
+  opacity: .6;
+}
+.dock-tab .close:hover { opacity: 1; background: var(--bg-raised); }
+.dock-tab { flex-shrink: 0; }
+.dock-spacer { flex: 1; }
+.dock-collapse {
+  width: 30px; height: 30px;
+  display: grid; place-items: center;
+  background: transparent; border: 0;
+  color: var(--fg-faint); cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+.dock-collapse:hover { color: var(--fg); background: var(--bg-raised); }
+.dock-collapse svg { width: 14px; height: 14px; }
+
+.dock-body { overflow: auto; background: var(--bg-base); }
+.dock-foot {
+  padding: var(--space-2) var(--space-3);
+  border-top: 1px solid var(--border-soft);
+  background: var(--bg-sunken);
+  font-family: var(--font-mono); font-size: 10px;
+  color: var(--fg-faint); letter-spacing: .04em;
+  display: flex; gap: var(--space-3); align-items: center;
+}
+.dock-foot .dock-foot-spacer { flex: 1; }
+
+/* Drag handle on dock left edge (resize) */
+.dock-resize {
+  position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
+  cursor: col-resize;
+  background: transparent;
+}
+.dock-resize:hover { background: var(--primary-soft); }
+
+/* Tabs are draggable visual cue */
+.content-tab.is-dragging,
+.dock-tab.is-dragging {
+  opacity: 0.5;
+  background: var(--bg-raised);
+  cursor: grabbing;
+}

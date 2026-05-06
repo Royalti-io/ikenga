@@ -1,0 +1,2464 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="A" data-mode="dark" data-density="comfortable" data-workspace="outbox">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Ikenga · Rung 3 · Screen 11 · Outbox · Newsletter</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,400;1,9..144,500&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="../_shared/tokens.css" />
+<link rel="stylesheet" href="../_shared/components.css" />
+<link rel="stylesheet" href="../_shared/shell.css" />
+<style>
+  /* === Page chrome (shared with 04 + 09) ======================== */
+  .page { max-width: 1480px; margin: 0 auto; padding: 0 var(--space-12) var(--space-12); }
+  .controls { margin: 0 calc(-1 * var(--space-12)) var(--space-8); }
+  header { padding-top: var(--space-8); }
+  section { margin-top: var(--space-12); }
+
+  .frame-tag {
+    font-family: var(--font-mono); font-size: 11px;
+    letter-spacing: .12em; text-transform: uppercase;
+    color: var(--fg-faint); margin-bottom: var(--space-3);
+  }
+  .frame-tag .num { color: var(--tint-fg-active, var(--primary)); margin-right: var(--space-2); }
+  .frame-note {
+    font-size: var(--text-caption); color: var(--fg-muted); line-height: 1.55;
+    max-width: 78ch; margin: var(--space-2) 0 var(--space-5);
+  }
+
+  .mini-frame {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    box-shadow: 0 12px 32px -16px rgba(0,0,0,.5);
+  }
+  .mini-frame-head {
+    display: flex; align-items: center; gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border-bottom: 1px solid var(--border-soft);
+    background: var(--bg-sunken);
+  }
+  .mini-frame-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--tint-fg-active, var(--primary)); flex-shrink: 0; }
+  .mini-frame-title { font-family: var(--font-mono); font-size: 11px; letter-spacing: .04em; color: var(--fg-muted); }
+  .mini-frame-meta { margin-left: auto; font-family: var(--font-mono); font-size: 10px; color: var(--fg-faint); letter-spacing: .04em; }
+
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-6); }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: var(--space-5); }
+  .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-4); }
+  @media (max-width: 1100px) { .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; } }
+
+  /* === Sub-route nav (matches 09) ============================== */
+  .ob-subnav {
+    display: flex; gap: 0; padding: 0 var(--space-3);
+    border-bottom: 1px solid var(--border-soft);
+    background: var(--bg-surface);
+  }
+  .ob-subnav button {
+    background: none; border: 0; cursor: pointer;
+    padding: var(--space-3) var(--space-4) calc(var(--space-3) - 2px);
+    font-family: inherit; font-size: var(--text-body-sm); font-weight: 500;
+    color: var(--fg-muted);
+    border-bottom: 2px solid transparent;
+    display: inline-flex; align-items: center; gap: var(--space-2);
+    transition: color var(--motion-fast) var(--ease-calm), border-color var(--motion-fast) var(--ease-calm);
+  }
+  .ob-subnav button:hover { color: var(--fg); }
+  .ob-subnav button.is-on {
+    color: var(--tint-fg-active, var(--primary));
+    border-bottom-color: var(--tint-fg-active, var(--primary));
+  }
+  .ob-subnav-count {
+    font-family: var(--font-mono); font-size: 10px; letter-spacing: .04em;
+    color: var(--fg-faint);
+    background: var(--bg-base); border: 1px solid var(--border-soft);
+    border-radius: var(--radius-pill);
+    padding: 1px 6px;
+  }
+  .ob-subnav button.is-on .ob-subnav-count {
+    color: var(--tint-fg-active, var(--primary));
+    border-color: color-mix(in srgb, var(--tint-fg-active, var(--primary)) 30%, var(--border));
+  }
+
+  /* Secondary inline tab strip (Approval queue / Schedule / Sent) */
+  .nl-inner-tabs {
+    display: flex; gap: 4px;
+    padding: var(--space-2) var(--space-3);
+    border-bottom: 1px solid var(--border-soft);
+    background: var(--bg-surface);
+  }
+  .nl-inner-tabs button {
+    background: var(--bg-base); border: 1px solid var(--border-soft);
+    border-radius: var(--radius-pill);
+    padding: 4px var(--space-2);
+    font-family: inherit; font-size: 11.5px;
+    color: var(--fg-muted); cursor: pointer;
+    display: inline-flex; align-items: center; gap: var(--space-1);
+  }
+  .nl-inner-tabs button.is-on {
+    background: color-mix(in srgb, var(--tint-fg-active, var(--primary)) 14%, var(--bg-base));
+    border-color: var(--tint-fg-active, var(--primary));
+    color: var(--tint-fg-active, var(--primary));
+  }
+  .nl-inner-tabs .ct {
+    font-family: var(--font-mono); font-size: 10px; letter-spacing: .04em;
+    color: var(--fg-faint);
+  }
+  .nl-inner-tabs button.is-on .ct {
+    color: color-mix(in srgb, var(--tint-fg-active, var(--primary)) 70%, var(--fg-muted));
+  }
+
+  /* === Chips =================================================== */
+  .chip {
+    font-family: var(--font-mono); font-size: 9.5px; letter-spacing: .06em; text-transform: uppercase;
+    padding: 2px 6px; border-radius: var(--radius-xs);
+    background: var(--bg-sunken); color: var(--fg-muted);
+    border: 1px solid var(--border-soft);
+    display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;
+  }
+  .chip svg { width: 10px; height: 10px; }
+  .chip.listmonk { color: hsl(42,82%,60%);  border-color: hsl(42,40%,28%);  background: hsl(42,40%,12%); }
+  .chip.resend   { color: hsl(170,40%,58%); border-color: hsl(170,30%,28%); background: hsl(170,30%,12%); }
+  .chip.smtp     { color: hsl(220,40%,68%); border-color: hsl(220,28%,28%); background: hsl(220,28%,12%); }
+  .chip.tint {
+    color: var(--tint-fg-active, var(--primary));
+    border-color: color-mix(in srgb, var(--tint-fg-active, var(--primary)) 30%, var(--border));
+    background: color-mix(in srgb, var(--tint-fg-active, var(--primary)) 14%, transparent);
+  }
+  .chip.warn { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 30%, var(--border)); background: color-mix(in srgb, var(--danger) 14%, transparent); }
+  .chip.ok   { color: var(--achievement); border-color: var(--achievement-soft); background: var(--achievement-soft); }
+  .chip.cool {
+    color: hsl(38, 75%, 60%);
+    border-color: hsl(38, 50%, 30%);
+    background: hsl(38, 50%, 12%);
+  }
+  .chip.investor {
+    color: hsl(150, 50%, 62%);
+    border-color: hsl(150, 35%, 28%);
+    background: hsl(150, 35%, 12%);
+  }
+  .chip.newsletter {
+    color: hsl(280, 55%, 70%);
+    border-color: hsl(280, 30%, 28%);
+    background: hsl(280, 30%, 12%);
+  }
+  [data-mode="light"] .chip.listmonk { color: hsl(42,80%,30%); border-color: hsl(42,60%,80%); background: hsl(42,60%,94%); }
+  [data-mode="light"] .chip.cool { color: hsl(38,75%,30%); border-color: hsl(38,55%,80%); background: hsl(38,60%,94%); }
+  [data-mode="light"] .chip.investor { color: hsl(150,50%,28%); border-color: hsl(150,40%,78%); background: hsl(150,40%,94%); }
+  [data-mode="light"] .chip.newsletter { color: hsl(280,50%,32%); border-color: hsl(280,40%,80%); background: hsl(280,40%,94%); }
+
+  /* === Summary stat cards ====================================== */
+  .stat-card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-4);
+    display: grid; gap: 4px;
+  }
+  .stat-card .label {
+    font-family: var(--font-mono); font-size: 10px;
+    letter-spacing: .08em; text-transform: uppercase;
+    color: var(--fg-faint);
+  }
+  .stat-card .value {
+    font-family: var(--font-display); font-weight: 500;
+    font-size: 28px; line-height: 1; letter-spacing: -.02em;
+    color: var(--fg);
+  }
+  .stat-card.tint .value { color: var(--tint-fg-active, var(--primary)); }
+  .stat-card.warn .value { color: var(--danger); }
+  .stat-card.ok   .value { color: var(--achievement); }
+  .stat-card .delta {
+    font-family: var(--font-mono); font-size: 10.5px; color: var(--fg-muted);
+    letter-spacing: .04em;
+  }
+
+  /* === Approval list rows ====================================== */
+  .nl-row {
+    padding: var(--space-3);
+    border-bottom: 1px solid var(--border-soft);
+    display: grid; grid-template-columns: 1fr auto; gap: var(--space-3);
+    cursor: pointer;
+    transition: background var(--motion-fast) var(--ease-calm);
+  }
+  .nl-row:hover { background: var(--bg-raised); }
+  .nl-row.is-on {
+    background: var(--bg-raised);
+    border-left: 2px solid var(--tint-fg-active, var(--primary));
+    padding-left: calc(var(--space-3) - 2px);
+  }
+  .nl-row-head { display: flex; flex-wrap: wrap; gap: var(--space-1); align-items: center; margin-bottom: 4px; }
+  .nl-row-subj {
+    font-family: var(--font-display); font-weight: 500;
+    font-size: var(--text-body); color: var(--fg);
+    line-height: 1.3; margin-bottom: 2px;
+  }
+  .nl-row-pre {
+    font-size: var(--text-caption); color: var(--fg-muted); line-height: 1.45;
+    overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    margin-bottom: var(--space-2);
+  }
+  .nl-row-meta {
+    font-family: var(--font-mono); font-size: 10px; color: var(--fg-faint); letter-spacing: .04em;
+    text-align: right; line-height: 1.45;
+    flex-shrink: 0;
+  }
+  .nl-row-meta .when {
+    color: var(--fg-muted);
+    margin-bottom: 2px;
+  }
+  .nl-row-meta .when.cool { color: hsl(38, 75%, 60%); }
+  .nl-row-meta .when.over { color: var(--danger); }
+
+  /* === Cooling banner ========================================== */
+  .nl-cool {
+    background: color-mix(in srgb, hsl(38, 75%, 50%) 14%, var(--bg-surface));
+    border-bottom: 1px solid hsl(38, 50%, 28%);
+    padding: var(--space-2) var(--space-4);
+    display: flex; align-items: center; gap: var(--space-2);
+    font-size: var(--text-body-sm); color: hsl(38, 75%, 70%);
+  }
+  .nl-cool svg { width: 14px; height: 14px; }
+  .nl-cool .countdown {
+    font-family: var(--font-mono); font-weight: 600;
+    margin-left: 2px;
+  }
+  .nl-cool .spacer { flex: 1; }
+  .nl-cool .progress {
+    width: 120px; height: 4px;
+    background: color-mix(in srgb, hsl(38, 75%, 50%) 20%, var(--bg-base));
+    border-radius: 2px; overflow: hidden;
+  }
+  .nl-cool .progress > div {
+    height: 100%; background: hsl(38, 75%, 55%);
+    transition: width var(--motion-base) var(--ease-calm);
+  }
+
+  /* === Quality scorecard (the Royalti-specific bit) ============ */
+  .quality-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0;
+    background: var(--bg-sunken);
+    border-top: 1px solid var(--border-soft);
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .quality-cell {
+    padding: var(--space-3);
+    border-right: 1px solid var(--border-soft);
+    display: grid; gap: 4px;
+  }
+  .quality-cell:last-child { border-right: 0; }
+  .quality-cell .qlabel {
+    font-family: var(--font-mono); font-size: 9.5px;
+    letter-spacing: .08em; text-transform: uppercase;
+    color: var(--fg-faint);
+  }
+  .quality-cell .qvalue {
+    font-family: var(--font-display); font-weight: 500;
+    font-size: 18px; line-height: 1.1; color: var(--fg);
+    display: flex; align-items: baseline; gap: 4px;
+  }
+  .quality-cell .qvalue .qsub {
+    font-family: var(--font-mono); font-size: 11px;
+    color: var(--fg-muted); font-weight: 400; letter-spacing: .04em;
+  }
+  .quality-cell.ok    .qvalue { color: var(--achievement); }
+  .quality-cell.warn  .qvalue { color: hsl(38, 75%, 60%); }
+  .quality-cell.fail  .qvalue { color: var(--danger); }
+
+  .quality-cell .qbar {
+    height: 4px; background: var(--bg-base);
+    border-radius: 2px; overflow: hidden;
+    border: 1px solid var(--border-soft);
+    margin-top: 2px;
+  }
+  .quality-cell .qbar > div { height: 100%; background: var(--achievement); }
+  .quality-cell.warn .qbar > div { background: hsl(38, 75%, 55%); }
+  .quality-cell.fail .qbar > div { background: var(--danger); }
+
+  @media (max-width: 1100px) {
+    .quality-grid { grid-template-columns: 1fr 1fr; }
+    .quality-cell:nth-child(2) { border-right: 0; }
+  }
+
+  /* === Email preview frame ===================================== */
+  .preview-toolbar {
+    padding: var(--space-2) var(--space-3);
+    border-bottom: 1px solid var(--border-soft);
+    background: var(--bg-sunken);
+    display: flex; align-items: center; gap: var(--space-2);
+  }
+  .preview-toolbar .seg {
+    display: inline-flex;
+    background: var(--bg-base); border: 1px solid var(--border-soft);
+    border-radius: var(--radius-sm); overflow: hidden;
+  }
+  .preview-toolbar .seg button {
+    background: none; border: 0; padding: 4px var(--space-2);
+    font-family: var(--font-mono); font-size: 10.5px; color: var(--fg-muted);
+    cursor: pointer; letter-spacing: .04em; text-transform: uppercase;
+  }
+  .preview-toolbar .seg button.is-on { background: var(--bg-raised); color: var(--fg); }
+  .preview-toolbar .pmeta {
+    margin-left: auto;
+    font-family: var(--font-mono); font-size: 10px; color: var(--fg-faint); letter-spacing: .04em;
+  }
+
+  .preview-body {
+    background: white;
+    color: hsl(220, 12%, 14%);
+    font-family: 'Inter', system-ui, sans-serif;
+    line-height: 1.6;
+    padding: 32px 40px;
+    max-width: 640px;
+    margin: var(--space-4) auto;
+    border-radius: var(--radius-md);
+    box-shadow: 0 8px 32px -8px rgba(0,0,0,.4);
+  }
+  [data-mode="light"] .preview-body {
+    box-shadow: 0 4px 12px rgba(0,0,0,.08);
+    border: 1px solid var(--border);
+  }
+  .preview-body .pre-hd {
+    border-bottom: 1px solid hsl(28, 12%, 88%);
+    padding-bottom: 16px; margin-bottom: 24px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .preview-body .pre-mark {
+    width: 28px; height: 28px;
+    background: hsl(14, 78%, 52%);
+    border-radius: 6px;
+    display: grid; place-items: center;
+    color: white; font-family: 'Fraunces', serif; font-weight: 500; font-size: 14px;
+  }
+  .preview-body .pre-from { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: hsl(28, 12%, 40%); letter-spacing: .04em; }
+  .preview-body h2 {
+    font-family: 'Fraunces', serif; font-weight: 500;
+    font-size: 26px; line-height: 1.18; letter-spacing: -.012em;
+    margin: 24px 0 12px;
+    color: hsl(220, 14%, 12%);
+  }
+  .preview-body h3 {
+    font-family: 'Fraunces', serif; font-weight: 500;
+    font-size: 18px; line-height: 1.3; letter-spacing: -.008em;
+    margin: 28px 0 8px;
+    color: hsl(220, 14%, 14%);
+  }
+  .preview-body p {
+    margin: 0 0 14px; font-size: 15px; color: hsl(220, 8%, 26%);
+  }
+  .preview-body a {
+    color: hsl(14, 78%, 48%); text-decoration: underline; text-underline-offset: 2px;
+  }
+  .preview-body ul { padding-left: 22px; margin: 0 0 18px; color: hsl(220, 8%, 26%); font-size: 15px; }
+  .preview-body li { margin-bottom: 6px; }
+  .preview-body .pre-cta {
+    display: inline-block;
+    background: hsl(14, 78%, 52%);
+    color: white;
+    padding: 10px 18px;
+    border-radius: 6px;
+    text-decoration: none;
+    font-weight: 500;
+    margin-top: 8px;
+  }
+  .preview-body .pre-foot {
+    border-top: 1px solid hsl(28, 12%, 88%);
+    margin-top: 32px; padding-top: 16px;
+    font-size: 12px; color: hsl(28, 12%, 50%);
+  }
+  .preview-body .pre-foot a { color: hsl(28, 12%, 40%); text-decoration: none; border-bottom: 1px solid hsl(28, 12%, 80%); }
+
+  /* HTML source view */
+  .source-body {
+    background: var(--bg-base);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-md);
+    margin: var(--space-4);
+    padding: var(--space-3);
+    font-family: var(--font-mono); font-size: 11.5px;
+    line-height: 1.6; color: var(--fg);
+    white-space: pre; overflow-x: auto;
+    max-height: 360px; overflow-y: auto;
+  }
+  .source-body .tag { color: hsl(280, 55%, 70%); }
+  .source-body .attr { color: hsl(170, 40%, 58%); }
+  .source-body .str  { color: hsl(42, 82%, 60%); }
+  .source-body .com  { color: var(--fg-faint); font-style: italic; }
+
+  /* === Subject editor + alt-subject A/B ======================== */
+  .subj-card {
+    padding: var(--space-3) var(--space-4);
+    border-bottom: 1px solid var(--border-soft);
+    background: var(--bg-surface);
+    display: grid; gap: var(--space-2);
+  }
+  .subj-row {
+    display: grid; grid-template-columns: 80px 1fr;
+    gap: var(--space-2);
+    align-items: center;
+  }
+  .subj-row .lbl {
+    font-family: var(--font-mono); font-size: 10px;
+    letter-spacing: .08em; text-transform: uppercase;
+    color: var(--fg-faint);
+    text-align: right;
+  }
+  .subj-row input {
+    width: 100%;
+    background: transparent; border: 0;
+    border-bottom: 1px dashed transparent;
+    padding: 4px var(--space-1);
+    color: var(--fg);
+    font-family: inherit; font-size: var(--text-body);
+    outline: none;
+  }
+  .subj-row input:hover { border-bottom-color: var(--border-soft); }
+  .subj-row input:focus { border-bottom-color: var(--tint-fg-active, var(--primary)); }
+  .subj-row .alt input { font-style: italic; color: var(--fg-muted); }
+  .subj-card .pre-row {
+    display: flex; align-items: center; gap: var(--space-2);
+    font-size: var(--text-caption); color: var(--fg-muted);
+    padding-top: var(--space-1);
+    border-top: 1px dashed var(--border-soft);
+  }
+
+  /* === Action footer (sticky) ================================== */
+  .nl-actions {
+    position: sticky; bottom: 0;
+    background: var(--bg-surface);
+    border-top: 1px solid var(--border-soft);
+    padding: var(--space-3) var(--space-4);
+    display: flex; align-items: center; gap: var(--space-2);
+    flex-wrap: wrap; row-gap: var(--space-2);
+    box-shadow: 0 -4px 12px -4px rgba(0,0,0,.25);
+    z-index: 5;
+  }
+  .nl-actions .meta {
+    font-family: var(--font-mono); font-size: 10.5px;
+    color: var(--fg-faint); letter-spacing: .04em;
+    margin-right: var(--space-2);
+    align-self: center; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis;
+    min-width: 0; flex-shrink: 1;
+  }
+  .nl-actions .spacer { flex: 1 1 auto; min-width: 0; }
+  .nl-actions .primary {
+    background: var(--tint-fg-active, var(--primary));
+    border-color: var(--tint-fg-active, var(--primary));
+    color: var(--primary-fg);
+    font-weight: 600;
+    padding: 0 var(--space-4);
+    margin-left: auto;
+  }
+  .nl-actions .primary:disabled {
+    opacity: .45; cursor: not-allowed;
+    background: var(--bg-raised); border-color: var(--border);
+    color: var(--fg-faint);
+  }
+  .nl-actions .danger {
+    color: var(--danger);
+    border-color: color-mix(in srgb, var(--danger) 30%, var(--border));
+  }
+
+  /* === Reject inline panel ===================================== */
+  .nl-reject {
+    background: color-mix(in srgb, var(--danger) 10%, var(--bg-surface));
+    border-top: 1px solid color-mix(in srgb, var(--danger) 30%, var(--border));
+    border-bottom: 1px solid color-mix(in srgb, var(--danger) 30%, var(--border));
+    padding: var(--space-3) var(--space-4);
+    display: grid; gap: var(--space-2);
+  }
+  .nl-reject label {
+    font-family: var(--font-mono); font-size: 10px;
+    letter-spacing: .08em; text-transform: uppercase;
+    color: var(--danger);
+  }
+  .nl-reject .rrow { display: flex; gap: var(--space-2); }
+  .nl-reject input {
+    flex: 1;
+    background: var(--bg-base);
+    border: 1px solid color-mix(in srgb, var(--danger) 30%, var(--border));
+    border-radius: var(--radius-sm);
+    padding: 6px var(--space-2);
+    color: var(--fg);
+    font-family: inherit; font-size: var(--text-body-sm);
+    outline: none;
+  }
+  .nl-reject input:focus { border-color: var(--danger); }
+  .nl-reject .canned {
+    display: flex; gap: 4px; flex-wrap: wrap;
+  }
+  .nl-reject .canned button {
+    background: var(--bg-base); border: 1px dashed color-mix(in srgb, var(--danger) 30%, var(--border));
+    color: var(--fg-muted);
+    border-radius: var(--radius-pill);
+    padding: 2px 8px;
+    font-family: var(--font-mono); font-size: 10px; letter-spacing: .04em;
+    cursor: pointer;
+  }
+  .nl-reject .canned button:hover { color: var(--danger); border-color: var(--danger); }
+
+  /* === Schedule view (calendar/timeline) ======================= */
+  .cal-week {
+    display: grid; grid-template-columns: 80px repeat(7, 1fr);
+    border-top: 1px solid var(--border-soft);
+  }
+  .cal-week.head {
+    background: var(--bg-sunken);
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .cal-cell {
+    padding: 8px;
+    border-right: 1px solid var(--border-soft);
+    min-height: 70px;
+    position: relative;
+  }
+  .cal-cell:last-child { border-right: 0; }
+  .cal-cell.label {
+    font-family: var(--font-mono); font-size: 10px;
+    letter-spacing: .08em; text-transform: uppercase;
+    color: var(--fg-faint);
+    background: var(--bg-sunken);
+    border-right: 1px solid var(--border-soft);
+  }
+  .cal-week.head .cal-cell {
+    min-height: 0;
+    text-align: center;
+    font-family: var(--font-mono); font-size: 10px;
+    letter-spacing: .08em; text-transform: uppercase;
+    color: var(--fg-faint);
+    padding: var(--space-2) 4px;
+  }
+  .cal-week.head .cal-cell.is-today { color: var(--tint-fg-active, var(--primary)); }
+  .cal-day-num { font-family: var(--font-mono); font-size: 11px; color: var(--fg-muted); margin-bottom: 6px; letter-spacing: .04em; }
+  .cal-cell.is-today .cal-day-num { color: var(--tint-fg-active, var(--primary)); font-weight: 600; }
+
+  .cal-pill {
+    display: block;
+    background: color-mix(in srgb, var(--tint-fg-active, var(--primary)) 14%, var(--bg-surface));
+    border: 1px solid color-mix(in srgb, var(--tint-fg-active, var(--primary)) 30%, var(--border));
+    border-radius: var(--radius-sm);
+    padding: 4px 6px;
+    margin-bottom: 4px;
+    font-size: 10.5px;
+    color: var(--fg);
+    line-height: 1.3;
+    cursor: pointer;
+  }
+  .cal-pill:hover { background: color-mix(in srgb, var(--tint-fg-active, var(--primary)) 22%, var(--bg-surface)); }
+  .cal-pill .ptime {
+    font-family: var(--font-mono); font-size: 9.5px;
+    color: var(--tint-fg-active, var(--primary));
+    letter-spacing: .04em; display: block; margin-bottom: 2px;
+  }
+  .cal-pill.cool {
+    background: color-mix(in srgb, hsl(38, 75%, 50%) 14%, var(--bg-surface));
+    border-color: hsl(38, 50%, 30%);
+  }
+  .cal-pill.cool .ptime { color: hsl(38, 75%, 60%); }
+  .cal-pill.investor {
+    background: color-mix(in srgb, hsl(150, 50%, 50%) 14%, var(--bg-surface));
+    border-color: hsl(150, 35%, 30%);
+  }
+  .cal-pill.investor .ptime { color: hsl(150, 50%, 62%); }
+  .cal-pill.sent {
+    background: var(--bg-base);
+    border-style: dashed;
+    opacity: .7;
+  }
+  .cal-pill.sent .ptime { color: var(--fg-faint); }
+
+  /* === Sent / engagement table ================================= */
+  .sent-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--text-body-sm);
+  }
+  .sent-table th {
+    text-align: left;
+    padding: 8px var(--space-3);
+    background: var(--bg-sunken);
+    border-bottom: 1px solid var(--border-soft);
+    font-family: var(--font-mono); font-size: 10px;
+    letter-spacing: .08em; text-transform: uppercase;
+    color: var(--fg-faint); font-weight: 500;
+  }
+  .sent-table td {
+    padding: 10px var(--space-3);
+    border-bottom: 1px solid var(--border-soft);
+    color: var(--fg);
+    vertical-align: top;
+  }
+  .sent-table tr:hover td { background: var(--bg-raised); }
+  .sent-table .num { font-family: var(--font-mono); font-size: 11.5px; text-align: right; }
+  .sent-table .pct { font-family: var(--font-mono); font-size: 11.5px; text-align: right; color: var(--fg); }
+  .sent-table .pct.ok   { color: var(--achievement); }
+  .sent-table .pct.warn { color: hsl(38, 75%, 60%); }
+  .sent-table .pct.bad  { color: var(--danger); }
+  .sent-table .meta {
+    font-family: var(--font-mono); font-size: 10px;
+    color: var(--fg-faint); letter-spacing: .04em;
+    margin-top: 2px;
+  }
+
+  /* Engagement bar (open / click / bounce / complaint) */
+  .eng-bar {
+    height: 6px; width: 100%;
+    background: var(--bg-base); border-radius: 3px; overflow: hidden;
+    border: 1px solid var(--border-soft);
+    display: flex;
+    margin-top: 4px;
+  }
+  .eng-bar > .open      { background: var(--achievement); }
+  .eng-bar > .click     { background: var(--tint-fg-active, var(--primary)); }
+  .eng-bar > .bounce    { background: hsl(38, 75%, 55%); }
+  .eng-bar > .complaint { background: var(--danger); }
+
+  /* === Charts (Sent inner tab, view=charts) ==================== */
+  .view-toggle {
+    display: inline-flex;
+    background: var(--bg-base); border: 1px solid var(--border-soft);
+    border-radius: var(--radius-sm); overflow: hidden;
+  }
+  .view-toggle button {
+    background: none; border: 0; padding: 4px var(--space-2);
+    font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .04em;
+    text-transform: uppercase; color: var(--fg-muted); cursor: pointer;
+  }
+  .view-toggle button.is-on { background: var(--bg-raised); color: var(--fg); }
+
+  .charts-grid {
+    padding: var(--space-4);
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: var(--space-4);
+  }
+  .charts-grid .full { grid-column: 1 / -1; }
+  @media (max-width: 1100px) { .charts-grid { grid-template-columns: 1fr; } }
+
+  .chart-card {
+    background: var(--bg-sunken);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+  }
+  .chart-card-head {
+    padding: var(--space-3) var(--space-3) var(--space-2);
+    display: flex; align-items: baseline; gap: var(--space-2); flex-wrap: wrap;
+    border-bottom: 1px solid var(--border-soft);
+    background: var(--bg-surface);
+  }
+  .chart-card-head h4 {
+    margin: 0;
+    font-family: var(--font-display); font-weight: 500;
+    font-size: var(--text-body); color: var(--fg);
+    letter-spacing: -.008em;
+  }
+  .chart-card-head .scale {
+    font-family: var(--font-mono); font-size: 10px;
+    color: var(--fg-faint); letter-spacing: .04em;
+  }
+  .chart-card-head .legend {
+    margin-left: auto;
+    display: flex; gap: var(--space-2); flex-wrap: wrap;
+  }
+  .chart-legend-item {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-family: var(--font-mono); font-size: 10px;
+    color: var(--fg-muted); letter-spacing: .04em;
+  }
+  .chart-legend-item .dot {
+    width: 8px; height: 8px; border-radius: 2px;
+  }
+  .chart-body { padding: var(--space-3); }
+
+  /* Common SVG styling */
+  .chart-svg { display: block; width: 100%; height: auto; }
+  .chart-svg .axis text {
+    font-family: var(--font-mono); font-size: 9px;
+    fill: var(--fg-faint); letter-spacing: .04em;
+  }
+  .chart-svg .axis line, .chart-svg .axis path {
+    stroke: var(--border-soft); stroke-width: 1;
+  }
+  .chart-svg .grid line {
+    stroke: var(--border-soft); stroke-width: 1;
+    stroke-dasharray: 2 3; opacity: .6;
+  }
+  .chart-svg .threshold {
+    stroke-dasharray: 4 3; stroke-width: 1;
+  }
+  .chart-svg .threshold-warn   { stroke: hsl(38, 75%, 55%); }
+  .chart-svg .threshold-danger { stroke: var(--danger); }
+  .chart-svg .line-open      { stroke: var(--achievement); fill: none; stroke-width: 1.6; }
+  .chart-svg .line-click     { stroke: var(--tint-fg-active, var(--primary)); fill: none; stroke-width: 1.6; }
+  .chart-svg .line-bounce    { stroke: hsl(38, 75%, 55%); fill: none; stroke-width: 1.6; }
+  .chart-svg .line-complaint { stroke: var(--danger); fill: none; stroke-width: 1.6; }
+  .chart-svg .line-list      { stroke: var(--fg-muted); fill: none; stroke-width: 1.4; }
+  .chart-svg .area-open      { fill: var(--achievement); opacity: .12; }
+  .chart-svg .area-click     { fill: var(--tint-fg-active, var(--primary)); opacity: .12; }
+  .chart-svg .dot {
+    r: 2.4; stroke: var(--bg-sunken); stroke-width: 1.2;
+  }
+  .chart-svg .dot-open      { fill: var(--achievement); }
+  .chart-svg .dot-click     { fill: var(--tint-fg-active, var(--primary)); }
+  .chart-svg .dot-bounce    { fill: hsl(38, 75%, 55%); }
+  .chart-svg .dot-complaint { fill: var(--danger); }
+  .chart-svg .dot-outlier   { stroke: var(--danger); stroke-width: 1.6; r: 4; fill: none; }
+  .chart-svg .label-edition {
+    font-family: var(--font-mono); font-size: 8.5px;
+    fill: var(--fg-faint); letter-spacing: .04em;
+  }
+  .chart-svg .threshold-label {
+    font-family: var(--font-mono); font-size: 8.5px;
+    letter-spacing: .04em;
+  }
+  .chart-svg .threshold-label.warn   { fill: hsl(38, 75%, 60%); }
+  .chart-svg .threshold-label.danger { fill: var(--danger); }
+
+  /* Grouped bar */
+  .chart-svg .bar-open  { fill: var(--achievement); }
+  .chart-svg .bar-click { fill: var(--tint-fg-active, var(--primary)); }
+  .chart-svg .bar-open:hover, .chart-svg .bar-click:hover { filter: brightness(1.2); }
+
+  /* Health alert strip */
+  .health-strip {
+    padding: var(--space-3) var(--space-4);
+    display: grid; gap: var(--space-2);
+    background: color-mix(in srgb, hsl(38, 75%, 50%) 8%, var(--bg-surface));
+    border-bottom: 1px solid hsl(38, 50%, 30%);
+  }
+  .health-strip.ok {
+    background: color-mix(in srgb, var(--achievement) 8%, var(--bg-surface));
+    border-bottom-color: var(--achievement-soft);
+  }
+  .health-row {
+    display: grid; grid-template-columns: 24px 1fr auto; gap: var(--space-2);
+    align-items: center;
+    font-size: var(--text-body-sm); color: var(--fg);
+  }
+  .health-row .mark {
+    width: 20px; height: 20px; border-radius: 50%;
+    display: grid; place-items: center;
+    font-family: var(--font-mono); font-size: 11px; font-weight: 600;
+    color: white;
+  }
+  .health-row.warn .mark { background: hsl(38, 75%, 55%); }
+  .health-row.fail .mark { background: var(--danger); }
+  .health-row.ok   .mark { background: var(--achievement); }
+  .health-row .meta {
+    font-family: var(--font-mono); font-size: 10px;
+    color: var(--fg-faint); letter-spacing: .04em;
+  }
+
+  /* Single-edition drilldown */
+  .edition-drill {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: var(--space-4);
+    padding: var(--space-4);
+  }
+  .edition-drill .picker {
+    grid-column: 1 / -1;
+    display: flex; gap: 4px; flex-wrap: wrap;
+    margin-bottom: calc(-1 * var(--space-2));
+  }
+  .edition-drill .picker button {
+    background: var(--bg-base); border: 1px solid var(--border-soft);
+    color: var(--fg-muted);
+    border-radius: var(--radius-pill);
+    padding: 3px var(--space-2);
+    font-family: var(--font-mono); font-size: 10px; letter-spacing: .04em;
+    cursor: pointer;
+  }
+  .edition-drill .picker button.is-on {
+    background: color-mix(in srgb, var(--tint-fg-active, var(--primary)) 14%, var(--bg-base));
+    border-color: var(--tint-fg-active, var(--primary));
+    color: var(--tint-fg-active, var(--primary));
+  }
+  .edition-drill h4 {
+    margin: 0 0 4px;
+    font-family: var(--font-display); font-weight: 500;
+    font-size: 22px; line-height: 1.2; letter-spacing: -.012em;
+    color: var(--fg);
+  }
+  .edition-drill .sub {
+    font-family: var(--font-mono); font-size: 10.5px;
+    color: var(--fg-faint); letter-spacing: .04em;
+    margin-bottom: var(--space-3);
+  }
+  .bignum-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-2); margin-bottom: var(--space-3); }
+  .bignum {
+    background: var(--bg-base); border: 1px solid var(--border-soft);
+    border-radius: var(--radius-sm);
+    padding: var(--space-2); display: grid; gap: 2px;
+  }
+  .bignum .lbl {
+    font-family: var(--font-mono); font-size: 9px;
+    letter-spacing: .08em; text-transform: uppercase; color: var(--fg-faint);
+  }
+  .bignum .val {
+    font-family: var(--font-display); font-weight: 500;
+    font-size: 18px; line-height: 1; color: var(--fg);
+  }
+  .bignum .delta {
+    font-family: var(--font-mono); font-size: 10px;
+    letter-spacing: .04em;
+  }
+  .bignum .delta.up   { color: var(--achievement); }
+  .bignum .delta.down { color: var(--danger); }
+  .bignum .delta.flat { color: var(--fg-muted); }
+
+  .breakdown-bar {
+    height: 36px; width: 100%;
+    background: var(--bg-base); border: 1px solid var(--border-soft);
+    border-radius: var(--radius-sm); overflow: hidden;
+    display: flex;
+  }
+  .breakdown-bar > div {
+    display: grid; place-items: center;
+    font-family: var(--font-mono); font-size: 9.5px; letter-spacing: .04em;
+    color: white; font-weight: 600;
+    overflow: hidden; white-space: nowrap;
+  }
+  .breakdown-bar .opened    { background: var(--achievement); }
+  .breakdown-bar .clicked   { background: var(--tint-fg-active, var(--primary)); }
+  .breakdown-bar .bounced   { background: hsl(38, 75%, 55%); }
+  .breakdown-bar .complained{ background: var(--danger); }
+  .breakdown-bar .unopened  { background: var(--bg-raised); color: var(--fg-muted); }
+  .breakdown-bar small {
+    display: block; font-weight: 400; opacity: .85; font-size: 8.5px;
+  }
+  .breakdown-legend {
+    display: flex; gap: var(--space-3); flex-wrap: wrap;
+    margin-top: var(--space-2);
+    font-family: var(--font-mono); font-size: 10px;
+    color: var(--fg-muted); letter-spacing: .04em;
+  }
+  .breakdown-legend .dot {
+    display: inline-block; width: 8px; height: 8px;
+    border-radius: 2px; margin-right: 4px; vertical-align: middle;
+  }
+
+  /* Donut */
+  .donut-wrap {
+    display: grid; place-items: center;
+    padding: var(--space-2) 0;
+  }
+  .donut svg { display: block; }
+  .donut .cx-num {
+    font-family: var(--font-display); font-weight: 500;
+    fill: var(--fg); font-size: 22px;
+  }
+  .donut .cx-lbl {
+    font-family: var(--font-mono); font-size: 9px;
+    fill: var(--fg-faint); letter-spacing: .08em;
+  }
+
+  /* Parked / scoped-out callout */
+  .parked-card {
+    background: var(--bg-base);
+    border: 1px dashed var(--border);
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-4);
+    margin: var(--space-4);
+    display: grid; gap: var(--space-2);
+  }
+  .parked-card h5 {
+    margin: 0; font-family: var(--font-mono); font-size: 10px;
+    letter-spacing: .12em; text-transform: uppercase; color: var(--fg-faint);
+  }
+  .parked-row {
+    display: grid; grid-template-columns: 12px 1fr;
+    gap: var(--space-2);
+    font-size: var(--text-body-sm); color: var(--fg-muted);
+    line-height: 1.55;
+  }
+  .parked-row .mark {
+    width: 12px; height: 12px; border-radius: 2px;
+    background: var(--bg-raised); border: 1px dashed var(--border);
+    margin-top: 4px;
+  }
+  .parked-row strong { color: var(--fg); font-weight: 500; }
+  .parked-row code {
+    font-family: var(--font-mono); font-size: 10.5px;
+    background: var(--bg-sunken); border: 1px solid var(--border-soft);
+    border-radius: var(--radius-xs); padding: 1px 4px; color: var(--fg);
+  }
+
+  /* === Pipeline source diagram ================================= */
+  .pipeline {
+    display: grid; grid-template-columns: repeat(5, 1fr);
+    gap: var(--space-2);
+    padding: var(--space-4);
+  }
+  .pipeline-step {
+    background: var(--bg-sunken);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-md);
+    padding: var(--space-3);
+    display: grid; gap: 6px;
+    position: relative;
+  }
+  .pipeline-step::after {
+    content: '→';
+    position: absolute; right: -12px; top: 50%; transform: translateY(-50%);
+    font-family: var(--font-mono); color: var(--fg-faint);
+    font-size: 13px;
+    z-index: 1;
+  }
+  .pipeline-step:last-child::after { display: none; }
+  .pipeline-step h5 {
+    margin: 0; font-family: var(--font-mono); font-size: 9.5px;
+    letter-spacing: .08em; text-transform: uppercase;
+    color: var(--tint-fg-active, var(--primary));
+  }
+  .pipeline-step h6 {
+    margin: 0; font-family: var(--font-display); font-weight: 500;
+    font-size: 13px; color: var(--fg);
+  }
+  .pipeline-step p {
+    margin: 0; font-size: 11.5px; color: var(--fg-muted); line-height: 1.5;
+  }
+  .pipeline-step code {
+    font-family: var(--font-mono); font-size: 10.5px;
+    background: var(--bg-base); border: 1px solid var(--border-soft);
+    border-radius: var(--radius-xs); padding: 1px 4px;
+    color: var(--fg);
+    word-break: break-all;
+  }
+  @media (max-width: 1100px) { .pipeline { grid-template-columns: 1fr; } .pipeline-step::after { display: none; } }
+
+  /* === Skipped-month / empty state ============================= */
+  .empty {
+    padding: var(--space-12) var(--space-8);
+    text-align: center;
+    display: grid; gap: var(--space-3); justify-items: center;
+  }
+  .empty-mark {
+    width: 56px; height: 56px;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--tint-fg-active, var(--primary)) 14%, var(--bg-base));
+    border: 1px solid color-mix(in srgb, var(--tint-fg-active, var(--primary)) 30%, var(--border));
+    display: grid; place-items: center;
+    color: var(--tint-fg-active, var(--primary));
+  }
+  .empty-mark svg { width: 24px; height: 24px; }
+  .empty h3 {
+    font-family: var(--font-display); font-weight: 500;
+    font-size: 22px; color: var(--fg); margin: 0;
+    letter-spacing: -.012em;
+  }
+  .empty p {
+    font-size: var(--text-body-sm); color: var(--fg-muted);
+    line-height: 1.55; max-width: 56ch; margin: 0;
+  }
+
+  /* === Anti-pattern callouts (within scorecard) ================ */
+  .ap-list {
+    background: var(--bg-sunken);
+    border-bottom: 1px solid var(--border-soft);
+    padding: var(--space-3) var(--space-4);
+    display: grid; gap: 6px;
+  }
+  .ap-list h6 {
+    margin: 0; font-family: var(--font-mono); font-size: 10px;
+    letter-spacing: .08em; text-transform: uppercase;
+    color: var(--fg-faint);
+  }
+  .ap-item {
+    display: grid; grid-template-columns: 14px 1fr auto; gap: var(--space-2);
+    align-items: start; padding: 4px 0;
+    font-size: var(--text-body-sm); color: var(--fg);
+  }
+  .ap-item .mark {
+    width: 14px; height: 14px; border-radius: 50%;
+    margin-top: 2px;
+    display: grid; place-items: center;
+    color: white; font-family: var(--font-mono); font-size: 9px;
+  }
+  .ap-item.warn .mark { background: hsl(38, 75%, 55%); }
+  .ap-item.fail .mark { background: var(--danger); }
+  .ap-item.ok   .mark { background: var(--achievement); }
+  .ap-item .where {
+    font-family: var(--font-mono); font-size: 10px; color: var(--fg-faint);
+    letter-spacing: .04em;
+  }
+  .ap-item .fix {
+    font-family: var(--font-mono); font-size: 10px;
+    color: var(--tint-fg-active, var(--primary));
+    cursor: pointer;
+    border: 1px dashed color-mix(in srgb, var(--tint-fg-active, var(--primary)) 30%, var(--border));
+    border-radius: var(--radius-pill);
+    padding: 1px 6px; letter-spacing: .04em;
+  }
+
+  footer {
+    margin-top: var(--space-12);
+    padding-top: var(--space-5);
+    border-top: 1px solid var(--border-soft);
+    font-family: var(--font-mono); font-size: 11px;
+    color: var(--fg-faint); letter-spacing: .06em;
+    display: flex; justify-content: space-between;
+  }
+  footer a { color: var(--fg-muted); text-decoration: none; border-bottom: 1px solid var(--border-soft); }
+  footer a:hover { color: var(--achievement); }
+</style>
+</head>
+<body>
+
+<!-- Controls bar -->
+<div class="controls" data-controls-bar data-current="outbox-newsletter" data-show-workspace="1" data-show-dock="1"></div>
+
+<div class="page">
+
+  <header>
+    <div class="eyebrow"><span class="eyebrow-dot" style="background: var(--tint-outbox-fg);"></span> Ikenga · Design / Rung 3 / Screen 11 · Outbox · Newsletter</div>
+    <h1 class="title">The newsletter, with its <em>own clock</em>.</h1>
+    <p class="lede">Newsletters share the email_drafts table but earn their own page for two reasons: a <strong>cooling period</strong> (the pipeline drops a draft, and Approve is locked for two hours so you actually read it) and a <strong>quality scorecard</strong> the pipeline writes into metadata — word count, claims verified, anti-patterns, freshness, CTA count. Both surface here. Below: approval queue, schedule view, sent + engagement, the source pipeline, and the cross-channel hand-offs.</p>
+  </header>
+
+  <!-- ============================================================
+       SECTION A · Sub-route nav (Newsletter active)
+       ============================================================ -->
+  <section>
+    <div class="frame-tag"><span class="num">A</span>Outbox · Newsletter active · 3 inner views</div>
+    <div class="frame-note">Outer tab strip is the same one as 09 — Newsletter is the second sub-route. Inside Newsletter, three inner pills: <em>Approval queue</em> (drafts + cooling), <em>Schedule</em> (calendar of approved + upcoming), <em>Sent</em> (engagement table backed by newsletter_sends). Filters live underneath: type (newsletter / investor_update) × status.</div>
+    <div style="margin: calc(-1 * var(--space-3)) 0 var(--space-5); padding: var(--space-2) var(--space-3); background: color-mix(in srgb, var(--tint-fg-active, var(--primary)) 8%, var(--bg-sunken)); border-left: 2px solid var(--tint-fg-active, var(--primary)); border-radius: var(--radius-sm); font-size: var(--text-caption); color: var(--fg-muted); line-height: 1.55;">
+      <strong style="color: var(--fg);">Reads from screen 09 ·</strong> the canonical Outbox sub-route nav, action ladder, and Claude hand-off trio (chat / continue session / new session) live in <a href="./09-outbox-flows.html" style="color: var(--tint-fg-active); text-decoration: none; border-bottom: 1px solid color-mix(in srgb, var(--tint-fg-active) 30%, var(--border));">screen 09</a>. This screen extends them with newsletter-specific behaviour — cooling, scorecard, anti-pattern fixes — rather than redefining them. The cooling step inserts between <em>drafted</em> and <em>edit</em> on 09's action ladder.
+    </div>
+
+    <div class="mini-frame" style="margin-bottom: var(--space-5);">
+      <div class="mini-frame-head">
+        <div class="mini-frame-dot"></div>
+        <div class="mini-frame-title">UX behaviour · badge · landing · the outer/inner Sent split</div>
+        <div class="mini-frame-meta">three rules that govern how this screen is reached</div>
+      </div>
+      <div style="padding: var(--space-3) var(--space-4); display: grid; gap: var(--space-3); font-size: var(--text-body-sm); color: var(--fg);">
+
+        <div style="display: grid; grid-template-columns: 140px 1fr; gap: var(--space-3); padding-bottom: var(--space-3); border-bottom: 1px solid var(--border-soft);">
+          <div style="font-family: var(--font-mono); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--fg-faint); align-self: start; padding-top: 2px;">Badge logic</div>
+          <div style="line-height: 1.6;">
+            Outbox's <em>Newsletter</em> sub-route badge counts <strong>ready-to-approve only</strong> — drafts where <code style="font-family:var(--font-mono);font-size:11px;background:var(--bg-base);border:1px solid var(--border-soft);border-radius:var(--radius-xs);padding:1px 4px;">reviewable_after &lt;= now()</code> AND status ∈ <em>(draft, pending_review)</em>. Cooling drafts are not actionable yet, so they don't inflate the badge. Hover tooltip carries the full breakdown:
+            <div style="margin-top: 6px; padding: 6px var(--space-2); background: var(--bg-sunken); border: 1px solid var(--border-soft); border-radius: var(--radius-sm); font-family: var(--font-mono); font-size: 10.5px; color: var(--fg-muted); display: inline-block;">
+              "2 ready · 1 cooling · ready 10:24 · 4 scheduled · 1 alert"
+            </div>
+            <div style="margin-top: 6px;">A small red dot appears on the badge if any send in the last 30d breached <em>bounce &gt; 2%</em> or <em>complaint &gt; 0.1%</em>.</div>
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 140px 1fr; gap: var(--space-3); padding-bottom: var(--space-3); border-bottom: 1px solid var(--border-soft);">
+          <div style="font-family: var(--font-mono); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--fg-faint); align-self: start; padding-top: 2px;">Smart landing</div>
+          <div style="line-height: 1.6;">
+            <code style="font-family:var(--font-mono);font-size:11px;background:var(--bg-base);border:1px solid var(--border-soft);border-radius:var(--radius-xs);padding:1px 4px;">/outbox/newsletter</code> doesn't sticky on the last visited tab. It chooses based on state:
+            <ul style="margin: 6px 0 0; padding-left: 18px; line-height: 1.7;">
+              <li>≥ 1 ready-to-approve → <em>Approval queue</em></li>
+              <li>only cooling drafts → <em>Approval queue</em>, scrolled to cooling section + banner "next ready in &lt;mm&gt;"</li>
+              <li>empty queue → <em>Schedule</em> (avoid the sad empty state — show what's queued instead)</li>
+              <li>1st or last business day of month → <em>Sent · Charts</em> (review time bias)</li>
+            </ul>
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 140px 1fr; gap: var(--space-3);">
+          <div style="font-family: var(--font-mono); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--fg-faint); align-self: start; padding-top: 2px;">Sent lives here</div>
+          <div style="line-height: 1.6;">
+            There is no outer <code style="font-family:var(--font-mono);font-size:11px;background:var(--bg-base);border:1px solid var(--border-soft);border-radius:var(--radius-xs);padding:1px 4px;">/outbox/sent</code> tab — sending happens by channel, so reading sent does too. Each channel owns its own Sent view:
+            <ul style="margin: 6px 0 0; padding-left: 18px; line-height: 1.7;">
+              <li><code style="font-family:var(--font-mono);font-size:11px;background:var(--bg-base);border:1px solid var(--border-soft);border-radius:var(--radius-xs);padding:1px 4px;">/outbox/newsletter/sent</code> · table by default; <code style="font-family:var(--font-mono);font-size:11px;background:var(--bg-base);border:1px solid var(--border-soft);border-radius:var(--radius-xs);padding:1px 4px;">?view=charts</code> for engagement / deliverability / drilldown.</li>
+              <li><code style="font-family:var(--font-mono);font-size:11px;background:var(--bg-base);border:1px solid var(--border-soft);border-radius:var(--radius-xs);padding:1px 4px;">/outbox/email/sent</code>, <code style="font-family:var(--font-mono);font-size:11px;background:var(--bg-base);border:1px solid var(--border-soft);border-radius:var(--radius-xs);padding:1px 4px;">/outbox/social/sent</code>, <code style="font-family:var(--font-mono);font-size:11px;background:var(--bg-base);border:1px solid var(--border-soft);border-radius:var(--radius-xs);padding:1px 4px;">/outbox/sequences/sent</code> · channel-specific tables; charts where the data supports it.</li>
+            </ul>
+            <div style="margin-top: 6px;">Cross-channel "what shipped today across all surfaces" lives outside Outbox — likely a digest in PA's morning briefing or a future <code style="font-family:var(--font-mono);font-size:11px;background:var(--bg-base);border:1px solid var(--border-soft);border-radius:var(--radius-xs);padding:1px 4px;">/reports/outbox</code>. Outbox itself stays focused on the work-to-do, by channel.</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="mini-frame">
+      <div class="mini-frame-head">
+        <div class="mini-frame-dot"></div>
+        <div class="mini-frame-title">/outbox/newsletter · navigation</div>
+        <div class="mini-frame-meta">2 awaiting · 1 cooling</div>
+      </div>
+      <nav class="ob-subnav">
+        <button>Email <span class="ob-subnav-count">10</span></button>
+        <button class="is-on">Newsletter <span class="ob-subnav-count">2</span></button>
+        <button>Sequences <span class="ob-subnav-count">4</span></button>
+        <button>Social <span class="ob-subnav-count">6</span></button>
+        <button>Sent <span class="ob-subnav-count">142</span></button>
+      </nav>
+      <div class="nl-inner-tabs">
+        <button class="is-on">Approval queue <span class="ct">2</span></button>
+        <button>Schedule <span class="ct">4 upcoming</span></button>
+        <button>Sent <span class="ct">last 90d · 14</span></button>
+        <span style="flex:1"></span>
+        <button>Type · all <span class="ct">▾</span></button>
+        <button>Status · pending <span class="ct">▾</span></button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       SECTION B · Stats + approval list
+       ============================================================ -->
+  <section>
+    <div class="frame-tag"><span class="num">B</span>Approval queue · summary + list</div>
+    <div class="frame-note">Three stat tiles on top — pending, approved, this view's total. List below groups by cooling status (in cooling first, ready next, approved last). Each row leads with type chip (newsletter / investor_update), then subject + preheader, then the right-rail meta strip with cooldown countdown or scheduled-for time.</div>
+
+    <div class="grid-3" style="margin-bottom: var(--space-5);">
+      <div class="stat-card tint">
+        <div class="label">Pending review</div>
+        <div class="value">2</div>
+        <div class="delta">1 still cooling · ready in 47m</div>
+      </div>
+      <div class="stat-card ok">
+        <div class="label">Approved · ready to send</div>
+        <div class="value">4</div>
+        <div class="delta">next: Tue 10:00 Lagos</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Sent · last 30d</div>
+        <div class="value">5</div>
+        <div class="delta">avg open 31% · bounce 1.2%</div>
+      </div>
+    </div>
+
+    <div class="mini-frame">
+      <div class="mini-frame-head">
+        <div class="mini-frame-dot"></div>
+        <div class="mini-frame-title">Drafts · grouped by readiness</div>
+        <div class="mini-frame-meta">2 pending · 1 cooling · row · select to open detail</div>
+      </div>
+
+      <div style="padding: 8px var(--space-3); font-family: var(--font-mono); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: hsl(38, 75%, 60%); background: color-mix(in srgb, hsl(38, 75%, 50%) 8%, var(--bg-sunken)); border-bottom: 1px solid var(--border-soft);">
+        ⏳ Cooling · 1
+      </div>
+
+      <div class="nl-row is-on">
+        <div>
+          <div class="nl-row-head">
+            <span class="chip newsletter">Newsletter</span>
+            <span class="chip listmonk">Listmonk · ruby@royalti.io</span>
+            <span class="chip cool">⏳ Cooling 47m</span>
+            <span class="chip">queued · newsletter-pipeline</span>
+          </div>
+          <div class="nl-row-subj">You can deliver from Royalti now</div>
+          <div class="nl-row-pre">Alt: <em>FUGA + Royalti: build a release, ship it, track it</em> · End-to-end FUGA delivery, bulk validate/retry, catalog import from FUGA CSV.</div>
+          <div style="display: flex; gap: 4px; flex-wrap: wrap;">
+            <span class="chip">edition · 2026-05-01</span>
+            <span class="chip">theme · "track and pay isn't enough"</span>
+            <span class="chip ok">quality 86</span>
+          </div>
+        </div>
+        <div class="nl-row-meta">
+          <div class="when cool">approve in 47m</div>
+          <div>queued 08:24 today</div>
+          <div>2,104 recipients</div>
+        </div>
+      </div>
+
+      <div style="padding: 8px var(--space-3); font-family: var(--font-mono); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--achievement); background: color-mix(in srgb, var(--achievement) 8%, var(--bg-sunken)); border-bottom: 1px solid var(--border-soft);">
+        ✓ Ready to review · 1
+      </div>
+
+      <div class="nl-row">
+        <div>
+          <div class="nl-row-head">
+            <span class="chip investor">Investor Update</span>
+            <span class="chip resend">Resend · ned@royalti.io</span>
+            <span class="chip">manual</span>
+          </div>
+          <div class="nl-row-subj">April · runway, 2 wins, 1 active deal</div>
+          <div class="nl-row-pre">Quick April note for you. Runway extended to 14 months on the new burn. Valentim de Carvalho (Portuguese label) closed. The schema-disparity patch unblocked tenant 590's ledger thread.</div>
+          <div style="display: flex; gap: 4px; flex-wrap: wrap;">
+            <span class="chip">edition · 2026-04 monthly</span>
+            <span class="chip">12 recipients · pre-seed leads</span>
+            <span class="chip ok">quality 91</span>
+          </div>
+        </div>
+        <div class="nl-row-meta">
+          <div class="when">Tue 10:00 Lagos</div>
+          <div>queued 2d ago</div>
+          <div>cooling passed</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       SECTION C · Hero detail (the one you're reviewing right now)
+       ============================================================ -->
+  <section>
+    <div class="frame-tag"><span class="num">C</span>Detail · "You can deliver from Royalti now" mid-review</div>
+    <div class="frame-note">Detail pane stacks: cooling banner → subject card (primary + alt + preheader) → quality scorecard → anti-patterns list → preview toolbar → rendered preview (or HTML source toggle) → sticky action footer. Approve is greyed until cooling passes; the meta on the primary explains why.</div>
+
+    <div class="mini-frame" style="overflow: visible;">
+      <div class="mini-frame-head">
+        <div class="mini-frame-dot"></div>
+        <div class="mini-frame-title">/outbox/newsletter/010aad64 · detail</div>
+        <div class="mini-frame-meta">2026-05-01 · monthly_roundup</div>
+      </div>
+
+      <!-- Cooling banner -->
+      <div class="nl-cool">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 15"/></svg>
+        <span>Cooling period · approve in <span class="countdown">47m 12s</span> · the pipeline asks for two hours so you actually read the draft.</span>
+        <span class="spacer"></span>
+        <div class="progress" title="63% of cooling elapsed"><div style="width: 63%"></div></div>
+        <span style="font-family: var(--font-mono); font-size: 10px; letter-spacing: .04em;">63% · 1h 13m elapsed</span>
+      </div>
+
+      <!-- Subject + alt + preheader -->
+      <div class="subj-card">
+        <div class="subj-row">
+          <span class="lbl">Subject</span>
+          <input value="You can deliver from Royalti now" />
+        </div>
+        <div class="subj-row alt">
+          <span class="lbl">A/B alt</span>
+          <input value="FUGA + Royalti: build a release, ship it, track it" />
+        </div>
+        <div class="subj-row">
+          <span class="lbl">Preheader</span>
+          <input value="End-to-end FUGA delivery, bulk validate/retry, catalog import from FUGA CSV." />
+        </div>
+        <div class="pre-row">
+          <span class="chip">Listmonk · A/B 50/50</span>
+          <span class="chip">From <strong style="color:var(--fg);margin-left:4px;">Ruby &lt;ruby@royalti.io&gt;</strong></span>
+          <span class="chip">Reply-to chinedum@royalti.io</span>
+          <span style="flex:1"></span>
+          <span style="font-family: var(--font-mono); font-size: 10px; letter-spacing: .04em;">subject · 35 chars · alt · 47 chars · pre · 75 chars</span>
+        </div>
+      </div>
+
+      <!-- Quality scorecard -->
+      <div class="quality-grid">
+        <div class="quality-cell ok">
+          <div class="qlabel">Quality score</div>
+          <div class="qvalue">86 <span class="qsub">/ 100</span></div>
+          <div class="qbar"><div style="width: 86%"></div></div>
+        </div>
+        <div class="quality-cell ok">
+          <div class="qlabel">Word count</div>
+          <div class="qvalue">412 <span class="qsub">target 350-500</span></div>
+          <div class="qbar"><div style="width: 78%"></div></div>
+        </div>
+        <div class="quality-cell ok">
+          <div class="qlabel">Claims verified</div>
+          <div class="qvalue">7 / 7 <span class="qsub">all sources OK</span></div>
+          <div class="qbar"><div style="width: 100%"></div></div>
+        </div>
+        <div class="quality-cell warn">
+          <div class="qlabel">Anti-patterns</div>
+          <div class="qvalue">2 <span class="qsub">2 minor · 0 blocking</span></div>
+          <div class="qbar"><div style="width: 30%"></div></div>
+        </div>
+        <div class="quality-cell ok">
+          <div class="qlabel">Section variety</div>
+          <div class="qvalue">0.82 <span class="qsub">good mix</span></div>
+          <div class="qbar"><div style="width: 82%"></div></div>
+        </div>
+        <div class="quality-cell ok">
+          <div class="qlabel">Freshness</div>
+          <div class="qvalue">OK <span class="qsub">no repeats &lt; 60d</span></div>
+          <div class="qbar"><div style="width: 100%"></div></div>
+        </div>
+        <div class="quality-cell warn">
+          <div class="qlabel">Previously featured</div>
+          <div class="qvalue">1 <span class="qsub">FUGA delivery · 2026-03</span></div>
+          <div class="qbar"><div style="width: 50%"></div></div>
+        </div>
+        <div class="quality-cell ok">
+          <div class="qlabel">CTAs · exclamations</div>
+          <div class="qvalue">2 / 0 <span class="qsub">on-brand</span></div>
+          <div class="qbar"><div style="width: 100%"></div></div>
+        </div>
+      </div>
+
+      <!-- Anti-patterns list -->
+      <div class="ap-list">
+        <h6>Anti-patterns flagged · click "fix" to hand the section to chat</h6>
+        <div class="ap-item warn">
+          <div class="mark">!</div>
+          <div>
+            <div>Hype phrase · "<em>game-changer</em>" detected once in section 2</div>
+            <div class="where">body line 47 · "Now you can deliver — this is a game-changer for indie labels…"</div>
+          </div>
+          <div class="fix">↗ fix in chat</div>
+        </div>
+        <div class="ap-item warn">
+          <div class="mark">!</div>
+          <div>
+            <div>Vague metric · "<em>significantly faster</em>" without a number</div>
+            <div class="where">body line 84 · "Validation is significantly faster now."</div>
+          </div>
+          <div class="fix">↗ fix in chat</div>
+        </div>
+      </div>
+
+      <!-- Preview toolbar -->
+      <div class="preview-toolbar">
+        <div class="seg">
+          <button class="is-on">Rendered</button>
+          <button>HTML source</button>
+          <button>Plain text</button>
+        </div>
+        <div class="seg">
+          <button class="is-on">Desktop</button>
+          <button>Mobile</button>
+          <button>Dark mode</button>
+        </div>
+        <span style="font-family: var(--font-mono); font-size: 10px; color: var(--fg-faint); letter-spacing: .04em; margin-left: var(--space-2);">{{first_name}}, {{tenant_name}}, {{unsubscribe_url}}</span>
+        <span class="pmeta">render · {{first_name}} = "Valentim" (sample)</span>
+      </div>
+
+      <!-- Rendered preview -->
+      <div style="padding: var(--space-4) var(--space-3); background: var(--bg-sunken);">
+        <div class="preview-body">
+          <div class="pre-hd">
+            <div class="pre-mark">R</div>
+            <div>
+              <div style="font-weight: 600; font-size: 14px; color: hsl(220, 14%, 12%);">Royalti.io · May edition</div>
+              <div class="pre-from">ruby@royalti.io · to valentim@valentimdc.pt</div>
+            </div>
+          </div>
+          <h2>You can deliver from Royalti now</h2>
+          <p>Hi Valentim,</p>
+          <p>Quick May note. We've been heads-down on one thing this month — closing the loop between <em>tracking</em> royalties and <em>delivering</em> the music that earns them. As of last week, you can do both inside Royalti.</p>
+
+          <h3>What shipped · 6 things</h3>
+          <ul>
+            <li><strong>End-to-end FUGA delivery</strong> — build a release in Royalti, push it to FUGA, track delivery status without leaving the tenant.</li>
+            <li><strong>FUGA catalog import</strong> — drop the FUGA CSV, get your existing catalogue mirrored into Royalti in one pass.</li>
+            <li><strong>Bulk validate &amp; retry</strong> — select 200 files, validate them all in parallel, retry failures with one click.</li>
+            <li><strong>Stuck-file sweep</strong> — runs nightly, flags anything stalled &gt;48h with a one-click resolve path.</li>
+            <li><strong>Excel orchestrator</strong> — rewritten ground-up, ~10× faster on 50k+ row files.</li>
+            <li><strong>DDEX charter</strong> — Believe joined; we're at 23 founding members now.</li>
+          </ul>
+
+          <h3>Numbers · April</h3>
+          <p>391 signups · 141 catalogues created · 55 tenants in active processing · 26 power users. L5 Winback opened at 38% (vs 22% baseline).</p>
+
+          <h3>What's next · May</h3>
+          <p>Rolling out the FUGA delivery flow tenant-wide and shipping bounce-aware Listmonk throttling so deliverability stops drifting on noisy lists.</p>
+
+          <p><a class="pre-cta" href="{{login_url}}">Open your tenant →</a></p>
+
+          <div class="pre-foot">
+            Royalti Inc · Wilmington, DE · <a href="{{unsubscribe_url}}">Unsubscribe</a> · <a href="{{web_view_url}}">View in browser</a>
+          </div>
+        </div>
+      </div>
+
+      <!-- Action footer -->
+      <div class="nl-actions">
+        <button class="btn btn-sm">↩ Back to list</button>
+        <button class="btn btn-sm">📤 Send to chat</button>
+        <button class="btn btn-sm">⌘ Continue Claude session</button>
+        <button class="btn btn-sm">⏭ Skip month</button>
+        <button class="btn btn-sm danger">✕ Reject…</button>
+        <span class="spacer"></span>
+        <span class="meta">scheduled · Tue 06 May 10:00 Lagos · Listmonk · 2,104 recipients</span>
+        <button class="btn btn-sm">💾 Save edits</button>
+        <button class="btn btn-sm primary" disabled title="Reviewable in 47m — cooling period in effect">✓ Approve &amp; Schedule</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       SECTION D · Reject panel (inline, expanded state)
+       ============================================================ -->
+  <section>
+    <div class="frame-tag"><span class="num">D</span>Reject · inline panel with canned reasons</div>
+    <div class="frame-note">Reject is destructive but non-blocking — the row stays in the queue with status='rejected' so you can see the trail. Reason is freeform; canned chips speed up the common cases (claim unverified, hype, off-theme, schedule conflict, weak CTA). Rejected drafts can be re-opened by the pipeline on next run if the underlying content has changed.</div>
+
+    <div class="mini-frame">
+      <div class="mini-frame-head">
+        <div class="mini-frame-dot"></div>
+        <div class="mini-frame-title">Reject panel · expanded inline</div>
+        <div class="mini-frame-meta">stored to email_drafts.rejection_reason</div>
+      </div>
+      <div class="nl-reject">
+        <label>Why are you rejecting this draft?</label>
+        <div class="canned">
+          <button>Claim unverified</button>
+          <button>Hype / off-brand voice</button>
+          <button>Off-theme this month</button>
+          <button>Schedule conflict</button>
+          <button>Weak / missing CTA</button>
+          <button>Repeats recent edition</button>
+          <button>Insufficient content</button>
+        </div>
+        <div class="rrow">
+          <input value="Section 2 'game-changer' phrasing not on brand — pipeline should pick warmer angle next run." />
+          <button class="btn btn-sm">Cancel</button>
+          <button class="btn btn-sm" style="background: var(--danger); border-color: var(--danger); color: white;">Confirm reject</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       SECTION E · Schedule (calendar)
+       ============================================================ -->
+  <section>
+    <div class="frame-tag"><span class="num">E</span>Schedule · calendar of upcoming + cooling</div>
+    <div class="frame-note">Two-week strip, Lagos timezone (UTC+1) since that's the default send window. Pills coloured by state — primary tint for approved & scheduled, amber for cooling, sage for investor updates, dashed-grey for sent. Click a pill to open the detail. The Tue 10:00 slots are visually emphasised because the pipeline biases toward them.</div>
+
+    <div class="mini-frame">
+      <div class="mini-frame-head">
+        <div class="mini-frame-dot"></div>
+        <div class="mini-frame-title">/outbox/newsletter · Schedule (2 weeks · Lagos)</div>
+        <div class="mini-frame-meta">today: Sun 04 May · next slot: Tue 06 May 10:00</div>
+      </div>
+
+      <div class="cal-week head">
+        <div class="cal-cell label">Week</div>
+        <div class="cal-cell">Mon</div>
+        <div class="cal-cell">Tue</div>
+        <div class="cal-cell">Wed</div>
+        <div class="cal-cell">Thu</div>
+        <div class="cal-cell">Fri</div>
+        <div class="cal-cell">Sat</div>
+        <div class="cal-cell is-today">Sun</div>
+      </div>
+
+      <div class="cal-week">
+        <div class="cal-cell label">28 Apr · this week</div>
+        <div class="cal-cell"><div class="cal-day-num">28</div></div>
+        <div class="cal-cell">
+          <div class="cal-day-num">29</div>
+          <div class="cal-pill sent"><span class="ptime">10:00 · sent</span>April · Schema patches</div>
+        </div>
+        <div class="cal-cell"><div class="cal-day-num">30</div></div>
+        <div class="cal-cell"><div class="cal-day-num">01</div></div>
+        <div class="cal-cell"><div class="cal-day-num">02</div></div>
+        <div class="cal-cell"><div class="cal-day-num">03</div></div>
+        <div class="cal-cell is-today"><div class="cal-day-num">04 · today</div></div>
+      </div>
+
+      <div class="cal-week">
+        <div class="cal-cell label">05 May · next week</div>
+        <div class="cal-cell"><div class="cal-day-num">05</div></div>
+        <div class="cal-cell">
+          <div class="cal-day-num">06</div>
+          <div class="cal-pill cool" title="Cooling for 47m more"><span class="ptime">10:00 · cooling</span>You can deliver from Royalti now</div>
+        </div>
+        <div class="cal-cell"><div class="cal-day-num">07</div></div>
+        <div class="cal-cell">
+          <div class="cal-day-num">08</div>
+          <div class="cal-pill investor"><span class="ptime">14:00 · investor</span>April · runway, 2 wins</div>
+        </div>
+        <div class="cal-cell"><div class="cal-day-num">09</div></div>
+        <div class="cal-cell"><div class="cal-day-num">10</div></div>
+        <div class="cal-cell"><div class="cal-day-num">11</div></div>
+      </div>
+
+      <div class="cal-week">
+        <div class="cal-cell label">12 May · +2</div>
+        <div class="cal-cell"><div class="cal-day-num">12</div></div>
+        <div class="cal-cell">
+          <div class="cal-day-num">13</div>
+          <div class="cal-pill"><span class="ptime">10:00 · scheduled</span>May Mid · DDEX charter +1</div>
+        </div>
+        <div class="cal-cell"><div class="cal-day-num">14</div></div>
+        <div class="cal-cell"><div class="cal-day-num">15</div></div>
+        <div class="cal-cell"><div class="cal-day-num">16</div></div>
+        <div class="cal-cell"><div class="cal-day-num">17</div></div>
+        <div class="cal-cell"><div class="cal-day-num">18</div></div>
+      </div>
+
+      <div class="cal-week">
+        <div class="cal-cell label">19 May · +3</div>
+        <div class="cal-cell"><div class="cal-day-num">19</div></div>
+        <div class="cal-cell">
+          <div class="cal-day-num">20</div>
+          <div class="cal-pill"><span class="ptime">10:00 · scheduled</span>L5 Winback · Day 14 case study</div>
+        </div>
+        <div class="cal-cell"><div class="cal-day-num">21</div></div>
+        <div class="cal-cell"><div class="cal-day-num">22</div></div>
+        <div class="cal-cell"><div class="cal-day-num">23</div></div>
+        <div class="cal-cell"><div class="cal-day-num">24</div></div>
+        <div class="cal-cell"><div class="cal-day-num">25</div></div>
+      </div>
+
+      <div style="padding: var(--space-3); display: flex; gap: var(--space-3); flex-wrap: wrap; border-top: 1px solid var(--border-soft); background: var(--bg-sunken); font-size: var(--text-caption); color: var(--fg-muted);">
+        <span style="display:inline-flex;align-items:center;gap:6px;"><span style="width:10px;height:10px;border-radius:2px;background:color-mix(in srgb, var(--tint-fg-active) 30%, var(--bg-base));border:1px solid color-mix(in srgb,var(--tint-fg-active) 50%, var(--border));"></span> approved</span>
+        <span style="display:inline-flex;align-items:center;gap:6px;"><span style="width:10px;height:10px;border-radius:2px;background:color-mix(in srgb, hsl(38,75%,50%) 30%, var(--bg-base));border:1px solid hsl(38,50%,40%);"></span> cooling</span>
+        <span style="display:inline-flex;align-items:center;gap:6px;"><span style="width:10px;height:10px;border-radius:2px;background:color-mix(in srgb, hsl(150,50%,50%) 30%, var(--bg-base));border:1px solid hsl(150,35%,40%);"></span> investor update</span>
+        <span style="display:inline-flex;align-items:center;gap:6px;"><span style="width:10px;height:10px;border-radius:2px;background:var(--bg-base);border:1px dashed var(--border);"></span> sent</span>
+        <span style="flex:1"></span>
+        <span style="font-family:var(--font-mono);font-size:10px;letter-spacing:.04em;">drag-and-drop a pill to reschedule · ⌘ + click to clone to next slot</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       SECTION F · Sent + engagement table
+       ============================================================ -->
+  <section>
+    <div class="frame-tag"><span class="num">F</span>Sent · engagement table + charts backed by newsletter_sends</div>
+    <div class="frame-note">Pulled from <code style="font-family:var(--font-mono);font-size:11.5px;">newsletter_sends</code> (migrations 046 + 047) joined to the originating draft. Two view modes: <em>Table</em> for per-send drilldown, <em>Charts</em> for trend + comparison. Same data, same filter chips. Listmonk poller refreshes hourly; Resend webhook updates real-time. Charts ground in only what the schema actually carries — what's not there (per-hour heatmaps, A/B splits, segment cohorts) is called out in the parked block at the bottom.</div>
+
+    <div class="mini-frame">
+      <div class="mini-frame-head">
+        <div class="mini-frame-dot"></div>
+        <div class="mini-frame-title">/outbox/newsletter · Sent · last 90d</div>
+        <div class="mini-frame-meta">14 sends · avg open 31% · avg bounce 1.2%</div>
+      </div>
+      <div style="display: flex; gap: 4px; padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--border-soft); background: var(--bg-surface); align-items: center;">
+        <span class="chip tint">All · 14</span>
+        <span class="chip newsletter">Newsletter · 11</span>
+        <span class="chip investor">Investor · 3</span>
+        <span style="flex:1"></span>
+        <span class="chip">Listmonk · 11</span>
+        <span class="chip">Resend · 3</span>
+        <span style="margin-left: var(--space-2);" class="view-toggle" data-view-toggle>
+          <button data-view="table">Table</button>
+          <button class="is-on" data-view="charts">Charts</button>
+        </span>
+      </div>
+
+      <!-- ============ View · Charts ============ -->
+      <div data-view-pane="charts">
+
+        <!-- Health alert strip -->
+        <div class="health-strip">
+          <div class="health-row warn">
+            <div class="mark">!</div>
+            <div>
+              <strong style="color: var(--fg);">L5 Winback · Day 7</strong> — bounce rate <strong style="color: hsl(38,75%,60%);">2.3%</strong> (above 2% warning). Trim suppressed addresses before next round.
+            </div>
+            <div class="meta">22 Apr · 12d ago · 388 recipients</div>
+          </div>
+          <div class="health-row fail">
+            <div class="mark">!</div>
+            <div>
+              <strong style="color: var(--fg);">March · Believe joins DDEX charter</strong> — bounce <strong style="color: var(--danger);">3.8%</strong>, complaint <strong style="color: var(--danger);">0.18%</strong> (Resend complaint ceiling 0.1%). Investigate sender domain reputation on <code style="font-family:var(--font-mono);font-size:10.5px;background:var(--bg-base);border:1px solid var(--border-soft);border-radius:var(--radius-xs);padding:1px 4px;">ruby@royalti.io</code>.
+            </div>
+            <div class="meta">25 Mar · 40d ago · 2,067 recipients</div>
+          </div>
+        </div>
+
+        <div class="charts-grid">
+
+          <!-- Engagement trend (multi-line: open + click) -->
+          <div class="chart-card">
+            <div class="chart-card-head">
+              <h4>Engagement trend</h4>
+              <span class="scale">last 11 editions · open + click</span>
+              <span class="legend">
+                <span class="chart-legend-item"><span class="dot" style="background: var(--achievement);"></span> open %</span>
+                <span class="chart-legend-item"><span class="dot" style="background: var(--tint-fg-active);"></span> click %</span>
+              </span>
+            </div>
+            <div class="chart-body">
+              <svg class="chart-svg" viewBox="0 0 600 180" preserveAspectRatio="none">
+                <!-- Y grid (0, 25, 50%) -->
+                <g class="grid">
+                  <line x1="40" x2="588" y1="20"  y2="20" />
+                  <line x1="40" x2="588" y1="76"  y2="76" />
+                  <line x1="40" x2="588" y1="132" y2="132" />
+                </g>
+                <g class="axis">
+                  <text x="34" y="24"  text-anchor="end">50%</text>
+                  <text x="34" y="80"  text-anchor="end">25%</text>
+                  <text x="34" y="136" text-anchor="end">0%</text>
+                  <line x1="40" x2="588" y1="132" y2="132" />
+                </g>
+                <!-- X labels (every other edition) -->
+                <g class="axis">
+                  <text x="40"  y="156">04 Feb</text>
+                  <text x="150" y="156">18 Feb</text>
+                  <text x="260" y="156">04 Mar</text>
+                  <text x="370" y="156">18 Mar</text>
+                  <text x="480" y="156">01 Apr</text>
+                  <text x="588" y="156" text-anchor="end">29 Apr</text>
+                </g>
+                <!-- Open % polyline (data plotted at y = 132 - rate * (112/50)) -->
+                <polyline class="line-open" points="
+                  40,69.3
+                  94.8,62.6
+                  149.6,64.8
+                  204.4,60.3
+                  259.2,67.0
+                  314,64.8
+                  368.8,71.5
+                  423.6,79.6
+                  478.4,73.7
+                  533.2,58.1
+                  588,46.4
+                " />
+                <!-- Click % polyline (rate * (112/50)) -->
+                <polyline class="line-click" points="
+                  40,118.6
+                  94.8,116.3
+                  149.6,115.9
+                  204.4,114.1
+                  259.2,117.4
+                  314,116.3
+                  368.8,119.0
+                  423.6,122.8
+                  478.4,120.8
+                  533.2,111.8
+                  588,106.5
+                " />
+                <!-- Dots -->
+                <g>
+                  <circle class="dot dot-open" cx="40" cy="69.3"/><circle class="dot dot-open" cx="94.8" cy="62.6"/><circle class="dot dot-open" cx="149.6" cy="64.8"/><circle class="dot dot-open" cx="204.4" cy="60.3"/><circle class="dot dot-open" cx="259.2" cy="67.0"/><circle class="dot dot-open" cx="314" cy="64.8"/><circle class="dot dot-outlier" cx="368.8" cy="71.5"/><circle class="dot dot-outlier" cx="423.6" cy="79.6"/><circle class="dot dot-open" cx="478.4" cy="73.7"/><circle class="dot dot-open" cx="533.2" cy="58.1"/><circle class="dot dot-open" cx="588" cy="46.4"/>
+                  <circle class="dot dot-click" cx="40" cy="118.6"/><circle class="dot dot-click" cx="94.8" cy="116.3"/><circle class="dot dot-click" cx="149.6" cy="115.9"/><circle class="dot dot-click" cx="204.4" cy="114.1"/><circle class="dot dot-click" cx="259.2" cy="117.4"/><circle class="dot dot-click" cx="314" cy="116.3"/><circle class="dot dot-click" cx="368.8" cy="119.0"/><circle class="dot dot-click" cx="423.6" cy="122.8"/><circle class="dot dot-click" cx="478.4" cy="120.8"/><circle class="dot dot-click" cx="533.2" cy="111.8"/><circle class="dot dot-click" cx="588" cy="106.5"/>
+                </g>
+                <!-- Outlier callout -->
+                <text x="396" y="62" class="threshold-label danger">↓ Believe DDEX edition · 23.4%</text>
+              </svg>
+            </div>
+          </div>
+
+          <!-- Deliverability trend (bounce + complaint with thresholds) -->
+          <div class="chart-card">
+            <div class="chart-card-head">
+              <h4>Deliverability trend</h4>
+              <span class="scale">bounce + complaint · last 11 editions</span>
+              <span class="legend">
+                <span class="chart-legend-item"><span class="dot" style="background: hsl(38,75%,55%);"></span> bounce %</span>
+                <span class="chart-legend-item"><span class="dot" style="background: var(--danger);"></span> complaint % × 10</span>
+              </span>
+            </div>
+            <div class="chart-body">
+              <svg class="chart-svg" viewBox="0 0 600 180" preserveAspectRatio="none">
+                <!-- Y axis: 0-5% bounce on left -->
+                <g class="grid">
+                  <line x1="40" x2="588" y1="20"  y2="20" />
+                  <line x1="40" x2="588" y1="65"  y2="65" />
+                  <line x1="40" x2="588" y1="110" y2="110" />
+                  <line x1="40" x2="588" y1="132" y2="132" />
+                </g>
+                <g class="axis">
+                  <text x="34" y="24"  text-anchor="end">5%</text>
+                  <text x="34" y="69"  text-anchor="end">3%</text>
+                  <text x="34" y="114" text-anchor="end">1%</text>
+                  <text x="34" y="136" text-anchor="end">0</text>
+                  <line x1="40" x2="588" y1="132" y2="132" />
+                </g>
+                <!-- Threshold guides: bounce 5% danger, 2% warn -->
+                <line class="threshold threshold-danger" x1="40" x2="588" y1="20" y2="20" />
+                <text x="588" y="16" text-anchor="end" class="threshold-label danger">5% bounce ceiling · Resend</text>
+                <line class="threshold threshold-warn" x1="40" x2="588" y1="87.2" y2="87.2" />
+                <text x="40" y="84" class="threshold-label warn">2% bounce warning</text>
+                <!-- Threshold: complaint 0.1% × 10 = 1% on this scale -->
+                <line class="threshold threshold-danger" x1="40" x2="588" y1="109.6" y2="109.6" stroke-dasharray="2 4" />
+                <text x="588" y="124" text-anchor="end" class="threshold-label danger">0.1% complaint ceiling · Resend</text>
+                <!-- Bounce polyline: bounce% scaled (132 - rate * 22.4 per %) -->
+                <polyline class="line-bounce" points="
+                  40,84.96
+                  94.8,91.68
+                  149.6,98.40
+                  204.4,100.64
+                  259.2,82.72
+                  314,89.44
+                  368.8,69.28
+                  423.6,46.88
+                  478.4,76.00
+                  533.2,80.48
+                  588,111.84
+                " />
+                <!-- Complaint × 10 polyline -->
+                <polyline class="line-complaint" points="
+                  40,123.04
+                  94.8,120.80
+                  149.6,123.04
+                  204.4,118.56
+                  259.2,114.08
+                  314,120.80
+                  368.8,109.60
+                  423.6,91.68
+                  478.4,111.84
+                  533.2,123.04
+                  588,120.80
+                " />
+                <!-- Dots -->
+                <g>
+                  <circle class="dot dot-bounce" cx="40" cy="84.96"/><circle class="dot dot-bounce" cx="94.8" cy="91.68"/><circle class="dot dot-bounce" cx="149.6" cy="98.40"/><circle class="dot dot-bounce" cx="204.4" cy="100.64"/><circle class="dot dot-bounce" cx="259.2" cy="82.72"/><circle class="dot dot-bounce" cx="314" cy="89.44"/><circle class="dot dot-bounce" cx="368.8" cy="69.28"/><circle class="dot dot-outlier" cx="423.6" cy="46.88"/><circle class="dot dot-bounce" cx="478.4" cy="76.00"/><circle class="dot dot-bounce" cx="533.2" cy="80.48"/><circle class="dot dot-bounce" cx="588" cy="111.84"/>
+                  <circle class="dot dot-complaint" cx="40" cy="123.04"/><circle class="dot dot-complaint" cx="94.8" cy="120.80"/><circle class="dot dot-complaint" cx="149.6" cy="123.04"/><circle class="dot dot-complaint" cx="204.4" cy="118.56"/><circle class="dot dot-complaint" cx="259.2" cy="114.08"/><circle class="dot dot-complaint" cx="314" cy="120.80"/><circle class="dot dot-complaint" cx="368.8" cy="109.60"/><circle class="dot dot-outlier" cx="423.6" cy="91.68"/><circle class="dot dot-complaint" cx="478.4" cy="111.84"/><circle class="dot dot-complaint" cx="533.2" cy="123.04"/><circle class="dot dot-complaint" cx="588" cy="120.80"/>
+                </g>
+                <text x="423" y="40" class="threshold-label danger">↑ Believe edition · breach both</text>
+                <g class="axis">
+                  <text x="40"  y="156">04 Feb</text>
+                  <text x="260" y="156">04 Mar</text>
+                  <text x="480" y="156">01 Apr</text>
+                  <text x="588" y="156" text-anchor="end">29 Apr</text>
+                </g>
+              </svg>
+            </div>
+          </div>
+
+          <!-- Edition comparator (grouped bar) -->
+          <div class="chart-card">
+            <div class="chart-card-head">
+              <h4>Edition comparator</h4>
+              <span class="scale">last 6 newsletter editions · grouped bar</span>
+              <span class="legend">
+                <span class="chart-legend-item"><span class="dot" style="background: var(--achievement);"></span> open %</span>
+                <span class="chart-legend-item"><span class="dot" style="background: var(--tint-fg-active);"></span> click %</span>
+              </span>
+            </div>
+            <div class="chart-body">
+              <svg class="chart-svg" viewBox="0 0 600 200" preserveAspectRatio="none">
+                <!-- Grid -->
+                <g class="grid">
+                  <line x1="40" x2="588" y1="20"  y2="20" />
+                  <line x1="40" x2="588" y1="65"  y2="65" />
+                  <line x1="40" x2="588" y1="110" y2="110" />
+                  <line x1="40" x2="588" y1="155" y2="155" />
+                </g>
+                <g class="axis">
+                  <text x="34" y="24"  text-anchor="end">50%</text>
+                  <text x="34" y="69"  text-anchor="end">33%</text>
+                  <text x="34" y="114" text-anchor="end">17%</text>
+                  <text x="34" y="159" text-anchor="end">0%</text>
+                  <line x1="40" x2="588" y1="155" y2="155" />
+                </g>
+                <!-- 6 editions, 90px each (slot 40 → 580). Each slot: 2 bars 22w + 6gap = 50w, centered. -->
+                <!-- E1 04 Mar: open 29 / click 6.5 -->
+                <rect class="bar-open"  x="60"  y="77.6"  width="22" height="77.4" />
+                <rect class="bar-click" x="86"  y="137.7" width="22" height="17.3" />
+                <text x="84"  y="178" text-anchor="middle" class="label-edition">04 Mar</text>
+                <text x="84"  y="190" text-anchor="middle" class="label-edition">29% / 6.5%</text>
+                <!-- E2 11 Mar: 30 / 7 -->
+                <rect class="bar-open"  x="151" y="74.6"  width="22" height="80.4" />
+                <rect class="bar-click" x="177" y="136.4" width="22" height="18.6" />
+                <text x="175" y="178" text-anchor="middle" class="label-edition">11 Mar</text>
+                <text x="175" y="190" text-anchor="middle" class="label-edition">30% / 7%</text>
+                <!-- E3 18 Mar: 27 / 5.8 -->
+                <rect class="bar-open"  x="242" y="83.6"  width="22" height="71.4" />
+                <rect class="bar-click" x="268" y="139.4" width="22" height="15.6" />
+                <text x="266" y="178" text-anchor="middle" class="label-edition">18 Mar</text>
+                <text x="266" y="190" text-anchor="middle" class="label-edition">27% / 5.8%</text>
+                <!-- E4 25 Mar: 23.4 / 4.1 (Believe — outlier red) -->
+                <rect class="bar-open"  x="333" y="92.4"  width="22" height="62.6" stroke="var(--danger)" stroke-width="1.5" />
+                <rect class="bar-click" x="359" y="142.6" width="22" height="12.4" stroke="var(--danger)" stroke-width="1.5" />
+                <text x="357" y="178" text-anchor="middle" class="label-edition" fill="var(--danger)">25 Mar ↓</text>
+                <text x="357" y="190" text-anchor="middle" class="label-edition" fill="var(--danger)">23% / 4.1%</text>
+                <!-- E5 22 Apr: 42.1 / 8.5 (L5 Winback — small list, big numbers) -->
+                <rect class="bar-open"  x="424" y="38.0"  width="22" height="117.0" />
+                <rect class="bar-click" x="450" y="129.5" width="22" height="25.5" />
+                <text x="448" y="178" text-anchor="middle" class="label-edition">22 Apr</text>
+                <text x="448" y="190" text-anchor="middle" class="label-edition">42% / 8.5%</text>
+                <!-- E6 29 Apr: 38.2 / 11.4 (latest — strong) -->
+                <rect class="bar-open"  x="515" y="49.6"  width="22" height="105.4" />
+                <rect class="bar-click" x="541" y="120.8" width="22" height="34.2" />
+                <text x="539" y="178" text-anchor="middle" class="label-edition">29 Apr ✓</text>
+                <text x="539" y="190" text-anchor="middle" class="label-edition">38% / 11%</text>
+              </svg>
+            </div>
+          </div>
+
+          <!-- Channel split -->
+          <div class="chart-card">
+            <div class="chart-card-head">
+              <h4>Channel split</h4>
+              <span class="scale">Listmonk vs Resend · open % · last 90d</span>
+              <span class="legend">
+                <span class="chart-legend-item">Listmonk · 11 sends · ~2k each</span>
+                <span class="chart-legend-item">Resend · 3 sends · 12 each</span>
+              </span>
+            </div>
+            <div class="chart-body" style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3);">
+              <div>
+                <div style="font-family: var(--font-mono); font-size: 10px; letter-spacing: .04em; color: var(--fg-faint); margin-bottom: 4px;">LISTMONK · BULK</div>
+                <svg class="chart-svg" viewBox="0 0 280 110" preserveAspectRatio="none">
+                  <g class="grid">
+                    <line x1="20" x2="270" y1="14" y2="14" />
+                    <line x1="20" x2="270" y1="56" y2="56" />
+                    <line x1="20" x2="270" y1="98" y2="98" />
+                  </g>
+                  <g class="axis">
+                    <text x="16" y="18" text-anchor="end">50%</text>
+                    <text x="16" y="60" text-anchor="end">25</text>
+                    <text x="16" y="102" text-anchor="end">0</text>
+                  </g>
+                  <polyline class="line-open" points="20,57 45,46 70,49 95,42 120,53 145,49 170,60 195,38 220,46 245,43 270,33" />
+                  <polyline class="line-click" points="20,93 45,92 70,91 95,90 120,93 145,92 170,94 195,86 220,90 245,87 270,79" />
+                </svg>
+                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-top: var(--space-2);">
+                  <div class="bignum"><div class="lbl">avg open</div><div class="val">29.8%</div></div>
+                  <div class="bignum"><div class="lbl">avg click</div><div class="val">6.9%</div></div>
+                  <div class="bignum"><div class="lbl">avg bounce</div><div class="val" style="color: hsl(38,75%,60%);">2.1%</div></div>
+                </div>
+              </div>
+              <div>
+                <div style="font-family: var(--font-mono); font-size: 10px; letter-spacing: .04em; color: var(--fg-faint); margin-bottom: 4px;">RESEND · INVESTOR</div>
+                <svg class="chart-svg" viewBox="0 0 280 110" preserveAspectRatio="none">
+                  <g class="grid">
+                    <line x1="20" x2="270" y1="14" y2="14" />
+                    <line x1="20" x2="270" y1="56" y2="56" />
+                    <line x1="20" x2="270" y1="98" y2="98" />
+                  </g>
+                  <g class="axis">
+                    <text x="16" y="18" text-anchor="end">100</text>
+                    <text x="16" y="60" text-anchor="end">50</text>
+                    <text x="16" y="102" text-anchor="end">0</text>
+                  </g>
+                  <polyline class="line-open" points="20,15 145,12 270,17" />
+                  <polyline class="line-click" points="20,53 145,49 270,57" />
+                  <circle class="dot dot-open" cx="20" cy="15"/><circle class="dot dot-open" cx="145" cy="12"/><circle class="dot dot-open" cx="270" cy="17"/>
+                  <circle class="dot dot-click" cx="20" cy="53"/><circle class="dot dot-click" cx="145" cy="49"/><circle class="dot dot-click" cx="270" cy="57"/>
+                </svg>
+                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-top: var(--space-2);">
+                  <div class="bignum"><div class="lbl">avg open</div><div class="val" style="color: var(--achievement);">88.9%</div></div>
+                  <div class="bignum"><div class="lbl">avg click</div><div class="val" style="color: var(--achievement);">53.8%</div></div>
+                  <div class="bignum"><div class="lbl">avg bounce</div><div class="val">0.0%</div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Single-edition drilldown -->
+          <div class="chart-card full">
+            <div class="chart-card-head">
+              <h4>Single-edition drilldown</h4>
+              <span class="scale">summary stats + breakdown · click an edition to swap</span>
+              <span class="legend">
+                <a href="#" style="font-family: var(--font-mono); font-size: 10px; letter-spacing: .04em; color: var(--tint-fg-active); text-decoration: none;">Open in Listmonk ↗</a>
+              </span>
+            </div>
+            <div class="edition-drill">
+              <div class="picker">
+                <button>04 Feb</button>
+                <button>11 Feb</button>
+                <button>18 Feb</button>
+                <button>25 Feb</button>
+                <button>04 Mar</button>
+                <button>11 Mar</button>
+                <button>18 Mar</button>
+                <button>25 Mar · DDEX</button>
+                <button>01 Apr</button>
+                <button>08 Apr</button>
+                <button>22 Apr · L5W</button>
+                <button class="is-on">29 Apr · Schema patches</button>
+              </div>
+
+              <!-- Left: bignums + breakdown -->
+              <div>
+                <h4>April · Schema patches that unblocked tenant 590</h4>
+                <div class="sub">edition 2026-04-29 · Listmonk · ruby@royalti.io · campaign #4192 · sent 29 Apr 10:01 · 5d ago</div>
+                <div class="bignum-row">
+                  <div class="bignum">
+                    <div class="lbl">Recipients</div>
+                    <div class="val">2,098</div>
+                    <div class="delta up">▲ 1.0% vs trail</div>
+                  </div>
+                  <div class="bignum">
+                    <div class="lbl">Open rate</div>
+                    <div class="val" style="color: var(--achievement);">38.2%</div>
+                    <div class="delta up">▲ 8.4 pts vs avg</div>
+                  </div>
+                  <div class="bignum">
+                    <div class="lbl">Click rate</div>
+                    <div class="val" style="color: var(--achievement);">11.4%</div>
+                    <div class="delta up">▲ 4.5 pts vs avg</div>
+                  </div>
+                  <div class="bignum">
+                    <div class="lbl">Bounce</div>
+                    <div class="val">0.9%</div>
+                    <div class="delta up">▼ 1.2 pts vs avg</div>
+                  </div>
+                </div>
+                <div style="font-family: var(--font-mono); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--fg-faint); margin-bottom: 4px;">Recipient breakdown · 2,098</div>
+                <div class="breakdown-bar">
+                  <div class="opened"   style="flex: 26.8;" title="Opened only · 562">562<small>opened</small></div>
+                  <div class="clicked"  style="flex: 11.4;" title="Clicked · 239">239<small>clicked</small></div>
+                  <div class="unopened" style="flex: 60.9;" title="Unopened · 1,278">1,278<small>unopened</small></div>
+                  <div class="bounced"  style="flex: 0.9;"  title="Bounced · 19">19<small>bnc</small></div>
+                  <div class="complained" style="flex: 0.05;" title="Complained · 1"></div>
+                </div>
+                <div class="breakdown-legend">
+                  <span><span class="dot" style="background: var(--achievement);"></span>Opened</span>
+                  <span><span class="dot" style="background: var(--tint-fg-active);"></span>Clicked</span>
+                  <span><span class="dot" style="background: var(--bg-raised); border: 1px solid var(--border-soft);"></span>Unopened</span>
+                  <span><span class="dot" style="background: hsl(38,75%,55%);"></span>Bounced · 19</span>
+                  <span><span class="dot" style="background: var(--danger);"></span>Complained · 1</span>
+                </div>
+                <div style="margin-top: var(--space-3); padding: var(--space-2) var(--space-3); background: color-mix(in srgb, var(--achievement) 8%, var(--bg-base)); border-left: 2px solid var(--achievement); border-radius: var(--radius-sm); font-size: var(--text-caption); color: var(--fg-muted); line-height: 1.55;">
+                  <strong style="color: var(--fg);">Healthy send.</strong> Open rate 8.4 pts above 30-day average; the schema-patches angle landed. Click-through doubled vs the prior week, suggesting the in-tenant CTA resonated with operators who were stuck on the same disparity. No deliverability issues.
+                </div>
+              </div>
+
+              <!-- Right: donut + comparison -->
+              <div>
+                <div class="donut-wrap">
+                  <div class="donut">
+                    <svg viewBox="0 0 200 200" width="220" height="220">
+                      <!-- Outer ring · stroked arcs. circumference = 2π·85 ≈ 534. -->
+                      <!-- order: opened (without click) 26.8% / clicked 11.4% / unopened 60.9% / bounced 0.9% / complaint 0.05% -->
+                      <circle cx="100" cy="100" r="85" fill="none" stroke="var(--bg-raised)" stroke-width="22" />
+                      <!-- opened only: 0 to 26.8% → length 143.1 of 534, gap 391 -->
+                      <circle cx="100" cy="100" r="85" fill="none" stroke="var(--achievement)" stroke-width="22" stroke-dasharray="143.1 390.9" stroke-dashoffset="0" transform="rotate(-90 100 100)" />
+                      <!-- clicked: 26.8 to 38.2% → start at -143.1, length 60.9 -->
+                      <circle cx="100" cy="100" r="85" fill="none" stroke="var(--tint-fg-active)" stroke-width="22" stroke-dasharray="60.9 473.1" stroke-dashoffset="-143.1" transform="rotate(-90 100 100)" />
+                      <!-- bounced: 99.1% to 100% → start at -529.3, length 4.8 -->
+                      <circle cx="100" cy="100" r="85" fill="none" stroke="hsl(38,75%,55%)" stroke-width="22" stroke-dasharray="4.8 529.2" stroke-dashoffset="-529.3" transform="rotate(-90 100 100)" />
+                      <!-- centre label -->
+                      <text class="cx-num" x="100" y="98" text-anchor="middle">38.2%</text>
+                      <text class="cx-lbl" x="100" y="118" text-anchor="middle">ENGAGED</text>
+                    </svg>
+                  </div>
+                  <div style="text-align: center; font-family: var(--font-mono); font-size: 10px; color: var(--fg-faint); letter-spacing: .04em; margin-top: -10px;">opened + clicked &nbsp;·&nbsp; bounced 0.9% on outer rim</div>
+                </div>
+
+                <div style="margin-top: var(--space-3);">
+                  <div style="font-family: var(--font-mono); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--fg-faint); margin-bottom: var(--space-2);">vs trailing 30-day average · same-channel sends</div>
+                  <div style="display: grid; gap: 8px; font-size: var(--text-body-sm);">
+                    <div style="display: grid; grid-template-columns: 100px 1fr 60px; gap: var(--space-2); align-items: center;">
+                      <span style="font-family: var(--font-mono); font-size: 10.5px; color: var(--fg-muted);">Open</span>
+                      <div style="position: relative; height: 8px; background: var(--bg-base); border: 1px solid var(--border-soft); border-radius: 4px;">
+                        <div style="position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: var(--fg-faint);"></div>
+                        <div style="position: absolute; left: 50%; top: 0; bottom: 0; background: var(--achievement); width: 17%; border-radius: 0 4px 4px 0;"></div>
+                      </div>
+                      <span style="font-family: var(--font-mono); font-size: 11px; color: var(--achievement); text-align: right;">+8.4 pts</span>
+                    </div>
+                    <div style="display: grid; grid-template-columns: 100px 1fr 60px; gap: var(--space-2); align-items: center;">
+                      <span style="font-family: var(--font-mono); font-size: 10.5px; color: var(--fg-muted);">Click</span>
+                      <div style="position: relative; height: 8px; background: var(--bg-base); border: 1px solid var(--border-soft); border-radius: 4px;">
+                        <div style="position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: var(--fg-faint);"></div>
+                        <div style="position: absolute; left: 50%; top: 0; bottom: 0; background: var(--tint-fg-active); width: 30%; border-radius: 0 4px 4px 0;"></div>
+                      </div>
+                      <span style="font-family: var(--font-mono); font-size: 11px; color: var(--tint-fg-active); text-align: right;">+4.5 pts</span>
+                    </div>
+                    <div style="display: grid; grid-template-columns: 100px 1fr 60px; gap: var(--space-2); align-items: center;">
+                      <span style="font-family: var(--font-mono); font-size: 10.5px; color: var(--fg-muted);">Bounce</span>
+                      <div style="position: relative; height: 8px; background: var(--bg-base); border: 1px solid var(--border-soft); border-radius: 4px;">
+                        <div style="position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: var(--fg-faint);"></div>
+                        <div style="position: absolute; right: 50%; top: 0; bottom: 0; background: var(--achievement); width: 24%; border-radius: 4px 0 0 4px;"></div>
+                      </div>
+                      <span style="font-family: var(--font-mono); font-size: 11px; color: var(--achievement); text-align: right;">−1.2 pts</span>
+                    </div>
+                    <div style="display: grid; grid-template-columns: 100px 1fr 60px; gap: var(--space-2); align-items: center;">
+                      <span style="font-family: var(--font-mono); font-size: 10.5px; color: var(--fg-muted);">Complaint</span>
+                      <div style="position: relative; height: 8px; background: var(--bg-base); border: 1px solid var(--border-soft); border-radius: 4px;">
+                        <div style="position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: var(--fg-faint);"></div>
+                        <div style="position: absolute; left: 50%; top: 0; bottom: 0; background: var(--fg-muted); width: 1%; border-radius: 0 4px 4px 0;"></div>
+                      </div>
+                      <span style="font-family: var(--font-mono); font-size: 11px; color: var(--fg-muted); text-align: right;">flat</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Recipient list size over time -->
+          <div class="chart-card">
+            <div class="chart-card-head">
+              <h4>Recipient list size</h4>
+              <span class="scale">across newsletter sends · proxy for list health</span>
+              <span class="legend">
+                <span class="chart-legend-item"><span class="dot" style="background: var(--fg-muted);"></span> recipient_count</span>
+              </span>
+            </div>
+            <div class="chart-body">
+              <svg class="chart-svg" viewBox="0 0 600 140" preserveAspectRatio="none">
+                <g class="grid">
+                  <line x1="40" x2="588" y1="20" y2="20" />
+                  <line x1="40" x2="588" y1="60" y2="60" />
+                  <line x1="40" x2="588" y1="100" y2="100" />
+                </g>
+                <g class="axis">
+                  <text x="34" y="24"  text-anchor="end">2,200</text>
+                  <text x="34" y="64"  text-anchor="end">2,000</text>
+                  <text x="34" y="104" text-anchor="end">1,800</text>
+                  <line x1="40" x2="588" y1="100" y2="100" />
+                </g>
+                <!-- recipients 1856 → 2098 (excluding L5W outlier 388 — broken segment) -->
+                <polyline class="line-list" points="
+                  40,108.8
+                  94.8,102.0
+                  149.6,98.0
+                  204.4,91.0
+                  259.2,84.4
+                  314,77.6
+                  368.8,73.2
+                  423.6,66.6
+                  478.4,69.0
+                  533.2,64.4
+                  588,60.4
+                " />
+                <g>
+                  <circle class="dot" fill="var(--fg-muted)" cx="40" cy="108.8"/><circle class="dot" fill="var(--fg-muted)" cx="94.8" cy="102.0"/><circle class="dot" fill="var(--fg-muted)" cx="149.6" cy="98.0"/><circle class="dot" fill="var(--fg-muted)" cx="204.4" cy="91.0"/><circle class="dot" fill="var(--fg-muted)" cx="259.2" cy="84.4"/><circle class="dot" fill="var(--fg-muted)" cx="314" cy="77.6"/><circle class="dot" fill="var(--fg-muted)" cx="368.8" cy="73.2"/><circle class="dot" fill="var(--fg-muted)" cx="423.6" cy="66.6"/><circle class="dot" fill="var(--fg-muted)" cx="478.4" cy="69.0"/><circle class="dot" fill="var(--fg-muted)" cx="533.2" cy="64.4"/><circle class="dot" fill="var(--fg-muted)" cx="588" cy="60.4"/>
+                </g>
+                <text x="588" y="56" text-anchor="end" class="threshold-label" fill="var(--fg-muted)">2,098 · latest · +13% over 90d</text>
+                <g class="axis">
+                  <text x="40"  y="124">04 Feb</text>
+                  <text x="588" y="124" text-anchor="end">29 Apr</text>
+                </g>
+              </svg>
+              <div style="margin-top: var(--space-2); font-size: var(--text-caption); color: var(--fg-muted); line-height: 1.5;">L5 Winback (388 recipients · 22 Apr) excluded — different segment, would distort the trend. Add a segment-aware view once <code style="font-family:var(--font-mono);font-size:10.5px;">email_drafts.metadata.segment</code> is consistently populated.</div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Parked / not designed -->
+        <div class="parked-card">
+          <h5>Parked · what these charts can't show yet (and why)</h5>
+          <div class="parked-row">
+            <span class="mark"></span>
+            <div><strong>Time-of-day open heatmap.</strong> Listmonk's campaign endpoint returns totals only — not per-hour event buckets. Would need separate instrumentation against Listmonk's view-tracking endpoint and a new <code>newsletter_events</code> table keyed by send + hour. Not blocking; defer until we have a deliverability question that actually needs it.</div>
+          </div>
+          <div class="parked-row">
+            <span class="mark"></span>
+            <div><strong>A/B subject win-rate.</strong> Schema has <code>subject_alt</code> on <code>newsletter_sends</code> but no per-variant engagement columns (<code>opens_count_a</code>, <code>opens_count_b</code>, etc.). Listmonk supports A/B campaigns; we'd need to teach the poller to split <code>raw_stats</code> per arm, then add the columns. Park until the poller is touched.</div>
+          </div>
+          <div class="parked-row">
+            <span class="mark"></span>
+            <div><strong>Per-segment performance.</strong> Segment lives on <code>email_drafts.metadata</code> not on <code>newsletter_sends</code>. Doable today via join, but inconsistent — older drafts didn't always set it. Add a "segment health" tab once <code>metadata.segment</code> is populated for ≥80% of sends, then we can show L5 Operators vs L5 Winback vs Investor side-by-side.</div>
+          </div>
+          <div class="parked-row">
+            <span class="mark"></span>
+            <div><strong>Single-edition open curve over first 72h.</strong> Same blocker as the heatmap — need per-event timestamps. Listmonk's webhook has them; we'd need to subscribe to the click + view webhooks (not currently wired). Worth doing if/when bounce-shaped issues recur.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ View · Table (existing) ============ -->
+      <div data-view-pane="table" hidden>
+      <table class="sent-table">
+        <thead>
+          <tr>
+            <th style="width: 32%">Subject · edition</th>
+            <th style="width: 14%">Sent at</th>
+            <th class="num" style="width: 8%">Recipients</th>
+            <th class="num" style="width: 8%">Open</th>
+            <th class="num" style="width: 8%">Click</th>
+            <th class="num" style="width: 8%">Bounce</th>
+            <th class="num" style="width: 8%">Complaint</th>
+            <th style="width: 14%">Engagement</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>
+              <div style="font-weight: 500;">April · Schema patches that unblocked tenant 590</div>
+              <div class="meta">edition 2026-04-29 · Listmonk · ruby@royalti.io · campaign #4192</div>
+            </td>
+            <td>29 Apr · 10:01<div class="meta">5d ago</div></td>
+            <td class="num">2,098</td>
+            <td class="pct ok">38.2%</td>
+            <td class="pct ok">11.4%</td>
+            <td class="pct ok">0.9%</td>
+            <td class="pct ok">0.05%</td>
+            <td>
+              <div class="eng-bar"><div class="open" style="flex: 38.2"></div><div class="click" style="flex: 11.4"></div><div style="flex: 49.4; background: var(--bg-base);"></div><div class="bounce" style="flex: 0.9"></div><div class="complaint" style="flex: 0.05"></div></div>
+              <div class="meta">healthy · above baseline</div>
+            </td>
+          </tr>
+          <tr>
+            <td>
+              <div style="font-weight: 500;">L5 Winback · Day 7 — quick walkthrough?</div>
+              <div class="meta">edition L5W-d7-2026-04 · Listmonk · finance@royalti.io · campaign #4188</div>
+            </td>
+            <td>22 Apr · 09:00<div class="meta">12d ago</div></td>
+            <td class="num">388</td>
+            <td class="pct ok">42.1%</td>
+            <td class="pct ok">8.5%</td>
+            <td class="pct warn">2.3%</td>
+            <td class="pct ok">0.00%</td>
+            <td>
+              <div class="eng-bar"><div class="open" style="flex: 42.1"></div><div class="click" style="flex: 8.5"></div><div style="flex: 47.1; background: var(--bg-base);"></div><div class="bounce" style="flex: 2.3"></div></div>
+              <div class="meta">strong open · trim bounces next round</div>
+            </td>
+          </tr>
+          <tr>
+            <td>
+              <div style="font-weight: 500;">March · runway, Stripe Atlas confirmed</div>
+              <div class="meta">edition 2026-03 monthly · Resend · ned@royalti.io · investor list</div>
+              <span class="chip investor">Investor</span>
+            </td>
+            <td>02 Apr · 16:30<div class="meta">32d ago</div></td>
+            <td class="num">12</td>
+            <td class="pct ok">91.7%</td>
+            <td class="pct ok">58.3%</td>
+            <td class="pct ok">0.0%</td>
+            <td class="pct ok">0.0%</td>
+            <td>
+              <div class="eng-bar"><div class="open" style="flex: 91.7"></div><div class="click" style="flex: 58.3"></div></div>
+              <div class="meta">expected for small list</div>
+            </td>
+          </tr>
+          <tr>
+            <td>
+              <div style="font-weight: 500;">March · Believe joins DDEX charter</div>
+              <div class="meta">edition 2026-03-25 · Listmonk · ruby@royalti.io · campaign #4170</div>
+            </td>
+            <td>25 Mar · 10:00<div class="meta">40d ago</div></td>
+            <td class="num">2,067</td>
+            <td class="pct warn">23.4%</td>
+            <td class="pct warn">4.1%</td>
+            <td class="pct bad">3.8%</td>
+            <td class="pct warn">0.18%</td>
+            <td>
+              <div class="eng-bar"><div class="open" style="flex: 23.4"></div><div class="click" style="flex: 4.1"></div><div style="flex: 68.5; background: var(--bg-base);"></div><div class="bounce" style="flex: 3.8"></div><div class="complaint" style="flex: 0.18"></div></div>
+              <div class="meta">below baseline · check sender domain reputation</div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <div style="padding: var(--space-3); border-top: 1px solid var(--border-soft); background: var(--bg-sunken); display: flex; gap: var(--space-3); align-items: center; font-family: var(--font-mono); font-size: 10.5px; color: var(--fg-faint); letter-spacing: .04em;">
+        <span>auto-refresh · listmonk poller hourly · resend webhook real-time</span>
+        <span style="flex:1"></span>
+        <a href="#" style="color: var(--tint-fg-active); text-decoration: none;">Open in Listmonk dashboard ↗</a>
+      </div>
+      </div><!-- /data-view-pane=table -->
+    </div>
+  </section>
+
+  <!-- ============================================================
+       SECTION G · Pipeline source diagram
+       ============================================================ -->
+  <section>
+    <div class="frame-tag"><span class="num">G</span>How a draft gets here · the newsletter pipeline</div>
+    <div class="frame-note">Every draft you see in the queue traces back to <code style="font-family:var(--font-mono);font-size:11.5px;">.company/content/newsletters/&lt;date&gt;-&lt;slug&gt;/</code> on disk and the queue script that inserts the row. Knowing the source is useful: when an anti-pattern fires, you know which markdown file fed it; when you reject, you know which next pipeline run will rebuild.</div>
+
+    <div class="mini-frame">
+      <div class="mini-frame-head">
+        <div class="mini-frame-dot"></div>
+        <div class="mini-frame-title">newsletter-pipeline · 5 stages · disk → DB → review</div>
+        <div class="mini-frame-meta">monthly · runs first weekday of month at 08:00 Lagos</div>
+      </div>
+      <div class="pipeline">
+        <div class="pipeline-step">
+          <h5>1 · Theme select</h5>
+          <h6>Pick the lead</h6>
+          <p>CMO agent reads the month's changelog, picks one lead item + 5 supporting; the rest go in <em>excluded_items</em>.</p>
+          <code>theme_selection.json</code>
+        </div>
+        <div class="pipeline-step">
+          <h5>2 · Compose</h5>
+          <h6>Write &amp; render</h6>
+          <p>Markdown draft → HTML render via the newsletter template. Inline images from /assets, placeholders for {{first_name}} etc.</p>
+          <code>newsletter.html</code>
+        </div>
+        <div class="pipeline-step">
+          <h5>3 · QA scorecard</h5>
+          <h6>Score &amp; flag</h6>
+          <p>Word count, claim verification (links resolve · stats sourced), anti-pattern scan, freshness check against last 60d sends.</p>
+          <code>metadata.json · quality.*</code>
+        </div>
+        <div class="pipeline-step">
+          <h5>4 · Queue insert</h5>
+          <h6>Insert + cool</h6>
+          <p>Insert into <em>email_drafts</em> with type='newsletter', status='draft', reviewable_after = now + 2h.</p>
+          <code>scripts/queue-newsletter-&lt;date&gt;.mjs</code>
+        </div>
+        <div class="pipeline-step">
+          <h5>5 · Notify</h5>
+          <h6>Ping you here</h6>
+          <p>PA notifies in the Outbox badge + a Mattermost ping. Cooling counts down; this screen takes over.</p>
+          <code>/outbox/newsletter</code>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       SECTION H · Investor update variant
+       ============================================================ -->
+  <section>
+    <div class="frame-tag"><span class="num">H</span>Investor update variant · same shell, different shape</div>
+    <div class="frame-note">type='investor_update' shares everything — table, cooling, scorecard, schedule — but the shape of the data differs: small list (~12 leads, not thousands), Resend not Listmonk, no A/B alt subject, freshness check looser, and the scorecard adds a "metric clarity" cell since investor updates live or die on numeric specificity. The detail pane swaps the listmonk segment picker for a Twenty CRM list selector.</div>
+
+    <div class="grid-2">
+      <div class="mini-frame">
+        <div class="mini-frame-head">
+          <div class="mini-frame-dot"></div>
+          <div class="mini-frame-title">Investor update · header strip</div>
+          <div class="mini-frame-meta">type=investor_update · Resend · 12 recipients</div>
+        </div>
+        <div class="subj-card">
+          <div class="subj-row">
+            <span class="lbl">Subject</span>
+            <input value="April · runway, 2 wins, 1 active deal" />
+          </div>
+          <div class="subj-row">
+            <span class="lbl">Preheader</span>
+            <input value="14 months runway on the new burn. Valentim closed. Schema patch unblocked tenant 590's ledger." />
+          </div>
+          <div class="pre-row">
+            <span class="chip resend">Resend · ned@royalti.io</span>
+            <span class="chip investor">Investor list · 12</span>
+            <span class="chip">via Twenty CRM segment "pre-seed leads"</span>
+            <span style="flex:1"></span>
+            <span style="font-family: var(--font-mono); font-size: 10px;">no A/B · single subject</span>
+          </div>
+        </div>
+        <div class="quality-grid" style="grid-template-columns: repeat(2, 1fr);">
+          <div class="quality-cell ok">
+            <div class="qlabel">Quality score</div>
+            <div class="qvalue">91 <span class="qsub">/ 100</span></div>
+            <div class="qbar"><div style="width: 91%"></div></div>
+          </div>
+          <div class="quality-cell ok">
+            <div class="qlabel">Metric clarity</div>
+            <div class="qvalue">8 / 8 <span class="qsub">all numbers sourced</span></div>
+            <div class="qbar"><div style="width: 100%"></div></div>
+          </div>
+          <div class="quality-cell ok">
+            <div class="qlabel">Word count</div>
+            <div class="qvalue">287 <span class="qsub">target 250-400</span></div>
+            <div class="qbar"><div style="width: 72%"></div></div>
+          </div>
+          <div class="quality-cell ok">
+            <div class="qlabel">Anti-patterns</div>
+            <div class="qvalue">0 <span class="qsub">clean</span></div>
+            <div class="qbar"><div style="width: 100%"></div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="mini-frame">
+        <div class="mini-frame-head">
+          <div class="mini-frame-dot"></div>
+          <div class="mini-frame-title">Investor update · differences from newsletter</div>
+          <div class="mini-frame-meta">same UI · different defaults</div>
+        </div>
+        <div style="padding: var(--space-4); display: grid; gap: var(--space-3); font-size: var(--text-body-sm); color: var(--fg);">
+          <div style="display: grid; grid-template-columns: 140px 1fr; gap: var(--space-3); padding-bottom: var(--space-3); border-bottom: 1px solid var(--border-soft);">
+            <span style="font-family: var(--font-mono); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--fg-faint); align-self: start; padding-top: 2px;">Recipient list</span>
+            <span>Twenty CRM segment instead of Listmonk segment. List is small (~12 leads), so per-recipient personalisation is heavier — first name, last meeting date, last raised stage.</span>
+          </div>
+          <div style="display: grid; grid-template-columns: 140px 1fr; gap: var(--space-3); padding-bottom: var(--space-3); border-bottom: 1px solid var(--border-soft);">
+            <span style="font-family: var(--font-mono); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--fg-faint); align-self: start; padding-top: 2px;">Channel</span>
+            <span>Always Resend. Listmonk's bulk pattern is wasted on 12 sends and the per-message reputation matters more than the bulk-list model.</span>
+          </div>
+          <div style="display: grid; grid-template-columns: 140px 1fr; gap: var(--space-3); padding-bottom: var(--space-3); border-bottom: 1px solid var(--border-soft);">
+            <span style="font-family: var(--font-mono); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--fg-faint); align-self: start; padding-top: 2px;">Subject</span>
+            <span>No A/B alt — investor list is too small for the variance to matter. Single subject, edited tightly.</span>
+          </div>
+          <div style="display: grid; grid-template-columns: 140px 1fr; gap: var(--space-3); padding-bottom: var(--space-3); border-bottom: 1px solid var(--border-soft);">
+            <span style="font-family: var(--font-mono); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--fg-faint); align-self: start; padding-top: 2px;">Scorecard</span>
+            <span>Adds <em>metric clarity</em> (every claim has a number + source). Drops <em>previously featured</em> (every update is meant to be cumulative).</span>
+          </div>
+          <div style="display: grid; grid-template-columns: 140px 1fr; gap: var(--space-3); padding-bottom: var(--space-3); border-bottom: 1px solid var(--border-soft);">
+            <span style="font-family: var(--font-mono); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--fg-faint); align-self: start; padding-top: 2px;">Cooling</span>
+            <span>Same 2h. The investor update will be read by the most attentive audience you have — a typo here is more expensive than one in the newsletter.</span>
+          </div>
+          <div style="display: grid; grid-template-columns: 140px 1fr; gap: var(--space-3);">
+            <span style="font-family: var(--font-mono); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--fg-faint); align-self: start; padding-top: 2px;">Schedule</span>
+            <span>Default Thu 14:00 Lagos (mid-week, mid-afternoon — best response window for high-trust audience). Tuesday slot reserved for the broad newsletter.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       SECTION I · Empty / skipped-month state
+       ============================================================ -->
+  <section>
+    <div class="frame-tag"><span class="num">I</span>Empty + skipped-month states</div>
+    <div class="frame-note">Two states that look similar but mean different things. <em>Empty</em> = no draft this month yet (pipeline hasn't run). <em>Skipped</em> = you (or the pipeline) decided this month doesn't have enough content to ship — visible in /outbox/newsletter for the rest of the month so it doesn't surprise anyone, with a one-click "force a draft now" escape.</div>
+
+    <div class="grid-2">
+      <div class="mini-frame">
+        <div class="mini-frame-head">
+          <div class="mini-frame-dot"></div>
+          <div class="mini-frame-title">Empty · pipeline hasn't run yet</div>
+          <div class="mini-frame-meta">May · pipeline runs 01 May 08:00</div>
+        </div>
+        <div class="empty">
+          <div class="empty-mark">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="5" width="18" height="14" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="8" y1="3" x2="8" y2="7"/><line x1="16" y1="3" x2="16" y2="7"/></svg>
+          </div>
+          <h3>No newsletter for May yet</h3>
+          <p>The newsletter pipeline runs on the first weekday of each month at 08:00 Lagos. Next run: <strong style="color:var(--fg);">Thu 01 May 08:00</strong>. Drafts land here with a 2-hour cooling period.</p>
+          <div style="display: flex; gap: var(--space-2);">
+            <button class="btn btn-sm">Run pipeline now</button>
+            <button class="btn btn-sm">Compose manually</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="mini-frame">
+        <div class="mini-frame-head">
+          <div class="mini-frame-dot"></div>
+          <div class="mini-frame-title">Skipped · not enough content this month</div>
+          <div class="mini-frame-meta">decision logged · 2026-02-04</div>
+        </div>
+        <div class="empty">
+          <div class="empty-mark" style="background: color-mix(in srgb, hsl(38, 75%, 55%) 14%, var(--bg-base)); border-color: hsl(38, 50%, 30%); color: hsl(38, 75%, 60%);">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><polyline points="9 18 15 12 9 6"/><line x1="3" y1="12" x2="15" y2="12"/></svg>
+          </div>
+          <h3>February skipped</h3>
+          <p>You skipped February 2026 — reason: <em>"thin content month, won't manufacture filler."</em> Logged in newsletter_sends with type=skipped. The audience won't see anything.</p>
+          <p style="font-size: 11px; color: var(--fg-faint); font-family: var(--font-mono); letter-spacing: .04em;">Next regular send · Tue 04 Mar 10:00 Lagos</p>
+          <div style="display: flex; gap: var(--space-2);">
+            <button class="btn btn-sm">Force a draft now</button>
+            <button class="btn btn-sm">View skip log</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       SECTION J · Hand-off to chat / Claude session
+       ============================================================ -->
+  <section>
+    <div class="frame-tag"><span class="num">J</span>Hand-off · "fix in chat" + section-scoped Claude</div>
+    <div class="frame-note">When an anti-pattern fires or a section feels off, you want a conversation — not in-place edits. Two paths: <em>"Fix in chat"</em> on an anti-pattern row sends just that section + the flag's rationale to the dock chat (not the whole newsletter — keeps Claude focused). <em>"Continue Claude session"</em> in the action footer opens the picker (screen 09 §I) filtered to sessions tagged with the newsletter-pipeline agent.</div>
+
+    <div class="mini-frame">
+      <div class="mini-frame-head">
+        <div class="mini-frame-dot"></div>
+        <div class="mini-frame-title">Section-scoped hand-off · dock chat thread</div>
+        <div class="mini-frame-meta">⌘K from anti-pattern row · context = section 2 only</div>
+      </div>
+      <div style="padding: var(--space-4); display: grid; gap: var(--space-3);">
+        <div style="display: flex; gap: var(--space-2); align-items: start;">
+          <div style="width: 24px; height: 24px; border-radius: 50%; background: var(--bg-raised); border: 1px solid var(--border); display: grid; place-items: center; font-family: var(--font-mono); font-size: 10px; color: var(--fg); flex-shrink: 0;">N</div>
+          <div style="flex: 1; background: var(--bg-sunken); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-3); font-size: var(--text-body-sm); color: var(--fg); line-height: 1.55;">
+            Anti-pattern fired on newsletter <strong>2026-05-01</strong> · section 2 · "<em>game-changer</em>" hype phrase. Rewrite section 2 to keep the substance (FUGA delivery + bulk validate/retry + import) but drop the hype — lead with the concrete capability and a number if you have one.
+            <div style="margin-top: var(--space-2); padding: var(--space-2); background: var(--bg-base); border-left: 2px solid hsl(38, 75%, 55%); border-radius: var(--radius-sm); font-family: var(--font-mono); font-size: 10.5px; color: var(--fg-muted);">
+              ─ section 2 ─<br/>
+              "Now you can deliver — this is a <strong style="color:hsl(38,75%,60%);">game-changer</strong> for indie labels who used to bounce between Royalti and FUGA. End-to-end FUGA delivery, bulk validate &amp; retry, catalog import from the FUGA CSV…"
+            </div>
+          </div>
+        </div>
+
+        <div style="display: flex; gap: var(--space-2); align-items: start;">
+          <div style="width: 24px; height: 24px; border-radius: 50%; background: linear-gradient(135deg, color-mix(in srgb, var(--tint-fg-active) 30%, transparent), var(--tint-fg-active)); display: grid; place-items: center; font-family: var(--font-mono); font-size: 10px; color: var(--bg-base); flex-shrink: 0;">C</div>
+          <div style="flex: 1; background: var(--bg-sunken); border: 1px solid var(--border-soft); border-radius: var(--radius-md); padding: var(--space-3);">
+            <div style="font-size: var(--text-body-sm); color: var(--fg); line-height: 1.6; white-space: pre-wrap;">Three concrete capabilities, no hype:
+
+— End-to-end FUGA delivery: build a release in Royalti, push to FUGA, track delivery status in-tenant.
+— Bulk validate &amp; retry: 200 files in parallel; failed ones retry with one click.
+— FUGA catalog import: drop the FUGA CSV, your existing catalogue mirrors into Royalti in one pass.
+
+For indie labels this means the bounce between two tools (Royalti for tracking, FUGA for delivery) collapses into one.</div>
+            <div style="display: flex; gap: var(--space-2); margin-top: var(--space-3); padding-top: var(--space-2); border-top: 1px solid var(--border-soft);">
+              <button class="btn btn-sm" style="background: var(--tint-fg-active); color: var(--primary-fg); border-color: var(--tint-fg-active);">Apply to section 2 ↩</button>
+              <button class="btn btn-sm">Copy</button>
+              <button class="btn btn-sm">Iterate again</button>
+              <span style="flex:1"></span>
+              <span style="font-family: var(--font-mono); font-size: 10px; color: var(--fg-faint); letter-spacing: .04em; align-self: center;">−1 hype · +3 specifics · re-run scorecard</span>
+            </div>
+          </div>
+        </div>
+
+        <div style="font-size: var(--text-caption); color: var(--fg-muted); line-height: 1.55; padding: var(--space-2) var(--space-3); background: var(--bg-base); border-left: 2px solid var(--tint-fg-active); border-radius: var(--radius-sm);">
+          On apply: only section 2 is replaced in the draft body. The rest of the newsletter is untouched. Quality scorecard re-runs automatically — anti-pattern count drops, you'll see it tick down to 1 then 0 within a second. Cooling timer is unaffected (the original draft's clock keeps running).
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       SECTION K · Keyboard map (newsletter-specific additions)
+       ============================================================ -->
+  <section>
+    <div class="frame-tag"><span class="num">K</span>Keyboard map · newsletter additions</div>
+    <div class="frame-note">Inherits the Outbox-wide map from screen 09. Three newsletter-specific shortcuts because the workflow has its own beats.</div>
+
+    <div class="mini-frame">
+      <div class="mini-frame-head">
+        <div class="mini-frame-dot"></div>
+        <div class="mini-frame-title">Shortcuts · /outbox/newsletter</div>
+        <div class="mini-frame-meta">on top of the Outbox-wide set from screen 09</div>
+      </div>
+      <div style="padding: var(--space-4); display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2) var(--space-6); font-size: var(--text-body-sm);">
+        <div style="display: flex; align-items: center; gap: var(--space-2);"><kbd style="background:var(--bg-base);border:1px solid var(--border-soft);border-radius:var(--radius-xs);padding:1px 6px;font-family:var(--font-mono);font-size:10.5px;">P</kbd> <span style="color: var(--fg-muted);">toggle preview · rendered ↔ HTML source ↔ plain</span></div>
+        <div style="display: flex; align-items: center; gap: var(--space-2);"><kbd style="background:var(--bg-base);border:1px solid var(--border-soft);border-radius:var(--radius-xs);padding:1px 6px;font-family:var(--font-mono);font-size:10.5px;">M</kbd> <span style="color: var(--fg-muted);">toggle device · desktop ↔ mobile</span></div>
+        <div style="display: flex; align-items: center; gap: var(--space-2);"><kbd style="background:var(--bg-base);border:1px solid var(--border-soft);border-radius:var(--radius-xs);padding:1px 6px;font-family:var(--font-mono);font-size:10.5px;">A</kbd> <span style="color: var(--fg-muted);">cycle subject · primary ↔ A/B alt</span></div>
+        <div style="display: flex; align-items: center; gap: var(--space-2);"><kbd style="background:var(--bg-base);border:1px solid var(--border-soft);border-radius:var(--radius-xs);padding:1px 6px;font-family:var(--font-mono);font-size:10.5px;">T</kbd> <span style="color: var(--fg-muted);">send test to me (chinedum@royalti.io)</span></div>
+        <div style="display: flex; align-items: center; gap: var(--space-2);"><kbd style="background:var(--bg-base);border:1px solid var(--border-soft);border-radius:var(--radius-xs);padding:1px 6px;font-family:var(--font-mono);font-size:10.5px;">⌘</kbd><kbd style="background:var(--bg-base);border:1px solid var(--border-soft);border-radius:var(--radius-xs);padding:1px 6px;font-family:var(--font-mono);font-size:10.5px;">⇧</kbd><kbd style="background:var(--bg-base);border:1px solid var(--border-soft);border-radius:var(--radius-xs);padding:1px 6px;font-family:var(--font-mono);font-size:10.5px;">S</kbd> <span style="color: var(--fg-muted);">skip month (with confirm)</span></div>
+        <div style="display: flex; align-items: center; gap: var(--space-2);"><kbd style="background:var(--bg-base);border:1px solid var(--border-soft);border-radius:var(--radius-xs);padding:1px 6px;font-family:var(--font-mono);font-size:10.5px;">⌘</kbd><kbd style="background:var(--bg-base);border:1px solid var(--border-soft);border-radius:var(--radius-xs);padding:1px 6px;font-family:var(--font-mono);font-size:10.5px;">⇧</kbd><kbd style="background:var(--bg-base);border:1px solid var(--border-soft);border-radius:var(--radius-xs);padding:1px 6px;font-family:var(--font-mono);font-size:10.5px;">F</kbd> <span style="color: var(--fg-muted);">"fix in chat" on next anti-pattern</span></div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <span>Ikenga · Ikenga · Rung 3 · Screen 11 — Outbox · Newsletter · 2026-05-04</span>
+    <span><a href="./09-outbox-flows.html">← Outbox · flows</a> · <a href="./index.html">Index</a> · <a href="./04-outbox-approvals.html">Outbox · Approvals →</a></span>
+  </footer>
+
+</div>
+
+<script src="../_shared/shell.js"></script>
+<script src="../_shared/controls.js"></script>
+<script>
+  // Cooling countdown ticks down once per second on the hero detail
+  // (purely visual; resets on full minute).
+  var coolEl = document.querySelector('.nl-cool .countdown');
+  var progEl = document.querySelector('.nl-cool .progress > div');
+  if (coolEl) {
+    var minutes = 47, seconds = 12;
+    setInterval(function () {
+      seconds--;
+      if (seconds < 0) { seconds = 59; minutes--; }
+      if (minutes < 0) { minutes = 0; seconds = 0; }
+      coolEl.textContent = minutes + 'm ' + (seconds < 10 ? '0' : '') + seconds + 's';
+      // Cooling is 2h = 120m; elapsed = 120 - remaining
+      var remaining = minutes + seconds / 60;
+      var pct = Math.min(100, Math.max(0, ((120 - remaining) / 120) * 100));
+      if (progEl) progEl.style.width = pct.toFixed(1) + '%';
+    }, 1000);
+  }
+
+  // Sub-route nav switching (visual only)
+  document.querySelectorAll('.ob-subnav button, .nl-inner-tabs button').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var siblings = b.parentElement.querySelectorAll('button');
+      siblings.forEach(function (x) { x.classList.remove('is-on'); });
+      b.classList.add('is-on');
+    });
+  });
+
+  // Preview toolbar segment toggles
+  document.querySelectorAll('.preview-toolbar .seg').forEach(function (seg) {
+    seg.querySelectorAll('button').forEach(function (b) {
+      b.addEventListener('click', function () {
+        seg.querySelectorAll('button').forEach(function (x) { x.classList.remove('is-on'); });
+        b.classList.add('is-on');
+      });
+    });
+  });
+
+  // Reject canned-reason fills the input
+  document.querySelectorAll('.nl-reject .canned button').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var input = b.closest('.nl-reject').querySelector('input');
+      if (input) input.value = b.textContent + ' — ';
+      input && input.focus();
+    });
+  });
+
+  // Sent inner-tab · Table ↔ Charts view toggle
+  document.querySelectorAll('[data-view-toggle]').forEach(function (toggle) {
+    toggle.querySelectorAll('button').forEach(function (b) {
+      b.addEventListener('click', function () {
+        toggle.querySelectorAll('button').forEach(function (x) { x.classList.remove('is-on'); });
+        b.classList.add('is-on');
+        var view = b.dataset.view;
+        var root = toggle.closest('.mini-frame');
+        if (!root) return;
+        root.querySelectorAll('[data-view-pane]').forEach(function (pane) {
+          pane.hidden = pane.dataset.viewPane !== view;
+        });
+      });
+    });
+  });
+
+  // Edition picker · single-edition drilldown (visual only)
+  document.querySelectorAll('.edition-drill .picker button').forEach(function (b) {
+    b.addEventListener('click', function () {
+      b.parentElement.querySelectorAll('button').forEach(function (x) { x.classList.remove('is-on'); });
+      b.classList.add('is-on');
+    });
+  });
+</script>
+
+</body>
+</html>

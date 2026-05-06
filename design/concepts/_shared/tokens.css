@@ -1,0 +1,210 @@
+/* =================================================================
+   Ikenga · tokens.css — single source of truth for design previews.
+   Locked spec: design/system/tokens.md
+   Selectors target [data-theme][data-mode][data-density][data-workspace]
+   on <html>.
+   ================================================================= */
+
+:root {
+  /* fonts */
+  --font-display: 'Fraunces', ui-serif, Georgia, serif;
+  --font-body:    'Inter', system-ui, sans-serif;
+  --font-mono:    'JetBrains Mono', ui-monospace, Menlo, monospace;
+
+  /* type scale */
+  --text-display-xl: 72px; --lead-display-xl: 1;
+  --text-display:    56px; --lead-display:    1.05;
+  --text-h1:         32px; --lead-h1:         1.15;
+  --text-h2:         24px; --lead-h2:         1.2;
+  --text-h3:         18px; --lead-h3:         1.35;
+  --text-body-lg:    16px; --lead-body-lg:    1.6;
+  --text-body:       14px; --lead-body:       1.55;
+  --text-body-sm:    13px; --lead-body-sm:    1.5;
+  --text-caption:    12px; --lead-caption:    1.45;
+  --text-micro:      11px; --lead-micro:      1.4;
+  --text-code:       13px; --lead-code:       1.55;
+
+  /* spacing */
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-5:20px;
+  --space-6:24px; --space-8:32px; --space-10:40px; --space-12:48px;
+  --space-16:64px; --space-20:80px;
+
+  /* radius */
+  --radius-xs:3px; --radius-sm:5px; --radius-md:8px;
+  --radius-lg:12px; --radius-xl:16px; --radius-pill:999px;
+
+  /* motion */
+  --motion-fast:120ms; --motion-base:180ms;
+  --motion-slow:260ms; --motion-slower:360ms;
+  --ease-calm: cubic-bezier(0.2, 0.6, 0.2, 1);
+  --ease-decisive: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-soft-bounce: cubic-bezier(0.34, 1.32, 0.64, 1);
+
+  /* density (default: comfortable) */
+  --row-h: 36px; --row-pad-y: 8px;
+  --body-size: var(--text-body);
+  --body-lead: var(--lead-body);
+  --gap: var(--space-2);
+  /* component heights derived from density — same family, scoped to chrome */
+  --tab-h: 38px;
+  --btn-h: 32px; --btn-h-sm: 26px; --btn-h-lg: 40px;
+  --input-h: 32px;
+}
+
+[data-density="compact"] {
+  --row-h:28px; --row-pad-y:5px;  --body-size:var(--text-body-sm); --body-lead:1.4; --gap:var(--space-1);
+  --tab-h:32px; --btn-h:28px; --btn-h-sm:22px; --btn-h-lg:34px; --input-h:28px;
+}
+[data-density="spacious"] {
+  --row-h:44px; --row-pad-y:11px; --body-size:var(--text-body-lg); --body-lead:1.6; --gap:var(--space-3);
+  --tab-h:44px; --btn-h:36px; --btn-h-sm:30px; --btn-h-lg:44px; --input-h:36px;
+}
+
+/* === Theme A · Dusk Wood (canonical) ============================ */
+[data-theme="A"][data-mode="dark"] {
+  --bg-base: hsl(28,18%,4%);    --bg-surface: hsl(28,14%,7%);
+  --bg-raised: hsl(28,11%,11%); --bg-sunken: hsl(28,22%,2.5%);
+  --fg: hsl(36,28%,90%); --fg-muted: hsl(32,11%,56%); --fg-faint: hsl(28,9%,36%);
+  --border: hsl(28,14%,15%); --border-soft: hsl(28,14%,11%);
+  --primary: hsl(20,50%,34%); --primary-fg: hsl(36,30%,92%); --primary-soft: hsl(20,40%,14%);
+  --achievement: hsl(42,78%,54%); --achievement-soft: hsl(42,48%,18%);
+  --danger: hsl(8,68%,46%); --danger-soft: hsl(8,50%,16%);
+  --systemic: hsl(170,28%,34%); --systemic-soft: hsl(170,22%,16%);
+  --agent: hsl(265,52%,64%); --agent-soft: hsl(265,32%,20%);
+  --live:  hsl(150,48%,52%); --live-soft:  hsl(150,30%,18%);
+  --shadow-1: 0 1px 2px rgba(0,0,0,.55), 0 0 0 1px rgba(0,0,0,.25);
+  --shadow-2: 0 4px 12px -2px rgba(0,0,0,.55);
+  --shadow-3: 0 12px 28px -8px rgba(0,0,0,.6);
+  --shadow-4: 0 24px 48px -16px rgba(0,0,0,.65);
+}
+[data-theme="A"][data-mode="light"] {
+  --bg-base: hsl(36,22%,96%);   --bg-surface: hsl(36,18%,93%);
+  --bg-raised: hsl(36,14%,89%); --bg-sunken: hsl(36,26%,98%);
+  --fg: hsl(28,30%,14%); --fg-muted: hsl(28,14%,38%); --fg-faint: hsl(28,12%,56%);
+  --border: hsl(32,16%,78%); --border-soft: hsl(32,16%,84%);
+  --primary: hsl(20,50%,34%); --primary-fg: hsl(36,26%,98%); --primary-soft: hsl(20,50%,90%);
+  --achievement: hsl(42,78%,42%); --achievement-soft: hsl(42,60%,90%);
+  --danger: hsl(8,68%,42%); --danger-soft: hsl(8,60%,92%);
+  --systemic: hsl(170,36%,32%); --systemic-soft: hsl(170,30%,90%);
+  --agent: hsl(265,55%,44%); --agent-soft: hsl(265,40%,92%);
+  --live:  hsl(150,55%,34%); --live-soft:  hsl(150,40%,92%);
+  --shadow-1: 0 1px 2px rgba(28,18,8,.08);
+  --shadow-2: 0 4px 12px -2px rgba(28,18,8,.10);
+  --shadow-3: 0 12px 28px -8px rgba(28,18,8,.14);
+  --shadow-4: 0 24px 48px -16px rgba(28,18,8,.18);
+}
+
+/* === Theme B · Kola Daylight ==================================== */
+[data-theme="B"][data-mode="light"] {
+  --bg-base: hsl(36,28%,96%);   --bg-surface: hsl(36,22%,94%);
+  --bg-raised: hsl(36,18%,90%); --bg-sunken: hsl(36,32%,98%);
+  --fg: hsl(28,30%,12%); --fg-muted: hsl(28,14%,38%); --fg-faint: hsl(28,12%,56%);
+  --border: hsl(32,18%,80%); --border-soft: hsl(32,18%,86%);
+  --primary: hsl(42,82%,46%); --primary-fg: hsl(28,30%,8%); --primary-soft: hsl(42,60%,88%);
+  --achievement: hsl(14,72%,46%); --achievement-soft: hsl(14,60%,90%);
+  --danger: hsl(8,68%,42%); --danger-soft: hsl(8,60%,92%);
+  --systemic: hsl(170,36%,32%); --systemic-soft: hsl(170,30%,90%);
+  --agent: hsl(265,55%,44%); --agent-soft: hsl(265,40%,92%);
+  --live:  hsl(150,55%,34%); --live-soft:  hsl(150,40%,92%);
+  --shadow-1: 0 1px 2px rgba(28,18,8,.08);
+  --shadow-2: 0 4px 12px -2px rgba(28,18,8,.10);
+  --shadow-3: 0 12px 28px -8px rgba(28,18,8,.14);
+  --shadow-4: 0 24px 48px -16px rgba(28,18,8,.18);
+}
+[data-theme="B"][data-mode="dark"] {
+  --bg-base: hsl(36,12%,8%);    --bg-surface: hsl(36,10%,12%);
+  --bg-raised: hsl(36,8%,16%);  --bg-sunken: hsl(36,16%,6%);
+  --fg: hsl(40,28%,92%); --fg-muted: hsl(36,10%,62%); --fg-faint: hsl(36,8%,42%);
+  --border: hsl(36,12%,22%); --border-soft: hsl(36,12%,18%);
+  --primary: hsl(42,84%,60%); --primary-fg: hsl(36,30%,8%); --primary-soft: hsl(42,60%,18%);
+  --achievement: hsl(14,76%,56%); --achievement-soft: hsl(14,50%,18%);
+  --danger: hsl(8,70%,52%); --danger-soft: hsl(8,50%,18%);
+  --systemic: hsl(170,32%,46%); --systemic-soft: hsl(170,25%,18%);
+  --agent: hsl(265,52%,64%); --agent-soft: hsl(265,32%,20%);
+  --live:  hsl(150,48%,52%); --live-soft:  hsl(150,30%,18%);
+  --shadow-1: 0 1px 2px rgba(0,0,0,.55);
+  --shadow-2: 0 4px 12px -2px rgba(0,0,0,.55);
+  --shadow-3: 0 12px 28px -8px rgba(0,0,0,.6);
+  --shadow-4: 0 24px 48px -16px rgba(0,0,0,.65);
+}
+
+/* === Theme C · Bronze Shrine ==================================== */
+[data-theme="C"][data-mode="dark"] {
+  --bg-base: hsl(180,14%,7%);   --bg-surface: hsl(180,12%,11%);
+  --bg-raised: hsl(180,10%,15%);--bg-sunken: hsl(180,18%,5%);
+  --fg: hsl(40,18%,90%); --fg-muted: hsl(180,8%,60%); --fg-faint: hsl(180,8%,42%);
+  --border: hsl(180,12%,22%); --border-soft: hsl(180,12%,18%);
+  --primary: hsl(170,35%,50%); --primary-fg: hsl(180,18%,6%); --primary-soft: hsl(170,30%,18%);
+  --achievement: hsl(40,58%,64%); --achievement-soft: hsl(40,30%,18%);
+  --danger: hsl(8,70%,50%); --danger-soft: hsl(8,50%,18%);
+  --systemic: hsl(220,22%,56%); --systemic-soft: hsl(220,14%,18%);
+  --agent: hsl(265,52%,64%); --agent-soft: hsl(265,32%,20%);
+  --live:  hsl(150,48%,52%); --live-soft:  hsl(150,30%,18%);
+  --shadow-1: 0 1px 2px rgba(0,0,0,.6);
+  --shadow-2: 0 4px 12px -2px rgba(0,0,0,.6);
+  --shadow-3: 0 12px 28px -8px rgba(0,0,0,.65);
+  --shadow-4: 0 24px 48px -16px rgba(0,0,0,.7);
+}
+[data-theme="C"][data-mode="light"] {
+  --bg-base: hsl(180,10%,95%);  --bg-surface: hsl(180,8%,92%);
+  --bg-raised: hsl(180,6%,88%); --bg-sunken: hsl(180,12%,97%);
+  --fg: hsl(200,22%,14%); --fg-muted: hsl(200,10%,38%); --fg-faint: hsl(200,8%,58%);
+  --border: hsl(180,12%,80%); --border-soft: hsl(180,12%,86%);
+  --primary: hsl(170,42%,34%); --primary-fg: hsl(180,12%,97%); --primary-soft: hsl(170,30%,88%);
+  --achievement: hsl(40,64%,38%); --achievement-soft: hsl(40,50%,90%);
+  --danger: hsl(8,70%,42%); --danger-soft: hsl(8,60%,92%);
+  --systemic: hsl(220,24%,40%); --systemic-soft: hsl(220,22%,90%);
+  --agent: hsl(265,55%,44%); --agent-soft: hsl(265,40%,92%);
+  --live:  hsl(150,55%,34%); --live-soft:  hsl(150,40%,92%);
+  --shadow-1: 0 1px 2px rgba(20,28,32,.08);
+  --shadow-2: 0 4px 12px -2px rgba(20,28,32,.10);
+  --shadow-3: 0 12px 28px -8px rgba(20,28,32,.14);
+  --shadow-4: 0 24px 48px -16px rgba(20,28,32,.18);
+}
+
+/* === Workspace tints — constant hues, mode-adaptive ============= */
+[data-mode="dark"] {
+  --tint-app-bg:      hsl(36,14%,11%);   --tint-app-fg:      hsl(36,28%,78%);
+  --tint-mail-bg:     hsl(42,30%,11%);   --tint-mail-fg:     hsl(42,70%,62%);
+  --tint-outbox-bg:   hsl(14,38%,11%);   --tint-outbox-fg:   hsl(14,72%,60%);
+  --tint-studio-bg:   hsl(8,40%,10%);    --tint-studio-fg:   hsl(8,72%,60%);
+  --tint-agents-bg:   hsl(170,26%,10%);  --tint-agents-fg:   hsl(170,40%,58%);
+  --tint-files-bg:    hsl(28,14%,11%);   --tint-files-fg:    hsl(28,30%,60%);
+  --tint-sessions-bg: hsl(28,28%,11%);   --tint-sessions-fg: hsl(28,60%,62%);
+  --tint-settings-bg: hsl(220,14%,11%);  --tint-settings-fg: hsl(220,26%,66%);
+}
+[data-mode="light"] {
+  --tint-app-bg:      hsl(36,22%,92%);   --tint-app-fg:      hsl(28,30%,22%);
+  --tint-mail-bg:     hsl(42,60%,92%);   --tint-mail-fg:     hsl(42,80%,28%);
+  --tint-outbox-bg:   hsl(14,60%,93%);   --tint-outbox-fg:   hsl(14,70%,32%);
+  --tint-studio-bg:   hsl(8,60%,93%);    --tint-studio-fg:   hsl(8,70%,32%);
+  --tint-agents-bg:   hsl(170,36%,92%);  --tint-agents-fg:   hsl(170,50%,24%);
+  --tint-files-bg:    hsl(36,26%,92%);   --tint-files-fg:    hsl(28,30%,22%);
+  --tint-sessions-bg: hsl(28,50%,92%);   --tint-sessions-fg: hsl(14,60%,30%);
+  --tint-settings-bg: hsl(220,22%,93%);  --tint-settings-fg: hsl(220,30%,24%);
+}
+
+/* Active tint vars (resolved per workspace) */
+[data-workspace="app"]      { --tint-bg-active:var(--tint-app-bg);      --tint-fg-active:var(--tint-app-fg); }
+[data-workspace="mail"]     { --tint-bg-active:var(--tint-mail-bg);     --tint-fg-active:var(--tint-mail-fg); }
+[data-workspace="outbox"]   { --tint-bg-active:var(--tint-outbox-bg);   --tint-fg-active:var(--tint-outbox-fg); }
+[data-workspace="studio"]   { --tint-bg-active:var(--tint-studio-bg);   --tint-fg-active:var(--tint-studio-fg); }
+[data-workspace="agents"]   { --tint-bg-active:var(--tint-agents-bg);   --tint-fg-active:var(--tint-agents-fg); }
+[data-workspace="files"]    { --tint-bg-active:var(--tint-files-bg);    --tint-fg-active:var(--tint-files-fg); }
+[data-workspace="sessions"] { --tint-bg-active:var(--tint-sessions-bg); --tint-fg-active:var(--tint-sessions-fg); }
+[data-workspace="settings"] { --tint-bg-active:var(--tint-settings-bg); --tint-fg-active:var(--tint-settings-fg); }
+
+/* === Base ====================================================== */
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  font-family: var(--font-body);
+  font-size: var(--body-size);
+  background: var(--bg-base);
+  color: var(--fg);
+  -webkit-font-smoothing: antialiased;
+  line-height: var(--body-lead);
+  transition: background var(--motion-base) var(--ease-calm),
+              color var(--motion-base) var(--ease-calm),
+              font-size var(--motion-fast) var(--ease-calm);
+}

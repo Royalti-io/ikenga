@@ -1,0 +1,467 @@
+/* Sessions screen — Ikenga Rung 3 / Batch 3 (06-sessions.html)
+ * Reuses tokens from src/lib/ikenga/tokens.css. No new tokens.
+ * Scope: list + detail header + by-agent. Chat thread / terminal body
+ * styling lives with @/chat components.
+ */
+
+/* === Frame ================================================== */
+.ses-frame {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  overflow: hidden;
+  box-shadow: var(--shadow-2);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.ses-section-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 var(--space-5);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-surface);
+  height: 38px;
+}
+.ses-section-tab {
+  height: 38px;
+  padding: 0 var(--space-3);
+  display: inline-flex;
+  align-items: center;
+  font-size: var(--text-body-sm);
+  color: var(--fg-faint);
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  font-family: inherit;
+  text-decoration: none;
+}
+.ses-section-tab:hover { color: var(--fg-muted); }
+.ses-section-tab.is-on {
+  color: var(--fg);
+  border-bottom-color: var(--tint-fg-active, var(--primary));
+  font-weight: 500;
+}
+.ses-section-tab .ct {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--fg-faint);
+  margin-left: 6px;
+}
+
+/* === List head =============================================== */
+.ses-list-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--border-soft);
+  background: linear-gradient(180deg, var(--tint-bg-active, var(--bg-surface)) 0%, var(--bg-surface) 100%);
+}
+.ses-list-head .h-mark {
+  width: 18px;
+  height: 18px;
+  color: var(--tint-fg-active, var(--primary));
+}
+.ses-list-head h2 {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: var(--text-h3);
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.ses-list-head .count {
+  font-size: var(--text-body-sm);
+  color: var(--fg-muted);
+  margin-left: 6px;
+  font-weight: 400;
+}
+.ses-list-head .sub {
+  font-size: var(--text-caption);
+  color: var(--fg-muted);
+  margin-top: 4px;
+}
+.ses-list-head .sub code {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  background: var(--bg-base);
+  border: 1px solid var(--border-soft);
+  padding: 1px 5px;
+  border-radius: var(--radius-xs);
+  color: var(--fg);
+  margin: 0 4px;
+}
+
+/* === Filter bar ============================================= */
+.ses-filterbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-5);
+  border-bottom: 1px solid var(--border-soft);
+  background: var(--bg-sunken);
+}
+.ses-filterbar .input-search-wrap { position: relative; display: inline-flex; }
+.ses-filterbar .input-search-wrap svg {
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 13px;
+  height: 13px;
+  color: var(--fg-faint);
+}
+.ses-filterbar input[type='text'] {
+  width: 320px;
+  height: 28px;
+  padding: 0 8px 0 28px;
+  background: var(--bg-base);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  color: var(--fg);
+  font-family: inherit;
+  font-size: 11.5px;
+}
+.ses-filterbar select {
+  height: 28px;
+  font-size: 11.5px;
+  padding: 0 var(--space-2);
+  background: var(--bg-base);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  color: var(--fg);
+  font-family: inherit;
+}
+.ses-filterbar .label {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--fg-faint);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.ses-filterbar .spacer { flex: 1; }
+
+/* === Session list table ===================================== */
+.ses-table-wrap {
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--bg-base);
+  margin: var(--space-5);
+}
+.ses-table { width: 100%; border-collapse: collapse; font-size: var(--text-body-sm); }
+.ses-table thead th {
+  text-align: left;
+  font-weight: 500;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--fg-faint);
+  background: var(--bg-sunken);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-soft);
+}
+.ses-table tbody tr {
+  border-top: 1px solid var(--border-soft);
+  cursor: pointer;
+  transition: background var(--motion-fast) var(--ease-calm);
+}
+.ses-table tbody tr:first-child { border-top: 0; }
+.ses-table tbody tr:hover { background: var(--bg-raised); }
+.ses-table td {
+  padding: var(--row-pad-y, var(--space-2)) var(--space-3);
+  vertical-align: top;
+  color: var(--fg);
+}
+.ses-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.ses-table .meta {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--fg-faint);
+  letter-spacing: 0.04em;
+}
+.ses-table .muted {
+  color: var(--fg-muted);
+  font-size: var(--text-caption);
+}
+.ses-table .title-cell {
+  font-weight: 500;
+  max-width: 32rem;
+}
+.ses-table .title-cell .truncate {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  max-width: 32rem;
+}
+.ses-table .session-id-fb {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--fg-faint);
+}
+.ses-table tbody tr.is-live {
+  background: color-mix(in srgb, var(--live-soft) 30%, transparent);
+}
+.ses-table tbody tr.is-live:hover {
+  background: color-mix(in srgb, var(--live-soft) 50%, var(--bg-raised));
+}
+
+/* === Agent badge ============================================ */
+.agent-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: var(--radius-xs);
+  color: var(--agent);
+  background: var(--agent-soft);
+  border: 1px solid color-mix(in srgb, var(--agent) 30%, var(--border-soft));
+  white-space: nowrap;
+  margin-top: 4px;
+}
+.agent-badge .dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--agent);
+}
+
+/* === Live badge + pulsing dot =============================== */
+.live-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: var(--radius-xs);
+  color: var(--live);
+  background: var(--live-soft);
+  border: 1px solid color-mix(in srgb, var(--live) 30%, var(--border-soft));
+}
+.live-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--live);
+  position: relative;
+}
+.live-dot::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  background: var(--live);
+  opacity: 0.35;
+  animation: ses-live-pulse 1.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+@keyframes ses-live-pulse {
+  0% { transform: scale(0.6); opacity: 0.55; }
+  70% { transform: scale(1.7); opacity: 0; }
+  100% { transform: scale(0.6); opacity: 0; }
+}
+
+/* === Model token badge ====================================== */
+.model-badge {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--fg-muted);
+  letter-spacing: 0.02em;
+  background: var(--bg-sunken);
+  padding: 2px 6px;
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--border-soft);
+}
+
+/* === Detail header (Section B/C) ============================ */
+.ses-det-head {
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--border-soft);
+  background: linear-gradient(180deg, var(--tint-bg-active, var(--bg-surface)) 0%, var(--bg-surface) 100%);
+}
+.ses-back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--text-caption);
+  color: var(--fg-muted);
+  text-decoration: none;
+  margin-bottom: 6px;
+}
+.ses-back-link:hover { color: var(--fg); text-decoration: underline; }
+.ses-back-link svg { width: 12px; height: 12px; }
+
+.ses-det-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+.ses-det-titlewrap {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.ses-det-title {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: var(--text-h3);
+  color: var(--fg);
+  margin: 0;
+  max-width: 56ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ses-det-meta {
+  margin-top: 4px;
+  font-size: var(--text-caption);
+  color: var(--fg-muted);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.ses-det-meta code {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  background: var(--bg-base);
+  border: 1px solid var(--border-soft);
+  padding: 1px 5px;
+  border-radius: var(--radius-xs);
+  color: var(--fg);
+}
+.ses-det-meta .sep { color: var(--fg-faint); }
+.ses-det-meta .id {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--fg-faint);
+  letter-spacing: 0.04em;
+}
+.ses-det-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+/* === By-agent split (Section D) ============================= */
+.ses-agents-split {
+  display: grid;
+  grid-template-columns: 320px 4px 1fr;
+  height: 100%;
+  min-height: 0;
+}
+.ses-agents-list {
+  overflow-y: auto;
+  background: var(--bg-surface);
+  border-right: 1px solid var(--border-soft);
+}
+.ses-agent-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border-soft);
+  cursor: pointer;
+  text-decoration: none;
+  color: var(--fg);
+}
+.ses-agent-row:hover { background: var(--bg-raised); }
+.ses-agent-row.is-on {
+  background: var(--bg-raised);
+  position: relative;
+}
+.ses-agent-row.is-on::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--tint-fg-active, var(--primary));
+}
+.ses-agent-row .name {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--fg);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ses-agent-row .model {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--fg-faint);
+  margin-top: 2px;
+}
+.ses-agent-row .ct {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--fg-muted);
+  font-variant-numeric: tabular-nums;
+}
+.ses-agents-detail {
+  overflow-y: auto;
+  background: var(--bg-base);
+}
+.ses-empty {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--fg-faint);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* === Adapter switcher ======================================= */
+.adapter-switch {
+  display: inline-flex;
+  background: var(--bg-base);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  padding: 2px;
+  gap: 1px;
+}
+.adapter-switch button {
+  border: 0;
+  background: transparent;
+  font-family: var(--font-body);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--fg-muted);
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.adapter-switch button:hover { color: var(--fg); }
+.adapter-switch button.is-on {
+  background: var(--bg-raised);
+  color: var(--fg);
+  box-shadow: var(--shadow-1);
+}

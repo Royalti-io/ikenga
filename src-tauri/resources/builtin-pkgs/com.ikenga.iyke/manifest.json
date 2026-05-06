@@ -1,0 +1,10 @@
+{
+  "id": "com.ikenga.iyke",
+  "name": "Iyke — desktop control bridge",
+  "version": "0.1.0",
+  "ikenga_api": "1",
+  "kind": "skill",
+  "author": { "name": "Royalti", "key": "royalti" },
+  "skills": "skills",
+  "commands": "commands"
+}

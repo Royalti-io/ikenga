@@ -1,0 +1,1553 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="A" data-mode="dark" data-density="comfortable" data-workspace="app">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Ikenga · Rung 3 · Tasks</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,400;1,9..144,500&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="../_shared/tokens.css" />
+<link rel="stylesheet" href="../_shared/components.css" />
+<link rel="stylesheet" href="../_shared/shell.css" />
+<style>
+  /* === Page chrome ============================================== */
+  .page { max-width: 1480px; margin: 0 auto; padding: 0 var(--space-12) var(--space-12); }
+  .controls { margin: 0 calc(-1 * var(--space-12)) var(--space-8); }
+  header { padding-top: var(--space-8); }
+  section { margin-top: var(--space-12); }
+
+  /* === Frame (matches finance / sessions) ======================= */
+  .frame {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--bg-surface);
+    overflow: hidden;
+    box-shadow: var(--shadow-2);
+  }
+  .frame-head {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    gap: var(--space-4);
+    padding: var(--space-4) var(--space-5);
+    border-bottom: 1px solid var(--border-soft);
+    background: linear-gradient(180deg, var(--tint-bg-active, var(--bg-surface)) 0%, var(--bg-surface) 100%);
+  }
+  .frame-title-wrap { display: flex; align-items: center; gap: var(--space-2); }
+  .frame-title-mark { width: 18px; height: 18px; color: var(--tint-fg-active, var(--primary)); }
+  .frame-title { font-family: var(--font-display); font-weight: 500; font-size: var(--text-h3); margin: 0; color: var(--fg); }
+  .frame-sub { margin-top: 2px; font-size: var(--text-caption); color: var(--fg-muted); }
+  .frame-tabs {
+    display: flex; align-items: center; gap: 0;
+    padding: 0 var(--space-3);
+    border-bottom: 1px solid var(--border-soft);
+    background: var(--bg-sunken);
+    height: var(--tab-h);
+  }
+  .frame-tab {
+    height: var(--tab-h); padding: 0 var(--space-3);
+    display: inline-flex; align-items: center; gap: var(--space-2);
+    font-size: var(--text-body-sm); color: var(--fg-faint);
+    border: 0; background: transparent; cursor: pointer;
+    border-bottom: 2px solid transparent; margin-bottom: -1px;
+    font-family: inherit;
+  }
+  .frame-tab:hover { color: var(--fg-muted); }
+  .frame-tab.is-on {
+    color: var(--fg);
+    border-bottom-color: var(--tint-fg-active, var(--primary));
+  }
+  .frame-tab .tab-count {
+    font-family: var(--font-mono); font-size: 10px;
+    background: var(--bg-base);
+    border: 1px solid var(--border-soft);
+    color: var(--fg-faint);
+    padding: 1px 5px; border-radius: var(--radius-xs);
+    margin-left: 4px;
+  }
+  .frame-tab.is-on .tab-count { background: var(--live-soft); border-color: color-mix(in srgb, var(--live) 40%, var(--border)); color: var(--live); }
+  .frame-body { padding: var(--space-5); }
+  .frame-body-flush { padding: 0; }
+
+  .section-cap {
+    font-size: var(--text-body-sm); color: var(--fg-muted);
+    margin: calc(-1 * var(--space-3)) 0 var(--space-5);
+    max-width: 78ch; line-height: 1.55;
+  }
+  .section-cap code {
+    font-family: var(--font-mono); font-size: 11px;
+    color: var(--fg-muted);
+  }
+
+  /* === Tasks filter bar (mirrors .ses-filterbar) ================ */
+  .tk-filterbar {
+    display: flex; flex-wrap: wrap; align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-3) var(--space-5);
+    border-bottom: 1px solid var(--border-soft);
+    background: var(--bg-sunken);
+  }
+  .tk-filterbar .input-search-wrap { position: relative; display: inline-flex; }
+  .tk-filterbar .input-search-wrap svg { position: absolute; left: 8px; top: 50%; transform: translateY(-50%); width: 13px; height: 13px; color: var(--fg-faint); }
+  .tk-filterbar input[type="text"] {
+    width: 280px; height: 28px;
+    padding: 0 8px 0 28px;
+    background: var(--bg-base);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-sm);
+    color: var(--fg); font-family: inherit;
+    font-size: 11.5px;
+  }
+  .tk-filterbar select {
+    height: 28px; font-size: 11.5px;
+    padding: 0 var(--space-2);
+    background: var(--bg-base);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-sm);
+    color: var(--fg); font-family: inherit;
+  }
+  .tk-filterbar .label { font-family: var(--font-mono); font-size: 10.5px; color: var(--fg-faint); letter-spacing: .06em; text-transform: uppercase; }
+  .tk-filterbar .spacer { flex: 1; }
+  .tk-toggle {
+    display: inline-flex; align-items: center; gap: 6px;
+    height: 28px; padding: 0 10px;
+    background: var(--bg-base);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-sm);
+    color: var(--fg-muted);
+    font-family: inherit; font-size: 11px;
+    cursor: pointer;
+  }
+  .tk-toggle:hover { color: var(--fg); border-color: var(--fg-faint); }
+  .tk-toggle.is-on {
+    color: var(--live);
+    background: var(--live-soft);
+    border-color: color-mix(in srgb, var(--live) 30%, var(--border));
+  }
+  .tk-toggle .checkbox {
+    width: 11px; height: 11px;
+    border: 1px solid currentColor;
+    border-radius: 2px;
+    display: inline-grid; place-items: center;
+    flex-shrink: 0;
+  }
+  .tk-toggle.is-on .checkbox::after {
+    content: '✓'; font-size: 9px; line-height: 1; color: currentColor;
+  }
+
+  /* === Master/detail layout (reuses .ld-* shape from sessions) === */
+  .ld-split {
+    --list-w: 360px;
+    display: grid;
+    grid-template-columns: minmax(280px, var(--list-w)) 4px minmax(420px, 1fr);
+    height: 720px;
+    overflow: hidden;
+  }
+  .ld-list {
+    overflow-y: auto;
+    background: var(--bg-surface);
+    display: grid; grid-template-rows: 1fr;
+  }
+  .ld-divider {
+    background: var(--border-soft);
+    cursor: col-resize;
+    transition: background var(--motion-fast) var(--ease-calm);
+  }
+  .ld-divider:hover { background: var(--tint-fg-active, var(--primary)); }
+  .ld-detail {
+    background: var(--bg-base);
+    overflow-y: auto;
+  }
+
+  /* === Group dividers in the list ============================== */
+  .tk-group-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 6px var(--space-4) 6px var(--space-3);
+    background: var(--bg-sunken);
+    border-bottom: 1px solid var(--border-soft);
+    border-top: 1px solid var(--border-soft);
+    font-family: var(--font-mono); font-size: 9.5px;
+    color: var(--fg-faint); letter-spacing: .1em; text-transform: uppercase;
+    position: sticky; top: 0; z-index: 4;
+  }
+  .tk-group-head:first-child { border-top: 0; }
+  .tk-group-head .ct { color: var(--fg-muted); font-variant-numeric: tabular-nums; }
+  .tk-group-head.is-overdue { color: var(--danger); }
+  .tk-group-head.is-overdue .ct { color: var(--danger); }
+  .tk-group-head.is-collapsed { background: var(--bg-base); }
+  .tk-group-head .chev {
+    width: 10px; height: 10px; color: var(--fg-faint);
+    transition: transform var(--motion-fast) var(--ease-calm);
+  }
+  .tk-group-head.is-collapsed .chev { transform: rotate(-90deg); }
+
+  /* === Task row =============================================== */
+  .tk-row {
+    display: grid;
+    grid-template-columns: 14px 1fr auto;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-3) var(--space-3) var(--space-4);
+    border-bottom: 1px solid var(--border-soft);
+    cursor: pointer;
+    position: relative;
+    transition: background var(--motion-fast) var(--ease-calm);
+  }
+  .tk-row:hover { background: var(--bg-raised); }
+  .tk-row.is-on { background: var(--bg-raised); }
+  .tk-row.is-on::before {
+    content: '';
+    position: absolute; left: 0; top: 8px; bottom: 8px;
+    width: 2px; border-radius: 2px;
+    background: var(--tint-fg-active, var(--primary));
+  }
+  .tk-row .pri-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    margin-top: 5px;
+    background: var(--fg-faint);
+    flex-shrink: 0;
+  }
+  .tk-row .pri-dot.is-critical { background: var(--danger); box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 20%, transparent); }
+  .tk-row .pri-dot.is-high     { background: var(--achievement); }
+  .tk-row .pri-dot.is-medium   { background: var(--systemic); }
+  .tk-row .pri-dot.is-low      { background: var(--fg-faint); }
+  .tk-row .body { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+  .tk-row .title {
+    font-size: var(--text-body-sm); color: var(--fg);
+    font-weight: 500;
+    line-height: 1.35;
+    overflow: hidden; text-overflow: ellipsis;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  }
+  .tk-row.is-completed .title { color: var(--fg-muted); text-decoration: line-through; text-decoration-thickness: 1px; }
+  .tk-row .meta {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+    font-family: var(--font-mono); font-size: 9.5px;
+    color: var(--fg-faint); letter-spacing: .04em;
+  }
+  .tk-row .meta .cat {
+    background: var(--bg-base);
+    border: 1px solid var(--border-soft);
+    color: var(--fg-muted);
+    padding: 1px 5px; border-radius: var(--radius-xs);
+    text-transform: lowercase;
+  }
+  .tk-row .right {
+    display: flex; flex-direction: column; align-items: flex-end; gap: 4px;
+    flex-shrink: 0;
+  }
+  .tk-row .due { font-family: var(--font-mono); font-size: 10px; color: var(--fg-muted); letter-spacing: .04em; white-space: nowrap; }
+  .tk-row .due.is-overdue { color: var(--danger); font-weight: 500; }
+  .tk-row .due.is-today   { color: var(--achievement); }
+
+  /* === Task status badge ====================================== */
+  .tk-badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-family: var(--font-mono); font-size: 9.5px;
+    letter-spacing: .08em; text-transform: uppercase;
+    padding: 2px 6px; border-radius: var(--radius-xs);
+    border: 1px solid var(--border-soft);
+    color: var(--fg-muted); background: var(--bg-base);
+    white-space: nowrap;
+  }
+  .tk-badge.is-pending     { color: var(--fg-muted); }
+  .tk-badge.is-in_progress { color: var(--live); background: var(--live-soft); border-color: color-mix(in srgb, var(--live) 30%, var(--border-soft)); }
+  .tk-badge.is-blocked     { color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, transparent); border-color: color-mix(in srgb, var(--danger) 30%, var(--border-soft)); }
+  .tk-badge.is-completed   { color: var(--live); background: var(--live-soft); border-color: color-mix(in srgb, var(--live) 30%, var(--border-soft)); }
+  .tk-badge.is-cancelled   { color: var(--fg-faint); }
+  .tk-badge .dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+
+  /* Auto-close badge — distinct (sweeper-driven) */
+  .tk-autoclose {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-family: var(--font-mono); font-size: 9px;
+    letter-spacing: .06em;
+    color: var(--live);
+    background: var(--live-soft);
+    border: 1px solid color-mix(in srgb, var(--live) 25%, var(--border-soft));
+    padding: 1px 5px; border-radius: var(--radius-xs);
+    white-space: nowrap;
+  }
+  .tk-autoclose svg { width: 9px; height: 9px; }
+
+  /* === Assignee chips (human / agent) ========================= */
+  .tk-assignee {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-family: var(--font-mono); font-size: 9.5px;
+    letter-spacing: .04em;
+    padding: 1px 5px;
+    border-radius: var(--radius-xs);
+    border: 1px solid var(--border-soft);
+    background: var(--bg-base);
+    color: var(--fg-muted);
+    white-space: nowrap;
+  }
+  .tk-assignee.is-agent {
+    color: var(--agent);
+    background: var(--agent-soft);
+    border-color: color-mix(in srgb, var(--agent) 30%, var(--border-soft));
+  }
+  .tk-assignee .avatar {
+    width: 11px; height: 11px;
+    border-radius: 50%;
+    background: var(--bg-raised);
+    color: var(--fg);
+    display: inline-grid; place-items: center;
+    font-size: 7.5px; font-weight: 600;
+    text-transform: uppercase;
+  }
+  .tk-assignee.is-agent .avatar {
+    background: color-mix(in srgb, var(--agent) 24%, transparent);
+    color: var(--agent);
+  }
+  .tk-assignee .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--agent); }
+
+  .tk-execmode {
+    font-family: var(--font-mono); font-size: 9px;
+    letter-spacing: .06em; text-transform: uppercase;
+    color: var(--fg-faint);
+    border: 1px dashed var(--border-soft);
+    padding: 1px 5px; border-radius: var(--radius-xs);
+    background: transparent;
+  }
+  .tk-execmode.is-autonomous       { color: var(--agent); border-color: color-mix(in srgb, var(--agent) 30%, var(--border-soft)); }
+  .tk-execmode.is-approval_required { color: var(--achievement); border-color: color-mix(in srgb, var(--achievement) 35%, var(--border-soft)); }
+  .tk-execmode.is-report           { color: var(--systemic); border-color: color-mix(in srgb, var(--systemic) 30%, var(--border-soft)); }
+
+  /* === Detail panel =========================================== */
+  .tk-det-head {
+    padding: var(--space-4) var(--space-5);
+    border-bottom: 1px solid var(--border-soft);
+    background: linear-gradient(180deg, var(--tint-bg-active, var(--bg-surface)) 0%, var(--bg-base) 100%);
+  }
+  .tk-det-topline {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: var(--space-3);
+    margin-bottom: 8px;
+    font-family: var(--font-mono); font-size: 10.5px;
+    color: var(--fg-faint); letter-spacing: .04em;
+  }
+  .tk-det-topline .id {
+    background: var(--bg-base);
+    border: 1px solid var(--border-soft);
+    padding: 2px 6px; border-radius: var(--radius-xs);
+    color: var(--fg);
+  }
+  .tk-det-actions { display: flex; gap: 4px; align-items: center; }
+  .tk-det-title {
+    font-family: var(--font-display); font-weight: 500;
+    font-size: var(--text-h3); margin: 0;
+    color: var(--fg);
+    line-height: 1.25;
+  }
+  .tk-det-meta-row {
+    display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2);
+    margin-top: var(--space-3);
+  }
+  .tk-det-body {
+    padding: var(--space-5);
+    display: flex; flex-direction: column;
+    gap: var(--space-5);
+  }
+  .tk-det-grid {
+    display: grid; grid-template-columns: 110px 1fr;
+    gap: 10px var(--space-4);
+    font-size: var(--text-body-sm);
+  }
+  .tk-det-grid dt {
+    font-family: var(--font-mono); font-size: 10px;
+    color: var(--fg-faint); letter-spacing: .1em;
+    text-transform: uppercase;
+    align-self: center;
+  }
+  .tk-det-grid dd {
+    margin: 0;
+    color: var(--fg);
+    display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2);
+    font-size: var(--text-body-sm);
+  }
+  .tk-det-grid dd code {
+    font-family: var(--font-mono); font-size: 11.5px;
+    background: var(--bg-sunken);
+    border: 1px solid var(--border-soft);
+    padding: 1px 5px; border-radius: var(--radius-xs);
+    color: var(--fg);
+  }
+  .tk-section-label {
+    font-family: var(--font-mono); font-size: 10px;
+    letter-spacing: .12em; text-transform: uppercase;
+    color: var(--fg-faint);
+    display: flex; align-items: baseline; justify-content: space-between;
+    margin-bottom: 6px;
+  }
+  .tk-section-label .ct {
+    font-family: var(--font-mono); font-size: 9.5px;
+    color: var(--fg-muted); font-variant-numeric: tabular-nums;
+    letter-spacing: .04em; text-transform: none;
+  }
+  .tk-deferred-pill {
+    font-family: var(--font-mono); font-size: 9px;
+    letter-spacing: .06em; text-transform: uppercase;
+    color: var(--fg-faint);
+    border: 1px dashed var(--border);
+    padding: 1px 5px; border-radius: var(--radius-xs);
+    background: transparent;
+  }
+
+  .tk-desc {
+    font-size: var(--text-body-sm);
+    color: var(--fg-muted);
+    line-height: 1.6;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-4);
+    white-space: pre-wrap;
+  }
+
+  /* Progress bar */
+  .tk-progress {
+    flex: 1;
+    height: 6px;
+    background: var(--bg-sunken);
+    border-radius: 3px;
+    overflow: hidden;
+    border: 1px solid var(--border-soft);
+    min-width: 120px;
+  }
+  .tk-progress > span {
+    display: block; height: 100%;
+    background: var(--live);
+    border-radius: 3px;
+    transition: width var(--motion-fast) var(--ease-calm);
+  }
+
+  /* === Evidence card ========================================== */
+  .tk-evidence {
+    border: 1px solid color-mix(in srgb, var(--live) 30%, var(--border-soft));
+    background: var(--live-soft);
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-4);
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .tk-evidence-head {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: var(--space-3);
+  }
+  .tk-evidence .rule-chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-family: var(--font-mono); font-size: 9.5px;
+    letter-spacing: .04em;
+    color: var(--live);
+    background: var(--bg-surface);
+    border: 1px solid color-mix(in srgb, var(--live) 30%, var(--border-soft));
+    padding: 2px 6px; border-radius: var(--radius-xs);
+  }
+  .tk-evidence .rule-chip svg { width: 10px; height: 10px; }
+  .tk-evidence .rule-chip.is-flag {
+    color: var(--achievement);
+    border-color: color-mix(in srgb, var(--achievement) 30%, var(--border-soft));
+    background: var(--bg-surface);
+  }
+  .tk-evidence .timestamp { font-family: var(--font-mono); font-size: 10px; color: var(--fg-muted); letter-spacing: .04em; }
+  .tk-evidence .body {
+    font-size: var(--text-body-sm); color: var(--fg);
+    line-height: 1.55;
+  }
+  .tk-evidence .body code {
+    font-family: var(--font-mono); font-size: 11px;
+    background: var(--bg-surface);
+    border: 1px solid color-mix(in srgb, var(--live) 24%, var(--border-soft));
+    padding: 1px 5px; border-radius: var(--radius-xs);
+    color: var(--fg);
+  }
+  .tk-evidence .target-link {
+    font-family: var(--font-mono); font-size: 11px;
+    color: var(--live);
+    border-bottom: 1px solid color-mix(in srgb, var(--live) 35%, transparent);
+    text-decoration: none;
+  }
+  .tk-evidence .target-link:hover { color: var(--fg); border-bottom-color: var(--fg-muted); }
+
+  /* === Source-ref chips (email / session / commit) =========== */
+  .tk-source-row { display: flex; flex-wrap: wrap; gap: 6px; }
+  .tk-src {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-family: var(--font-mono); font-size: 10.5px;
+    color: var(--fg-muted);
+    background: var(--bg-sunken);
+    border: 1px solid var(--border-soft);
+    padding: 3px 7px; border-radius: var(--radius-sm);
+    text-decoration: none;
+    letter-spacing: .02em;
+  }
+  .tk-src:hover { color: var(--fg); border-color: var(--fg-faint); }
+  .tk-src svg { width: 11px; height: 11px; flex-shrink: 0; color: var(--fg-faint); }
+  .tk-src.is-email svg   { color: var(--mail-fg, var(--achievement)); }
+  .tk-src.is-session svg { color: var(--agent); }
+  .tk-src.is-git svg     { color: var(--systemic); }
+
+  /* === Subtasks list ========================================== */
+  .tk-subtasks { display: flex; flex-direction: column; gap: 4px; }
+  .tk-sub-row {
+    display: grid; grid-template-columns: auto 1fr auto;
+    align-items: center; gap: var(--space-2);
+    padding: 6px var(--space-3);
+    background: var(--bg-surface);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-sm);
+    font-size: var(--text-body-sm);
+    cursor: pointer;
+    transition: background var(--motion-fast) var(--ease-calm);
+  }
+  .tk-sub-row:hover { background: var(--bg-raised); }
+  .tk-sub-row .name { color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tk-sub-row.is-completed .name { color: var(--fg-muted); text-decoration: line-through; }
+  .tk-sub-row .due { font-family: var(--font-mono); font-size: 10px; color: var(--fg-faint); }
+
+  /* === Activity timeline ====================================== */
+  .tk-timeline {
+    display: flex; flex-direction: column; gap: 0;
+    border-left: 1px dashed var(--border);
+    margin-left: 6px;
+    padding-left: var(--space-4);
+    position: relative;
+  }
+  .tk-tl-item {
+    position: relative;
+    padding: 6px 0;
+    font-size: var(--text-body-sm);
+    color: var(--fg-muted);
+  }
+  .tk-tl-item::before {
+    content: '';
+    position: absolute;
+    left: calc(-1 * var(--space-4) - 4px);
+    top: 12px;
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--bg-sunken);
+    border: 1px solid var(--border);
+  }
+  .tk-tl-item.is-mark::before { background: var(--tint-fg-active, var(--primary)); border-color: var(--tint-fg-active, var(--primary)); }
+  .tk-tl-item.is-ok::before   { background: var(--live); border-color: var(--live); }
+  .tk-tl-item .when { font-family: var(--font-mono); font-size: 10px; color: var(--fg-faint); letter-spacing: .04em; margin-right: 6px; }
+  .tk-tl-item .actor {
+    font-family: var(--font-mono); font-size: 10px;
+    color: var(--fg);
+    background: var(--bg-sunken);
+    padding: 1px 5px; border-radius: var(--radius-xs);
+    border: 1px solid var(--border-soft);
+    margin-right: 6px;
+  }
+  .tk-tl-item .actor.is-agent { color: var(--agent); }
+
+  /* === Action footer in detail ================================ */
+  .tk-action-bar {
+    border-top: 1px solid var(--border-soft);
+    background: var(--bg-sunken);
+    padding: var(--space-3) var(--space-5);
+    display: flex; align-items: center; gap: var(--space-2);
+    margin-top: auto;
+  }
+  .tk-action-bar .spacer { flex: 1; }
+
+  /* === Section B · Single-pane variants ======================= */
+  .pane-thumb {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--bg-surface);
+    overflow: hidden;
+    box-shadow: var(--shadow-1);
+    display: grid; grid-template-rows: auto 1fr;
+  }
+  .pane-thumb-tabs {
+    display: flex; align-items: stretch;
+    height: 30px;
+    background: var(--bg-sunken);
+    border-bottom: 1px solid var(--border-soft);
+    padding: 0 4px;
+    gap: 2px;
+  }
+  .pane-thumb-tab {
+    display: inline-flex; align-items: center; gap: 5px;
+    height: 30px; padding: 0 var(--space-3);
+    font-size: 11px; color: var(--fg-faint);
+    border: 0; background: transparent; cursor: pointer;
+    border-bottom: 2px solid transparent; margin-bottom: -1px;
+    font-family: inherit;
+  }
+  .pane-thumb-tab.is-on {
+    color: var(--fg);
+    border-bottom-color: var(--tint-fg-active, var(--primary));
+    background: var(--bg-surface);
+  }
+  .pane-thumb-tab svg { width: 12px; height: 12px; }
+  .pane-thumb-tab.is-on svg { color: var(--tint-fg-active, var(--primary)); }
+  .pane-thumb-actions { margin-left: auto; display: flex; align-items: center; padding-right: 4px; }
+  .pane-thumb-actions .btn-icon { width: 22px; height: 22px; }
+  .pane-thumb-actions .btn-icon svg { width: 12px; height: 12px; }
+  .pane-thumb-route-label {
+    font-family: var(--font-mono); font-size: 10px;
+    color: var(--fg-faint); letter-spacing: .06em;
+    margin-bottom: var(--space-2);
+    display: block;
+  }
+  .pane-thumb-route-label code {
+    font-family: var(--font-mono); font-size: 10px;
+    background: var(--bg-base); border: 1px solid var(--border-soft);
+    color: var(--fg); padding: 1px 5px; border-radius: var(--radius-xs);
+  }
+
+  .single-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-5);
+    align-items: start;
+  }
+
+  /* === Section C · Sweeper queue ============================== */
+  .sw-row {
+    display: grid;
+    grid-template-columns: minmax(180px, 240px) 1fr 130px auto;
+    gap: var(--space-4);
+    align-items: center;
+    padding: var(--space-3) var(--space-4);
+    border-top: 1px solid var(--border-soft);
+    background: var(--bg-surface);
+  }
+  .sw-row:first-of-type { border-top: 0; }
+  .sw-row:hover { background: var(--bg-raised); }
+  .sw-row .lhs { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .sw-row .lhs .rule {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-family: var(--font-mono); font-size: 9.5px;
+    letter-spacing: .04em;
+    padding: 2px 6px; border-radius: var(--radius-xs);
+    width: fit-content;
+  }
+  .sw-row .lhs .rule.is-auto { color: var(--live); background: var(--live-soft); border: 1px solid color-mix(in srgb, var(--live) 30%, var(--border-soft)); }
+  .sw-row .lhs .rule.is-flag { color: var(--achievement); background: var(--achievement-soft); border: 1px solid color-mix(in srgb, var(--achievement) 30%, var(--border-soft)); }
+  .sw-row .lhs .task {
+    font-size: var(--text-body-sm); font-weight: 500; color: var(--fg);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .sw-row .lhs .id { font-family: var(--font-mono); font-size: 9.5px; color: var(--fg-faint); }
+  .sw-row .ev {
+    font-size: var(--text-body-sm); color: var(--fg-muted);
+    line-height: 1.5;
+  }
+  .sw-row .ev code {
+    font-family: var(--font-mono); font-size: 11px;
+    background: var(--bg-sunken);
+    border: 1px solid var(--border-soft);
+    padding: 1px 5px; border-radius: var(--radius-xs);
+    color: var(--fg);
+  }
+
+  /* Confidence bar (4-segment) */
+  .sw-conf {
+    display: flex; flex-direction: column; gap: 4px;
+    align-items: flex-start;
+  }
+  .sw-conf .bar {
+    display: flex; gap: 2px; width: 100%;
+  }
+  .sw-conf .bar span {
+    flex: 1;
+    height: 5px; border-radius: 1px;
+    background: var(--bg-sunken);
+    border: 1px solid var(--border-soft);
+  }
+  .sw-conf.lvl-4 .bar span { background: var(--live); border-color: var(--live); }
+  .sw-conf.lvl-3 .bar span:nth-child(-n+3) { background: var(--live); border-color: var(--live); }
+  .sw-conf.lvl-2 .bar span:nth-child(-n+2) { background: var(--achievement); border-color: var(--achievement); }
+  .sw-conf .label {
+    font-family: var(--font-mono); font-size: 9.5px;
+    color: var(--fg-muted);
+    letter-spacing: .04em;
+  }
+  .sw-actions { display: flex; gap: 4px; }
+
+  .sw-foot {
+    padding: var(--space-3) var(--space-4);
+    background: var(--bg-sunken);
+    border-top: 1px solid var(--border-soft);
+    font-family: var(--font-mono); font-size: 10.5px;
+    color: var(--fg-faint); letter-spacing: .04em;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .sw-foot a { color: var(--fg-muted); text-decoration: none; border-bottom: 1px solid var(--border-soft); }
+  .sw-foot a:hover { color: var(--fg); }
+
+  /* === Honesty / token note =================================== */
+  .token-note {
+    margin-top: var(--space-5);
+    padding: var(--space-4) var(--space-5);
+    border: 1px dashed var(--border);
+    border-radius: var(--radius-md);
+    background: var(--bg-sunken);
+    color: var(--fg-muted);
+    font-size: var(--text-body-sm);
+    line-height: 1.6;
+  }
+  .token-note strong { color: var(--fg); font-weight: 600; }
+  .token-note code {
+    font-family: var(--font-mono); font-size: 11px;
+    background: var(--bg-base); border: 1px solid var(--border-soft);
+    color: var(--fg); padding: 1px 5px; border-radius: var(--radius-xs);
+  }
+  .token-note ul { margin: 8px 0 0; padding-left: 18px; }
+  .token-note li { margin-bottom: 4px; }
+
+  /* === Footer =================================================== */
+  footer.foot {
+    margin-top: var(--space-16);
+    padding-top: var(--space-5);
+    border-top: 1px solid var(--border-soft);
+    display: grid; grid-template-columns: 1fr auto;
+    gap: var(--space-4); align-items: start;
+    font-family: var(--font-mono); font-size: 11px;
+    color: var(--fg-faint); letter-spacing: .04em;
+  }
+  footer.foot a { color: var(--fg-muted); text-decoration: none; border-bottom: 1px solid var(--border-soft); }
+  footer.foot a:hover { color: var(--fg); border-bottom-color: var(--fg-muted); }
+  footer.foot .nextlink {
+    color: var(--tint-fg-active, var(--primary));
+    border-bottom-color: color-mix(in srgb, var(--tint-fg-active, var(--primary)) 50%, transparent);
+  }
+</style>
+</head>
+<body>
+
+<div class="page">
+
+  <div class="controls"
+       data-controls-bar
+       data-current="tasks"
+       data-show-dock="0"
+       data-show-workspace="1"></div>
+
+  <header>
+    <div class="eyebrow"><span class="eyebrow-dot"></span>Ikenga · Design / Rung 3 · Batch 3</div>
+    <h1 class="title">Tasks · <em>the home base</em></h1>
+    <p class="lede">The cross-cutting work surface. Rows mix human-owned and agent-owned tasks; the auto-close sweeper closes them when the work is observably done elsewhere (email sent, social posted, blog published, deal closed, commit landed). Workspace tint stays <code style="font-family:var(--font-mono);font-size:14px;color:var(--fg-muted);">app</code> — Tasks reads as the neutral home rather than a channel. No new tokens.</p>
+  </header>
+
+  <!-- ================================================================
+       SECTION A · Tasks · list/detail (the hero)
+       ================================================================ -->
+  <section>
+    <div class="section-tag">A · /tasks · list + detail (full fidelity)</div>
+    <p class="section-cap">Mirrors <code>routes/tasks/route.tsx</code> + <code>routes/tasks/$taskId.tsx</code>. List has filter bar (status · category · owner · search · "show auto-closed" toggle) + group dividers (Overdue / Today / This week / Later / Auto-closed). Right detail uses the shape from <code>$taskId.tsx</code> but swaps the Sheet for an in-pane detail and adds three things the route doesn't render today: the <strong>evidence card</strong> (when sweeper closed the task), the <strong>source-ref row</strong> (linking to <code>source_email_id</code> / <code>claude_session_id</code>), and an <strong>activity timeline</strong>. Those three are deferred — flagged below.</p>
+
+    <div class="frame">
+      <!-- Frame head -->
+      <div class="frame-head">
+        <div class="frame-title-wrap">
+          <svg class="frame-title-mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="9 11 12 14 22 4" />
+            <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+          </svg>
+          <div>
+            <h2 class="frame-title">Tasks <span style="font-family:var(--font-mono);font-size:12px;color:var(--fg-muted);font-weight:400;margin-left:6px;">(34 open · 7 auto-closed today)</span></h2>
+            <div class="frame-sub">Cross-cutting work — humans + agents. Click a row to inspect.</div>
+          </div>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <button class="btn btn-outline btn-sm" type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:12px;height:12px;"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+            Sweeper queue
+            <span style="font-family:var(--font-mono);font-size:9.5px;background:var(--achievement-soft);color:var(--achievement);border:1px solid color-mix(in srgb,var(--achievement) 30%,var(--border-soft));padding:1px 5px;border-radius:var(--radius-xs);margin-left:4px;">7</span>
+          </button>
+          <button class="btn btn-primary btn-sm" type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:12px;height:12px;"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            New task
+            <span style="font-family:var(--font-mono);font-size:9.5px;opacity:.7;margin-left:6px;">⌘⇧T</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Filter bar -->
+      <div class="tk-filterbar">
+        <div class="input-search-wrap">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input type="text" placeholder="Search title, description…" />
+        </div>
+        <span class="label">Status</span>
+        <select>
+          <option>Open</option>
+          <option>All</option>
+          <option>Pending</option>
+          <option>In progress</option>
+          <option>Blocked</option>
+          <option>Completed</option>
+        </select>
+        <span class="label">Owner</span>
+        <select>
+          <option>Anyone</option>
+          <option>Me</option>
+          <option>cfo-agent</option>
+          <option>cmo-agent</option>
+          <option>cto-agent</option>
+          <option>blog-writer</option>
+        </select>
+        <span class="label">Category</span>
+        <select>
+          <option>All</option>
+          <option>sales</option>
+          <option>finance</option>
+          <option>marketing</option>
+          <option>technical</option>
+          <option>communication</option>
+        </select>
+        <button class="tk-toggle is-on" type="button">
+          <span class="checkbox"></span>
+          Show auto-closed
+        </button>
+        <div class="spacer"></div>
+        <span class="label">34 open · 7 closed</span>
+      </div>
+
+      <!-- Master/detail body -->
+      <div class="ld-split">
+
+        <!-- === LEFT · list ============================================ -->
+        <div class="ld-list">
+
+          <!-- Group: Overdue -->
+          <div class="tk-group-head is-overdue">
+            <span style="display:inline-flex;align-items:center;gap:6px;">
+              <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+              Overdue
+            </span>
+            <span class="ct">2</span>
+          </div>
+
+          <div class="tk-row">
+            <span class="pri-dot is-critical"></span>
+            <div class="body">
+              <div class="title">File LIRS PAYE returns for Feb 2024 onwards — recalculate with founder salary added</div>
+              <div class="meta">
+                <span class="tk-badge is-blocked"><span class="dot"></span>blocked</span>
+                <span class="tk-assignee"><span class="avatar">N</span>nedjamez</span>
+                <span class="cat">finance</span>
+              </div>
+            </div>
+            <div class="right">
+              <span class="due is-overdue">28d overdue</span>
+            </div>
+          </div>
+
+          <div class="tk-row is-on">
+            <span class="pri-dot is-high"></span>
+            <div class="body">
+              <div class="title">Reconcile Valentim invoice INV-2026-038 against Verto Apr 30 inflow</div>
+              <div class="meta">
+                <span class="tk-badge is-in_progress"><span class="dot"></span>in progress</span>
+                <span class="tk-assignee is-agent"><span class="dot"></span>cfo-agent</span>
+                <span class="cat">finance</span>
+              </div>
+            </div>
+            <div class="right">
+              <span class="due is-overdue">2d overdue</span>
+            </div>
+          </div>
+
+          <!-- Group: Today -->
+          <div class="tk-group-head">
+            <span style="display:inline-flex;align-items:center;gap:6px;">
+              <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+              Today
+            </span>
+            <span class="ct">5</span>
+          </div>
+
+          <div class="tk-row">
+            <span class="pri-dot is-high"></span>
+            <div class="body">
+              <div class="title">Reply to V. de Carvalho re: catalog file processing status</div>
+              <div class="meta">
+                <span class="tk-badge is-pending"><span class="dot"></span>pending</span>
+                <span class="tk-assignee"><span class="avatar">N</span>nedjamez</span>
+                <span class="cat">sales</span>
+              </div>
+            </div>
+            <div class="right">
+              <span class="due is-today">today · 17:00</span>
+            </div>
+          </div>
+
+          <div class="tk-row">
+            <span class="pri-dot is-medium"></span>
+            <div class="body">
+              <div class="title">Publish blog: "DDEX providers: FUGA vs Merlin vs Sony Orchard"</div>
+              <div class="meta">
+                <span class="tk-badge is-in_progress"><span class="dot"></span>in progress</span>
+                <span class="tk-assignee is-agent"><span class="dot"></span>blog-writer</span>
+                <span class="cat">marketing</span>
+                <span class="tk-execmode is-approval_required">approval req</span>
+              </div>
+            </div>
+            <div class="right">
+              <span class="due is-today">today</span>
+            </div>
+          </div>
+
+          <div class="tk-row">
+            <span class="pri-dot is-medium"></span>
+            <div class="body">
+              <div class="title">Post LinkedIn carousel: Q1 sales cohort breakdown</div>
+              <div class="meta">
+                <span class="tk-badge is-pending"><span class="dot"></span>pending</span>
+                <span class="tk-assignee is-agent"><span class="dot"></span>cmo-agent</span>
+                <span class="cat">marketing</span>
+                <span class="tk-execmode is-autonomous">autonomous</span>
+              </div>
+            </div>
+            <div class="right">
+              <span class="due is-today">today · 14:00</span>
+            </div>
+          </div>
+
+          <div class="tk-row">
+            <span class="pri-dot is-medium"></span>
+            <div class="body">
+              <div class="title">Run task-health sweep + review flagged tasks</div>
+              <div class="meta">
+                <span class="tk-badge is-pending"><span class="dot"></span>pending</span>
+                <span class="tk-assignee"><span class="avatar">N</span>nedjamez</span>
+                <span class="cat">operations</span>
+              </div>
+            </div>
+            <div class="right">
+              <span class="due is-today">today · 18:30</span>
+            </div>
+          </div>
+
+          <div class="tk-row">
+            <span class="pri-dot is-low"></span>
+            <div class="body">
+              <div class="title">Update Stripe Atlas annual report — file by 2026-05-15</div>
+              <div class="meta">
+                <span class="tk-badge is-pending"><span class="dot"></span>pending</span>
+                <span class="tk-assignee"><span class="avatar">N</span>nedjamez</span>
+                <span class="cat">finance</span>
+              </div>
+            </div>
+            <div class="right">
+              <span class="due">May 15</span>
+            </div>
+          </div>
+
+          <!-- Group: This week -->
+          <div class="tk-group-head">
+            <span style="display:inline-flex;align-items:center;gap:6px;">
+              <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+              This week
+            </span>
+            <span class="ct">8</span>
+          </div>
+
+          <div class="tk-row">
+            <span class="pri-dot is-medium"></span>
+            <div class="body">
+              <div class="title">Q2 2026 content cycle — channel performance review</div>
+              <div class="meta">
+                <span class="tk-badge is-in_progress"><span class="dot"></span>in progress</span>
+                <span class="tk-assignee is-agent"><span class="dot"></span>cmo-agent</span>
+                <span class="cat">marketing</span>
+                <span class="tk-execmode is-report">report</span>
+              </div>
+            </div>
+            <div class="right">
+              <span class="due">Wed</span>
+            </div>
+          </div>
+
+          <div class="tk-row">
+            <span class="pri-dot is-medium"></span>
+            <div class="body">
+              <div class="title">Royalti.io subscription churn analysis — Q1 2026</div>
+              <div class="meta">
+                <span class="tk-badge is-in_progress"><span class="dot"></span>in progress</span>
+                <span class="tk-assignee is-agent"><span class="dot"></span>cpo-agent</span>
+                <span class="cat">product</span>
+              </div>
+            </div>
+            <div class="right">
+              <span class="due">Thu</span>
+            </div>
+          </div>
+
+          <div class="tk-row">
+            <span class="pri-dot is-low"></span>
+            <div class="body">
+              <div class="title">Migrate finance routes from ikenga to desktop · phase 2</div>
+              <div class="meta">
+                <span class="tk-badge is-in_progress"><span class="dot"></span>in progress</span>
+                <span class="tk-assignee"><span class="avatar">N</span>nedjamez</span>
+                <span class="cat">technical</span>
+              </div>
+            </div>
+            <div class="right">
+              <span class="due">Fri</span>
+            </div>
+          </div>
+
+          <!-- Group: Later (collapsed preview) -->
+          <div class="tk-group-head is-collapsed">
+            <span style="display:inline-flex;align-items:center;gap:6px;">
+              <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+              Later
+            </span>
+            <span class="ct">19</span>
+          </div>
+
+          <!-- Group: Auto-closed today -->
+          <div class="tk-group-head" style="color:var(--live);">
+            <span style="display:inline-flex;align-items:center;gap:6px;">
+              <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+              Auto-closed today
+            </span>
+            <span class="ct" style="color:var(--live);">7</span>
+          </div>
+
+          <div class="tk-row is-completed">
+            <span class="pri-dot is-medium"></span>
+            <div class="body">
+              <div class="title">Send seq-3 outreach to Universal Music PT — A&amp;R contact</div>
+              <div class="meta">
+                <span class="tk-badge is-completed"><span class="dot"></span>completed</span>
+                <span class="tk-autoclose">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                  email-sent
+                </span>
+                <span class="tk-assignee is-agent"><span class="dot"></span>vp-sales-agent</span>
+              </div>
+            </div>
+            <div class="right">
+              <span class="due">2h ago</span>
+            </div>
+          </div>
+
+          <div class="tk-row is-completed">
+            <span class="pri-dot is-medium"></span>
+            <div class="body">
+              <div class="title">Post Friday newsletter teaser to LinkedIn</div>
+              <div class="meta">
+                <span class="tk-badge is-completed"><span class="dot"></span>completed</span>
+                <span class="tk-autoclose">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                  social-posted
+                </span>
+                <span class="tk-assignee is-agent"><span class="dot"></span>cmo-agent</span>
+              </div>
+            </div>
+            <div class="right">
+              <span class="due">5h ago</span>
+            </div>
+          </div>
+
+          <div class="tk-row is-completed">
+            <span class="pri-dot is-low"></span>
+            <div class="body">
+              <div class="title">Implement task-health sweeper signal-rules.json loader</div>
+              <div class="meta">
+                <span class="tk-badge is-completed"><span class="dot"></span>completed</span>
+                <span class="tk-autoclose">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                  git-commit
+                </span>
+                <span class="tk-assignee"><span class="avatar">N</span>nedjamez</span>
+              </div>
+            </div>
+            <div class="right">
+              <span class="due">8h ago</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- === Divider ================================================ -->
+        <div class="ld-divider"></div>
+
+        <!-- === RIGHT · detail ========================================= -->
+        <div class="ld-detail">
+
+          <div class="tk-det-head">
+            <div class="tk-det-topline">
+              <span class="id">task · 7c2a31f9</span>
+              <div class="tk-det-actions">
+                <button class="btn btn-sm btn-outline" type="button">Reschedule</button>
+                <button class="btn btn-sm btn-outline" type="button">Reassign</button>
+                <button class="btn btn-sm btn-primary" type="button">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width:11px;height:11px;"><polyline points="20 6 9 17 4 12"/></svg>
+                  Mark complete
+                </button>
+              </div>
+            </div>
+
+            <h2 class="tk-det-title">Reconcile Valentim invoice INV-2026-038 against Verto Apr 30 inflow</h2>
+
+            <div class="tk-det-meta-row">
+              <span class="tk-badge is-in_progress"><span class="dot"></span>in progress</span>
+              <span class="tk-assignee is-agent"><span class="dot"></span>cfo-agent</span>
+              <span class="tk-execmode is-autonomous">autonomous</span>
+              <span style="font-family:var(--font-mono);font-size:10.5px;color:var(--fg-faint);letter-spacing:.04em;">priority</span>
+              <span style="display:inline-flex;align-items:center;gap:4px;font-family:var(--font-mono);font-size:10.5px;color:var(--achievement);">
+                <span style="width:6px;height:6px;border-radius:50%;background:var(--achievement);"></span>high
+              </span>
+              <span style="font-family:var(--font-mono);font-size:10.5px;color:var(--fg-faint);letter-spacing:.04em;">·</span>
+              <span style="font-family:var(--font-mono);font-size:10.5px;color:var(--fg-muted);">finance</span>
+              <span style="font-family:var(--font-mono);font-size:10.5px;color:var(--fg-faint);letter-spacing:.04em;">·</span>
+              <span style="font-family:var(--font-mono);font-size:10.5px;color:var(--danger);">due 2026-05-01 · 2d overdue</span>
+            </div>
+          </div>
+
+          <div class="tk-det-body">
+
+            <!-- Source-ref row -->
+            <div>
+              <div class="tk-section-label">
+                <span>Source &amp; context</span>
+                <span class="tk-deferred-pill">deferred · UI</span>
+              </div>
+              <div class="tk-source-row">
+                <a class="tk-src is-email" href="#">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><polyline points="3 7 12 13 21 7"/></svg>
+                  email · "Re: Catalog status — INV-2026-038"
+                </a>
+                <a class="tk-src is-session" href="#">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+                  session · cfo-agent · 019562a8 (live)
+                </a>
+                <a class="tk-src is-git" href="#">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="6" r="3"/><path d="M6 9v6"/><path d="M18 9v3a4 4 0 0 1-4 4H9"/></svg>
+                  initiative · ar-aging-q2
+                </a>
+              </div>
+            </div>
+
+            <!-- Description -->
+            <div>
+              <div class="tk-section-label">
+                <span>Description</span>
+              </div>
+              <div class="tk-desc">Verto inflow on Apr 30 (€468) was recorded as full payment, but the agent flagged it as partial — INV-2026-038 was raised at €650. Reconcile against bank statement, apply payment, recalc aging bucket. If it stays in 31-60d, draft a follow-up email referencing tenant 590's still-pending file processing.</div>
+            </div>
+
+            <!-- Field grid -->
+            <div>
+              <div class="tk-section-label"><span>Fields</span></div>
+              <dl class="tk-det-grid">
+                <dt>Status</dt>
+                <dd>
+                  <select style="height:24px;font-size:11.5px;padding:0 6px;background:var(--bg-base);border:1px solid var(--border);border-radius:var(--radius-xs);color:var(--fg);font-family:inherit;">
+                    <option>pending</option>
+                    <option selected>in progress</option>
+                    <option>blocked</option>
+                    <option>completed</option>
+                    <option>cancelled</option>
+                  </select>
+                </dd>
+                <dt>Progress</dt>
+                <dd>
+                  <div class="tk-progress"><span style="width:65%;"></span></div>
+                  <span style="font-family:var(--font-mono);font-size:10.5px;color:var(--fg-muted);">65%</span>
+                </dd>
+                <dt>Effort</dt>
+                <dd><code>30m</code></dd>
+                <dt>Tags</dt>
+                <dd>
+                  <span style="font-family:var(--font-mono);font-size:10px;background:var(--bg-sunken);border:1px solid var(--border-soft);color:var(--fg-muted);padding:1px 6px;border-radius:var(--radius-xs);">valentim</span>
+                  <span style="font-family:var(--font-mono);font-size:10px;background:var(--bg-sunken);border:1px solid var(--border-soft);color:var(--fg-muted);padding:1px 6px;border-radius:var(--radius-xs);">tenant-590</span>
+                  <span style="font-family:var(--font-mono);font-size:10px;background:var(--bg-sunken);border:1px solid var(--border-soft);color:var(--fg-muted);padding:1px 6px;border-radius:var(--radius-xs);">ar-aging</span>
+                </dd>
+                <dt>Working dir</dt>
+                <dd><code>~/royalti-co/ikenga</code></dd>
+                <dt>Created</dt>
+                <dd style="color:var(--fg-muted);">2026-04-29 · 14:22 by <span style="color:var(--agent);font-family:var(--font-mono);">pa-assistant</span></dd>
+              </dl>
+            </div>
+
+            <!-- Subtasks -->
+            <div>
+              <div class="tk-section-label">
+                <span>Subtasks <span class="ct">3</span></span>
+              </div>
+              <div class="tk-subtasks">
+                <div class="tk-sub-row is-completed">
+                  <span class="tk-badge is-completed"><span class="dot"></span>done</span>
+                  <span class="name">Pull bank statement entries Apr 28 – May 2</span>
+                  <span class="due">2h ago</span>
+                </div>
+                <div class="tk-sub-row is-completed">
+                  <span class="tk-badge is-completed"><span class="dot"></span>done</span>
+                  <span class="name">Match Verto Apr 30 against open invoices for tenant 590</span>
+                  <span class="due">1h ago</span>
+                </div>
+                <div class="tk-sub-row">
+                  <span class="tk-badge is-in_progress"><span class="dot"></span>now</span>
+                  <span class="name">Apply €468 partial payment, recalc aging bucket</span>
+                  <span class="due">in flight</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Activity timeline -->
+            <div>
+              <div class="tk-section-label">
+                <span>Activity</span>
+                <span class="tk-deferred-pill">deferred · audit table</span>
+              </div>
+              <div class="tk-timeline">
+                <div class="tk-tl-item is-mark">
+                  <span class="when">2026-04-29 14:22</span>
+                  <span class="actor is-agent">pa-assistant</span>
+                  created from email <code style="font-family:var(--font-mono);font-size:11px;background:var(--bg-sunken);border:1px solid var(--border-soft);padding:1px 5px;border-radius:var(--radius-xs);color:var(--fg);">Re: Catalog status</code> · assigned to cfo-agent
+                </div>
+                <div class="tk-tl-item">
+                  <span class="when">04-29 14:25</span>
+                  <span class="actor is-agent">cfo-agent</span>
+                  claimed · status → in progress
+                </div>
+                <div class="tk-tl-item">
+                  <span class="when">04-30 09:11</span>
+                  <span class="actor is-agent">cfo-agent</span>
+                  blocked: awaiting Verto payment confirmation
+                </div>
+                <div class="tk-tl-item is-ok">
+                  <span class="when">05-03 11:42</span>
+                  <span class="actor is-agent">cfo-agent</span>
+                  unblocked · progress 35% → 65% · subtasks 1+2 complete
+                </div>
+                <div class="tk-tl-item">
+                  <span class="when">05-03 12:04</span>
+                  <span class="actor">nedjamez</span>
+                  reviewed in session, requested confirm before applying
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================================================================
+       SECTION B · Single-pane variants
+       ================================================================ -->
+  <section>
+    <div class="section-tag">B · single-pane · task as the unit</div>
+    <p class="section-cap">Same task, two narrower contexts. <strong>Left:</strong> the task opened as its own pane (~520px) — list collapses, detail goes full-width, only the essential fields show. <strong>Right:</strong> the task in a side-pane slot (~360px) — title + status pill + 3 evidence chips + actions. Demonstrates that "the pane is the unit": a task can fill the content pane, sit in the side pane, or live as a /tasks/$taskId standalone — same data, three densities.</p>
+
+    <div class="single-grid">
+
+      <!-- Left · standalone narrow pane -->
+      <div>
+        <span class="pane-thumb-route-label"><code>/tasks/$taskId</code> · standalone pane (~520px)</span>
+        <div class="pane-thumb" style="height:560px;">
+          <div class="pane-thumb-tabs">
+            <button class="pane-thumb-tab is-on" data-ws="app">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+              Reconcile INV-2026-038
+              <span style="width:14px;height:14px;display:grid;place-items:center;color:var(--fg-faint);opacity:.6;">×</span>
+            </button>
+            <div class="pane-thumb-actions">
+              <button class="btn-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+            </div>
+          </div>
+
+          <div style="overflow-y:auto;display:flex;flex-direction:column;">
+            <!-- Compressed head -->
+            <div style="padding:var(--space-3) var(--space-4);border-bottom:1px solid var(--border-soft);background:linear-gradient(180deg,var(--tint-bg-active,var(--bg-surface)) 0%,var(--bg-base) 100%);">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:var(--space-2);margin-bottom:6px;">
+                <span style="font-family:var(--font-mono);font-size:9.5px;color:var(--fg-faint);letter-spacing:.04em;">task · 7c2a31f9</span>
+                <span class="due is-overdue" style="font-family:var(--font-mono);font-size:10px;color:var(--danger);font-weight:500;letter-spacing:.04em;">2d overdue</span>
+              </div>
+              <h3 style="font-family:var(--font-display);font-weight:500;font-size:var(--text-h4);margin:0;color:var(--fg);line-height:1.3;">Reconcile Valentim invoice INV-2026-038 against Verto Apr 30 inflow</h3>
+              <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:8px;">
+                <span class="tk-badge is-in_progress"><span class="dot"></span>in progress</span>
+                <span class="tk-assignee is-agent"><span class="dot"></span>cfo-agent</span>
+                <span class="tk-execmode is-autonomous">autonomous</span>
+              </div>
+            </div>
+
+            <!-- Body -->
+            <div style="padding:var(--space-4);display:flex;flex-direction:column;gap:var(--space-4);">
+              <div class="tk-source-row">
+                <a class="tk-src is-email" href="#">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><polyline points="3 7 12 13 21 7"/></svg>
+                  email
+                </a>
+                <a class="tk-src is-session" href="#">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+                  session · live
+                </a>
+              </div>
+
+              <div class="tk-desc" style="font-size:12px;padding:var(--space-3);">Verto inflow on Apr 30 (€468) was recorded as full payment, but the agent flagged it as partial — INV-2026-038 was raised at €650. Reconcile against bank statement, apply payment, recalc aging bucket.</div>
+
+              <div>
+                <div class="tk-section-label" style="margin-bottom:6px;"><span>Progress</span><span class="ct">2/3 subtasks</span></div>
+                <div class="tk-progress"><span style="width:65%;"></span></div>
+              </div>
+
+              <div>
+                <div class="tk-section-label" style="margin-bottom:6px;"><span>Subtasks</span></div>
+                <div class="tk-subtasks">
+                  <div class="tk-sub-row is-completed">
+                    <span class="tk-badge is-completed"><span class="dot"></span>done</span>
+                    <span class="name">Pull bank statement entries</span>
+                    <span class="due">2h</span>
+                  </div>
+                  <div class="tk-sub-row is-completed">
+                    <span class="tk-badge is-completed"><span class="dot"></span>done</span>
+                    <span class="name">Match Verto against open invoices</span>
+                    <span class="due">1h</span>
+                  </div>
+                  <div class="tk-sub-row">
+                    <span class="tk-badge is-in_progress"><span class="dot"></span>now</span>
+                    <span class="name">Apply €468 partial, recalc aging</span>
+                    <span class="due">live</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Action footer -->
+            <div class="tk-action-bar" style="padding:var(--space-3) var(--space-4);">
+              <button class="btn btn-sm btn-outline" type="button">Reschedule</button>
+              <div class="spacer"></div>
+              <button class="btn btn-sm btn-primary" type="button">Mark complete</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right · side-pane density -->
+      <div>
+        <span class="pane-thumb-route-label">side pane · task summary (~360px)</span>
+        <div class="pane-thumb" style="height:560px;max-width:380px;">
+          <div class="pane-thumb-tabs">
+            <button class="pane-thumb-tab is-on" data-ws="app">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+              Task
+              <span style="width:14px;height:14px;display:grid;place-items:center;color:var(--fg-faint);opacity:.6;">×</span>
+            </button>
+          </div>
+
+          <div style="overflow-y:auto;display:flex;flex-direction:column;">
+            <div style="padding:var(--space-3);display:flex;flex-direction:column;gap:8px;border-bottom:1px solid var(--border-soft);">
+              <span style="font-family:var(--font-mono);font-size:9px;color:var(--fg-faint);letter-spacing:.04em;">task · 7c2a31f9 · finance</span>
+              <h4 style="font-family:var(--font-display);font-weight:500;font-size:13.5px;margin:0;color:var(--fg);line-height:1.35;">Reconcile Valentim INV-2026-038 against Verto Apr 30 inflow</h4>
+              <div style="display:flex;flex-wrap:wrap;gap:4px;">
+                <span class="tk-badge is-in_progress"><span class="dot"></span>in progress</span>
+                <span class="tk-assignee is-agent"><span class="dot"></span>cfo-agent</span>
+              </div>
+              <span class="due is-overdue" style="font-family:var(--font-mono);font-size:10px;color:var(--danger);font-weight:500;">2d overdue · was 2026-05-01</span>
+            </div>
+
+            <div style="padding:var(--space-3);display:flex;flex-direction:column;gap:10px;">
+              <div>
+                <div style="font-family:var(--font-mono);font-size:9px;color:var(--fg-faint);letter-spacing:.1em;text-transform:uppercase;margin-bottom:4px;">progress</div>
+                <div class="tk-progress"><span style="width:65%;"></span></div>
+              </div>
+
+              <div>
+                <div style="font-family:var(--font-mono);font-size:9px;color:var(--fg-faint);letter-spacing:.1em;text-transform:uppercase;margin-bottom:6px;">refs</div>
+                <div class="tk-source-row">
+                  <a class="tk-src is-email" href="#" style="font-size:9.5px;">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><polyline points="3 7 12 13 21 7"/></svg>email
+                  </a>
+                  <a class="tk-src is-session" href="#" style="font-size:9.5px;">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>session
+                  </a>
+                  <a class="tk-src" href="#" style="font-size:9.5px;">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="6" r="3"/><path d="M6 9v6"/><path d="M18 9v3a4 4 0 0 1-4 4H9"/></svg>initiative
+                  </a>
+                </div>
+              </div>
+
+              <div>
+                <div style="font-family:var(--font-mono);font-size:9px;color:var(--fg-faint);letter-spacing:.1em;text-transform:uppercase;margin-bottom:4px;">subtasks · 2/3</div>
+                <div style="font-size:11px;color:var(--fg-muted);line-height:1.5;">
+                  <div style="display:flex;align-items:center;gap:6px;"><span style="color:var(--live);">✓</span><span style="text-decoration:line-through;">Pull bank statement</span></div>
+                  <div style="display:flex;align-items:center;gap:6px;"><span style="color:var(--live);">✓</span><span style="text-decoration:line-through;">Match Verto inflow</span></div>
+                  <div style="display:flex;align-items:center;gap:6px;color:var(--fg);"><span style="color:var(--live);">●</span>Apply €468 partial · live</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="tk-action-bar" style="padding:var(--space-2) var(--space-3);">
+              <button class="btn btn-sm btn-outline" type="button" style="font-size:10.5px;padding:3px 8px;">Open</button>
+              <div class="spacer"></div>
+              <button class="btn btn-sm btn-primary" type="button" style="font-size:10.5px;padding:3px 8px;">Mark done</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="token-note" style="border-style:solid;margin-top:var(--space-5);">
+      <strong>What this proves:</strong> a task is just data — the same row in the list (Section A), the same body in a content pane, the same fields in a side pane. The component scales by hiding fields, not by reshaping. Only two true layout shifts: the source-ref row drops to icons-only at side-pane width, and the activity timeline disappears entirely.
+    </div>
+  </section>
+
+  <!-- ================================================================
+       SECTION C · Sweeper queue
+       ================================================================ -->
+  <section>
+    <div class="section-tag">C · auto-close sweeper · review queue</div>
+    <p class="section-cap">Review surface for the task-health sweeper (rules in <code>.company/task-health/rules.json</code>, log in <code>sweep-log.jsonl</code>). Confidence ≥ 0.9 → auto-closes (no review). 0.6–0.9 → flagged for human review (this queue). The 3 rows below show one of each archetype: <code>email-sent-match</code> (0.95 — already closed, shown for traceability), <code>social-post-published</code> (0.9 auto), and <code>git-commit-superseded</code> (0.75 flag-for-review). Confidence bar shows 4 segments — tier mapping: 4=auto / 3=auto / 2=flag / 1=ignore.</p>
+
+    <div class="frame">
+      <div class="frame-head">
+        <div class="frame-title-wrap">
+          <svg class="frame-title-mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="9"/>
+            <polyline points="12 7 12 12 15 15"/>
+          </svg>
+          <div>
+            <h2 class="frame-title">Auto-close proposals <span style="font-family:var(--font-mono);font-size:12px;color:var(--fg-muted);font-weight:400;margin-left:6px;">(7 pending review · 4 closed today)</span></h2>
+            <div class="frame-sub">Sweep ran 14:30. Approve to close, dismiss to keep open and exclude from next sweep.</div>
+          </div>
+        </div>
+        <button class="btn btn-sm btn-outline" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:11px;height:11px;"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+          Run sweep now
+        </button>
+      </div>
+
+      <div class="frame-body-flush">
+
+        <!-- Row 1 · email-sent · already closed (shown for traceability) -->
+        <div class="sw-row" style="opacity:.85;">
+          <div class="lhs">
+            <span class="rule is-auto">email-sent-match · 0.95</span>
+            <span class="task">Send seq-3 outreach to Universal Music PT</span>
+            <span class="id">task · 4f12 · auto-closed 12:22</span>
+          </div>
+          <div class="ev">
+            email_draft <code>4f12c1</code> sent <strong>2h ago</strong> to <code>ar@universalmusic.pt</code> — matched on slug <code>seq3-universal-pt</code>
+          </div>
+          <div class="sw-conf lvl-4">
+            <div class="bar"><span></span><span></span><span></span><span></span></div>
+            <span class="label">auto · 0.95</span>
+          </div>
+          <div class="sw-actions">
+            <span class="tk-badge is-completed" style="font-size:9px;"><span class="dot"></span>closed</span>
+          </div>
+        </div>
+
+        <!-- Row 2 · social-post-published · ready to auto-close -->
+        <div class="sw-row">
+          <div class="lhs">
+            <span class="rule is-auto">social-post-published · 0.90</span>
+            <span class="task">Post Friday newsletter teaser to LinkedIn</span>
+            <span class="id">task · 8b71 · created 2026-04-29</span>
+          </div>
+          <div class="ev">
+            social_queue <code>q-3318</code> posted <strong>5h ago</strong> on <code>linkedin</code> — matched on slug <code>friday-newsletter-q2-week5</code>
+          </div>
+          <div class="sw-conf lvl-3">
+            <div class="bar"><span></span><span></span><span></span><span></span></div>
+            <span class="label">auto · 0.90</span>
+          </div>
+          <div class="sw-actions">
+            <button class="btn btn-sm btn-outline" type="button">Dismiss</button>
+            <button class="btn btn-sm btn-primary" type="button">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width:11px;height:11px;"><polyline points="20 6 9 17 4 12"/></svg>
+              Close
+            </button>
+          </div>
+        </div>
+
+        <!-- Row 3 · git-commit-superseded · flag-for-review -->
+        <div class="sw-row">
+          <div class="lhs">
+            <span class="rule is-flag">git-commit-superseded · 0.75</span>
+            <span class="task">Implement task-health sweeper signal-rules.json loader</span>
+            <span class="id">task · c190 · created 2026-04-15</span>
+          </div>
+          <div class="ev">
+            possibly superseded by commit <code>9b3ee21</code> <em>"feat(task-health): json rule loader + scheduler"</em> · <strong>5d ago</strong> · keyword match on <code>signal-rules.json</code>
+          </div>
+          <div class="sw-conf lvl-2">
+            <div class="bar"><span></span><span></span><span></span><span></span></div>
+            <span class="label">flag · 0.75</span>
+          </div>
+          <div class="sw-actions">
+            <button class="btn btn-sm btn-outline" type="button">Keep open</button>
+            <button class="btn btn-sm btn-primary" type="button">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width:11px;height:11px;"><polyline points="20 6 9 17 4 12"/></svg>
+              Close
+            </button>
+          </div>
+        </div>
+
+        <div class="sw-foot">
+          <span>Last sweep <strong style="color:var(--fg-muted);">2026-05-03 · 14:30</strong> · 4 closed · 3 flagged · cooldown 24h/task</span>
+          <a href="#">View sweep-log.jsonl →</a>
+        </div>
+      </div>
+    </div>
+
+    <div class="token-note" style="margin-top:var(--space-5);">
+      <strong>Evidence-card pattern (new in this screen):</strong> the same green-tint card shape appears in the detail panel (auto-closed task) and the sweeper queue (proposed close). It uses only existing tokens — <code>--ok</code>, <code>--ok-soft</code>, <code>--achievement</code> for the flag variant, plus <code>--bg-surface</code> / <code>--border-soft</code> for the chip backgrounds. The 4-segment confidence bar is a layout trick on existing tokens, not a new component.
+    </div>
+  </section>
+
+  <!-- ================================================================
+       Honesty notes — what's wired vs deferred
+       ================================================================ -->
+  <section>
+    <div class="token-note" style="border-style:solid;">
+      <strong>Designed-as-built (matches code today):</strong>
+      <ul>
+        <li>Filter bar with status / category / owner / search — extends <code>routes/tasks/route.tsx</code>'s status select</li>
+        <li>List → detail navigation, status select mutation, blocked-by + subtasks links — all in <code>$taskId.tsx</code></li>
+        <li>Row content (priority dot, status badge, due-date red overdue, category sub) — same fields, denser layout</li>
+        <li>Auto-closed badge + outcome_notes signature (<em>"Auto-closed by task-health: …"</em>) — matches <code>rules.json</code> outcome_template strings 1:1</li>
+        <li>Sweeper rule names + confidence values (0.95 / 0.9 / 0.75) — pulled from <code>rules.json</code> verbatim</li>
+      </ul>
+      <strong style="display:inline-block;margin-top:10px;">Designed-ahead (not yet wired — flagged with <code>deferred</code> pills inline):</strong>
+      <ul>
+        <li>Group dividers (Overdue / Today / Week / Auto-closed) — code currently flat-sorts by due_date</li>
+        <li>Source &amp; context row (email / session / initiative refs) — fields exist in <code>tasks.ts</code> (<code>source_email_id</code>, <code>claude_session_id</code>, <code>initiative_id</code>) but no UI renders them</li>
+        <li>Activity timeline — no audit table exists yet</li>
+        <li>Sweeper review queue (Section C) — sweeper is a cron, no in-app review surface</li>
+        <li>Reschedule / Reassign / "Mark complete" inline buttons — only status select mutates today</li>
+        <li>Single-pane variants (Section B) — the route renders into the workspace's content pane today; no narrow/side-pane variant exists</li>
+      </ul>
+      <strong style="display:inline-block;margin-top:10px;">Tokens added:</strong> none. Workspace tint reuses <code>app</code>. Evidence card + confidence bar are layout patterns over existing semantic tokens (<code>--ok</code>, <code>--achievement</code>, <code>--agent</code>, <code>--live</code>).
+    </div>
+  </section>
+
+  <footer class="foot">
+    <div>
+      Ikenga · Ikenga · Rung 3 · Batch 3 · 08-tasks.html ·
+      <a href="./07-claude-config.html">← /claude · config</a> ·
+      <a href="./index.html">Index</a> ·
+      <a class="nextlink" href="./09-storyboard.html">Studio · storyboard →</a>
+    </div>
+    <div>
+      Density-respect · light + dark mode tested · 0 new tokens
+    </div>
+  </footer>
+
+</div>
+
+<script src="../_shared/controls.js"></script>
+<script>
+  // Group collapse
+  document.querySelectorAll('.tk-group-head').forEach(function (h) {
+    h.addEventListener('click', function () { h.classList.toggle('is-collapsed'); });
+  });
+  // Row select
+  document.querySelectorAll('.ld-list .tk-row').forEach(function (row) {
+    row.addEventListener('click', function () {
+      document.querySelectorAll('.ld-list .tk-row').forEach(function (r) { r.classList.remove('is-on'); });
+      row.classList.add('is-on');
+    });
+  });
+</script>
+
+</body>
+</html>

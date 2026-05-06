@@ -1,0 +1,1104 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="A" data-mode="dark" data-density="comfortable" data-workspace="agents">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Ikenga · Rung 3 · /claude config browser</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,400;1,9..144,500&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="../_shared/tokens.css" />
+<link rel="stylesheet" href="../_shared/components.css" />
+<link rel="stylesheet" href="../_shared/shell.css" />
+<style>
+  /* === Page chrome ============================================== */
+  .page { max-width: 1480px; margin: 0 auto; padding: 0 var(--space-12) var(--space-12); }
+  .controls { margin: 0 calc(-1 * var(--space-12)) var(--space-8); }
+  header { padding-top: var(--space-8); }
+  section { margin-top: var(--space-12); }
+
+  /* === Frame ==================================================== */
+  .frame {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--bg-surface);
+    overflow: hidden;
+    box-shadow: var(--shadow-2);
+    display: grid; grid-template-rows: auto auto 1fr;
+  }
+  .frame-head {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    gap: var(--space-4);
+    padding: var(--space-4) var(--space-5);
+    border-bottom: 1px solid var(--border-soft);
+    background: linear-gradient(180deg, var(--tint-bg-active, var(--bg-surface)) 0%, var(--bg-surface) 100%);
+  }
+  .frame-title-wrap { display: flex; align-items: center; gap: var(--space-2); }
+  .frame-title-mark { width: 18px; height: 18px; color: var(--tint-fg-active, var(--primary)); }
+  .frame-title { font-family: var(--font-display); font-weight: 500; font-size: var(--text-h3); margin: 0; color: var(--fg); }
+  .frame-sub { margin-top: 2px; font-size: var(--text-caption); color: var(--fg-muted); }
+
+  /* Top-level config tabs (Agents | Skills | Commands | Hooks) */
+  .config-tabs {
+    display: flex; align-items: center; gap: 0;
+    padding: 0 var(--space-3);
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-sunken);
+    height: var(--tab-h);
+  }
+  .config-tab {
+    height: var(--tab-h); padding: 0 var(--space-4);
+    display: inline-flex; align-items: center; gap: var(--space-2);
+    font-size: var(--text-body-sm); color: var(--fg-faint);
+    border: 0; background: transparent; cursor: pointer;
+    border-bottom: 2px solid transparent; margin-bottom: -1px;
+    font-family: inherit;
+  }
+  .config-tab:hover { color: var(--fg-muted); }
+  .config-tab.is-on { color: var(--fg); border-bottom-color: var(--tint-fg-active, var(--primary)); font-weight: 500; }
+  .config-tab svg { width: 13px; height: 13px; }
+  .config-tab .tab-count {
+    font-family: var(--font-mono); font-size: 10px;
+    background: var(--bg-base);
+    border: 1px solid var(--border-soft);
+    color: var(--fg-faint);
+    padding: 1px 5px; border-radius: var(--radius-xs);
+    margin-left: 4px;
+    font-variant-numeric: tabular-nums;
+  }
+  .config-tab.is-on .tab-count {
+    background: color-mix(in srgb, var(--tint-fg-active, var(--primary)) 18%, var(--bg-base));
+    border-color: color-mix(in srgb, var(--tint-fg-active, var(--primary)) 35%, var(--border));
+    color: var(--tint-fg-active, var(--primary));
+  }
+
+  /* === List/detail two-column layout ============================ */
+  .ld-split {
+    --list-w: 300px;
+    display: grid;
+    grid-template-columns: minmax(220px, var(--list-w)) 4px minmax(420px, 1fr);
+    height: 720px;
+    overflow: hidden;
+  }
+  .ld-split.is-compressed { height: 380px; }
+  .ld-list {
+    overflow-y: auto;
+    background: var(--bg-surface);
+    display: grid; grid-template-rows: auto auto 1fr;
+  }
+  .ld-divider {
+    background: var(--border-soft);
+    cursor: col-resize;
+    transition: background var(--motion-fast) var(--ease-calm);
+  }
+  .ld-divider:hover { background: var(--tint-fg-active, var(--primary)); }
+  .ld-detail {
+    background: var(--bg-base);
+    overflow-y: auto;
+    display: grid; grid-template-rows: auto 1fr;
+  }
+
+  .ld-list-toolbar {
+    padding: var(--row-pad-y) var(--space-3);
+    border-bottom: 1px solid var(--border-soft);
+    background: var(--bg-sunken);
+    display: flex; align-items: center; gap: var(--space-2);
+    position: sticky; top: 0; z-index: 5;
+  }
+  .ld-list-toolbar .input-search-wrap { position: relative; flex: 1; }
+  .ld-list-toolbar .input-search-wrap svg {
+    position: absolute; left: 6px; top: 50%; transform: translateY(-50%);
+    width: 11px; height: 11px; color: var(--fg-faint);
+  }
+  .ld-list-toolbar input {
+    width: 100%; height: 24px;
+    padding: 0 6px 0 22px;
+    background: var(--bg-base);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-xs);
+    color: var(--fg); font-family: inherit;
+    font-size: 11px;
+  }
+  .ld-list-toolbar select {
+    height: 24px; font-size: 10.5px;
+    padding: 0 4px;
+    background: var(--bg-base);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-xs);
+    color: var(--fg-muted); font-family: var(--font-mono);
+  }
+  .ld-list-meta {
+    padding: 4px var(--space-3);
+    border-bottom: 1px solid var(--border-soft);
+    background: var(--bg-sunken);
+    font-family: var(--font-mono); font-size: 9.5px;
+    color: var(--fg-faint); letter-spacing: .06em;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .ld-list-rows { overflow-y: auto; }
+
+  .ld-row {
+    padding: var(--space-2) var(--space-3);
+    border-bottom: 1px solid var(--border-soft);
+    cursor: pointer;
+    transition: background var(--motion-fast) var(--ease-calm);
+    position: relative;
+    display: grid; gap: 2px;
+  }
+  .ld-row:hover { background: var(--bg-raised); }
+  .ld-row.is-on { background: var(--bg-raised); }
+  .ld-row.is-on::before {
+    content: '';
+    position: absolute; left: 0; top: 6px; bottom: 6px;
+    width: 2px; border-radius: 2px;
+    background: var(--tint-fg-active, var(--primary));
+  }
+  .ld-row .name {
+    font-family: var(--font-mono); font-size: 11.5px; font-weight: 500;
+    color: var(--fg);
+    letter-spacing: .02em;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .ld-row .name .scope {
+    font-family: var(--font-mono); font-size: 8.5px;
+    color: var(--fg-faint); letter-spacing: .1em; text-transform: uppercase;
+    background: var(--bg-base); border: 1px solid var(--border-soft);
+    padding: 1px 4px; border-radius: var(--radius-xs);
+  }
+  .ld-row .desc {
+    font-size: var(--text-caption); color: var(--fg-muted);
+    line-height: 1.4;
+    overflow: hidden; text-overflow: ellipsis;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  }
+  .ld-row .row-meta {
+    display: flex; gap: var(--space-2); align-items: center;
+    font-family: var(--font-mono); font-size: 9.5px;
+    color: var(--fg-faint); letter-spacing: .04em;
+    margin-top: 1px;
+  }
+  .ld-row .row-meta .ct { color: var(--fg-muted); font-variant-numeric: tabular-nums; }
+
+  /* Hook event-group header (used in Hooks tab) */
+  .ld-event-head {
+    padding: 6px var(--space-3);
+    background: var(--bg-sunken);
+    border-bottom: 1px solid var(--border-soft);
+    border-top: 1px solid var(--border-soft);
+    font-family: var(--font-mono); font-size: 9.5px;
+    letter-spacing: .12em; text-transform: uppercase;
+    color: var(--tint-fg-active, var(--primary));
+    display: flex; justify-content: space-between;
+  }
+  .ld-event-head .ct { color: var(--fg-faint); font-variant-numeric: tabular-nums; }
+
+  /* === Detail panel ============================================ */
+  .ld-detail-head {
+    padding: var(--space-4) var(--space-5);
+    border-bottom: 1px solid var(--border-soft);
+    background: linear-gradient(180deg, var(--tint-bg-active, var(--bg-surface)) 0%, var(--bg-base) 100%);
+  }
+  .ld-detail-head .topline {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: var(--space-3);
+    margin-bottom: 8px;
+  }
+  .ld-detail-head .filepath {
+    font-family: var(--font-mono); font-size: 10.5px;
+    color: var(--fg-faint); letter-spacing: .04em;
+    background: var(--bg-base); border: 1px solid var(--border-soft);
+    padding: 2px 6px; border-radius: var(--radius-xs);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    max-width: 60%;
+  }
+  .ld-detail-head .topline-actions { display: flex; gap: 4px; flex-shrink: 0; }
+  .ld-detail-head h2 {
+    font-family: var(--font-display); font-weight: 500;
+    font-size: var(--text-h3); margin: 0;
+    color: var(--fg);
+    display: flex; align-items: center; gap: var(--space-2);
+  }
+  .ld-detail-head h2 .scope-pill {
+    font-family: var(--font-mono); font-size: 9px;
+    color: var(--fg-faint); letter-spacing: .1em; text-transform: uppercase;
+    background: var(--bg-base); border: 1px solid var(--border-soft);
+    padding: 2px 7px; border-radius: var(--radius-xs);
+    align-self: center;
+  }
+  .ld-detail-head h2 .scope-pill.is-project { color: var(--tint-fg-active, var(--primary)); border-color: color-mix(in srgb, var(--tint-fg-active, var(--primary)) 30%, var(--border)); background: color-mix(in srgb, var(--tint-fg-active, var(--primary)) 12%, var(--bg-base)); }
+  .ld-detail-head .desc {
+    margin-top: 8px;
+    font-size: var(--text-body-sm);
+    color: var(--fg-muted);
+    line-height: 1.55;
+    max-width: 76ch;
+  }
+
+  .ld-detail-body { padding: var(--space-5); display: flex; flex-direction: column; gap: var(--space-5); }
+
+  .ld-section { display: flex; flex-direction: column; gap: 6px; }
+  .ld-section-label {
+    font-family: var(--font-mono); font-size: 10px;
+    letter-spacing: .12em; text-transform: uppercase;
+    color: var(--fg-faint);
+    display: flex; align-items: baseline; justify-content: space-between;
+  }
+  .ld-section-label .ct {
+    font-family: var(--font-mono); font-size: 9.5px;
+    color: var(--fg-muted); font-variant-numeric: tabular-nums;
+    letter-spacing: .04em; text-transform: none;
+  }
+  .ld-frontmatter-grid {
+    display: grid; grid-template-columns: 124px 1fr;
+    gap: 8px var(--space-3);
+    font-size: var(--text-body-sm);
+  }
+  .ld-fm-key {
+    font-family: var(--font-mono); font-size: 10.5px;
+    color: var(--fg-faint); letter-spacing: .06em;
+    text-transform: uppercase;
+    align-self: center;
+  }
+  .ld-fm-val {
+    font-family: var(--font-mono); font-size: 11.5px;
+    color: var(--fg);
+    word-break: break-word;
+  }
+
+  /* Tool / skill / mcp chip clusters */
+  .ld-chips {
+    display: flex; flex-wrap: wrap; gap: 4px;
+  }
+  .ld-chip {
+    font-family: var(--font-mono); font-size: 10px;
+    background: var(--bg-sunken);
+    border: 1px solid var(--border-soft);
+    color: var(--fg-muted);
+    padding: 2px 7px;
+    border-radius: var(--radius-xs);
+    letter-spacing: .04em;
+    white-space: nowrap;
+  }
+  .ld-chip.is-tool   { color: var(--systemic); border-color: color-mix(in srgb, var(--systemic) 30%, var(--border-soft)); background: var(--systemic-soft); }
+  .ld-chip.is-skill  { color: var(--agent);    border-color: color-mix(in srgb, var(--agent) 30%, var(--border-soft));    background: var(--agent-soft); }
+  .ld-chip.is-mcp    { color: var(--achievement); border-color: color-mix(in srgb, var(--achievement) 30%, var(--border-soft)); background: var(--achievement-soft); }
+  .ld-chip.is-event  { color: var(--primary);  border-color: color-mix(in srgb, var(--primary) 30%, var(--border-soft));   background: var(--primary-soft); }
+  .ld-chip.is-more {
+    background: transparent;
+    border-style: dashed;
+    color: var(--fg-faint);
+    cursor: pointer;
+  }
+  .ld-chip.is-more:hover { color: var(--fg); border-color: var(--fg-faint); }
+
+  /* Body markdown preview */
+  .ld-body-preview {
+    font-size: var(--text-body-sm);
+    line-height: 1.6;
+    color: var(--fg);
+    background: var(--bg-base);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-md);
+    padding: var(--space-4);
+    max-height: 280px;
+    overflow-y: auto;
+    position: relative;
+  }
+  .ld-body-preview h4 {
+    font-family: var(--font-display); font-weight: 500;
+    font-size: var(--text-body); color: var(--fg);
+    margin: var(--space-3) 0 6px;
+  }
+  .ld-body-preview h4:first-child { margin-top: 0; }
+  .ld-body-preview p { margin: 0 0 var(--space-2); color: var(--fg-muted); }
+  .ld-body-preview code {
+    font-family: var(--font-mono); font-size: 11.5px;
+    background: var(--bg-sunken);
+    padding: 1px 5px; border-radius: var(--radius-xs);
+    border: 1px solid var(--border-soft);
+    color: var(--fg);
+  }
+  .ld-body-preview ul, .ld-body-preview ol {
+    margin: 0 0 var(--space-2); padding-left: var(--space-5);
+    color: var(--fg-muted);
+  }
+  .ld-body-preview li { margin-bottom: 4px; }
+  .ld-body-preview strong { color: var(--fg); font-weight: 600; }
+
+  /* Shell script body for hook detail */
+  .ld-script {
+    font-family: var(--font-mono); font-size: 12px;
+    line-height: 1.55;
+    background: var(--bg-base);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-md);
+    padding: var(--space-4);
+    overflow-x: auto;
+    color: var(--fg);
+    max-height: 280px;
+    overflow-y: auto;
+    white-space: pre;
+  }
+  .ld-script .syn-com { color: var(--fg-faint); font-style: italic; }
+  .ld-script .syn-kw  { color: var(--agent); }
+  .ld-script .syn-str { color: var(--live); }
+  .ld-script .syn-var { color: var(--systemic); }
+  .ld-script .syn-fn  { color: var(--achievement); }
+
+  /* Supporting files tree (skills) */
+  .ld-tree {
+    font-family: var(--font-mono); font-size: 11px;
+    background: var(--bg-base);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-4);
+    color: var(--fg-muted);
+  }
+  .ld-tree-row { padding: 2px 0; display: flex; align-items: center; gap: 6px; }
+  .ld-tree-row.dir { color: var(--fg); font-weight: 500; }
+  .ld-tree-row svg { width: 11px; height: 11px; color: var(--fg-faint); flex-shrink: 0; }
+  .ld-tree-row .indent { width: 14px; flex-shrink: 0; }
+
+  /* === Section caption ========================================= */
+  .section-cap {
+    font-size: var(--text-body-sm); color: var(--fg-muted);
+    margin: calc(-1 * var(--space-3)) 0 var(--space-5);
+    max-width: 78ch; line-height: 1.55;
+  }
+  .section-cap code {
+    font-family: var(--font-mono); font-size: 11px;
+    color: var(--fg-muted);
+  }
+  .section-cap em { color: var(--fg); font-style: normal; font-weight: 500; }
+
+  /* === Footer / token note ==================================== */
+  footer.foot {
+    margin-top: var(--space-16);
+    padding-top: var(--space-5);
+    border-top: 1px solid var(--border-soft);
+    display: grid; grid-template-columns: 1fr auto;
+    gap: var(--space-4); align-items: start;
+    font-family: var(--font-mono); font-size: 11px;
+    color: var(--fg-faint); letter-spacing: .04em;
+  }
+  footer.foot a { color: var(--fg-muted); text-decoration: none; border-bottom: 1px solid var(--border-soft); }
+  footer.foot a:hover { color: var(--fg); border-bottom-color: var(--fg-muted); }
+  footer.foot .nextlink {
+    color: var(--tint-fg-active, var(--primary));
+    border-bottom-color: color-mix(in srgb, var(--tint-fg-active, var(--primary)) 50%, transparent);
+  }
+
+  .token-note {
+    margin-top: var(--space-5);
+    padding: var(--space-4) var(--space-5);
+    border: 1px dashed var(--border);
+    border-radius: var(--radius-md);
+    background: var(--bg-sunken);
+    color: var(--fg-muted);
+    font-size: var(--text-body-sm);
+    line-height: 1.6;
+  }
+  .token-note strong { color: var(--fg); font-weight: 600; }
+  .token-note code {
+    font-family: var(--font-mono); font-size: 11px;
+    background: var(--bg-base); border: 1px solid var(--border-soft);
+    color: var(--fg); padding: 1px 5px; border-radius: var(--radius-xs);
+  }
+</style>
+</head>
+<body>
+
+<div class="page">
+
+  <div class="controls"
+       data-controls-bar
+       data-current="claude-config"
+       data-show-dock="0"
+       data-show-workspace="1"></div>
+
+  <header>
+    <div class="eyebrow"><span class="eyebrow-dot"></span>Ikenga · Design / Rung 3 · Batch 3</div>
+    <h1 class="title">/claude · <em>config browser</em></h1>
+    <p class="lede">A read-only browser for everything Claude Code knows about this project: <strong>28 agents</strong>, <strong>105 skills</strong> (94 project + 11 personal), <strong>65 commands</strong>, and <strong>5 hooks</strong> across 3 events. Files live under <code style="font-family:var(--font-mono);font-size:14px;color:var(--fg-muted);">.claude/</code> (project) and <code style="font-family:var(--font-mono);font-size:14px;color:var(--fg-muted);">~/.claude/</code> (personal); the app reads them directly — no <code style="font-family:var(--font-mono);font-size:14px;color:var(--fg-muted);">claude</code> CLI subcommand exists for listing them. Workspace tint = <code style="font-family:var(--font-mono);font-size:14px;color:var(--fg-muted);">agents</code> (cool teal).</p>
+  </header>
+
+  <!-- ================================================================
+       SECTION A · /claude/agents (FULL FIDELITY)
+       ================================================================ -->
+  <section>
+    <div class="section-tag">A · /claude/agents · list/detail · 28 agents</div>
+    <p class="section-cap">The canonical config view. Left: scrollable agent list with mono name, 2-line description, scope chip (PROJ / PERS), model + tool-count meta. Right: agent detail = file path code chip, Edit + "New session" actions, name + description, frontmatter grid (model · maxTurns · skills-used count · allowed-tools count · file mtime), <em>tool</em>/<em>skill</em>/<em>MCP</em> chip clusters with collapsing affordances (first 8 visible, "+N more"), system-prompt preview (markdown body of the .md file). Real frontmatter from <code>.claude/agents/cfo-agent.md</code>.</p>
+
+    <div class="frame">
+      <div class="frame-head">
+        <div>
+          <div class="frame-title-wrap">
+            <svg class="frame-title-mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+              <circle cx="9" cy="7" r="4"/>
+              <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+              <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+            </svg>
+            <h2 class="frame-title">/claude</h2>
+          </div>
+          <div class="frame-sub">Project + personal config · live file watcher · read-only</div>
+        </div>
+        <div style="display:flex;gap:var(--space-2);align-items:center;">
+          <button class="btn btn-sm btn-outline" type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+            Reload
+          </button>
+          <button class="btn btn-sm btn-outline" type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+            Open .claude/
+          </button>
+        </div>
+      </div>
+
+      <div class="config-tabs">
+        <button class="config-tab is-on">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+          Agents
+          <span class="tab-count">28</span>
+        </button>
+        <button class="config-tab">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+          Skills
+          <span class="tab-count">105</span>
+        </button>
+        <button class="config-tab">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+          Commands
+          <span class="tab-count">65</span>
+        </button>
+        <button class="config-tab">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/></svg>
+          Hooks
+          <span class="tab-count">5</span>
+        </button>
+      </div>
+
+      <div class="ld-split">
+
+        <!-- LEFT: agent list -->
+        <div class="ld-list">
+          <div class="ld-list-toolbar">
+            <div class="input-search-wrap">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <input type="text" placeholder="Filter 28 agents…" />
+            </div>
+            <select>
+              <option>All scopes</option>
+              <option>Project</option>
+              <option>Personal</option>
+            </select>
+          </div>
+          <div class="ld-list-meta">
+            <span>28 agents · all project</span>
+            <span>sort: name</span>
+          </div>
+          <div class="ld-list-rows">
+            <div class="ld-row">
+              <div class="name">analytics-coordinator <span class="scope">proj</span></div>
+              <div class="desc">Central coordination of metrics definitions, dashboard maintenance, and cross-functional data reconciliation.</div>
+              <div class="row-meta"><span>haiku</span><span>·</span><span class="ct">8 tools</span></div>
+            </div>
+            <div class="ld-row">
+              <div class="name">blog-writer <span class="scope">proj</span></div>
+              <div class="desc">End-to-end blog post creation with 6-stage workflow. Creates SEO-optimized posts following Royalti brand voice.</div>
+              <div class="row-meta"><span>sonnet</span><span>·</span><span class="ct">12 tools</span></div>
+            </div>
+            <div class="ld-row">
+              <div class="name">cbo-agent <span class="scope">proj</span></div>
+              <div class="desc">Chief Business Officer — strategic partnerships, revenue strategy, and cross-functional coordination.</div>
+              <div class="row-meta"><span>opus</span><span>·</span><span class="ct">22 tools</span></div>
+            </div>
+            <div class="ld-row">
+              <div class="name">ceo-agent <span class="scope">proj</span></div>
+              <div class="desc">Chief Executive Officer — strategic orchestrator, annual planning, executive reviews.</div>
+              <div class="row-meta"><span>opus</span><span>·</span><span class="ct">25 tools</span></div>
+            </div>
+            <div class="ld-row is-on">
+              <div class="name">cfo-agent <span class="scope">proj</span></div>
+              <div class="desc">Chief Financial Officer — multi-entity financial tracking, reconciliation, and reporting.</div>
+              <div class="row-meta"><span>opus</span><span>·</span><span class="ct">28 tools</span><span>·</span><span>9 skills</span></div>
+            </div>
+            <div class="ld-row">
+              <div class="name">claude-code-guide <span class="scope">proj</span></div>
+              <div class="desc">Q&amp;A about Claude Code, Agent SDK, and Claude API. Read-only research agent.</div>
+              <div class="row-meta"><span>sonnet</span><span>·</span><span class="ct">4 tools</span></div>
+            </div>
+            <div class="ld-row">
+              <div class="name">clo-agent <span class="scope">proj</span></div>
+              <div class="desc">Contract review and compliance analysis. Risk scoring, missing-clause detection.</div>
+              <div class="row-meta"><span>opus</span><span>·</span><span class="ct">14 tools</span></div>
+            </div>
+            <div class="ld-row">
+              <div class="name">cmo-agent <span class="scope">proj</span></div>
+              <div class="desc">Chief Marketing Officer — strategic marketing planning, campaign orchestration.</div>
+              <div class="row-meta"><span>opus</span><span>·</span><span class="ct">26 tools</span></div>
+            </div>
+            <div class="ld-row">
+              <div class="name">competitor-analyst <span class="scope">proj</span></div>
+              <div class="desc">Competitive intelligence, market research, TAM/SAM/SOM calculations.</div>
+              <div class="row-meta"><span>sonnet</span><span>·</span><span class="ct">15 tools</span></div>
+            </div>
+            <div class="ld-row">
+              <div class="name">content-refiner <span class="scope">proj</span></div>
+              <div class="desc">Content polish and refinement specialist for any content type.</div>
+              <div class="row-meta"><span>sonnet</span><span>·</span><span class="ct">8 tools</span></div>
+            </div>
+            <div class="ld-row">
+              <div class="name">content-strategist <span class="scope">proj</span></div>
+              <div class="desc">Cross-channel content theme coordination, redundancy prevention.</div>
+              <div class="row-meta"><span>sonnet</span><span>·</span><span class="ct">10 tools</span></div>
+            </div>
+            <div class="ld-row">
+              <div class="name">cpo-agent <span class="scope">proj</span></div>
+              <div class="desc">Chief Product Officer — roadmap, RICE prioritization, customer insights.</div>
+              <div class="row-meta"><span>opus</span><span>·</span><span class="ct">22 tools</span></div>
+            </div>
+            <div class="ld-row">
+              <div class="name">cto-agent <span class="scope">proj</span></div>
+              <div class="desc">Chief Technology Officer — technical strategy, architecture, capacity, debt.</div>
+              <div class="row-meta"><span>opus</span><span>·</span><span class="ct">24 tools</span></div>
+            </div>
+            <div class="ld-row">
+              <div class="name">customer-success <span class="scope">proj</span></div>
+              <div class="desc">Post-sale customer health, retention, churn prevention, expansion.</div>
+              <div class="row-meta"><span>sonnet</span><span>·</span><span class="ct">14 tools</span></div>
+            </div>
+            <div class="ld-row">
+              <div class="name">financial-analyst <span class="scope">proj</span></div>
+              <div class="desc">Financial modeling, revenue analysis, pricing strategy.</div>
+              <div class="row-meta"><span>opus</span><span>·</span><span class="ct">18 tools</span></div>
+            </div>
+            <div class="ld-row">
+              <div class="name">fundraising-agent <span class="scope">proj</span></div>
+              <div class="desc">Investor pipeline orchestrator for the pre-seed raise. All outreach gated.</div>
+              <div class="row-meta"><span>sonnet</span><span>·</span><span class="ct">16 tools</span></div>
+            </div>
+            <div class="ld-row" style="opacity:.62;">
+              <div class="name">+ 13 more agents</div>
+              <div class="desc">market-researcher · memory-recall · newsletter-* · pa-assistant · prospect-researcher · seo-optimizer · system-architect · video-creator-agent · vp-sales-agent · …</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="ld-divider"></div>
+
+        <!-- RIGHT: cfo-agent detail -->
+        <div class="ld-detail">
+          <div class="ld-detail-head">
+            <div class="topline">
+              <span class="filepath">.claude/agents/cfo-agent.md</span>
+              <div class="topline-actions">
+                <button class="btn btn-sm btn-outline" type="button">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                  Edit in editor
+                </button>
+                <button class="btn btn-sm btn-primary" type="button">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                  New cfo session
+                </button>
+              </div>
+            </div>
+            <h2>
+              cfo-agent
+              <span class="scope-pill is-project">project</span>
+            </h2>
+            <div class="desc">Chief Financial Officer — multi-entity financial tracking, reconciliation, and reporting for Royalti.io and Dixtrit.media. Processes bank statements, Stripe subscriptions (both entities), classifies transactions, tracks inter-company flows, and generates monthly reports. Use PROACTIVELY for financial questions, runway, burn rate, transaction processing, Stripe revenue, or inter-company reconciliation.</div>
+          </div>
+
+          <div class="ld-detail-body">
+
+            <div class="ld-section">
+              <div class="ld-section-label">Frontmatter</div>
+              <div class="ld-frontmatter-grid">
+                <span class="ld-fm-key">name</span>
+                <span class="ld-fm-val">cfo-agent</span>
+                <span class="ld-fm-key">model</span>
+                <span class="ld-fm-val">opus</span>
+                <span class="ld-fm-key">maxTurns</span>
+                <span class="ld-fm-val">20</span>
+                <span class="ld-fm-key">skills-used</span>
+                <span class="ld-fm-val">9 skills · see below</span>
+                <span class="ld-fm-key">allowed-tools</span>
+                <span class="ld-fm-val">28 tools (12 native · 11 MCP · 5 sub-agent)</span>
+                <span class="ld-fm-key">file mtime</span>
+                <span class="ld-fm-val">2026-04-28 · last edit by user</span>
+              </div>
+            </div>
+
+            <div class="ld-section">
+              <div class="ld-section-label">Skills used <span class="ct">9 of 9</span></div>
+              <div class="ld-chips">
+                <span class="ld-chip is-skill">strategic-layer</span>
+                <span class="ld-chip is-skill">wip-limits</span>
+                <span class="ld-chip is-skill">thunderbird-email</span>
+                <span class="ld-chip is-skill">cfo-statement-parser</span>
+                <span class="ld-chip is-skill">cfo-transaction-classifier</span>
+                <span class="ld-chip is-skill">cfo-reconciliation-tracker</span>
+                <span class="ld-chip is-skill">cfo-excel-generator</span>
+                <span class="ld-chip is-skill">cfo-processing-state</span>
+                <span class="ld-chip is-skill">plan-validation</span>
+              </div>
+            </div>
+
+            <div class="ld-section">
+              <div class="ld-section-label">Allowed tools <span class="ct">8 of 28 · click + to expand</span></div>
+              <div class="ld-chips">
+                <span class="ld-chip is-tool">Task</span>
+                <span class="ld-chip is-tool">Read</span>
+                <span class="ld-chip is-tool">Write</span>
+                <span class="ld-chip is-tool">Edit</span>
+                <span class="ld-chip is-tool">Glob</span>
+                <span class="ld-chip is-tool">Grep</span>
+                <span class="ld-chip is-tool">Bash</span>
+                <span class="ld-chip is-tool">TaskCreate</span>
+                <span class="ld-chip is-more">+ 20 more</span>
+              </div>
+            </div>
+
+            <div class="ld-section">
+              <div class="ld-section-label">MCP tools <span class="ct">11 of 11</span></div>
+              <div class="ld-chips">
+                <span class="ld-chip is-mcp">mcp__google-drive__search</span>
+                <span class="ld-chip is-mcp">mcp__google-drive__read</span>
+                <span class="ld-chip is-mcp">mcp__stripe__retrieve_balance</span>
+                <span class="ld-chip is-mcp">mcp__stripe__list_subscriptions</span>
+                <span class="ld-chip is-mcp">mcp__stripe__list_invoices</span>
+                <span class="ld-chip is-mcp">mcp__stripe__list_disputes</span>
+                <span class="ld-chip is-mcp">mcp__supabase__execute_sql</span>
+                <span class="ld-chip is-mcp">mcp__supabase__list_tables</span>
+                <span class="ld-chip is-mcp">mcp__mempalace__mempalace_search</span>
+                <span class="ld-chip is-mcp">mcp__mempalace__mempalace_kg_query</span>
+                <span class="ld-chip is-mcp">mcp__exa__web_search_advanced_exa</span>
+              </div>
+            </div>
+
+            <div class="ld-section">
+              <div class="ld-section-label">System prompt · markdown body <span class="ct">preview · 312 lines</span></div>
+              <div class="ld-body-preview">
+                <h4>CFO Agent · Royalti.io + Dixtrit.media</h4>
+                <p>You are the Chief Financial Officer for Royalti.io and Dixtrit.media. Your primary responsibilities are multi-entity financial tracking, reconciliation, and reporting.</p>
+                <h4>Core Responsibilities</h4>
+                <ul>
+                  <li><strong>Bank statement processing</strong> — parse Kuda (NGN), Mercury (USD), GTB (NGN), Verto (multi-currency) into the standard transaction schema</li>
+                  <li><strong>Stripe revenue tracking</strong> — both Royalti.io and Dixtrit.media subscriptions; classify by product line</li>
+                  <li><strong>Transaction classification</strong> — apply business rules + learned Tyms-accountant patterns</li>
+                  <li><strong>Inter-company reconciliation</strong> — match transfers between Royalti.io ↔ Dixtrit.media ↔ Personal</li>
+                  <li><strong>Runway + burn analytics</strong> — monthly runway recalc, scenario modeling</li>
+                </ul>
+                <h4>Operating Procedure</h4>
+                <p>Always start by reading <code>.company/financials/state.json</code> to load current month state. Use the <code>cfo-processing-state</code> skill to checkpoint long-running batch operations…</p>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================================================================
+       SECTION B · /claude/skills (compressed mini-frame)
+       ================================================================ -->
+  <section>
+    <div class="section-tag">B · /claude/skills · 105 skills (94 project + 11 personal)</div>
+    <p class="section-cap">Same chrome contract as Section A, compressed. Real skill: <code>royalti-brand-voice</code>. Skills can have supporting files (templates, scripts, examples) shown as a sub-tree in the detail panel — that's the structural difference vs agents/commands.</p>
+
+    <div class="frame">
+      <div class="ld-split is-compressed">
+        <div class="ld-list">
+          <div class="ld-list-toolbar">
+            <div class="input-search-wrap">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <input type="text" placeholder="Filter 105 skills…" />
+            </div>
+            <select>
+              <option>All</option>
+              <option>Project (94)</option>
+              <option>Personal (11)</option>
+            </select>
+          </div>
+          <div class="ld-list-meta"><span>105 skills · 11 personal</span><span>sort: name</span></div>
+          <div class="ld-list-rows">
+            <div class="ld-row">
+              <div class="name">ab-test-setup <span class="scope">proj</span></div>
+              <div class="desc">A/B test setup framework — variants, sample size, success criteria.</div>
+            </div>
+            <div class="ld-row">
+              <div class="name">brain-dump-pipeline <span class="scope">proj</span></div>
+              <div class="desc">Structured inbox for capturing ideas and routing through validation.</div>
+            </div>
+            <div class="ld-row">
+              <div class="name">cfo-statement-parser <span class="scope">proj</span></div>
+              <div class="desc">Parse XLSX bank statements (Verto / Kuda / GTB) into normalized schema.</div>
+            </div>
+            <div class="ld-row">
+              <div class="name">huashu-design <span class="scope" style="color:var(--agent);border-color:color-mix(in srgb, var(--agent) 30%, var(--border));">pers</span></div>
+              <div class="desc">花叔Design — HTML hi-fi prototypes + design variant exploration.</div>
+            </div>
+            <div class="ld-row is-on">
+              <div class="name">royalti-brand-voice <span class="scope">proj</span></div>
+              <div class="desc">Brand voice rules for any company-authored content. Tone, terminology, do/don't phrasing.</div>
+            </div>
+            <div class="ld-row">
+              <div class="name">shadcn <span class="scope" style="color:var(--agent);border-color:color-mix(in srgb, var(--agent) 30%, var(--border));">pers</span></div>
+              <div class="desc">Manages shadcn components — adding, searching, fixing, debugging, styling.</div>
+            </div>
+            <div class="ld-row" style="opacity:.62;">
+              <div class="name">+ 99 more</div>
+              <div class="desc">canvas-design-guide · cfo-* · cmo-query · payload-cms · ss-* · twenty-crm · …</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="ld-divider"></div>
+
+        <div class="ld-detail">
+          <div class="ld-detail-head">
+            <div class="topline">
+              <span class="filepath">.claude/skills/royalti-brand-voice/SKILL.md</span>
+              <div class="topline-actions">
+                <button class="btn btn-sm btn-outline" type="button">Edit</button>
+              </div>
+            </div>
+            <h2>royalti-brand-voice <span class="scope-pill is-project">project</span></h2>
+            <div class="desc">Use when creating any company-authored content for Royalti — blog posts, website copy, newsletters, social posts, emails, help docs — or when user says "check brand voice", "is this on-brand", "Royalti tone". Provides tone rules, terminology, do/don't phrasing, and the "we" company voice. DO NOT TRIGGER for first-person founder content — use royalti-founder-voice.</div>
+          </div>
+
+          <div class="ld-detail-body">
+            <div class="ld-section">
+              <div class="ld-section-label">Frontmatter</div>
+              <div class="ld-frontmatter-grid">
+                <span class="ld-fm-key">name</span>
+                <span class="ld-fm-val">royalti-brand-voice</span>
+                <span class="ld-fm-key">when_to_use</span>
+                <span class="ld-fm-val">model-invoked · auto-loaded for content tasks</span>
+                <span class="ld-fm-key">allowed-tools</span>
+                <span class="ld-fm-val" style="color:var(--fg-faint);">— (none specified · inherits caller)</span>
+              </div>
+            </div>
+
+            <div class="ld-section">
+              <div class="ld-section-label">Supporting files <span class="ct">3 files · 18.4 KB</span></div>
+              <div class="ld-tree">
+                <div class="ld-tree-row dir">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                  royalti-brand-voice/
+                </div>
+                <div class="ld-tree-row">
+                  <span class="indent"></span>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                  SKILL.md <span style="margin-left:auto;color:var(--fg-faint);font-size:9.5px;">8.2 KB</span>
+                </div>
+                <div class="ld-tree-row">
+                  <span class="indent"></span>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                  do-dont.md <span style="margin-left:auto;color:var(--fg-faint);font-size:9.5px;">5.1 KB</span>
+                </div>
+                <div class="ld-tree-row">
+                  <span class="indent"></span>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                  examples.md <span style="margin-left:auto;color:var(--fg-faint);font-size:9.5px;">5.1 KB</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================================================================
+       SECTION C · /claude/commands (compressed)
+       ================================================================ -->
+  <section>
+    <div class="section-tag">C · /claude/commands · 65 slash commands</div>
+    <p class="section-cap">Commands ARE prompts — the markdown body of each <code>.md</code> file is the prompt that runs when you type <code>/command</code>. Frontmatter exposes <code>description</code>, <code>model</code>, <code>allowed-tools</code>, <code>argument-hint</code>. Real command: <code>/pa</code>.</p>
+
+    <div class="frame">
+      <div class="ld-split is-compressed">
+        <div class="ld-list">
+          <div class="ld-list-toolbar">
+            <div class="input-search-wrap">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <input type="text" placeholder="Filter 65 commands…" />
+            </div>
+          </div>
+          <div class="ld-list-meta"><span>65 commands · all project</span><span>sort: name</span></div>
+          <div class="ld-list-rows">
+            <div class="ld-row"><div class="name">/blog-pipeline <span class="scope">proj</span></div><div class="desc">Orchestrate complete blog creation from keyword research to publication.</div></div>
+            <div class="ld-row"><div class="name">/cfo <span class="scope">proj</span></div><div class="desc">CFO command hub — status, cycle, process, reconcile, report, runway, budget.</div></div>
+            <div class="ld-row"><div class="name">/cmo <span class="scope">proj</span></div><div class="desc">CMO command hub — status, cycle, plan, review, campaign, channels.</div></div>
+            <div class="ld-row"><div class="name">/competitor-report <span class="scope">proj</span></div><div class="desc">Monthly competitive intelligence report with website monitoring.</div></div>
+            <div class="ld-row is-on"><div class="name">/pa <span class="scope">proj</span></div><div class="desc">Personal Assistant — conversational interface. Routes to C-level agents.</div></div>
+            <div class="ld-row"><div class="name">/pa-morning <span class="scope">proj</span></div><div class="desc">Morning briefing — overnight emails, today's calendar, overdue tasks.</div></div>
+            <div class="ld-row"><div class="name">/render-video <span class="scope">proj</span></div><div class="desc">Render a Remotion composition to MP4 and generate social assets.</div></div>
+            <div class="ld-row" style="opacity:.62;"><div class="name">+ 58 more</div><div class="desc">/agent-task-check · /algorithmic-art · /blog-to-social · /brain-dump · /cbo-* · /content-* · /cpo-* · /cto-* · /generate-* · /sales-* · …</div></div>
+          </div>
+        </div>
+
+        <div class="ld-divider"></div>
+
+        <div class="ld-detail">
+          <div class="ld-detail-head">
+            <div class="topline">
+              <span class="filepath">.claude/commands/pa.md</span>
+              <div class="topline-actions">
+                <button class="btn btn-sm btn-outline" type="button">Edit</button>
+                <button class="btn btn-sm btn-primary" type="button">Run /pa</button>
+              </div>
+            </div>
+            <h2>/pa <span class="scope-pill is-project">project</span></h2>
+            <div class="desc">Personal Assistant — conversational interface. Ask anything about emails, tasks, delegations, or route to C-level agents.</div>
+          </div>
+
+          <div class="ld-detail-body">
+            <div class="ld-section">
+              <div class="ld-section-label">Frontmatter</div>
+              <div class="ld-frontmatter-grid">
+                <span class="ld-fm-key">model</span><span class="ld-fm-val">sonnet</span>
+                <span class="ld-fm-key">argument-hint</span><span class="ld-fm-val">&lt;natural language request&gt;</span>
+                <span class="ld-fm-key">allowed-tools</span><span class="ld-fm-val">12 tools · 4 MCP (stripe)</span>
+              </div>
+            </div>
+            <div class="ld-section">
+              <div class="ld-section-label">Allowed tools <span class="ct">first 6 of 12</span></div>
+              <div class="ld-chips">
+                <span class="ld-chip is-tool">Task</span>
+                <span class="ld-chip is-tool">Read</span>
+                <span class="ld-chip is-tool">Write</span>
+                <span class="ld-chip is-tool">Edit</span>
+                <span class="ld-chip is-tool">Bash</span>
+                <span class="ld-chip is-tool">AskUserQuestion</span>
+                <span class="ld-chip is-mcp">mcp__stripe__retrieve_balance</span>
+                <span class="ld-chip is-mcp">mcp__stripe__list_subscriptions</span>
+                <span class="ld-chip is-more">+ 4 more</span>
+              </div>
+            </div>
+            <div class="ld-section">
+              <div class="ld-section-label">Body · the prompt that runs <span class="ct">42 lines</span></div>
+              <div class="ld-body-preview">
+                <h4>Personal Assistant</h4>
+                <p>You are the PA assistant. Use the <code>pa-assistant</code> agent definition for your full capabilities.</p>
+                <h4>Quick Reference</h4>
+                <p><strong>Request</strong>: <code>$ARGUMENTS</code></p>
+                <h4>How to Handle</h4>
+                <ol>
+                  <li><strong>If about emails</strong> → Use <code>pa-query</code> skill</li>
+                  <li><strong>If about tasks/delegations</strong> → Use <code>pa-query</code> skill</li>
+                  <li><strong>If about finances/revenue/runway</strong> → Route to <code>cfo-agent</code> via Task tool</li>
+                  <li><strong>If about marketing/content/SEO</strong> → Route to <code>cmo-agent</code> via Task tool</li>
+                  <li><strong>If about product/features/roadmap</strong> → Route to <code>cpo-agent</code> via Task tool</li>
+                </ol>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================================================================
+       SECTION D · /claude/hooks (compressed)
+       ================================================================ -->
+  <section>
+    <div class="section-tag">D · /claude/hooks · settings.local.json</div>
+    <p class="section-cap">Hooks live in <code>.claude/settings.local.json</code> keyed by event — not separate files. List groups by event header (<em>SessionStart</em> · <em>Stop</em> · <em>PreCompact</em>). Detail panel resolves the script body when <code>type: command</code> by reading the .sh file. Real hooks from this project (5 entries across 3 events).</p>
+
+    <div class="frame">
+      <div class="ld-split is-compressed">
+        <div class="ld-list">
+          <div class="ld-list-toolbar">
+            <div class="input-search-wrap">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <input type="text" placeholder="Filter hooks…" />
+            </div>
+            <select>
+              <option>All events</option>
+              <option>SessionStart</option>
+              <option>Stop</option>
+              <option>PreCompact</option>
+              <option>PreToolUse</option>
+              <option>PostToolUse</option>
+            </select>
+          </div>
+          <div class="ld-list-meta"><span>5 hooks · 3 events · all project</span><span>sort: event</span></div>
+          <div class="ld-list-rows">
+            <div class="ld-event-head">SessionStart <span class="ct">3</span></div>
+            <div class="ld-row">
+              <div class="name">env-setup.sh</div>
+              <div class="desc">type: command · sync · loads .env into session</div>
+            </div>
+            <div class="ld-row">
+              <div class="name">mattermost-notify.sh</div>
+              <div class="desc">type: command · async · posts session-start to #pa-activity</div>
+            </div>
+            <div class="ld-row is-on">
+              <div class="name">memory-coldstart.sh</div>
+              <div class="desc">type: command · sync · loads MEMORY.md + recent diary entries</div>
+            </div>
+
+            <div class="ld-event-head">Stop <span class="ct">2</span></div>
+            <div class="ld-row">
+              <div class="name">mattermost-notify.sh</div>
+              <div class="desc">type: command · async · posts stop summary</div>
+            </div>
+            <div class="ld-row">
+              <div class="name">mempalace-mine.sh</div>
+              <div class="desc">type: command · async · mines learnings from transcript</div>
+            </div>
+
+            <div class="ld-event-head">PreCompact <span class="ct">1</span></div>
+            <div class="ld-row">
+              <div class="name">mempalace-precompact.sh</div>
+              <div class="desc">type: command · sync · captures context before compaction</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="ld-divider"></div>
+
+        <div class="ld-detail">
+          <div class="ld-detail-head">
+            <div class="topline">
+              <span class="filepath">.claude/hooks/memory-coldstart.sh</span>
+              <div class="topline-actions">
+                <button class="btn btn-sm btn-outline" type="button">Edit script</button>
+                <button class="btn btn-sm btn-outline" type="button">Test run</button>
+              </div>
+            </div>
+            <h2>memory-coldstart.sh <span class="scope-pill is-project">SessionStart</span></h2>
+            <div class="desc">Loads MEMORY.md + recent agent diary entries into the new session's initial context. Sync execution — blocks session start until done (typically &lt;200ms). Configured in <code>.claude/settings.local.json</code> under <code>SessionStart.hooks[2]</code>.</div>
+          </div>
+
+          <div class="ld-detail-body">
+            <div class="ld-section">
+              <div class="ld-section-label">JSON config · settings.local.json</div>
+              <div class="ld-script">{
+  <span class="syn-str">"SessionStart"</span>: [
+    {
+      <span class="syn-str">"hooks"</span>: [
+        { <span class="syn-str">"type"</span>: <span class="syn-str">"command"</span>, <span class="syn-str">"command"</span>: <span class="syn-str">".claude/hooks/env-setup.sh"</span> },
+        { <span class="syn-str">"type"</span>: <span class="syn-str">"command"</span>, <span class="syn-str">"command"</span>: <span class="syn-str">".claude/hooks/mattermost-notify.sh"</span>, <span class="syn-str">"async"</span>: <span class="syn-kw">true</span> },
+        { <span class="syn-str">"type"</span>: <span class="syn-str">"command"</span>, <span class="syn-str">"command"</span>: <span class="syn-str">".claude/hooks/memory-coldstart.sh"</span> }
+      ]
+    }
+  ]
+}</div>
+            </div>
+
+            <div class="ld-section">
+              <div class="ld-section-label">Script body <span class="ct">.sh · 42 lines · 1.8 KB</span></div>
+              <div class="ld-script"><span class="syn-com">#!/usr/bin/env bash</span>
+<span class="syn-com"># memory-coldstart.sh — load MEMORY.md + recent diary entries</span>
+<span class="syn-com"># Hooked to SessionStart · sync · target &lt;200ms.</span>
+
+<span class="syn-kw">set</span> -euo pipefail
+
+<span class="syn-var">PROJECT_DIR</span>=<span class="syn-str">"</span><span class="syn-var">${CLAUDE_PROJECT_DIR:-$(pwd)}</span><span class="syn-str">"</span>
+<span class="syn-var">MEMORY_FILE</span>=<span class="syn-str">"</span><span class="syn-var">${PROJECT_DIR}</span><span class="syn-str">/MEMORY.md"</span>
+<span class="syn-var">DIARY_DIR</span>=<span class="syn-str">"</span><span class="syn-var">${HOME}</span><span class="syn-str">/.claude/projects/-home-nedjamez-royalti-co/memory"</span>
+
+<span class="syn-kw">if</span> [[ -f <span class="syn-str">"</span><span class="syn-var">$MEMORY_FILE</span><span class="syn-str">"</span> ]]; <span class="syn-kw">then</span>
+  <span class="syn-fn">echo</span> <span class="syn-str">"&lt;memory-coldstart&gt;"</span>
+  <span class="syn-fn">cat</span> <span class="syn-str">"</span><span class="syn-var">$MEMORY_FILE</span><span class="syn-str">"</span>
+  <span class="syn-fn">echo</span> <span class="syn-str">"&lt;/memory-coldstart&gt;"</span>
+<span class="syn-kw">fi</span>
+
+<span class="syn-com"># Recent diary entries (last 7 days)</span>
+<span class="syn-fn">find</span> <span class="syn-str">"</span><span class="syn-var">$DIARY_DIR</span><span class="syn-str">"</span> -name <span class="syn-str">"diary_*.md"</span> -mtime -<span class="syn-var">7</span> | <span class="syn-fn">head</span> -<span class="syn-var">10</span> | <span class="syn-kw">while read</span> <span class="syn-var">f</span>; <span class="syn-kw">do</span>
+  <span class="syn-fn">echo</span> <span class="syn-str">"&lt;diary file=\"</span><span class="syn-var">$f</span><span class="syn-str">\"&gt;"</span>
+  <span class="syn-fn">cat</span> <span class="syn-str">"</span><span class="syn-var">$f</span><span class="syn-str">"</span>
+  <span class="syn-fn">echo</span> <span class="syn-str">"&lt;/diary&gt;"</span>
+<span class="syn-kw">done</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================================================================
+       Implementation note
+       ================================================================ -->
+  <section>
+    <div class="token-note">
+      <strong>Implementation note:</strong> per the <a href="https://code.claude.com/docs/en/agents.md" style="color:var(--tint-fg-active, var(--primary));">Claude Code docs</a>, there is <strong>no <code>claude</code> CLI subcommand for listing or inspecting</strong> agents/skills/commands. The desktop app reads the file system directly:
+      <ul style="margin:var(--space-3) 0 0;padding-left:var(--space-5);color:var(--fg-muted);">
+        <li><code>.claude/agents/*.md</code> + <code>~/.claude/agents/*.md</code> — parse YAML frontmatter from each file</li>
+        <li><code>.claude/skills/*/SKILL.md</code> + <code>~/.claude/skills/*/SKILL.md</code> — same, plus enumerate sibling files for the supporting-files tree</li>
+        <li><code>.claude/commands/*.md</code> + <code>~/.claude/commands/*.md</code> — same parser as agents</li>
+        <li><code>.claude/settings.local.json</code> + <code>~/.claude/settings.json</code> — read JSON, group by event key, resolve <code>command</code> paths to script bodies</li>
+      </ul>
+      <p style="margin-top:var(--space-3);">A Tauri command (<code>claude_config_load</code>) would scan these paths once on screen-mount and watch with <code>fs_watch</code> for live updates — same pattern as the existing claude-sessions integration. Project files override personal files of the same name; the design surfaces this via the <em>scope</em> chip (PROJ / PERS) and an "Override" badge when both exist.</p>
+    </div>
+  </section>
+
+  <footer class="foot">
+    <div>
+      Ikenga · Ikenga · Rung 3 · Batch 3 · 07-claude-config.html ·
+      <a href="./06-sessions.html">← Sessions</a> ·
+      <a href="./index.html">Index</a> ·
+      <a class="nextlink" href="./08-tasks.html">Tasks →</a>
+    </div>
+    <div>
+      Reuses <code style="font-family:var(--font-mono);background:transparent;color:var(--fg-muted);">.ld-*</code> primitives from 06-sessions · workspace tint = <code style="font-family:var(--font-mono);background:transparent;color:var(--fg-muted);">agents</code>
+    </div>
+  </footer>
+
+</div>
+
+<script src="../_shared/controls.js"></script>
+<script>
+  // Config-tab toggle (Agents | Skills | Commands | Hooks)
+  document.querySelectorAll('.config-tabs').forEach(function (strip) {
+    strip.addEventListener('click', function (e) {
+      var btn = e.target.closest('.config-tab');
+      if (!btn) return;
+      strip.querySelectorAll('.config-tab').forEach(function (b) { b.classList.remove('is-on'); });
+      btn.classList.add('is-on');
+    });
+  });
+  // List/detail row selection
+  document.querySelectorAll('.ld-list-rows').forEach(function (list) {
+    list.addEventListener('click', function (e) {
+      var row = e.target.closest('.ld-row');
+      if (!row || row.style.opacity === '0.62') return;
+      list.querySelectorAll('.ld-row').forEach(function (r) { r.classList.remove('is-on'); });
+      row.classList.add('is-on');
+    });
+  });
+  // List/detail divider drag (same mechanism as 04-outbox-approvals .ob-split)
+  document.querySelectorAll('.ld-split').forEach(function (split) {
+    var divider = split.querySelector('.ld-divider');
+    if (!divider) return;
+    divider.addEventListener('mousedown', function (e) {
+      e.preventDefault();
+      var rect = split.getBoundingClientRect();
+      var startX = e.clientX;
+      var startListW = split.firstElementChild.getBoundingClientRect().width;
+      function onMove(ev) {
+        var delta = ev.clientX - startX;
+        var newPx = startListW + delta;
+        var maxPx = rect.width - 420 - 4;
+        if (newPx < 220) newPx = 220;
+        if (newPx > maxPx) newPx = maxPx;
+        split.style.setProperty('--list-w', newPx + 'px');
+      }
+      function onUp() {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+      }
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+    divider.addEventListener('dblclick', function () { split.style.removeProperty('--list-w'); });
+  });
+</script>
+
+</body>
+</html>

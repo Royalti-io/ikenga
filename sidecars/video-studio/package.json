@@ -1,0 +1,15 @@
+{
+  "name": "pa-video-studio-sidecar",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun run src/sidecar.ts",
+    "build": "bash build.sh",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.5.0"
+  }
+}
