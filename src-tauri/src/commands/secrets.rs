@@ -366,7 +366,7 @@ pub fn runtime_env_vault_path() -> PathBuf {
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("/tmp"))
     };
-    base.join("pa-actions").join("env-vault")
+    base.join("ikenga-actions").join("env-vault")
 }
 
 fn shell_escape(value: &str) -> String {

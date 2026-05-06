@@ -18,7 +18,7 @@ use tokio::time::timeout;
 
 use crate::sidecar::spawn_sidecar;
 
-const SIDECAR_NAME: &str = "pa-mbox";
+const SIDECAR_NAME: &str = "ikenga-mbox";
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Mirrors the `ParsedEmail` shape produced by `thunderbird-reader.ts`. We keep
