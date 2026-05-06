@@ -10,7 +10,6 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as UiroutesSmokeRouteImport } from './routes/uiroutes-smoke'
-import { Route as TasksPkgSmokeRouteImport } from './routes/tasks-pkg-smoke'
 import { Route as SweeperRouteImport } from './routes/sweeper'
 import { Route as SpikeAclRouteImport } from './routes/spike-acl'
 import { Route as SettingsSmokeRouteImport } from './routes/settings-smoke'
@@ -24,7 +23,6 @@ import { Route as IframeMountSmokeRouteImport } from './routes/iframe-mount-smok
 import { Route as CronSmokeRouteImport } from './routes/cron-smoke'
 import { Route as ClaudeAssetsSmokeRouteImport } from './routes/claude-assets-smoke'
 import { Route as VideoRouteRouteImport } from './routes/video/route'
-import { Route as TasksRouteRouteImport } from './routes/tasks/route'
 import { Route as StoryboardRouteRouteImport } from './routes/storyboard/route'
 import { Route as SessionsRouteRouteImport } from './routes/sessions/route'
 import { Route as OutboxRouteRouteImport } from './routes/outbox/route'
@@ -38,7 +36,6 @@ import { Route as ClaudeRouteRouteImport } from './routes/claude/route'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as VideoIndexRouteImport } from './routes/video/index'
 import { Route as TriageIndexRouteImport } from './routes/triage/index'
-import { Route as TasksIndexRouteImport } from './routes/tasks/index'
 import { Route as StrategyIndexRouteImport } from './routes/strategy/index'
 import { Route as StoryboardIndexRouteImport } from './routes/storyboard/index'
 import { Route as SettingsIndexRouteImport } from './routes/settings/index'
@@ -65,7 +62,6 @@ import { Route as ApprovalsIndexRouteImport } from './routes/approvals/index'
 import { Route as AgentRunsIndexRouteImport } from './routes/agent-runs/index'
 import { Route as VideoQueueRouteImport } from './routes/video/queue'
 import { Route as VideoCompositionIdRouteImport } from './routes/video/$compositionId'
-import { Route as TasksTaskIdRouteImport } from './routes/tasks/$taskId'
 import { Route as StoryboardIdRouteImport } from './routes/storyboard/$id'
 import { Route as ReportsIdRouteImport } from './routes/reports/$id'
 import { Route as MailIdRouteImport } from './routes/mail/$id'
@@ -123,11 +119,6 @@ import { Route as OutboxEmailQueueIndexRouteImport } from './routes/outbox/email
 const UiroutesSmokeRoute = UiroutesSmokeRouteImport.update({
   id: '/uiroutes-smoke',
   path: '/uiroutes-smoke',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const TasksPkgSmokeRoute = TasksPkgSmokeRouteImport.update({
-  id: '/tasks-pkg-smoke',
-  path: '/tasks-pkg-smoke',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SweeperRoute = SweeperRouteImport.update({
@@ -195,11 +186,6 @@ const VideoRouteRoute = VideoRouteRouteImport.update({
   path: '/video',
   getParentRoute: () => rootRouteImport,
 } as any)
-const TasksRouteRoute = TasksRouteRouteImport.update({
-  id: '/tasks',
-  path: '/tasks',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const StoryboardRouteRoute = StoryboardRouteRouteImport.update({
   id: '/storyboard',
   path: '/storyboard',
@@ -264,11 +250,6 @@ const TriageIndexRoute = TriageIndexRouteImport.update({
   id: '/triage/',
   path: '/triage/',
   getParentRoute: () => rootRouteImport,
-} as any)
-const TasksIndexRoute = TasksIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => TasksRouteRoute,
 } as any)
 const StrategyIndexRoute = StrategyIndexRouteImport.update({
   id: '/strategy/',
@@ -404,11 +385,6 @@ const VideoCompositionIdRoute = VideoCompositionIdRouteImport.update({
 } as any).lazy(() =>
   import('./routes/video/$compositionId.lazy').then((d) => d.Route),
 )
-const TasksTaskIdRoute = TasksTaskIdRouteImport.update({
-  id: '/$taskId',
-  path: '/$taskId',
-  getParentRoute: () => TasksRouteRoute,
-} as any)
 const StoryboardIdRoute = StoryboardIdRouteImport.update({
   id: '/$id',
   path: '/$id',
@@ -703,7 +679,6 @@ export interface FileRoutesByFullPath {
   '/outbox': typeof OutboxRouteRouteWithChildren
   '/sessions': typeof SessionsRouteRouteWithChildren
   '/storyboard': typeof StoryboardRouteRouteWithChildren
-  '/tasks': typeof TasksRouteRouteWithChildren
   '/video': typeof VideoRouteRouteWithChildren
   '/claude-assets-smoke': typeof ClaudeAssetsSmokeRoute
   '/cron-smoke': typeof CronSmokeRoute
@@ -717,7 +692,6 @@ export interface FileRoutesByFullPath {
   '/settings-smoke': typeof SettingsSmokeRoute
   '/spike-acl': typeof SpikeAclRoute
   '/sweeper': typeof SweeperRoute
-  '/tasks-pkg-smoke': typeof TasksPkgSmokeRoute
   '/uiroutes-smoke': typeof UiroutesSmokeRoute
   '/finance/transactions': typeof FinanceTransactionsRouteRouteWithChildren
   '/outbox/email': typeof OutboxEmailRouteRouteWithChildren
@@ -735,7 +709,6 @@ export interface FileRoutesByFullPath {
   '/mail/$id': typeof MailIdRoute
   '/reports/$id': typeof ReportsIdRoute
   '/storyboard/$id': typeof StoryboardIdRoute
-  '/tasks/$taskId': typeof TasksTaskIdRoute
   '/video/$compositionId': typeof VideoCompositionIdRoute
   '/video/queue': typeof VideoQueueRoute
   '/agent-runs/': typeof AgentRunsIndexRoute
@@ -762,7 +735,6 @@ export interface FileRoutesByFullPath {
   '/settings/': typeof SettingsIndexRoute
   '/storyboard/': typeof StoryboardIndexRoute
   '/strategy/': typeof StrategyIndexRoute
-  '/tasks/': typeof TasksIndexRoute
   '/triage/': typeof TriageIndexRoute
   '/video/': typeof VideoIndexRoute
   '/finance/transactions/$id': typeof FinanceTransactionsIdRoute
@@ -817,7 +789,6 @@ export interface FileRoutesByTo {
   '/settings-smoke': typeof SettingsSmokeRoute
   '/spike-acl': typeof SpikeAclRoute
   '/sweeper': typeof SweeperRoute
-  '/tasks-pkg-smoke': typeof TasksPkgSmokeRoute
   '/uiroutes-smoke': typeof UiroutesSmokeRoute
   '/finance/transactions': typeof FinanceTransactionsRouteRouteWithChildren
   '/claude/commands': typeof ClaudeCommandsRoute
@@ -831,7 +802,6 @@ export interface FileRoutesByTo {
   '/mail/$id': typeof MailIdRoute
   '/reports/$id': typeof ReportsIdRoute
   '/storyboard/$id': typeof StoryboardIdRoute
-  '/tasks/$taskId': typeof TasksTaskIdRoute
   '/video/$compositionId': typeof VideoCompositionIdRoute
   '/video/queue': typeof VideoQueueRoute
   '/agent-runs': typeof AgentRunsIndexRoute
@@ -858,7 +828,6 @@ export interface FileRoutesByTo {
   '/settings': typeof SettingsIndexRoute
   '/storyboard': typeof StoryboardIndexRoute
   '/strategy': typeof StrategyIndexRoute
-  '/tasks': typeof TasksIndexRoute
   '/triage': typeof TriageIndexRoute
   '/video': typeof VideoIndexRoute
   '/finance/transactions/$id': typeof FinanceTransactionsIdRoute
@@ -912,7 +881,6 @@ export interface FileRoutesById {
   '/outbox': typeof OutboxRouteRouteWithChildren
   '/sessions': typeof SessionsRouteRouteWithChildren
   '/storyboard': typeof StoryboardRouteRouteWithChildren
-  '/tasks': typeof TasksRouteRouteWithChildren
   '/video': typeof VideoRouteRouteWithChildren
   '/claude-assets-smoke': typeof ClaudeAssetsSmokeRoute
   '/cron-smoke': typeof CronSmokeRoute
@@ -926,7 +894,6 @@ export interface FileRoutesById {
   '/settings-smoke': typeof SettingsSmokeRoute
   '/spike-acl': typeof SpikeAclRoute
   '/sweeper': typeof SweeperRoute
-  '/tasks-pkg-smoke': typeof TasksPkgSmokeRoute
   '/uiroutes-smoke': typeof UiroutesSmokeRoute
   '/finance/transactions': typeof FinanceTransactionsRouteRouteWithChildren
   '/outbox/email': typeof OutboxEmailRouteRouteWithChildren
@@ -944,7 +911,6 @@ export interface FileRoutesById {
   '/mail/$id': typeof MailIdRoute
   '/reports/$id': typeof ReportsIdRoute
   '/storyboard/$id': typeof StoryboardIdRoute
-  '/tasks/$taskId': typeof TasksTaskIdRoute
   '/video/$compositionId': typeof VideoCompositionIdRoute
   '/video/queue': typeof VideoQueueRoute
   '/agent-runs/': typeof AgentRunsIndexRoute
@@ -971,7 +937,6 @@ export interface FileRoutesById {
   '/settings/': typeof SettingsIndexRoute
   '/storyboard/': typeof StoryboardIndexRoute
   '/strategy/': typeof StrategyIndexRoute
-  '/tasks/': typeof TasksIndexRoute
   '/triage/': typeof TriageIndexRoute
   '/video/': typeof VideoIndexRoute
   '/finance/transactions/$id': typeof FinanceTransactionsIdRoute
@@ -1026,7 +991,6 @@ export interface FileRouteTypes {
     | '/outbox'
     | '/sessions'
     | '/storyboard'
-    | '/tasks'
     | '/video'
     | '/claude-assets-smoke'
     | '/cron-smoke'
@@ -1040,7 +1004,6 @@ export interface FileRouteTypes {
     | '/settings-smoke'
     | '/spike-acl'
     | '/sweeper'
-    | '/tasks-pkg-smoke'
     | '/uiroutes-smoke'
     | '/finance/transactions'
     | '/outbox/email'
@@ -1058,7 +1021,6 @@ export interface FileRouteTypes {
     | '/mail/$id'
     | '/reports/$id'
     | '/storyboard/$id'
-    | '/tasks/$taskId'
     | '/video/$compositionId'
     | '/video/queue'
     | '/agent-runs/'
@@ -1085,7 +1047,6 @@ export interface FileRouteTypes {
     | '/settings/'
     | '/storyboard/'
     | '/strategy/'
-    | '/tasks/'
     | '/triage/'
     | '/video/'
     | '/finance/transactions/$id'
@@ -1140,7 +1101,6 @@ export interface FileRouteTypes {
     | '/settings-smoke'
     | '/spike-acl'
     | '/sweeper'
-    | '/tasks-pkg-smoke'
     | '/uiroutes-smoke'
     | '/finance/transactions'
     | '/claude/commands'
@@ -1154,7 +1114,6 @@ export interface FileRouteTypes {
     | '/mail/$id'
     | '/reports/$id'
     | '/storyboard/$id'
-    | '/tasks/$taskId'
     | '/video/$compositionId'
     | '/video/queue'
     | '/agent-runs'
@@ -1181,7 +1140,6 @@ export interface FileRouteTypes {
     | '/settings'
     | '/storyboard'
     | '/strategy'
-    | '/tasks'
     | '/triage'
     | '/video'
     | '/finance/transactions/$id'
@@ -1234,7 +1192,6 @@ export interface FileRouteTypes {
     | '/outbox'
     | '/sessions'
     | '/storyboard'
-    | '/tasks'
     | '/video'
     | '/claude-assets-smoke'
     | '/cron-smoke'
@@ -1248,7 +1205,6 @@ export interface FileRouteTypes {
     | '/settings-smoke'
     | '/spike-acl'
     | '/sweeper'
-    | '/tasks-pkg-smoke'
     | '/uiroutes-smoke'
     | '/finance/transactions'
     | '/outbox/email'
@@ -1266,7 +1222,6 @@ export interface FileRouteTypes {
     | '/mail/$id'
     | '/reports/$id'
     | '/storyboard/$id'
-    | '/tasks/$taskId'
     | '/video/$compositionId'
     | '/video/queue'
     | '/agent-runs/'
@@ -1293,7 +1248,6 @@ export interface FileRouteTypes {
     | '/settings/'
     | '/storyboard/'
     | '/strategy/'
-    | '/tasks/'
     | '/triage/'
     | '/video/'
     | '/finance/transactions/$id'
@@ -1347,7 +1301,6 @@ export interface RootRouteChildren {
   OutboxRouteRoute: typeof OutboxRouteRouteWithChildren
   SessionsRouteRoute: typeof SessionsRouteRouteWithChildren
   StoryboardRouteRoute: typeof StoryboardRouteRouteWithChildren
-  TasksRouteRoute: typeof TasksRouteRouteWithChildren
   VideoRouteRoute: typeof VideoRouteRouteWithChildren
   ClaudeAssetsSmokeRoute: typeof ClaudeAssetsSmokeRoute
   CronSmokeRoute: typeof CronSmokeRoute
@@ -1361,7 +1314,6 @@ export interface RootRouteChildren {
   SettingsSmokeRoute: typeof SettingsSmokeRoute
   SpikeAclRoute: typeof SpikeAclRoute
   SweeperRoute: typeof SweeperRoute
-  TasksPkgSmokeRoute: typeof TasksPkgSmokeRoute
   UiroutesSmokeRoute: typeof UiroutesSmokeRoute
   HandoffsIdRoute: typeof HandoffsIdRoute
   ReportsIdRoute: typeof ReportsIdRoute
@@ -1390,13 +1342,6 @@ declare module '@tanstack/react-router' {
       path: '/uiroutes-smoke'
       fullPath: '/uiroutes-smoke'
       preLoaderRoute: typeof UiroutesSmokeRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/tasks-pkg-smoke': {
-      id: '/tasks-pkg-smoke'
-      path: '/tasks-pkg-smoke'
-      fullPath: '/tasks-pkg-smoke'
-      preLoaderRoute: typeof TasksPkgSmokeRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/sweeper': {
@@ -1490,13 +1435,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof VideoRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/tasks': {
-      id: '/tasks'
-      path: '/tasks'
-      fullPath: '/tasks'
-      preLoaderRoute: typeof TasksRouteRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/storyboard': {
       id: '/storyboard'
       path: '/storyboard'
@@ -1587,13 +1525,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/triage/'
       preLoaderRoute: typeof TriageIndexRouteImport
       parentRoute: typeof rootRouteImport
-    }
-    '/tasks/': {
-      id: '/tasks/'
-      path: '/'
-      fullPath: '/tasks/'
-      preLoaderRoute: typeof TasksIndexRouteImport
-      parentRoute: typeof TasksRouteRoute
     }
     '/strategy/': {
       id: '/strategy/'
@@ -1776,13 +1707,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/video/$compositionId'
       preLoaderRoute: typeof VideoCompositionIdRouteImport
       parentRoute: typeof VideoRouteRoute
-    }
-    '/tasks/$taskId': {
-      id: '/tasks/$taskId'
-      path: '/$taskId'
-      fullPath: '/tasks/$taskId'
-      preLoaderRoute: typeof TasksTaskIdRouteImport
-      parentRoute: typeof TasksRouteRoute
     }
     '/storyboard/$id': {
       id: '/storyboard/$id'
@@ -2426,20 +2350,6 @@ const StoryboardRouteRouteWithChildren = StoryboardRouteRoute._addFileChildren(
   StoryboardRouteRouteChildren,
 )
 
-interface TasksRouteRouteChildren {
-  TasksTaskIdRoute: typeof TasksTaskIdRoute
-  TasksIndexRoute: typeof TasksIndexRoute
-}
-
-const TasksRouteRouteChildren: TasksRouteRouteChildren = {
-  TasksTaskIdRoute: TasksTaskIdRoute,
-  TasksIndexRoute: TasksIndexRoute,
-}
-
-const TasksRouteRouteWithChildren = TasksRouteRoute._addFileChildren(
-  TasksRouteRouteChildren,
-)
-
 interface VideoRouteRouteChildren {
   VideoCompositionIdRoute: typeof VideoCompositionIdRoute
   VideoQueueRoute: typeof VideoQueueRoute
@@ -2468,7 +2378,6 @@ const rootRouteChildren: RootRouteChildren = {
   OutboxRouteRoute: OutboxRouteRouteWithChildren,
   SessionsRouteRoute: SessionsRouteRouteWithChildren,
   StoryboardRouteRoute: StoryboardRouteRouteWithChildren,
-  TasksRouteRoute: TasksRouteRouteWithChildren,
   VideoRouteRoute: VideoRouteRouteWithChildren,
   ClaudeAssetsSmokeRoute: ClaudeAssetsSmokeRoute,
   CronSmokeRoute: CronSmokeRoute,
@@ -2482,7 +2391,6 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsSmokeRoute: SettingsSmokeRoute,
   SpikeAclRoute: SpikeAclRoute,
   SweeperRoute: SweeperRoute,
-  TasksPkgSmokeRoute: TasksPkgSmokeRoute,
   UiroutesSmokeRoute: UiroutesSmokeRoute,
   HandoffsIdRoute: HandoffsIdRoute,
   ReportsIdRoute: ReportsIdRoute,
