@@ -1,5 +1,5 @@
 @import 'tailwindcss';
-@import './lib/ikenga/tokens.css';
+@import '@ikenga/tokens/tokens.css';
 
 /* ---------------------------------------------------------------------------
  * Tailwind 4 alias map.

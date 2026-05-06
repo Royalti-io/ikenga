@@ -86,9 +86,13 @@ export function PkgIframeHost({ pkgId, source, onInitialized }: PkgIframeHostPro
   useEffect(() => {
     let dropped = false;
     authTokenRef.current = mintPkgToken();
+    // eslint-disable-next-line no-console
+    console.log('[pkg-iframe-host] mount', pkgId, source);
     (async () => {
       try {
         const handle = await pkgContentHtml(pkgId, source);
+        // eslint-disable-next-line no-console
+        console.log('[pkg-iframe-host] got html', pkgId, handle.html.length, 'bytes');
         if (dropped) {
           // Effect re-ran before we got the HTML back; drop this one.
           await pkgContentRevoke(handle.token).catch(() => {});
@@ -224,14 +228,20 @@ export function PkgIframeHost({ pkgId, source, onInitialized }: PkgIframeHostPro
     return <div className="p-4 text-xs opacity-60">Loading package…</div>;
   }
 
+  // eslint-disable-next-line no-console
+  console.log('[pkg-iframe-host] rendering iframe', pkgId, 'srcDoc bytes:', srcDoc.length);
+
   return (
-    <iframe
-      ref={iframeRef}
-      srcDoc={srcDoc}
-      data-pkg-id={pkgId}
-      className="w-full h-full border-0"
-      sandbox="allow-scripts allow-same-origin"
-      title={`Package ${pkgId}`}
-    />
+    <div data-iframe-host={pkgId} style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
+      <iframe
+        ref={iframeRef}
+        srcDoc={srcDoc}
+        data-pkg-id={pkgId}
+        className="w-full h-full border-0"
+        style={{ flex: 1, minHeight: 0 }}
+        sandbox="allow-scripts allow-same-origin"
+        title={`Package ${pkgId}`}
+      />
+    </div>
   );
 }
