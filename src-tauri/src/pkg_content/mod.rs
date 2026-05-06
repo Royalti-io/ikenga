@@ -208,13 +208,90 @@ impl PkgContentServer {
             .with_context(|| format!("read {}", canon_abs.display()))?;
 
         let MintedHandle { url: base_url, token } = self.mint(pkg_id)?;
+        // Two-step rewrite:
+        //   1. inject `<base href>` (browsers that honor it resolve relatives correctly)
+        //   2. additionally rewrite `./` and bare-relative `src=` / `href=` URLs to
+        //      absolute. WebKitGTK ignores `<base>` for `srcdoc` documents (Tauri
+        //      issue #12767 territory), so without absolute URLs the iframe's
+        //      script/link subresources never fire.
         let html = inject_base_href(&raw, &base_url);
+        let html = absolutize_relative_urls(&html, &base_url);
         Ok(MintedHtml {
             html,
             base_url,
             token,
         })
     }
+}
+
+/// Rewrite `src="./..."` / `href="./..."` and bare relative paths
+/// (`src="assets/..."`, `href="assets/..."`) to absolute `<base_url>` paths.
+/// Defensive — `<base href>` SHOULD handle this, but WebKitGTK ignores `<base>`
+/// in `srcdoc` documents on Linux, so we do the resolution ourselves.
+///
+/// Pure-string transform; we don't parse HTML. Only rewrites attributes whose
+/// value starts with `./` or doesn't start with `/`, `http`, `data:`, `blob:`,
+/// or `#` — i.e. clearly-relative subresource paths. Absolute URLs are left
+/// alone, as are anchors and data URIs.
+fn absolutize_relative_urls(html: &str, base_url: &str) -> String {
+    let base = base_url.trim_end_matches('/');
+    let mut out = String::with_capacity(html.len() + 256);
+    let bytes = html.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        // Look for `src="` or `href="` (case-insensitive, double or single quotes).
+        let rest = &html[i..];
+        let attr_start = rest
+            .find("src=\"")
+            .or_else(|| rest.find("src='"))
+            .or_else(|| rest.find("href=\""))
+            .or_else(|| rest.find("href='"))
+            .or_else(|| rest.find("SRC=\""))
+            .or_else(|| rest.find("HREF=\""));
+        let attr_idx = match attr_start {
+            Some(p) => p,
+            None => {
+                out.push_str(rest);
+                break;
+            }
+        };
+        // Copy everything up to and including the opening quote.
+        let attr_open = attr_idx
+            + rest[attr_idx..]
+                .find(|c| c == '"' || c == '\'')
+                .map(|p| p + 1)
+                .unwrap_or(0);
+        out.push_str(&rest[..attr_open]);
+        let quote = rest.as_bytes()[attr_open - 1] as char;
+        let val_start = attr_open;
+        let val_end = rest[val_start..]
+            .find(quote)
+            .map(|p| val_start + p)
+            .unwrap_or(rest.len());
+        let value = &rest[val_start..val_end];
+        let should_rewrite = !(value.is_empty()
+            || value.starts_with('/')
+            || value.starts_with('#')
+            || value.starts_with("http://")
+            || value.starts_with("https://")
+            || value.starts_with("data:")
+            || value.starts_with("blob:")
+            || value.starts_with("about:")
+            || value.starts_with("mailto:")
+            || value.starts_with("javascript:"));
+        if should_rewrite {
+            let trimmed = value.trim_start_matches("./");
+            out.push_str(base);
+            out.push('/');
+            out.push_str(trimmed);
+        } else {
+            out.push_str(value);
+        }
+        // Advance past the value (caller's loop will pick up the closing quote
+        // and onward).
+        i += val_end;
+    }
+    out
 }
 
 pub struct MintedHandle {
