@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Ikenga
+GenericName=Royalti Personal Assistant
+Comment=Terminals, chat, and viewers for the Royalti workspace
+Exec=%EXEC% %U
+Icon=ikenga
+Terminal=false
+Categories=Office;Development;
+StartupWMClass=Ikenga
+MimeType=x-scheme-handler/ikenga;

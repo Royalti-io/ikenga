@@ -1,0 +1,1003 @@
+// Typed wrappers around Tauri commands. This file is the cross-team contract
+// between rust-eng (implements the commands in src-tauri/) and frontend-shell
+// (consumes them from React). Keep in sync with src-tauri/src/commands/.
+//
+// Phase 1 surface area: pty (already implemented in spike), fs (read / list /
+// watch), secrets (Stronghold), db (SQLite), viewer (axum localhost), and
+// stubs for claude / chat / render that arrive in later phases. Stubs return
+// `unimplemented!()` from Rust for phase 1 — the wrappers are typed today so
+// later phases just fill in the Rust side.
+
+import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+
+// ─── PTY ──────────────────────────────────────────────────────────────────────
+
+export interface PtySpawnOpts {
+  cwd: string;
+  cmd: string[];
+  env?: Record<string, string>;
+  rows?: number;
+  cols?: number;
+}
+
+export async function ptySpawn(opts: PtySpawnOpts): Promise<string> {
+  return invoke<string>("pty_spawn", {
+    cwd: opts.cwd,
+    cmd: opts.cmd,
+    env: opts.env ?? null,
+    rows: opts.rows ?? 24,
+    cols: opts.cols ?? 80,
+  });
+}
+
+export async function ptyWrite(id: string, data: string): Promise<void> {
+  return invoke("pty_write", { id, data });
+}
+
+export async function ptyResize(
+  id: string,
+  rows: number,
+  cols: number,
+): Promise<void> {
+  return invoke("pty_resize", { id, rows, cols });
+}
+
+export async function ptyKill(id: string): Promise<void> {
+  return invoke("pty_kill", { id });
+}
+
+/**
+ * Subscribe to PTY byte stream + exit. Backend emits the data chunk as a
+ * base64 string because Tauri's event system serializes payloads as JSON and
+ * Uint8Array doesn't survive cleanly.
+ */
+export async function ptyListen(
+  id: string,
+  onData: (bytes: Uint8Array) => void,
+  onExit: (code: number | null) => void,
+): Promise<UnlistenFn> {
+  const dataUnlisten = await listen<string>(`pty://${id}`, (e) => {
+    const bin = atob(e.payload);
+    const arr = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    onData(arr);
+  });
+  const exitUnlisten = await listen<number | null>(`pty://${id}/exit`, (e) => {
+    onExit(e.payload);
+  });
+  return () => {
+    dataUnlisten();
+    exitUnlisten();
+  };
+}
+
+// ─── FS ───────────────────────────────────────────────────────────────────────
+//
+// Scoped to allowlisted dirs (~/royalti-co, ~/.claude, ~/.company). Goes
+// through the Rust side rather than tauri-plugin-fs directly so we can layer
+// extra permission checks + mime detection.
+
+export interface FileEntry {
+  path: string;
+  name: string;
+  isDir: boolean;
+  size: number;
+  modifiedMs: number;
+}
+
+export interface FileChange {
+  kind: "create" | "modify" | "remove" | "rename";
+  path: string;
+}
+
+export interface FileReadResult {
+  bytes: number[];
+  mime: string;
+}
+
+export async function fsRead(path: string): Promise<FileReadResult> {
+  return invoke("fs_read", { path });
+}
+
+/** Cheap MIME lookup that doesn't read file contents. Used by the artifact
+ * viewer's auto-router as a fallback when JS extension lookup misses. */
+export async function fsMime(path: string): Promise<string> {
+  return invoke("fs_mime", { path });
+}
+
+/** Cheap existence check — returns true if `path` resolves to a regular
+ * file (not a directory). Allowlisted same as the other fs commands. */
+export async function fsExists(path: string): Promise<boolean> {
+  return invoke("fs_exists", { path });
+}
+
+export async function fsWrite(path: string, bytes: Uint8Array): Promise<void> {
+  return invoke("fs_write", { path, bytes: Array.from(bytes) });
+}
+
+export async function fsList(dir: string, glob?: string): Promise<FileEntry[]> {
+  return invoke("fs_list", { dir, glob: glob ?? null });
+}
+
+/** Move a file or directory to the OS trash (reversible). */
+export async function fsTrash(path: string): Promise<void> {
+  return invoke("fs_trash", { path });
+}
+
+/** Rename in place to a new basename. Returns the resolved destination path. */
+export async function fsRename(from: string, toName: string): Promise<string> {
+  return invoke("fs_rename", { from, toName });
+}
+
+/** Returns a watcher id; events emit on `fs://{watcherId}`. */
+export async function fsWatch(path: string): Promise<string> {
+  return invoke("fs_watch", { path });
+}
+
+export async function fsUnwatch(watcherId: string): Promise<void> {
+  return invoke("fs_unwatch", { watcherId });
+}
+
+export async function fsListenWatch(
+  watcherId: string,
+  onChange: (change: FileChange) => void,
+): Promise<UnlistenFn> {
+  return listen<FileChange>(`fs://${watcherId}`, (e) => onChange(e.payload));
+}
+
+// ─── Secrets (Stronghold) ─────────────────────────────────────────────────────
+
+export async function secretsGet(key: string): Promise<string | null> {
+  return invoke("secrets_get", { key });
+}
+
+export async function secretsSet(key: string, value: string): Promise<void> {
+  return invoke("secrets_set", { key, value });
+}
+
+export async function secretsDelete(key: string): Promise<void> {
+  return invoke("secrets_delete", { key });
+}
+
+export async function secretsListKeys(): Promise<string[]> {
+  return invoke("secrets_list_keys");
+}
+
+export type VaultStatus = {
+  available: boolean;
+  keychainBackend: string;
+  error: string | null;
+};
+
+export async function secretsVaultStatus(): Promise<VaultStatus> {
+  // Rust returns snake_case `keychain_backend`; normalize.
+  const raw = await invoke<{ available: boolean; keychain_backend: string; error: string | null }>(
+    "secrets_vault_status",
+  );
+  return {
+    available: raw.available,
+    keychainBackend: raw.keychain_backend,
+    error: raw.error,
+  };
+}
+
+export type ImportDotenvArgs = {
+  paths: string[];
+  keys: string[];
+  overwrite: boolean;
+};
+
+export type ImportDotenvResult = {
+  imported: number;
+  skipped: number;
+  missingFiles: string[];
+};
+
+export async function secretsImportDotenv(args: ImportDotenvArgs): Promise<ImportDotenvResult> {
+  const raw = await invoke<{ imported: number; skipped: number; missing_files: string[] }>(
+    "secrets_import_dotenv",
+    { args },
+  );
+  return {
+    imported: raw.imported,
+    skipped: raw.skipped,
+    missingFiles: raw.missing_files,
+  };
+}
+
+// ─── DB (SQLite — chat threads, layout state) ─────────────────────────────────
+//
+// Thin wrapper over tauri-plugin-sql. The plugin can be used directly via
+// `import Database from '@tauri-apps/plugin-sql'` — these helpers exist for
+// callers who don't want to manage the connection.
+
+export type SqlValue = string | number | boolean | null | number[];
+
+export async function dbQuery<T = unknown>(
+  sql: string,
+  params: SqlValue[] = [],
+): Promise<T[]> {
+  return invoke("db_query", { sql, params });
+}
+
+export async function dbExec(sql: string, params: SqlValue[] = []): Promise<void> {
+  return invoke("db_exec", { sql, params });
+}
+
+// ─── Viewer (axum localhost server, phase 4) ──────────────────────────────────
+
+export interface ViewerHandle {
+  url: string;
+  token: string;
+}
+
+export async function viewerServe(rootDir: string): Promise<ViewerHandle> {
+  return invoke("viewer_serve", { rootDir });
+}
+
+export async function viewerStop(token: string): Promise<void> {
+  return invoke("viewer_stop", { token });
+}
+
+// ─── Claude sessions (phase 3) ────────────────────────────────────────────────
+//
+// Real implementation lives in src-tauri/src/commands/claude.rs and the
+// shared `crate::claude` module. The two parsers (live PTY stream-json and
+// on-disk session jsonl) emit the same `ChatEvent` discriminated union; the
+// frontend listens on `claude://session/{sessionId}` for live, or calls
+// `claudeReadJsonl` for replays.
+
+export interface ClaudeOpts {
+  prompt?: string;
+  resumeSessionId?: string;
+  permissionMode?: "default" | "auto" | "plan" | "bypassPermissions";
+  model?: string;
+  rows?: number;
+  cols?: number;
+}
+
+export interface ClaudeSpawnResult {
+  /** Placeholder uuid until the first SessionInit event arrives with the real
+   *  Claude Code session id. Use `claudeListenSession(sessionId, ...)` to
+   *  start receiving events under either id — the backend re-emits on both. */
+  sessionId: string;
+  ptyId: string;
+}
+
+export interface SessionSummary {
+  sessionId: string;
+  projectDir: string;
+  startedAt: string;
+  lastMessageAt: string | null;
+  messageCount: number;
+  title: string | null;
+  model: string | null;
+}
+
+/** Discriminated union mirroring `crate::claude::event::ChatEvent`. The wire
+ *  shape is `{ kind, ... }` — see Rust enum for the canonical contract. */
+export type ChatEvent =
+  | {
+      kind: "session_init";
+      sessionId: string;
+      model: string | null;
+      cwd: string | null;
+      permissionMode: string | null;
+    }
+  | { kind: "text"; delta: string }
+  | { kind: "thinking"; delta: string }
+  | {
+      kind: "tool_use";
+      id: string;
+      name: string;
+      input: unknown;
+      parentToolUseId?: string;
+    }
+  | {
+      kind: "tool_result";
+      id: string;
+      output: unknown;
+      isError?: boolean;
+      parentToolUseId?: string;
+    }
+  | {
+      kind: "artifact";
+      path: string;
+      mime: string;
+      producedBy?: string;
+    }
+  | {
+      kind: "system_hook";
+      hookEvent: string;
+      name?: string;
+      content?: unknown;
+    }
+  | { kind: "rate_limit"; info: unknown }
+  | {
+      kind: "done";
+      usage?: unknown;
+      totalCostUsd?: number;
+      stopReason?: string;
+      durationMs?: number;
+    }
+  | { kind: "unknown"; raw: unknown }
+  | { kind: "parse_error"; message: string; line: string };
+
+export async function claudeSpawnSession(
+  cwd: string,
+  opts: ClaudeOpts,
+): Promise<ClaudeSpawnResult> {
+  return invoke("claude_spawn_session", { cwd, opts });
+}
+
+/**
+ * Spawn a streaming-input claude child (one long-lived process per chat
+ * thread). Uses pipes, NOT a PTY — claude rejects stream-json over a TTY.
+ * Returns a placeholder session id; the real id arrives via the first
+ * `system:init` event on `claude://session/{placeholder}` and
+ * `claude://session/{realId}`. `pty_id` in the result is empty for streaming
+ * sessions — use `sessionId` for `claudeChatSend` / `claudeChatKill`.
+ *
+ * Multi-turn pattern: first call `claudeChatSpawn(cwd, { prompt, ... })`,
+ * then `claudeChatSend(sessionId, text)` for each subsequent message.
+ */
+export async function claudeChatSpawn(
+  cwd: string,
+  opts: ClaudeOpts,
+): Promise<ClaudeSpawnResult> {
+  return invoke("claude_chat_spawn", { cwd, opts });
+}
+
+/** Send a follow-up user message to a live streaming child via stdin. */
+export async function claudeChatSend(
+  sessionId: string,
+  text: string,
+): Promise<void> {
+  return invoke("claude_chat_send", { sessionId, text });
+}
+
+/** Kill a streaming child. Idempotent. */
+export async function claudeChatKill(sessionId: string): Promise<void> {
+  return invoke("claude_chat_kill", { sessionId });
+}
+
+/** Pass `null` or omit `projectDir` to list sessions across all project
+ *  slugs under `~/.claude/projects/`. `limit` caps the number of summaries
+ *  returned (sorted newest-first); omit for "all sessions" (slow with 9k+
+ *  files on disk — prefer paging the UI instead). */
+export async function claudeListSessions(
+  projectDir?: string | null,
+  limit?: number | null,
+): Promise<SessionSummary[]> {
+  return invoke("claude_list_sessions", {
+    projectDir: projectDir ?? null,
+    limit: limit ?? null,
+  });
+}
+
+export async function claudeReadJsonl(sessionId: string): Promise<ChatEvent[]> {
+  return invoke("claude_read_jsonl", { sessionId });
+}
+
+/** Subscribe to parsed events for a live session. Returns the unlisten fn. */
+export async function claudeListenSession(
+  sessionId: string,
+  onEvent: (event: ChatEvent) => void,
+): Promise<UnlistenFn> {
+  return listen<ChatEvent>(`claude://session/${sessionId}`, (e) =>
+    onEvent(e.payload),
+  );
+}
+
+// ─── Claude config browser (/claude route) ────────────────────────────────────
+//
+// Read-only scan of `.claude/{agents,skills,commands}` and `.claude/settings*.json`
+// across user-managed project roots + the personal `~/.claude/` dir. Backed by
+// `commands/claude_config.rs` which uses `serde_yaml` to parse frontmatter and
+// reuses `FsWatchManager` for live updates.
+
+export type ClaudeConfigScope = "project" | "personal";
+
+export interface ClaudeFrontmatter {
+  [key: string]: unknown;
+}
+
+export interface ClaudeAgent {
+  name: string;
+  scope: ClaudeConfigScope;
+  projectRoot: string | null;
+  path: string;
+  modifiedMs: number;
+  description: string | null;
+  model: string | null;
+  frontmatter: ClaudeFrontmatter;
+  body: string;
+  overriddenBy: string | null;
+}
+
+export interface ClaudeSupportingFile {
+  name: string;
+  path: string;
+  size: number;
+}
+
+export interface ClaudeSkill {
+  name: string;
+  scope: ClaudeConfigScope;
+  projectRoot: string | null;
+  path: string;
+  dirPath: string;
+  modifiedMs: number;
+  description: string | null;
+  frontmatter: ClaudeFrontmatter;
+  body: string;
+  supportingFiles: ClaudeSupportingFile[];
+  overriddenBy: string | null;
+}
+
+export interface ClaudeCommand {
+  name: string;
+  scope: ClaudeConfigScope;
+  projectRoot: string | null;
+  path: string;
+  modifiedMs: number;
+  description: string | null;
+  model: string | null;
+  argumentHint: string | null;
+  frontmatter: ClaudeFrontmatter;
+  body: string;
+  overriddenBy: string | null;
+}
+
+export interface ClaudeMcp {
+  name: string;
+  scope: ClaudeConfigScope;
+  projectRoot: string | null;
+  path: string;
+  transport: 'stdio' | 'http' | 'sse' | 'unknown' | string;
+  command: string | null;
+  args: string[];
+  envKeys: string[];
+  url: string | null;
+  headerKeys: string[];
+  raw: unknown;
+}
+
+export interface ClaudeHook {
+  event: string;
+  type: string;
+  name: string;
+  scope: ClaudeConfigScope;
+  projectRoot: string | null;
+  settingsPath: string;
+  commandPath: string | null;
+  commandRaw: string | null;
+  raw: unknown;
+}
+
+export interface ClaudeConfigScanError {
+  path: string;
+  message: string;
+}
+
+export interface ClaudeConfig {
+  agents: ClaudeAgent[];
+  skills: ClaudeSkill[];
+  commands: ClaudeCommand[];
+  hooks: ClaudeHook[];
+  mcps: ClaudeMcp[];
+  errors: ClaudeConfigScanError[];
+}
+
+export async function claudeConfigLoad(projectRoots: string[]): Promise<ClaudeConfig> {
+  return invoke<ClaudeConfig>("claude_config_load", { projectRoots });
+}
+
+export async function claudeConfigWatch(projectRoots: string[]): Promise<string[]> {
+  return invoke<string[]>("claude_config_watch", { projectRoots });
+}
+
+export async function claudeConfigUnwatch(watcherIds: string[]): Promise<void> {
+  return invoke("claude_config_unwatch", { watcherIds });
+}
+
+export async function claudeConfigReadFile(path: string): Promise<string> {
+  return invoke<string>("claude_config_read_file", { path });
+}
+
+/** Subscribe to any change under any watched .claude/ dir. The Rust watcher
+ *  emits per-watcher events (`fs://{id}`); this helper subscribes to all of
+ *  them and debounces invalidation so the consumer can simply call
+ *  `queryClient.invalidateQueries({queryKey:['claude-config']})`.
+ */
+export async function claudeConfigListen(
+  watcherIds: string[],
+  onChange: () => void,
+): Promise<UnlistenFn> {
+  const unlisteners = await Promise.all(
+    watcherIds.map((id) =>
+      listen<unknown>(`fs://${id}`, () => onChange()),
+    ),
+  );
+  return () => {
+    for (const u of unlisteners) u();
+  };
+}
+
+// ─── Chat (SDK adapter, phase 5+ — stubs in phase 1) ──────────────────────────
+
+export interface ChatMsg {
+  role: "user" | "assistant" | "system";
+  content: string;
+}
+
+export interface ToolDef {
+  name: string;
+  description?: string;
+  input_schema: unknown;
+}
+
+export async function chatSend(
+  threadId: string,
+  messages: ChatMsg[],
+  tools: ToolDef[],
+  model: string,
+): Promise<string> {
+  return invoke("chat_send", { threadId, messages, tools, model });
+}
+
+export async function chatCancel(streamId: string): Promise<void> {
+  return invoke("chat_cancel", { streamId });
+}
+
+// ─── Render (phase 6 day 3 — Remotion CLI shell-out + progress events) ───────
+//
+// Spawns `node_modules/.bin/remotion render <composition> <output> --props=...`
+// from PA root. Emits `render://{jobId}` events as the job progresses; the
+// frontend consumes them via renderListen().
+
+/** Discriminated union mirroring `crate::render::RenderEvent`. */
+export type RenderEvent =
+  | { kind: "started" }
+  | { kind: "progress"; value: number /* 0..1 */ }
+  | { kind: "log"; line: string }
+  | { kind: "complete"; outputPath: string }
+  | { kind: "error"; message: string }
+  | { kind: "cancelled" };
+
+export async function renderComposition(
+  compositionId: string,
+  props: unknown,
+  output: string,
+): Promise<string> {
+  return invoke("render_composition", { compositionId, props, output });
+}
+
+export async function renderCancel(jobId: string): Promise<void> {
+  return invoke("render_cancel", { jobId });
+}
+
+/** Subscribe to all events for a single render job. Returns the unlisten fn. */
+export async function renderListen(
+  jobId: string,
+  onEvent: (event: RenderEvent) => void,
+): Promise<UnlistenFn> {
+  return listen<RenderEvent>(`render://${jobId}`, (e) => onEvent(e.payload));
+}
+
+// ─── Iyke (phase 11 — Day 1: read-side state + shell mirror push) ─────────────
+
+export interface IykeEndpoint {
+  url: string;
+  token: string;
+  port: number;
+}
+
+export async function iykeEndpoint(): Promise<IykeEndpoint> {
+  return invoke("iyke_endpoint");
+}
+
+export async function iykeSetShell(args: {
+  mode?: string | null;
+  route?: string | null;
+}): Promise<void> {
+  return invoke("iyke_set_shell", {
+    mode: args.mode ?? null,
+    route: args.route ?? null,
+  });
+}
+
+// ─── Screenshots ──────────────────────────────────────────────────────────────
+
+export interface ScreenshotResult {
+  path: string;
+  width: number;
+  height: number;
+  bytesLen: number;
+}
+
+export async function screenshotWindow(
+  outPath?: string,
+): Promise<ScreenshotResult> {
+  return invoke("screenshot_window", { outPath: outPath ?? null });
+}
+
+export async function screenshotPane(
+  paneId: string,
+  outPath?: string,
+): Promise<ScreenshotResult> {
+  return invoke("screenshot_pane", {
+    paneId,
+    outPath: outPath ?? null,
+  });
+}
+
+export interface ScreenshotConfig {
+  /** User-supplied override (raw, may contain `~`). `null` = use platform default. */
+  overrideDir: string | null;
+  /** Per-platform default, absolute path. */
+  defaultDir: string;
+  /** What `capture()` will actually use right now. Tilde-expanded. */
+  effectiveDir: string;
+}
+
+export async function screenshotGetConfig(): Promise<ScreenshotConfig> {
+  return invoke("screenshot_get_config");
+}
+
+/** Pass `null` (or omit) to clear the override and revert to the platform default. */
+export async function screenshotSetDir(dir: string | null): Promise<void> {
+  return invoke("screenshot_set_dir", { dir: dir ?? null });
+}
+
+// ─── Mbox sidecar (Thunderbird mbox parser, bundled bun binary) ───────────────
+
+export interface ParsedEmail {
+  message_id: string;
+  in_reply_to: string | null;
+  from_address: string;
+  to_address: string | null;
+  cc_address: string | null;
+  reply_to: string | null;
+  subject: string | null;
+  body_text: string | null;
+  received_at: string;
+  inbox_source: string;
+}
+
+export interface MboxReadAllOpts {
+  /** ISO 8601 timestamp; only emails received on/after this are returned. */
+  sinceIso?: string;
+  /** Optional subset of mailbox keys (e.g. ["royalti-inbox"]); omit for all. */
+  mailboxes?: string[];
+  /** Bytes to read from each mbox file; defaults to 20 MB. */
+  chunkSize?: number;
+}
+
+export async function mboxReadAll(opts: MboxReadAllOpts = {}): Promise<ParsedEmail[]> {
+  return invoke<ParsedEmail[]>("mbox_read_all", {
+    sinceIso: opts.sinceIso ?? null,
+    mailboxes: opts.mailboxes ?? null,
+    chunkSize: opts.chunkSize ?? null,
+  });
+}
+
+export async function mboxPing(): Promise<boolean> {
+  return invoke<boolean>("mbox_ping");
+}
+
+// ─── Storyboard (phase 7 — engine CLI shell-out + concept FS reads) ───────────
+
+export interface StoryboardConceptFile {
+  filename: string;
+  angle: string | null;
+  built: string | null;
+  modified_at_ms: number;
+  size: number;
+  feel: string | null;
+  beat_translations: Record<string, string>;
+}
+
+export interface StoryboardStillResult {
+  beat_id: string;
+  still_path: string | null;
+  error: string | null;
+}
+
+/**
+ * Discriminated union mirroring `crate::commands::storyboard::jobs::StoryboardJobEvent`.
+ * Emitted on `storyboard://{jobId}` while a render-still or promote-rung op runs.
+ */
+export type StoryboardJobEvent =
+  | { kind: "started" }
+  | { kind: "progress"; value: number /* 0..1 */ }
+  | { kind: "log"; line: string }
+  | {
+      kind: "still_ready";
+      beat_id: string;
+      rung: "lofi" | "hifi";
+      still_path: string;
+    }
+  | { kind: "complete" }
+  | { kind: "error"; message: string }
+  | { kind: "cancelled" };
+
+export async function storyboardListConcepts(
+  slug: string,
+): Promise<StoryboardConceptFile[]> {
+  return invoke("storyboard_list_concepts", { slug });
+}
+
+export async function storyboardExportJson(
+  slug: string,
+  payload: unknown,
+): Promise<string> {
+  return invoke("storyboard_export_json", { slug, payload });
+}
+
+export async function storyboardImportJson(slug: string): Promise<unknown> {
+  return invoke("storyboard_import_json", { slug });
+}
+
+export async function storyboardRenderStill(args: {
+  jobId: string;
+  slug: string;
+  beatId: string;
+  rung: 1 | 2;
+}): Promise<string | null> {
+  return invoke("storyboard_render_still", {
+    jobId: args.jobId,
+    slug: args.slug,
+    beatId: args.beatId,
+    rung: args.rung,
+  });
+}
+
+export async function storyboardPromoteRung(args: {
+  jobId: string;
+  slug: string;
+  beats: string[];
+  targetRung: 1 | 2;
+}): Promise<StoryboardStillResult[]> {
+  return invoke("storyboard_promote_rung", {
+    jobId: args.jobId,
+    slug: args.slug,
+    beats: args.beats,
+    targetRung: args.targetRung,
+  });
+}
+
+export async function storyboardListenJob(
+  jobId: string,
+  onEvent: (event: StoryboardJobEvent) => void,
+): Promise<UnlistenFn> {
+  return listen<StoryboardJobEvent>(`storyboard://${jobId}`, (e) =>
+    onEvent(e.payload),
+  );
+}
+
+// ─── PA-ACTIONS SIDECAR ───────────────────────────────────────────────────────
+//
+// Wraps the pa-actions sidecar. Subcommands are typed as a string union so
+// the call site doesn't have to remember the registry. Result is left as
+// `unknown` because each subcommand returns a different shape — callers that
+// care should narrow at the use site.
+
+export type PaActionsSubcommand =
+  | "resend-poll"
+  | "twenty-poll"
+  | "email-send"
+  | "reply-send"
+  | "listmonk-poll"
+  | "sequence-advance"
+  | "send-scheduled"
+  | "fundraising-send"
+  | "crm-lookup";
+
+export interface PaActionsOutcome {
+  ok: boolean;
+  subcommand: string;
+  durationMs: number;
+  result?: unknown;
+  error?: string;
+}
+
+export async function paActionsRun(
+  subcommand: PaActionsSubcommand,
+  args?: string[],
+): Promise<PaActionsOutcome> {
+  return invoke<PaActionsOutcome>("pa_actions_run", {
+    subcommand,
+    args: args ?? null,
+  });
+}
+
+
+// ─── Spike: dynamic ACL verification (delete after kernel lands) ─────────
+
+export async function spikeGrantFsRead(
+  capabilityId: string,
+  path: string,
+): Promise<string> {
+  return invoke<string>("spike_grant_fs_read", { capabilityId, path });
+}
+
+// ─── Pkg kernel ────────────────────────────────────────────────────────
+
+export interface PkgInstalledSummary {
+  id: string;
+  version: string;
+  ikenga_api: string;
+  install_path: string;
+  enabled: boolean;
+  installed_at: number;
+  compatible: boolean;
+}
+
+export interface PkgKernelStatus {
+  installed: PkgInstalledSummary[];
+  registries: Record<string, unknown>;
+  api_version: number;
+}
+
+export async function pkgInstallFromPath(installPath: string): Promise<{ installed: PkgInstalledSummary }> {
+  return invoke("pkg_install_from_path", { installPath });
+}
+
+export async function pkgUninstall(pkgId: string): Promise<void> {
+  return invoke("pkg_uninstall", { pkgId });
+}
+
+export async function pkgKernelStatus(): Promise<PkgKernelStatus> {
+  return invoke<PkgKernelStatus>("pkg_kernel_status");
+}
+
+/**
+ * Restart a supervised pkg's sidecar. Resets Blocked / Crashed / Parked
+ * back to Spawning and breaks any pending retry sleep so the supervisor
+ * re-spawns immediately. Returns true if the pkg is supervised here, false
+ * if no supervisor entry exists for that id (per-call lifecycle pkgs).
+ */
+export async function pkgSupervisorRestart(pkgId: string): Promise<boolean> {
+  return invoke<boolean>("pkg_supervisor_restart", { pkgId });
+}
+
+/**
+ * Debug-only: pre-bind a port so the smoke route can verify the supervised
+ * sidecar transitions to Blocked when its dev-server child sees EADDRINUSE.
+ * Pair with `devReleasePort(token)` to free the port and observe recovery.
+ * Release builds reject with an error.
+ */
+export async function devBindPort(port: number): Promise<number> {
+  return invoke<number>("dev_bind_port", { port });
+}
+
+export async function devReleasePort(token: number): Promise<boolean> {
+  return invoke<boolean>("dev_release_port", { token });
+}
+
+export interface PkgDbDiag {
+  db_path: string;
+  pkg_installed_count: number;
+  ids: string[];
+}
+
+export async function pkgDbDiag(): Promise<PkgDbDiag> {
+  return invoke<PkgDbDiag>("pkg_db_diag");
+}
+
+export interface PkgSettingsField {
+  key: string;
+  type: string;
+  label: string;
+  default?: unknown;
+  description?: string | null;
+}
+
+export interface PkgSettingsSnapshot {
+  pkg_id: string;
+  /** Array of declared fields, or null if the pkg has no settings block. */
+  schema: PkgSettingsField[] | null;
+  /** Object of `{ key: parsed_value }` pulled from `pkg_settings`. */
+  values: Record<string, unknown>;
+}
+
+export async function pkgSettingsGet(pkgId: string): Promise<PkgSettingsSnapshot> {
+  return invoke<PkgSettingsSnapshot>("pkg_settings_get", { pkgId });
+}
+
+export async function pkgSettingsSet(
+  pkgId: string,
+  key: string,
+  value: unknown,
+): Promise<void> {
+  return invoke("pkg_settings_set", { pkgId, key, value });
+}
+
+/** Parsed manifest as raw JSON. Includes whatever optional blocks the
+ *  manifest declared: permissions, settings, mcp, sidecars, ui, etc. */
+export interface PkgManifestPreview {
+  id: string;
+  name: string;
+  version: string;
+  ikenga_api: string;
+  kind?: string | null;
+  permissions?: Record<string, unknown>;
+  settings?: { schema?: PkgSettingsField[] };
+  mcp?: Array<{ name: string; command: string; args?: string[] }>;
+  sidecars?: Array<{ name: string; bin: string }>;
+  cron?: Array<{ id: string; expr: string; handler: string }>;
+  ui?: { routes?: Array<{ path: string; kind: string; source: string }> };
+  skills?: string | null;
+  commands?: string | null;
+  agents?: string | null;
+  [key: string]: unknown;
+}
+
+export async function pkgPreviewManifest(installPath: string): Promise<PkgManifestPreview> {
+  return invoke<PkgManifestPreview>("pkg_preview_manifest", { installPath });
+}
+
+// ─── Pkg content (iframe mount) ─────────────────────────────────────────
+//
+// `pkgContentUrl` mints a per-iframe access token and returns the URL the
+// iframe should load (already includes pkgId + token + trailing slash).
+// Append the manifest's `ui.routes[].source` (e.g. `dist/index.html` →
+// pass just the filename relative to dist) to construct the final src.
+// `pkgContentRevoke` releases the token when the iframe unmounts.
+
+export interface PkgContentHandle {
+  url: string;
+  token: string;
+}
+
+export async function pkgContentUrl(pkgId: string): Promise<PkgContentHandle> {
+  return invoke<PkgContentHandle>("pkg_content_url", { pkgId });
+}
+
+// `pkgContentHtml` reads the iframe entry HTML from the pkg's dist/, mints
+// an access token, and injects a `<base href>` so subresource loads resolve
+// against `http://127.0.0.1:<port>/<pkgId>/<token>/`. The returned `html`
+// is meant to be assigned to `<iframe srcdoc>` — that's the workaround for
+// the documented WebKitGTK bug where iframe-document loads from any
+// non-https origin (custom protocol or http loopback) get blocked even
+// though subresource fetches succeed.
+// See https://github.com/tauri-apps/tauri/issues/12767.
+export interface PkgContentHtmlHandle {
+  html: string;
+  baseUrl: string;
+  token: string;
+}
+
+export async function pkgContentHtml(
+  pkgId: string,
+  source: string,
+): Promise<PkgContentHtmlHandle> {
+  return invoke<PkgContentHtmlHandle>("pkg_content_html", { pkgId, source });
+}
+
+export async function pkgContentRevoke(token: string): Promise<void> {
+  return invoke("pkg_content_revoke", { token });
+}
+
+// ─── Pkg MCP tool routing ───────────────────────────────────────────────
+//
+// v1 stub. The host bridge calls this when the iframe fires an MCP
+// `tools/call`. Returns `{ ok: false, error: "not_implemented" }` until
+// the first sidecar-owning pkg lands; the protocol path is exercised
+// end-to-end so spec compliance is testable now.
+
+export interface PkgMcpCallResult {
+  ok: boolean;
+  error: string | null;
+  result: unknown | null;
+}
+
+export async function pkgMcpCall(
+  pkgId: string,
+  tool: string,
+  args: unknown,
+): Promise<PkgMcpCallResult> {
+  return invoke<PkgMcpCallResult>("pkg_mcp_call", { pkgId, tool, args });
+}

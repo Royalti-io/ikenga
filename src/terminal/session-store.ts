@@ -1,0 +1,263 @@
+/**
+ * session-store — Zustand store for the terminal panel.
+ *
+ * Persists the *list* of tabs (without PTY ids — those die with the app) to
+ * SQLite via the @tauri-apps/plugin-sql plugin. If the SQL plugin isn't ready
+ * (e.g. rust-eng hasn't installed it yet), we fall back to localStorage.
+ *
+ * PTY lifecycle itself lives in pty-bridge.ts; this store only tracks
+ * `ptyId` strings as opaque references.
+ */
+
+import { create } from "zustand";
+
+const STORAGE_KEY = "terminal.tabs";
+const SQL_DB_URL = "sqlite:pa.sqlite";
+
+export interface TerminalTab {
+  id: string;
+  title: string;
+  spec: { cwd: string; cmd: string[]; env?: Record<string, string> };
+  ptyId: string | null;
+  status: "spawning" | "running" | "exited" | "error";
+  exitCode: number | null;
+  createdAt: number;
+}
+
+interface TerminalState {
+  tabs: TerminalTab[];
+  activeId: string | null;
+  rehydrated: boolean;
+
+  add: (spec: TerminalTab["spec"], title?: string) => string;
+  setActive: (id: string) => void;
+  remove: (id: string) => void;
+  rename: (id: string, title: string) => void;
+  setPtyId: (id: string, ptyId: string | null) => void;
+  setStatus: (
+    id: string,
+    status: TerminalTab["status"],
+    exitCode?: number | null,
+  ) => void;
+
+  rehydrateFromDb: () => Promise<void>;
+  persistToDb: () => Promise<void>;
+}
+
+// --- persistence helpers ---------------------------------------------------
+
+interface SerializedTab {
+  id: string;
+  title: string;
+  spec: TerminalTab["spec"];
+  status: TerminalTab["status"];
+  exitCode: number | null;
+  createdAt: number;
+}
+
+function serialize(tabs: TerminalTab[]): SerializedTab[] {
+  return tabs.map(({ id, title, spec, status, exitCode, createdAt }) => ({
+    id,
+    title,
+    spec,
+    // ptyIds are runtime-only; restored tabs always start exited.
+    status: status === "running" || status === "spawning" ? "exited" : status,
+    exitCode,
+    createdAt,
+  }));
+}
+
+type SqlDb = {
+  execute: (sql: string, params?: unknown[]) => Promise<unknown>;
+  select: <T = unknown>(sql: string, params?: unknown[]) => Promise<T>;
+};
+
+let cachedDb: SqlDb | null = null;
+let dbLoadAttempted = false;
+let dbAvailable = false;
+
+async function loadDb(): Promise<SqlDb | null> {
+  if (cachedDb) return cachedDb;
+  if (dbLoadAttempted && !dbAvailable) return null;
+  dbLoadAttempted = true;
+  try {
+    const mod = await import("@tauri-apps/plugin-sql");
+    const Database = (mod as unknown as { default: { load: (url: string) => Promise<SqlDb> } }).default;
+    const db = await Database.load(SQL_DB_URL);
+    // Best-effort table init. If layout_state already exists, this is a no-op.
+    await db.execute(
+      "CREATE TABLE IF NOT EXISTS layout_state (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL)",
+    );
+    cachedDb = db;
+    dbAvailable = true;
+    return db;
+  } catch (err) {
+    console.warn(
+      "[terminal/session-store] SQL plugin unavailable, falling back to localStorage",
+      err,
+    );
+    dbAvailable = false;
+    return null;
+  }
+}
+
+async function readPersisted(): Promise<SerializedTab[]> {
+  const db = await loadDb();
+  if (db) {
+    try {
+      const rows = await db.select<{ value: string }[]>(
+        "SELECT value FROM layout_state WHERE key = $1",
+        [STORAGE_KEY],
+      );
+      if (rows && rows.length > 0) {
+        return JSON.parse(rows[0].value) as SerializedTab[];
+      }
+      return [];
+    } catch (err) {
+      console.warn("[terminal/session-store] read failed, falling back", err);
+    }
+  }
+  // localStorage fallback.
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return [];
+    return JSON.parse(raw) as SerializedTab[];
+  } catch {
+    return [];
+  }
+}
+
+async function writePersisted(tabs: SerializedTab[]): Promise<void> {
+  const json = JSON.stringify(tabs);
+  const db = await loadDb();
+  if (db) {
+    try {
+      await db.execute(
+        "INSERT INTO layout_state (key, value, updated_at) VALUES ($1, $2, $3) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+        [STORAGE_KEY, json, Date.now()],
+      );
+      return;
+    } catch (err) {
+      console.warn("[terminal/session-store] write failed, falling back", err);
+    }
+  }
+  try {
+    localStorage.setItem(STORAGE_KEY, json);
+  } catch {
+    /* ignore */
+  }
+}
+
+// --- debounce helper -------------------------------------------------------
+
+function debounce<A extends unknown[]>(
+  fn: (...args: A) => void,
+  ms: number,
+): (...args: A) => void {
+  let t: ReturnType<typeof setTimeout> | null = null;
+  return (...args) => {
+    if (t) clearTimeout(t);
+    t = setTimeout(() => fn(...args), ms);
+  };
+}
+
+// --- store -----------------------------------------------------------------
+
+let nextSeq = 0;
+function makeId(): string {
+  // Minimal uuid-ish — uses crypto.randomUUID() if present, else seq+rand.
+  const c = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
+  if (c?.randomUUID) return c.randomUUID();
+  nextSeq += 1;
+  return `tab-${Date.now()}-${nextSeq}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+export const useTerminalStore = create<TerminalState>((set, get) => {
+  const persistDebounced = debounce(() => {
+    void writePersisted(serialize(get().tabs));
+  }, 300);
+
+  return {
+    tabs: [],
+    activeId: null,
+    rehydrated: false,
+
+    add: (spec, title) => {
+      const id = makeId();
+      const tab: TerminalTab = {
+        id,
+        title: title ?? spec.cmd[0] ?? "shell",
+        spec,
+        ptyId: null,
+        status: "spawning",
+        exitCode: null,
+        createdAt: Date.now(),
+      };
+      set((s) => ({ tabs: [...s.tabs, tab], activeId: id }));
+      persistDebounced();
+      return id;
+    },
+
+    setActive: (id) => {
+      set({ activeId: id });
+    },
+
+    remove: (id) => {
+      set((s) => {
+        const tabs = s.tabs.filter((t) => t.id !== id);
+        const activeId =
+          s.activeId === id ? (tabs[tabs.length - 1]?.id ?? null) : s.activeId;
+        return { tabs, activeId };
+      });
+      persistDebounced();
+    },
+
+    rename: (id, title) => {
+      set((s) => ({
+        tabs: s.tabs.map((t) => (t.id === id ? { ...t, title } : t)),
+      }));
+      persistDebounced();
+    },
+
+    setPtyId: (id, ptyId) => {
+      set((s) => ({
+        tabs: s.tabs.map((t) => (t.id === id ? { ...t, ptyId } : t)),
+      }));
+      // ptyIds aren't persisted, so no flush needed.
+    },
+
+    setStatus: (id, status, exitCode = null) => {
+      set((s) => ({
+        tabs: s.tabs.map((t) =>
+          t.id === id ? { ...t, status, exitCode } : t,
+        ),
+      }));
+      persistDebounced();
+    },
+
+    rehydrateFromDb: async () => {
+      try {
+        const persisted = await readPersisted();
+        const restored: TerminalTab[] = persisted.map((p) => ({
+          ...p,
+          ptyId: null,
+          // Force restored tabs into exited state — their PTYs are gone.
+          status: "exited",
+          exitCode: p.exitCode,
+        }));
+        set({
+          tabs: restored,
+          activeId: restored[0]?.id ?? null,
+          rehydrated: true,
+        });
+      } catch (err) {
+        console.warn("[terminal/session-store] rehydrate failed", err);
+        set({ rehydrated: true });
+      }
+    },
+
+    persistToDb: async () => {
+      await writePersisted(serialize(get().tabs));
+    },
+  };
+});

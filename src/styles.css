@@ -1,0 +1,220 @@
+@import 'tailwindcss';
+@import './lib/ikenga/tokens.css';
+
+/* ---------------------------------------------------------------------------
+ * Tailwind 4 alias map.
+ *
+ * shadcn primitives reference the old `--color-*` token names. We keep those
+ * names alive in the @theme registry but resolve them to the Ikenga semantic
+ * tokens (set per [data-theme][data-mode] in tokens.css). Cascade does the
+ * rest — Tailwind emits `background-color: var(--color-background)`, which
+ * resolves to `var(--bg-base)`, which is whatever the active theme/mode says.
+ *
+ * Source mapping in design/system/tokens.md §6.1.
+ * ------------------------------------------------------------------------- */
+
+@theme {
+  --color-background:           var(--bg-base);
+  --color-foreground:           var(--fg);
+  --color-card:                 var(--bg-surface);
+  --color-card-foreground:      var(--fg);
+  --color-popover:              var(--bg-surface);
+  --color-popover-foreground:   var(--fg);
+  --color-primary:              var(--primary);
+  --color-primary-foreground:   var(--primary-fg);
+  --color-secondary:            var(--bg-raised);
+  --color-secondary-foreground: var(--fg);
+  --color-muted:                var(--bg-raised);
+  --color-muted-foreground:     var(--fg-muted);
+  --color-accent:               var(--bg-raised);
+  --color-accent-foreground:    var(--fg);
+  --color-destructive:          var(--danger);
+  --color-destructive-foreground: hsl(0, 0%, 98%);
+  --color-border:               var(--border);
+  --color-border-soft:          var(--border-soft);
+  --color-input:                var(--border);
+  --color-ring:                 var(--primary);
+  --radius:                     var(--radius-md);
+}
+
+/* ---------------------------------------------------------------------------
+ * Base styles
+ * ------------------------------------------------------------------------- */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+body {
+  background: var(--bg-base);
+  color: var(--fg);
+  font-family: var(--font-body);
+  font-size: var(--body-size);
+  line-height: var(--body-lead);
+  -webkit-font-smoothing: antialiased;
+  transition:
+    background var(--motion-base) var(--ease-calm),
+    color var(--motion-base) var(--ease-calm),
+    font-size var(--motion-fast) var(--ease-calm);
+}
+
+@supports (padding: env(safe-area-inset-bottom)) {
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Ikenga primitive overrides on shadcn components.
+ *
+ * Targets data-slot/data-size attributes the primitives already emit so we
+ * can wire density-driven heights and the Theme C action-color override
+ * without touching component code. Specificity beats Tailwind utility
+ * classes, which live in @layer utilities (lower precedence than this
+ * unlayered block).
+ * ------------------------------------------------------------------------- */
+
+[data-slot='button'][data-size='default'] { height: var(--btn-h); }
+[data-slot='button'][data-size='sm']      { height: var(--btn-h-sm); }
+[data-slot='button'][data-size='lg']      { height: var(--btn-h-lg); }
+[data-slot='button'][data-size='icon']    { height: var(--btn-h); width: var(--btn-h); }
+[data-slot='button'][data-size='icon-sm'] { height: var(--btn-h-sm); width: var(--btn-h-sm); }
+[data-slot='button'][data-size='icon-lg'] { height: var(--btn-h-lg); width: var(--btn-h-lg); }
+
+[data-slot='input'] { height: var(--input-h); }
+
+/* Theme C action-color override (primitives.md §3 + tokens.md §3 note).
+ * In Theme C, --primary is identity (verdigris) and --danger (oxblood)
+ * carries decisive-action weight. Buttons declared as the default/primary
+ * variant render in oxblood when Theme C is active. */
+[data-theme='C'] [data-slot='button'][data-variant='default'] {
+  background: var(--danger);
+  color: var(--danger-fg);
+}
+[data-theme='C'] [data-slot='button'][data-variant='default']:hover {
+  background: var(--danger);
+  filter: brightness(1.06);
+}
+
+/* ---------------------------------------------------------------------------
+ * Pane tab strip — workspace-tinted active underline + mixed-workspace
+ * hairlines (mirrors design/concepts/_shared/shell.css §"Workspace tint on
+ * tabs"). Single-workspace strips suppress inactive hairlines because the
+ * pane focus accent already names the workspace.
+ * ------------------------------------------------------------------------- */
+
+/* Hide scrollbars on tab strips — overflow scrolling stays functional via
+ * wheel/trackpad; the visible scrollbar just adds visual noise. */
+.ikenga-tab-strip { scrollbar-width: none; }
+.ikenga-tab-strip::-webkit-scrollbar { display: none; }
+
+.ikenga-tab-strip [data-ws='app']      { --tab-ws: var(--tint-app-fg); }
+.ikenga-tab-strip [data-ws='mail']     { --tab-ws: var(--tint-mail-fg); }
+.ikenga-tab-strip [data-ws='outbox']   { --tab-ws: var(--tint-outbox-fg); }
+.ikenga-tab-strip [data-ws='studio']   { --tab-ws: var(--tint-studio-fg); }
+.ikenga-tab-strip [data-ws='agents']   { --tab-ws: var(--tint-agents-fg); }
+.ikenga-tab-strip [data-ws='files']    { --tab-ws: var(--tint-files-fg); }
+.ikenga-tab-strip [data-ws='sessions'] { --tab-ws: var(--tint-sessions-fg); }
+.ikenga-tab-strip [data-ws='settings'] { --tab-ws: var(--tint-settings-fg); }
+
+.ikenga-tab-strip [data-active='true'] {
+  position: relative;
+}
+.ikenga-tab-strip [data-active='true']::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background: var(--tab-ws, var(--primary));
+  pointer-events: none;
+}
+
+/* Mixed-workspace strips: inactive tabs get a subtle bottom hairline in
+ * their own workspace's tint. */
+.ikenga-tab-strip[data-tabstrip-mixed='true'] [data-active='false']::after {
+  content: '';
+  position: absolute;
+  left: var(--space-2);
+  right: var(--space-2);
+  bottom: -1px;
+  height: 1px;
+  background: var(--tab-ws, transparent);
+  opacity: 0.22;
+  transition: opacity var(--motion-fast) var(--ease-calm);
+  pointer-events: none;
+}
+.ikenga-tab-strip[data-tabstrip-mixed='true'] [data-active='false']:hover::after {
+  opacity: 0.55;
+}
+
+/* ---------------------------------------------------------------------------
+ * Resizable panel handle styling
+ * ------------------------------------------------------------------------- */
+
+[data-panel-resize-handle-enabled='true'] {
+  background: transparent;
+  position: relative;
+  transition: background var(--motion-fast) var(--ease-calm);
+}
+
+[data-panel-resize-handle-enabled='true']:hover,
+[data-panel-resize-handle-enabled='true'][data-resize-handle-active='true'] {
+  background: var(--primary);
+  opacity: 0.4;
+}
+
+[data-panel-group-direction='horizontal'] > [data-panel-resize-handle-enabled='true'] {
+  width: 4px;
+  cursor: col-resize;
+}
+
+[data-panel-group-direction='vertical'] > [data-panel-resize-handle-enabled='true'] {
+  height: 4px;
+  cursor: row-resize;
+}
+
+/* ---------------------------------------------------------------------------
+ * Terminal host (used by terminal-eng)
+ * ------------------------------------------------------------------------- */
+
+.terminal-host {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  background: #000;
+}
+
+.terminal-host .xterm {
+  height: 100%;
+  width: 100%;
+  padding: 6px;
+}
+
+/* ---------------------------------------------------------------------------
+ * Iyke pane activity overlay (top-edge shimmer + corner chip).
+ * ------------------------------------------------------------------------- */
+
+@keyframes iyke-shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.iyke-shimmer {
+  animation: iyke-shimmer 1.4s linear infinite;
+  will-change: transform;
+}

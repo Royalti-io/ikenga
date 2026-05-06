@@ -1,0 +1,72 @@
+// Bidirectional sync between the workspace browser-history router (the
+// address bar) and the focused pane's route. Mounted exactly once at
+// the workspace level. Mirrors the use-iyke-shell-sync pattern (single
+// subscription that re-fires when focus or tree mutates).
+//
+// Loop avoidance: each direction skips when the two sides already agree
+// on the path. Idempotent state changes don't re-fire the other side
+// because the comparison is on the path string, not object identity.
+
+import { useEffect } from 'react';
+import { useRouter } from '@tanstack/react-router';
+
+import { usePaneStore } from './pane-store';
+import { findLeaf } from './pane-reducer';
+
+function focusedRoute(): string | null {
+  const { root, focusedId } = usePaneStore.getState();
+  const leaf = findLeaf(root, focusedId);
+  if (!leaf) return null;
+  const view = leaf.tabs[leaf.activeTabIdx];
+  if (!view || view.kind !== 'route') return null;
+  return view.path;
+}
+
+export function useRouterPaneSync(): void {
+  const router = useRouter();
+
+  useEffect(() => {
+    // Direction A: workspace router (browser-history) → focused pane.
+    // Fires on popstate, deep links, manual router.navigate calls outside
+    // the pane scope.
+    const unsubA = router.subscribe('onResolved', () => {
+      const browserPath = router.state.location.pathname;
+      const paneRoute = focusedRoute();
+      if (paneRoute === null) return; // focused pane shows non-route
+      if (paneRoute === browserPath) return;
+      usePaneStore.getState().navigateFocused(browserPath);
+    });
+
+    // Direction B: focused pane → workspace router.
+    // Re-fires when the tree mutates (any pane action) or focus changes.
+    let lastSyncedPath: string | null = null;
+    const unsubB = usePaneStore.subscribe((state, prev) => {
+      if (state.root === prev.root && state.focusedId === prev.focusedId) {
+        return;
+      }
+      const path = focusedRoute();
+      if (path === null) return;
+      if (path === lastSyncedPath) return;
+      if (router.state.location.pathname === path) {
+        lastSyncedPath = path;
+        return;
+      }
+      lastSyncedPath = path;
+      void router.navigate({ to: path });
+    });
+
+    // Cold-start overlay: align workspace router with focused pane (if
+    // it's a route view). Tauri starts at '/' on launch, so this only
+    // fires for the case where the persisted focused pane has a route
+    // other than '/'.
+    const path = focusedRoute();
+    if (path && router.state.location.pathname !== path) {
+      void router.navigate({ to: path, replace: true });
+    }
+
+    return () => {
+      unsubA();
+      unsubB();
+    };
+  }, [router]);
+}

@@ -1,0 +1,33 @@
+{
+  "id": "com.royalti.video-studio",
+  "name": "Remotion Studio",
+  "version": "0.2.0",
+  "ikenga_api": "1",
+  "kind": "embedded",
+  "author": { "name": "Royalti", "key": "royalti" },
+
+  "mcp": [
+    {
+      "name": "video-studio",
+      "command": "./sidecars/pa-video-studio",
+      "args": [],
+      "lifecycle": "long-lived"
+    }
+  ],
+
+  "ui": {
+    "routes": [
+      { "path": "/studio", "kind": "iframe", "source": "dist/index.html" }
+    ],
+    "csp": {
+      "connect-src": ["'self'", "http://127.0.0.1:*"]
+    }
+  },
+  "permissions": {
+    "fs.read": ["$pkg_install/**", "$home/royalti-co/ikenga-desktop/**"],
+    "fs.write": ["$pkg_data/**"]
+  },
+  "queries": {
+    "key_prefixes": ["video-studio"]
+  }
+}
