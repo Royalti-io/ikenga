@@ -9,10 +9,10 @@ import {
   ZoomOut,
 } from "lucide-react";
 import { Document, Page, pdfjs } from "react-pdf";
-// Vite resolves `?url` to a static asset URL; pdf.js needs the worker on a
-// separate origin from the main thread, and shipping it as a vite asset
-// works in Tauri's tauri:// origin.
-import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
+// pdfjs-dist v5 has empty `exports`, so we can't import the worker as a
+// bare-spec subpath. Copy is committed at public/pdf.worker.min.mjs and
+// served by Vite at the root.
+const workerUrl = "/pdf.worker.min.mjs";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
 import { Button } from "@/components/ui/button";

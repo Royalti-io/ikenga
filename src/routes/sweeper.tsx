@@ -7,8 +7,8 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/components/ui/utils';
 import { confidenceTier, loadLatestSweep, type SweepAction } from '@/lib/queries/sweeper';
 
-import './tasks/tasks.css';
-import { relativeAgo, shortId } from './tasks/-_shared';
+import './_sweeper-shared/sweeper.css';
+import { relativeAgo, shortId } from './_sweeper-shared/-_shared';
 
 function SweeperPage() {
   const navigate = useNavigate();
@@ -57,7 +57,7 @@ function SweeperPage() {
               variant="outline"
               size="sm"
               type="button"
-              onClick={() => navigate({ to: '/tasks' })}
+              onClick={() => navigate({ to: '/pkg/com.ikenga.tasks/' })}
             >
               <ArrowLeft className="h-3 w-3" />
               Back to tasks
@@ -103,7 +103,7 @@ function SweeperPage() {
               key={row.full_id}
               row={row}
               onOpenTask={(id) =>
-                navigate({ to: '/tasks/$taskId', params: { taskId: id } })
+                navigate({ to: '/pkg/com.ikenga.tasks/' })
               }
             />
           ))}
@@ -148,7 +148,7 @@ function SweeperPage() {
                 key={n.full_id}
                 className="sw-row"
                 onClick={() =>
-                  navigate({ to: '/tasks/$taskId', params: { taskId: n.full_id } })
+                  navigate({ to: '/pkg/com.ikenga.tasks/' })
                 }
                 style={{ cursor: 'pointer' }}
               >

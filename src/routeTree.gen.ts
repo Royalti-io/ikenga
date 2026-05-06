@@ -73,6 +73,7 @@ import { Route as ClaudeSkillsRouteImport } from './routes/claude/skills'
 import { Route as ClaudeMcpsRouteImport } from './routes/claude/mcps'
 import { Route as ClaudeHooksRouteImport } from './routes/claude/hooks'
 import { Route as ClaudeCommandsRouteImport } from './routes/claude/commands'
+import { Route as PkgPkgIdRouteRouteImport } from './routes/pkg/$pkgId/route'
 import { Route as OutboxSocialRouteRouteImport } from './routes/outbox/social/route'
 import { Route as OutboxSequencesRouteRouteImport } from './routes/outbox/sequences/route'
 import { Route as OutboxNewsletterRouteRouteImport } from './routes/outbox/newsletter/route'
@@ -442,6 +443,11 @@ const ClaudeCommandsRoute = ClaudeCommandsRouteImport.update({
   path: '/commands',
   getParentRoute: () => ClaudeRouteRoute,
 } as any)
+const PkgPkgIdRouteRoute = PkgPkgIdRouteRouteImport.update({
+  id: '/pkg/$pkgId',
+  path: '/pkg/$pkgId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const OutboxSocialRouteRoute = OutboxSocialRouteRouteImport.update({
   id: '/social',
   path: '/social',
@@ -589,9 +595,9 @@ const SessionsByAgentAgentRoute = SessionsByAgentAgentRouteImport.update({
   getParentRoute: () => SessionsRouteRoute,
 } as any)
 const PkgPkgIdSplatRoute = PkgPkgIdSplatRouteImport.update({
-  id: '/pkg/$pkgId/$',
-  path: '/pkg/$pkgId/$',
-  getParentRoute: () => rootRouteImport,
+  id: '/$',
+  path: '/$',
+  getParentRoute: () => PkgPkgIdRouteRoute,
 } as any)
 const FinanceTransactionsIdRoute = FinanceTransactionsIdRouteImport.update({
   id: '/$id',
@@ -698,6 +704,7 @@ export interface FileRoutesByFullPath {
   '/outbox/newsletter': typeof OutboxNewsletterRouteRouteWithChildren
   '/outbox/sequences': typeof OutboxSequencesRouteRouteWithChildren
   '/outbox/social': typeof OutboxSocialRouteRouteWithChildren
+  '/pkg/$pkgId': typeof PkgPkgIdRouteRouteWithChildren
   '/claude/commands': typeof ClaudeCommandsRoute
   '/claude/hooks': typeof ClaudeHooksRoute
   '/claude/mcps': typeof ClaudeMcpsRoute
@@ -791,6 +798,7 @@ export interface FileRoutesByTo {
   '/sweeper': typeof SweeperRoute
   '/uiroutes-smoke': typeof UiroutesSmokeRoute
   '/finance/transactions': typeof FinanceTransactionsRouteRouteWithChildren
+  '/pkg/$pkgId': typeof PkgPkgIdRouteRouteWithChildren
   '/claude/commands': typeof ClaudeCommandsRoute
   '/claude/hooks': typeof ClaudeHooksRoute
   '/claude/mcps': typeof ClaudeMcpsRoute
@@ -900,6 +908,7 @@ export interface FileRoutesById {
   '/outbox/newsletter': typeof OutboxNewsletterRouteRouteWithChildren
   '/outbox/sequences': typeof OutboxSequencesRouteRouteWithChildren
   '/outbox/social': typeof OutboxSocialRouteRouteWithChildren
+  '/pkg/$pkgId': typeof PkgPkgIdRouteRouteWithChildren
   '/claude/commands': typeof ClaudeCommandsRoute
   '/claude/hooks': typeof ClaudeHooksRoute
   '/claude/mcps': typeof ClaudeMcpsRoute
@@ -1010,6 +1019,7 @@ export interface FileRouteTypes {
     | '/outbox/newsletter'
     | '/outbox/sequences'
     | '/outbox/social'
+    | '/pkg/$pkgId'
     | '/claude/commands'
     | '/claude/hooks'
     | '/claude/mcps'
@@ -1103,6 +1113,7 @@ export interface FileRouteTypes {
     | '/sweeper'
     | '/uiroutes-smoke'
     | '/finance/transactions'
+    | '/pkg/$pkgId'
     | '/claude/commands'
     | '/claude/hooks'
     | '/claude/mcps'
@@ -1211,6 +1222,7 @@ export interface FileRouteTypes {
     | '/outbox/newsletter'
     | '/outbox/sequences'
     | '/outbox/social'
+    | '/pkg/$pkgId'
     | '/claude/commands'
     | '/claude/hooks'
     | '/claude/mcps'
@@ -1315,6 +1327,7 @@ export interface RootRouteChildren {
   SpikeAclRoute: typeof SpikeAclRoute
   SweeperRoute: typeof SweeperRoute
   UiroutesSmokeRoute: typeof UiroutesSmokeRoute
+  PkgPkgIdRouteRoute: typeof PkgPkgIdRouteRouteWithChildren
   HandoffsIdRoute: typeof HandoffsIdRoute
   ReportsIdRoute: typeof ReportsIdRoute
   AgentRunsIndexRoute: typeof AgentRunsIndexRoute
@@ -1332,7 +1345,6 @@ export interface RootRouteChildren {
   SettingsIndexRoute: typeof SettingsIndexRoute
   StrategyIndexRoute: typeof StrategyIndexRoute
   TriageIndexRoute: typeof TriageIndexRoute
-  PkgPkgIdSplatRoute: typeof PkgPkgIdSplatRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -1785,6 +1797,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ClaudeCommandsRouteImport
       parentRoute: typeof ClaudeRouteRoute
     }
+    '/pkg/$pkgId': {
+      id: '/pkg/$pkgId'
+      path: '/pkg/$pkgId'
+      fullPath: '/pkg/$pkgId'
+      preLoaderRoute: typeof PkgPkgIdRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/outbox/social': {
       id: '/outbox/social'
       path: '/social'
@@ -1983,10 +2002,10 @@ declare module '@tanstack/react-router' {
     }
     '/pkg/$pkgId/$': {
       id: '/pkg/$pkgId/$'
-      path: '/pkg/$pkgId/$'
+      path: '/$'
       fullPath: '/pkg/$pkgId/$'
       preLoaderRoute: typeof PkgPkgIdSplatRouteImport
-      parentRoute: typeof rootRouteImport
+      parentRoute: typeof PkgPkgIdRouteRoute
     }
     '/finance/transactions/$id': {
       id: '/finance/transactions/$id'
@@ -2366,6 +2385,18 @@ const VideoRouteRouteWithChildren = VideoRouteRoute._addFileChildren(
   VideoRouteRouteChildren,
 )
 
+interface PkgPkgIdRouteRouteChildren {
+  PkgPkgIdSplatRoute: typeof PkgPkgIdSplatRoute
+}
+
+const PkgPkgIdRouteRouteChildren: PkgPkgIdRouteRouteChildren = {
+  PkgPkgIdSplatRoute: PkgPkgIdSplatRoute,
+}
+
+const PkgPkgIdRouteRouteWithChildren = PkgPkgIdRouteRoute._addFileChildren(
+  PkgPkgIdRouteRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ClaudeRouteRoute: ClaudeRouteRouteWithChildren,
@@ -2392,6 +2423,7 @@ const rootRouteChildren: RootRouteChildren = {
   SpikeAclRoute: SpikeAclRoute,
   SweeperRoute: SweeperRoute,
   UiroutesSmokeRoute: UiroutesSmokeRoute,
+  PkgPkgIdRouteRoute: PkgPkgIdRouteRouteWithChildren,
   HandoffsIdRoute: HandoffsIdRoute,
   ReportsIdRoute: ReportsIdRoute,
   AgentRunsIndexRoute: AgentRunsIndexRoute,
@@ -2409,7 +2441,6 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsIndexRoute: SettingsIndexRoute,
   StrategyIndexRoute: StrategyIndexRoute,
   TriageIndexRoute: TriageIndexRoute,
-  PkgPkgIdSplatRoute: PkgPkgIdSplatRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
