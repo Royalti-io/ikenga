@@ -32,6 +32,21 @@ pub struct KernelStatus {
     pub api_version: u32,
 }
 
+/// One entry returned by `Kernel::discover_workspace` — a manifest dir found
+/// in a workspace path. `valid=false` means the dir had a manifest.json but
+/// it failed to parse; `error` carries the reason.
+#[derive(Debug, Serialize, Clone)]
+pub struct DiscoveredPkg {
+    pub id: String,
+    pub name: String,
+    pub version: String,
+    pub install_path: String,
+    pub valid: bool,
+    pub error: Option<String>,
+    pub installed: bool,
+    pub compatible: bool,
+}
+
 #[derive(Debug, Serialize, Clone)]
 pub struct InstalledSummary {
     pub id: String,
@@ -245,6 +260,71 @@ impl Kernel {
             .remove(pkg_id);
         log::info!("[pkg_kernel] uninstalled `{pkg_id}` (restart for full ACL revocation)");
         Ok(())
+    }
+
+    /// Discover (but do NOT install) packages under a workspace directory.
+    /// Used in dev mode to surface sibling pkgs from a monorepo-style
+    /// workspace (e.g. `royalti-co/ikenga/pkgs/*`) in the Pkg Manager UI so
+    /// the user can opt-in to installing them with `pkg_install_from_path`.
+    ///
+    /// Read-only: never mutates `pkg_installed` or any registry. Returns one
+    /// entry per direct child directory that contains a parseable
+    /// `manifest.json`; entries that fail to parse are reported as
+    /// `valid=false` with the error so the FE can show a useful warning
+    /// rather than silently dropping them.
+    pub fn discover_workspace(&self, workspace_dir: &Path) -> Vec<DiscoveredPkg> {
+        let mut out = Vec::new();
+        if !workspace_dir.is_dir() {
+            return out;
+        }
+        let entries = match std::fs::read_dir(workspace_dir) {
+            Ok(e) => e,
+            Err(err) => {
+                log::warn!(
+                    "[pkg_kernel] discover_workspace: read_dir({}) failed: {err}",
+                    workspace_dir.display()
+                );
+                return out;
+            }
+        };
+        let installed_ids: std::collections::HashSet<String> = self
+            .installed
+            .read()
+            .map(|g| g.keys().cloned().collect())
+            .unwrap_or_default();
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+            let manifest_path = path.join("manifest.json");
+            if !manifest_path.exists() {
+                continue;
+            }
+            match super::manifest::Package::load(&path) {
+                Ok(pkg) => out.push(DiscoveredPkg {
+                    id: pkg.manifest.id.clone(),
+                    name: pkg.manifest.name.clone(),
+                    version: pkg.manifest.version.clone(),
+                    install_path: path.display().to_string(),
+                    valid: true,
+                    error: None,
+                    installed: installed_ids.contains(&pkg.manifest.id),
+                    compatible: pkg.is_compatible(),
+                }),
+                Err(e) => out.push(DiscoveredPkg {
+                    id: String::new(),
+                    name: String::new(),
+                    version: String::new(),
+                    install_path: path.display().to_string(),
+                    valid: false,
+                    error: Some(format!("{e:#}")),
+                    installed: false,
+                    compatible: false,
+                }),
+            }
+        }
+        out
     }
 
     /// Auto-install built-in packages bundled with the app on first boot.
