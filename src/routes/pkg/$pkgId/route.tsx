@@ -35,13 +35,8 @@ function PkgRouteParent() {
   const { pkgId } = Route.useParams() as { pkgId: string };
   const [state, setState] = useState<State>({ kind: 'loading' });
 
-  // eslint-disable-next-line no-console
-  console.log('[pkg-route-parent] render', pkgId, state.kind);
-
   useEffect(() => {
     let cancelled = false;
-    // eslint-disable-next-line no-console
-    console.log('[pkg-route-parent] mount', pkgId);
     (async () => {
       try {
         const status = await pkgKernelStatus();

@@ -208,13 +208,20 @@ impl PkgContentServer {
             .with_context(|| format!("read {}", canon_abs.display()))?;
 
         let MintedHandle { url: base_url, token } = self.mint(pkg_id)?;
-        // Two-step rewrite:
-        //   1. inject `<base href>` (browsers that honor it resolve relatives correctly)
-        //   2. additionally rewrite `./` and bare-relative `src=` / `href=` URLs to
-        //      absolute. WebKitGTK ignores `<base>` for `srcdoc` documents (Tauri
-        //      issue #12767 territory), so without absolute URLs the iframe's
-        //      script/link subresources never fire.
-        let html = inject_base_href(&raw, &base_url);
+        // Three-step rewrite:
+        //   1. inline relative <script src> + <link rel="stylesheet" href>
+        //      bodies into the HTML. WebKitGTK silently drops loopback
+        //      subresource fetches from `about:srcdoc` documents (Tauri
+        //      #12767 territory), so the only reliable way to ship the
+        //      bundle into the iframe is to embed it in the document
+        //      itself. Dynamic imports (which we cannot inline) still go
+        //      via the axum content server using absolutized URLs.
+        //   2. inject `<base href>` for any consumers that DO honour it.
+        //   3. absolutize remaining relative `src=` / `href=` URLs (images,
+        //      fonts, dynamic-import targets the bundler emitted as URLs).
+        let html = inline_subresources(&raw, &canon_root);
+        let html = inject_base_href(&html, &base_url);
+        let html = inject_error_capture(&html);
         let html = absolutize_relative_urls(&html, &base_url);
         Ok(MintedHtml {
             html,
@@ -236,10 +243,56 @@ impl PkgContentServer {
 fn absolutize_relative_urls(html: &str, base_url: &str) -> String {
     let base = base_url.trim_end_matches('/');
     let mut out = String::with_capacity(html.len() + 256);
-    let bytes = html.as_bytes();
     let mut i = 0;
-    while i < bytes.len() {
-        // Look for `src="` or `href="` (case-insensitive, double or single quotes).
+    while i < html.len() {
+        let rest = &html[i..];
+        // Skip past any `<script>...</script>` or `<style>...</style>` block —
+        // their contents are bundle bodies (post-inlining) and contain
+        // arbitrary `src=`/`href=` literals we must not touch.
+        if let Some((skip_to, prefix_len)) = next_skip_block(rest) {
+            // skip_to is the index in `rest` of the opening `<` of script/style.
+            // We process bytes [0..skip_to] for attribute rewriting, then copy
+            // [skip_to..skip_to+prefix_len] (the whole tag + body + close) verbatim.
+            let chunk = &rest[..skip_to];
+            absolutize_chunk(chunk, base, &mut out);
+            out.push_str(&rest[skip_to..skip_to + prefix_len]);
+            i += skip_to + prefix_len;
+            continue;
+        }
+        // No more skip blocks — process the rest normally and we're done.
+        absolutize_chunk(rest, base, &mut out);
+        break;
+    }
+    out
+}
+
+/// If `s` contains a `<script` or `<style>` opener, return (start, total_len)
+/// where `total_len` covers the opening tag, body, and matching close tag.
+/// Returns None if neither is present.
+fn next_skip_block(s: &str) -> Option<(usize, usize)> {
+    let lower = s.to_ascii_lowercase();
+    let s_idx = lower.find("<script");
+    let st_idx = lower.find("<style");
+    let (start, close_tag) = match (s_idx, st_idx) {
+        (Some(a), Some(b)) => {
+            if a <= b { (a, "</script>") } else { (b, "</style>") }
+        }
+        (Some(a), None) => (a, "</script>"),
+        (None, Some(b)) => (b, "</style>"),
+        (None, None) => return None,
+    };
+    // Find end of opening tag (must close with `>` for it to count). For a
+    // self-closing void use we'd not have a body; bail if no `</closeTag>`.
+    let after_open_rel = lower[start..].find('>')?;
+    let body_start = start + after_open_rel + 1;
+    let close_rel = lower[body_start..].find(close_tag)?;
+    let close_end = body_start + close_rel + close_tag.len();
+    Some((start, close_end - start))
+}
+
+fn absolutize_chunk(html: &str, base: &str, out: &mut String) {
+    let mut i = 0;
+    while i < html.len() {
         let rest = &html[i..];
         let attr_start = rest
             .find("src=\"")
@@ -291,7 +344,173 @@ fn absolutize_relative_urls(html: &str, base_url: &str) -> String {
         // and onward).
         i += val_end;
     }
+}
+
+/// Replace relative `<script src="…">` and `<link rel="stylesheet" href="…">`
+/// tags with their on-disk contents inlined as `<script>` / `<style>`.
+///
+/// Why: WebKitGTK on Linux refuses to issue subresource fetches from
+/// `about:srcdoc` iframes targeting `http://127.0.0.1:*` (Tauri #12767
+/// territory). `<base href>` and absolutized URLs both fail. Inlining is
+/// the only reliable path. Dynamic imports inside the bundle still go
+/// through the axum server (those URLs survive `absolutize_relative_urls`).
+///
+/// Pure string transform — we don't parse HTML. Only acts on tags whose
+/// `src` / `href` value is a relative path (no scheme, no leading `/`).
+/// Reads strictly inside `dist_root`; rejects path traversal.
+fn inline_subresources(html: &str, dist_root: &Path) -> String {
+    let mut out = String::with_capacity(html.len());
+    let mut cursor = 0;
+    while cursor < html.len() {
+        let rest = &html[cursor..];
+        let s_idx = find_case_insensitive(rest, "<script");
+        let l_idx = find_case_insensitive(rest, "<link");
+        let (tag_rel, is_script) = match (s_idx, l_idx) {
+            (Some(s), Some(l)) => {
+                if s <= l { (s, true) } else { (l, false) }
+            }
+            (Some(s), None) => (s, true),
+            (None, Some(l)) => (l, false),
+            (None, None) => {
+                out.push_str(rest);
+                break;
+            }
+        };
+        let tag_start = cursor + tag_rel;
+        out.push_str(&html[cursor..tag_start]);
+        // Find end of opening tag.
+        let open_end_rel = match html[tag_start..].find('>') {
+            Some(p) => p + 1,
+            None => {
+                out.push_str(&html[tag_start..]);
+                break;
+            }
+        };
+        let open_end = tag_start + open_end_rel;
+        let open_tag = &html[tag_start..open_end];
+
+        if is_script {
+            if let Some(src) = extract_attr(open_tag, "src") {
+                if is_relative_url(&src) {
+                    let close_search = &html[open_end..];
+                    if let Some(close_rel) = find_case_insensitive(close_search, "</script>") {
+                        let close_end = open_end + close_rel + "</script>".len();
+                        match read_subresource(dist_root, &src) {
+                            Ok(content) => {
+                                let lower = open_tag.to_ascii_lowercase();
+                                let is_module = lower.contains("type=\"module\"")
+                                    || lower.contains("type='module'");
+                                if is_module {
+                                    out.push_str("<script type=\"module\">");
+                                } else {
+                                    out.push_str("<script>");
+                                }
+                                // Avoid breaking out of the script context if
+                                // the bundle contains a literal `</script>`.
+                                out.push_str(&content.replace("</script", "<\\/script"));
+                                out.push_str("</script>");
+                                cursor = close_end;
+                                continue;
+                            }
+                            Err(e) => {
+                                log::warn!(
+                                    "[pkg_content] inline script {src} failed: {e}"
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+            out.push_str(open_tag);
+            cursor = open_end;
+        } else {
+            // <link>
+            let lower = open_tag.to_ascii_lowercase();
+            let is_stylesheet = lower.contains("rel=\"stylesheet\"")
+                || lower.contains("rel='stylesheet'")
+                || lower.contains("rel=stylesheet");
+            if is_stylesheet {
+                if let Some(href) = extract_attr(open_tag, "href") {
+                    if is_relative_url(&href) {
+                        match read_subresource(dist_root, &href) {
+                            Ok(content) => {
+                                out.push_str("<style>");
+                                out.push_str(&content.replace("</style", "<\\/style"));
+                                out.push_str("</style>");
+                                cursor = open_end;
+                                continue;
+                            }
+                            Err(e) => {
+                                log::warn!(
+                                    "[pkg_content] inline stylesheet {href} failed: {e}"
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+            out.push_str(open_tag);
+            cursor = open_end;
+        }
+    }
     out
+}
+
+fn extract_attr(tag: &str, name: &str) -> Option<String> {
+    let lower = tag.to_ascii_lowercase();
+    let needles = [
+        (format!("{}=\"", name.to_ascii_lowercase()), '"'),
+        (format!("{}='", name.to_ascii_lowercase()), '\''),
+    ];
+    for (needle, quote) in &needles {
+        if let Some(p) = lower.find(needle) {
+            // Make sure we matched on a word boundary (preceded by space, tab,
+            // newline, or `<` for the opener case — but `<name=` doesn't
+            // happen for real attributes, so just check the preceding char).
+            if p > 0 {
+                let prev = tag.as_bytes()[p - 1];
+                if !(prev == b' ' || prev == b'\t' || prev == b'\n' || prev == b'\r') {
+                    continue;
+                }
+            }
+            let val_start = p + needle.len();
+            let rest = &tag[val_start..];
+            if let Some(end) = rest.find(*quote) {
+                return Some(rest[..end].to_string());
+            }
+        }
+    }
+    None
+}
+
+fn is_relative_url(url: &str) -> bool {
+    !(url.is_empty()
+        || url.starts_with('/')
+        || url.starts_with('#')
+        || url.starts_with("http://")
+        || url.starts_with("https://")
+        || url.starts_with("data:")
+        || url.starts_with("blob:")
+        || url.starts_with("about:")
+        || url.starts_with("mailto:")
+        || url.starts_with("javascript:"))
+}
+
+fn read_subresource(dist_root: &Path, url: &str) -> Result<String> {
+    // Strip query string + fragment. Vite emits hashed filenames so we don't
+    // expect either, but be defensive.
+    let bare = url.split(['?', '#']).next().unwrap_or(url);
+    let trimmed = bare.trim_start_matches("./").trim_start_matches('/');
+    let abs = dist_root.join(trimmed);
+    let canon = abs
+        .canonicalize()
+        .with_context(|| format!("canonicalize {}", abs.display()))?;
+    if !canon.starts_with(dist_root) {
+        return Err(anyhow!(
+            "subresource `{url}` resolves outside dist_root"
+        ));
+    }
+    std::fs::read_to_string(&canon).with_context(|| format!("read {}", canon.display()))
 }
 
 pub struct MintedHandle {
@@ -340,6 +559,25 @@ fn inject_base_href(html: &str, base_url: &str) -> String {
     } else {
         // Headless fragment — prepend tag.
         format!("{}{}", tag, html)
+    }
+}
+
+/// Inject a tiny error-capture script as the FIRST element inside `<head>`,
+/// before the inlined bundle. Stashes uncaught errors + rejections on
+/// `window.__pkgErrors` so the parent can read them post-load. Diagnostic-only
+/// for the iframe smoke debug; safe to keep in production (cheap, no side
+/// effects beyond the global array).
+fn inject_error_capture(html: &str) -> String {
+    let snippet = "<script>window.__pkgErrors=[];addEventListener('error',function(e){window.__pkgErrors.push({type:'error',msg:e.message,filename:e.filename,line:e.lineno,col:e.colno,stack:e.error&&e.error.stack});});addEventListener('unhandledrejection',function(e){window.__pkgErrors.push({type:'unhandledrejection',reason:String(e.reason),stack:e.reason&&e.reason.stack});});</script>";
+    if let Some(idx) = find_case_insensitive(html, "<head>") {
+        let insert_at = idx + "<head>".len();
+        let mut out = String::with_capacity(html.len() + snippet.len());
+        out.push_str(&html[..insert_at]);
+        out.push_str(snippet);
+        out.push_str(&html[insert_at..]);
+        out
+    } else {
+        format!("{}{}", snippet, html)
     }
 }
 

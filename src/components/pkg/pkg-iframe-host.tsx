@@ -87,23 +87,9 @@ export function PkgIframeHost({ pkgId, source, onInitialized }: PkgIframeHostPro
   useEffect(() => {
     let dropped = false;
     authTokenRef.current = mintPkgToken();
-    // eslint-disable-next-line no-console
-    console.log('[pkg-iframe-host] mount', pkgId, source);
     (async () => {
       try {
         const handle = await pkgContentHtml(pkgId, source);
-        // eslint-disable-next-line no-console
-        console.log('[pkg-iframe-host] got html', pkgId, handle.html.length, 'bytes');
-        // eslint-disable-next-line no-console
-        console.log('[pkg-iframe-host] base_url', handle.baseUrl);
-        // Stash full HTML on window for terminal inspection (debug only).
-        (window as unknown as { __lastPkgHtml?: string }).__lastPkgHtml = handle.html;
-        // Dump in 80-char chunks so iyke logs (which truncates) shows it all.
-        const chunks = handle.html.match(/.{1,120}/gs) ?? [];
-        chunks.forEach((c, i) => {
-          // eslint-disable-next-line no-console
-          console.log(`[pkg-iframe-host:html ${i}]`, c.replace(/\n/g, '\\n'));
-        });
         if (dropped) {
           // Effect re-ran before we got the HTML back; drop this one.
           await pkgContentRevoke(handle.token).catch(() => {});
@@ -134,16 +120,6 @@ export function PkgIframeHost({ pkgId, source, onInitialized }: PkgIframeHostPro
     let teardown: (() => void) | null = null;
 
     const onLoad = () => {
-      // eslint-disable-next-line no-console
-      console.log('[pkg-iframe-host] iframe LOAD fired', pkgId, 'docURL:', iframe.contentDocument?.URL, 'docReadyState:', iframe.contentDocument?.readyState);
-      try {
-        const docHTML = iframe.contentDocument?.documentElement?.outerHTML?.slice(0, 500);
-        // eslint-disable-next-line no-console
-        console.log('[pkg-iframe-host] iframe docHTML head:', docHTML);
-      } catch (e) {
-        // eslint-disable-next-line no-console
-        console.log('[pkg-iframe-host] could not read iframe doc:', e);
-      }
       if (!iframe.contentWindow) return;
       const transport = new PostMessageTransport(iframe.contentWindow, iframe.contentWindow);
       bridge = new AppBridge(null, HOST_INFO, HOST_CAPABILITIES, {
@@ -192,6 +168,13 @@ export function PkgIframeHost({ pkgId, source, onInitialized }: PkgIframeHostPro
       });
     };
 
+    // Race: WebKit fires `load` synchronously when srcDoc is assigned during
+    // React's commit phase, BEFORE this post-commit effect runs. So we check
+    // readyState first; if the doc is already complete we invoke onLoad
+    // ourselves. Listener is still added for the (rare) async case.
+    if (iframe.contentDocument?.readyState === 'complete') {
+      onLoad();
+    }
     iframe.addEventListener('load', onLoad);
     teardown = () => {
       iframe.removeEventListener('load', onLoad);
@@ -249,9 +232,6 @@ export function PkgIframeHost({ pkgId, source, onInitialized }: PkgIframeHostPro
   if (!srcDoc || !baseUrl) {
     return <div className="p-4 text-xs opacity-60">Loading package…</div>;
   }
-
-  // eslint-disable-next-line no-console
-  console.log('[pkg-iframe-host] rendering iframe', pkgId, 'srcDoc bytes:', srcDoc.length);
 
   // Use srcDoc (not src=) per Tauri #12767: WebKitGTK refuses to render
   // iframe DOC loads from any non-https origin (custom protocol or http
