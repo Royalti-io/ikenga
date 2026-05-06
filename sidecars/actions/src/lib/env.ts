@@ -75,8 +75,8 @@ function load(): void {
       : process.env.XDG_RUNTIME_DIR ?? "/tmp";
   const candidates = [
     process.env.PA_ACTIONS_ENV_FILE,
-    resolve(runtimeBase, "pa-actions", "env-vault"),
-    resolve(homedir(), ".config", "pa-actions", "env"),
+    resolve(runtimeBase, "ikenga-actions", "env-vault"),
+    resolve(homedir(), ".config", "ikenga-actions", "env"),
     resolve(homedir(), "royalti-co", "royalti-pa", ".env"),
   ].filter((p): p is string => Boolean(p));
 

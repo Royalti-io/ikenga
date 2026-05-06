@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { spawn } from "bun";
 import path from "node:path";
 
-const BINARY = path.resolve(import.meta.dir, "..", "dist", "pa-mbox-x86_64-unknown-linux-gnu");
+const BINARY = path.resolve(import.meta.dir, "..", "dist", "ikenga-mbox-x86_64-unknown-linux-gnu");
 const FIXTURE = path.resolve(import.meta.dir, "fixtures", "sample.mbox");
 
 interface Frame {

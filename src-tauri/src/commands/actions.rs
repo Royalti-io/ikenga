@@ -16,7 +16,7 @@ use tokio::time::timeout;
 
 use crate::sidecar::spawn_sidecar;
 
-const SIDECAR_NAME: &str = "pa-actions";
+const SIDECAR_NAME: &str = "ikenga-actions";
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(120);
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -54,7 +54,7 @@ pub async fn pa_actions_run(
     if let Some(mut stderr) = child.stderr.take() {
         tauri::async_runtime::spawn(async move {
             while let Ok(Some(line)) = stderr.next_line().await {
-                tracing::debug!(target: "pa-actions", "{}", line);
+                tracing::debug!(target: "ikenga-actions", "{}", line);
             }
         });
     }
