@@ -13,6 +13,6 @@ pub mod mcp_runtime;
 pub mod registries;
 pub mod registry;
 
-pub use kernel::{InstalledSummary, Kernel, KernelStatus};
+pub use kernel::{DiscoveredPkg, InstalledSummary, Kernel, KernelStatus};
 pub use lifecycle::SidecarSupervisor;
 pub use registry::Registry;
