@@ -1066,6 +1066,7 @@ mod tests {
             cron: vec![],
             window: None,
             queries: None,
+            capabilities: None,
         };
         m.mcp.push(McpServer {
             name: "t".into(),

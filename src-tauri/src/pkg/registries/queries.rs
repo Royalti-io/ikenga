@@ -142,6 +142,7 @@ mod tests {
             queries: Some(QueriesBlock {
                 key_prefixes: prefixes.into_iter().map(String::from).collect(),
             }),
+            capabilities: None,
         };
         Package {
             manifest,

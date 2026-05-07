@@ -989,6 +989,11 @@ export interface PkgContentHtmlHandle {
   html: string;
   baseUrl: string;
   token: string;
+  /** Resolved Supabase config when the pkg's manifest declared
+   *  `capabilities.supabase`. `null` when the pkg didn't declare it, or
+   *  declared it non-required and the vault has no keys. Pkgs that don't
+   *  declare the capability never see this field populated. */
+  supabase: { url: string; anonKey: string } | null;
 }
 
 export async function pkgContentHtml(
@@ -1021,4 +1026,70 @@ export async function pkgMcpCall(
   args: unknown,
 ): Promise<PkgMcpCallResult> {
   return invoke<PkgMcpCallResult>("pkg_mcp_call", { pkgId, tool, args });
+}
+
+// ─── Backup / restore ─────────────────────────────────────────────────────────
+//
+// Phase 1: SQLite-only bundles (.ikbak), no secrets, raw paths. Restore is
+// stage-and-swap-on-boot — `backupImport` writes a staged db + marker; the
+// next app launch picks it up before opening any pool. The frontend reads
+// `requires_restart` and prompts the user.
+
+export interface BackupManifest {
+  format_version: number;
+  schema_version: number;
+  created_at: string;
+  hostname: string;
+  username: string;
+  path_mode: "raw";
+  has_secrets: boolean;
+  pkg_count: number;
+}
+
+export interface BackupSummary {
+  path: string;
+  created_at: string;
+  size_bytes: number;
+  schema_version: number;
+  has_secrets: boolean;
+}
+
+export interface ExportResult {
+  path: string;
+  size_bytes: number;
+}
+
+export type SchemaAction =
+  | { kind: "match" }
+  | { kind: "forward"; from: number; to: number }
+  | { kind: "newer_than_app"; backup: number; app: number };
+
+export interface ImportPreview {
+  manifest: BackupManifest;
+  size_bytes: number;
+  schema_action: SchemaAction;
+}
+
+export interface ImportResult {
+  staged_at: string;
+  requires_restart: boolean;
+}
+
+export async function backupExport(destPath: string): Promise<ExportResult> {
+  return invoke<ExportResult>("backup_export", { destPath });
+}
+
+export async function backupImport(
+  srcPath: string,
+  opts: { dryRun: boolean },
+): Promise<ImportPreview | ImportResult> {
+  return invoke("backup_import", { srcPath, dryRun: opts.dryRun });
+}
+
+export async function backupList(): Promise<BackupSummary[]> {
+  return invoke<BackupSummary[]>("backup_list");
+}
+
+export async function backupDelete(path: string): Promise<void> {
+  return invoke("backup_delete", { path });
 }

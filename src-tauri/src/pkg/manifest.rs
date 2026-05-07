@@ -102,6 +102,30 @@ pub struct Manifest {
     /// TanStack Query key prefixes this package claims (collision check).
     #[serde(default)]
     pub queries: Option<QueriesBlock>,
+
+    /// Optional capabilities the host should resolve and inject at iframe-mount
+    /// time (e.g. shared Supabase URL + anon key from the Stronghold vault).
+    /// Pkgs declare what they need; the shell resolves and threads it via the
+    /// AppBridge `hostContext` handshake. Pkgs that don't declare a capability
+    /// never see the corresponding values.
+    #[serde(default)]
+    pub capabilities: Option<CapabilitiesBlock>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct CapabilitiesBlock {
+    #[serde(default)]
+    pub supabase: Option<SupabaseCapability>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SupabaseCapability {
+    /// When true, mint fails if `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY`
+    /// are missing from the vault. When false (or omitted), missing keys are
+    /// surfaced as `supabase: null` in the host context and the pkg may fall
+    /// back to its own dev `.env.local`.
+    #[serde(default)]
+    pub required: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -425,6 +449,7 @@ mod tests {
             cron: vec![],
             window: None,
             queries: None,
+            capabilities: None,
         }
     }
 

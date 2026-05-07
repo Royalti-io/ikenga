@@ -723,12 +723,24 @@ const KEY_CATALOG: KeyCategory[] = [
     ],
   },
   {
+    label: 'Pkgs (Supabase capability)',
+    keys: [
+      { name: 'VITE_SUPABASE_URL', hint: 'Shared Supabase URL for pkgs' },
+      { name: 'VITE_SUPABASE_ANON_KEY', hint: 'Shared anon key for pkgs' },
+    ],
+  },
+  {
     label: 'Payments',
     keys: [{ name: 'STRIPE_SECRET_KEY' }],
   },
 ];
 
-const DOTENV_CANDIDATES = ['~/.config/pa-actions/env', '~/royalti-co/ikenga/.env'];
+const DOTENV_CANDIDATES = [
+  '~/.config/pa-actions/env',
+  '~/.config/ikenga/env',
+  '~/royalti-co/ikenga/.env',
+  '~/royalti-co/ikenga/shell/.env.local',
+];
 const REVEAL_TIMEOUT_MS = 30_000;
 
 function ApiKeysSection() {

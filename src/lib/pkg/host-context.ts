@@ -25,12 +25,22 @@ export interface RoyaltiAuth {
   supabaseJwt: string | null;
 }
 
+export interface HostSupabaseConfig {
+  url: string;
+  anonKey: string;
+}
+
 export function buildHostContext(opts: {
   pkgId: string;
   authToken: string;
+  /** Resolved by `pkg_content_html` when the pkg declared
+   *  `capabilities.supabase`. Threaded through to the iframe so it can
+   *  configure its vendored Supabase client without baking secrets into its
+   *  build. Absent for pkgs that don't declare the capability. */
+  supabase?: HostSupabaseConfig | null;
 }): McpUiHostContext {
   const state = useIkengaStore.getState();
-  return {
+  const ctx: McpUiHostContext = {
     theme: state.mode === 'light' ? 'light' : 'dark',
     styles: {
       // Spec types `McpUiStyles` as a Record with every key required, but the
@@ -44,6 +54,10 @@ export function buildHostContext(opts: {
       supabaseJwt: currentSupabaseJwt(),
     } satisfies RoyaltiAuth,
   };
+  if (opts.supabase) {
+    (ctx as McpUiHostContext & { supabase: HostSupabaseConfig }).supabase = opts.supabase;
+  }
+  return ctx;
 }
 
 /** Read the current Supabase access token without forcing a refresh. The
