@@ -262,6 +262,81 @@ impl Kernel {
         Ok(())
     }
 
+    /// Live enable/disable. Disable walks registries in reverse so spawning
+    /// stops immediately, but keeps the row + manifest_json + child rows
+    /// (settings/permissions/migrations) so re-enabling is loss-free.
+    pub fn set_enabled(&self, pkg_id: &str, enabled: bool) -> Result<()> {
+        let lock = self.lock_for(pkg_id);
+        let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+        let current = {
+            let g = self
+                .installed
+                .read()
+                .map_err(|_| anyhow!("installed lock poisoned"))?;
+            g.get(pkg_id).cloned()
+        };
+        let Some(mut summary) = current else {
+            return Err(anyhow!("pkg not installed: {pkg_id}"));
+        };
+        if summary.enabled == enabled {
+            return Ok(());
+        }
+        if enabled {
+            let pkg = Package::load(Path::new(&summary.install_path))
+                .with_context(|| format!("load `{pkg_id}` from {}", summary.install_path))?;
+            if !pkg.is_compatible() {
+                return Err(anyhow!(
+                    "pkg `{pkg_id}` ikenga_api={} outside support window",
+                    pkg.manifest.ikenga_api
+                ));
+            }
+            let mut applied: Vec<&str> = Vec::new();
+            for reg in &self.registries {
+                if let Err(e) = reg.register(&pkg) {
+                    self.rollback(pkg_id, &applied);
+                    return Err(e);
+                }
+                applied.push(reg.name());
+            }
+        } else {
+            for reg in self.registries.iter().rev() {
+                if let Err(e) = reg.unregister(pkg_id) {
+                    log::warn!(
+                        "[pkg_kernel] unregister `{}` failed for `{pkg_id}` (continuing): {e}",
+                        reg.name()
+                    );
+                }
+            }
+        }
+        self.update_enabled_row(pkg_id, enabled)?;
+        summary.enabled = enabled;
+        self.installed
+            .write()
+            .map_err(|_| anyhow!("installed lock poisoned"))?
+            .insert(pkg_id.to_string(), summary);
+        log::info!(
+            "[pkg_kernel] {} `{pkg_id}`",
+            if enabled { "enabled" } else { "disabled" }
+        );
+        Ok(())
+    }
+
+    fn update_enabled_row(&self, pkg_id: &str, enabled: bool) -> Result<()> {
+        let db = self.db.clone();
+        let id_owned = pkg_id.to_string();
+        let val: i64 = if enabled { 1 } else { 0 };
+        tauri::async_runtime::block_on(async move {
+            let pool = db.ensure_pool().await.map_err(|e| anyhow!(e))?;
+            sqlx::query("UPDATE pkg_installed SET enabled = ? WHERE id = ?")
+                .bind(val)
+                .bind(&id_owned)
+                .execute(&pool)
+                .await
+                .map_err(|e| anyhow!("update enabled: {e}"))?;
+            Ok::<_, anyhow::Error>(())
+        })
+    }
+
     /// Discover (but do NOT install) packages under a workspace directory.
     /// Used in dev mode to surface sibling pkgs from a monorepo-style
     /// workspace (e.g. `royalti-co/ikenga/pkgs/*`) in the Pkg Manager UI so

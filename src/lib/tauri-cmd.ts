@@ -849,6 +849,10 @@ export async function pkgUninstall(pkgId: string): Promise<void> {
   return invoke("pkg_uninstall", { pkgId });
 }
 
+export async function pkgSetEnabled(pkgId: string, enabled: boolean): Promise<void> {
+  return invoke("pkg_set_enabled", { pkgId, enabled });
+}
+
 export async function pkgKernelStatus(): Promise<PkgKernelStatus> {
   return invoke<PkgKernelStatus>("pkg_kernel_status");
 }

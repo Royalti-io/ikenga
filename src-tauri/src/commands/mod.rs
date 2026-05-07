@@ -46,8 +46,8 @@ pub use iyke::{
 pub use mbox::{mbox_ping, mbox_read_all};
 pub use pkg::{
     pkg_db_diag, pkg_discover_workspace, pkg_install_from_path, pkg_kernel_status,
-    pkg_preview_manifest, pkg_settings_get, pkg_settings_set, pkg_uninstall, KernelState,
-    PkgSettingsState,
+    pkg_preview_manifest, pkg_set_enabled, pkg_settings_get, pkg_settings_set, pkg_uninstall,
+    KernelState, PkgSettingsState,
 };
 pub use pkg_content::{
     pkg_content_html, pkg_content_revoke, pkg_content_url, PkgContentState,

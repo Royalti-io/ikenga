@@ -16,6 +16,7 @@ import { Route as SettingsSmokeRouteImport } from './routes/settings-smoke'
 import { Route as PkgSmokeRouteImport } from './routes/pkg-smoke'
 import { Route as PkgKernelStatusRouteImport } from './routes/pkg-kernel-status'
 import { Route as PermsSmokeRouteImport } from './routes/perms-smoke'
+import { Route as PackagesRouteImport } from './routes/packages'
 import { Route as McpSmokeRouteImport } from './routes/mcp-smoke'
 import { Route as IykeSmokeRouteImport } from './routes/iyke-smoke'
 import { Route as InstallRouteImport } from './routes/install'
@@ -151,6 +152,11 @@ const PkgKernelStatusRoute = PkgKernelStatusRouteImport.update({
 const PermsSmokeRoute = PermsSmokeRouteImport.update({
   id: '/perms-smoke',
   path: '/perms-smoke',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PackagesRoute = PackagesRouteImport.update({
+  id: '/packages',
+  path: '/packages',
   getParentRoute: () => rootRouteImport,
 } as any)
 const McpSmokeRoute = McpSmokeRouteImport.update({
@@ -698,6 +704,7 @@ export interface FileRoutesByFullPath {
   '/install': typeof InstallRoute
   '/iyke-smoke': typeof IykeSmokeRoute
   '/mcp-smoke': typeof McpSmokeRoute
+  '/packages': typeof PackagesRoute
   '/perms-smoke': typeof PermsSmokeRoute
   '/pkg-kernel-status': typeof PkgKernelStatusRoute
   '/pkg-smoke': typeof PkgSmokeRoute
@@ -797,6 +804,7 @@ export interface FileRoutesByTo {
   '/install': typeof InstallRoute
   '/iyke-smoke': typeof IykeSmokeRoute
   '/mcp-smoke': typeof McpSmokeRoute
+  '/packages': typeof PackagesRoute
   '/perms-smoke': typeof PermsSmokeRoute
   '/pkg-kernel-status': typeof PkgKernelStatusRoute
   '/pkg-smoke': typeof PkgSmokeRoute
@@ -904,6 +912,7 @@ export interface FileRoutesById {
   '/install': typeof InstallRoute
   '/iyke-smoke': typeof IykeSmokeRoute
   '/mcp-smoke': typeof McpSmokeRoute
+  '/packages': typeof PackagesRoute
   '/perms-smoke': typeof PermsSmokeRoute
   '/pkg-kernel-status': typeof PkgKernelStatusRoute
   '/pkg-smoke': typeof PkgSmokeRoute
@@ -1016,6 +1025,7 @@ export interface FileRouteTypes {
     | '/install'
     | '/iyke-smoke'
     | '/mcp-smoke'
+    | '/packages'
     | '/perms-smoke'
     | '/pkg-kernel-status'
     | '/pkg-smoke'
@@ -1115,6 +1125,7 @@ export interface FileRouteTypes {
     | '/install'
     | '/iyke-smoke'
     | '/mcp-smoke'
+    | '/packages'
     | '/perms-smoke'
     | '/pkg-kernel-status'
     | '/pkg-smoke'
@@ -1221,6 +1232,7 @@ export interface FileRouteTypes {
     | '/install'
     | '/iyke-smoke'
     | '/mcp-smoke'
+    | '/packages'
     | '/perms-smoke'
     | '/pkg-kernel-status'
     | '/pkg-smoke'
@@ -1332,6 +1344,7 @@ export interface RootRouteChildren {
   InstallRoute: typeof InstallRoute
   IykeSmokeRoute: typeof IykeSmokeRoute
   McpSmokeRoute: typeof McpSmokeRoute
+  PackagesRoute: typeof PackagesRoute
   PermsSmokeRoute: typeof PermsSmokeRoute
   PkgKernelStatusRoute: typeof PkgKernelStatusRoute
   PkgSmokeRoute: typeof PkgSmokeRoute
@@ -1409,6 +1422,13 @@ declare module '@tanstack/react-router' {
       path: '/perms-smoke'
       fullPath: '/perms-smoke'
       preLoaderRoute: typeof PermsSmokeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/packages': {
+      id: '/packages'
+      path: '/packages'
+      fullPath: '/packages'
+      preLoaderRoute: typeof PackagesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/mcp-smoke': {
@@ -2436,6 +2456,7 @@ const rootRouteChildren: RootRouteChildren = {
   InstallRoute: InstallRoute,
   IykeSmokeRoute: IykeSmokeRoute,
   McpSmokeRoute: McpSmokeRoute,
+  PackagesRoute: PackagesRoute,
   PermsSmokeRoute: PermsSmokeRoute,
   PkgKernelStatusRoute: PkgKernelStatusRoute,
   PkgSmokeRoute: PkgSmokeRoute,
