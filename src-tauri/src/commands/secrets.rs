@@ -19,12 +19,11 @@
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, Runtime, State};
 use tauri_plugin_stronghold::stronghold::Stronghold;
-use tokio::sync::Mutex;
 
 use crate::vault_key;
 
@@ -79,7 +78,20 @@ fn open_stronghold<R: Runtime>(app: &AppHandle<R>) -> Result<Stronghold, String>
     Ok(stronghold)
 }
 
-fn with_store<F, T>(app: &AppHandle, f: F) -> Result<T, String>
+/// Read-only access. Skips the post-closure `save()` because save() against
+/// an unmutated Stronghold has been observed to wedge the plugin's actor —
+/// subsequent commands then hang on the SecretsLock forever. Reads don't
+/// need to flush anything to disk anyway.
+fn with_store_read<F, T>(app: &AppHandle, f: F) -> Result<T, String>
+where
+    F: FnOnce(&Stronghold) -> Result<T, String>,
+{
+    let stronghold = open_stronghold(app)?;
+    f(&stronghold)
+}
+
+/// Mutating access — calls `save()` after the closure to flush the snapshot.
+fn with_store_write<F, T>(app: &AppHandle, f: F) -> Result<T, String>
 where
     F: FnOnce(&Stronghold) -> Result<T, String>,
 {
@@ -130,8 +142,8 @@ pub async fn secrets_get(
     if key.as_bytes() == MANIFEST_KEY {
         return Ok(None);
     }
-    let _guard = lock.0.lock().await;
-    with_store(&app, |sh| {
+    let _guard = lock.0.lock().unwrap_or_else(|e| e.into_inner());
+    with_store_read(&app, |sh| {
         let client = sh
             .get_client(CLIENT_NAME)
             .map_err(|e| format!("get_client: {e}"))?;
@@ -158,8 +170,8 @@ pub async fn secrets_set(
     if key.as_bytes() == MANIFEST_KEY || key.is_empty() {
         return Err("invalid key".into());
     }
-    let _guard = lock.0.lock().await;
-    with_store(&app, |sh| {
+    let _guard = lock.0.lock().unwrap_or_else(|e| e.into_inner());
+    with_store_write(&app, |sh| {
         let client = sh
             .get_client(CLIENT_NAME)
             .map_err(|e| format!("get_client: {e}"))?;
@@ -185,8 +197,8 @@ pub async fn secrets_delete(
     if key.as_bytes() == MANIFEST_KEY {
         return Err("invalid key".into());
     }
-    let _guard = lock.0.lock().await;
-    with_store(&app, |sh| {
+    let _guard = lock.0.lock().unwrap_or_else(|e| e.into_inner());
+    with_store_write(&app, |sh| {
         let client = sh
             .get_client(CLIENT_NAME)
             .map_err(|e| format!("get_client: {e}"))?;
@@ -208,8 +220,8 @@ pub async fn secrets_list_keys(
     app: AppHandle,
     lock: State<'_, SecretsLock>,
 ) -> Result<Vec<String>, String> {
-    let _guard = lock.0.lock().await;
-    with_store(&app, |sh| {
+    let _guard = lock.0.lock().unwrap_or_else(|e| e.into_inner());
+    with_store_read(&app, |sh| {
         let manifest = read_manifest(sh)?;
         Ok(manifest.into_iter().collect())
     })
@@ -227,7 +239,7 @@ pub async fn secrets_vault_status(
     app: AppHandle,
     lock: State<'_, SecretsLock>,
 ) -> Result<VaultStatus, String> {
-    let _guard = lock.0.lock().await;
+    let _guard = lock.0.lock().unwrap_or_else(|e| e.into_inner());
     let backend = vault_key::keychain_backend().to_string();
     match vault_key::fetch_or_create() {
         Ok(_) => {
@@ -298,7 +310,7 @@ pub async fn secrets_import_dotenv(
     lock: State<'_, SecretsLock>,
     args: ImportDotenvArgs,
 ) -> Result<ImportDotenvResult, String> {
-    let _guard = lock.0.lock().await;
+    let _guard = lock.0.lock().unwrap_or_else(|e| e.into_inner());
     let allow: BTreeSet<String> = args.keys.iter().cloned().collect();
     let restrict = !allow.is_empty();
     let mut imported = 0u32;
@@ -321,7 +333,7 @@ pub async fn secrets_import_dotenv(
         }
     }
 
-    with_store(&app, |sh| {
+    with_store_write(&app, |sh| {
         let client = sh
             .get_client(CLIENT_NAME)
             .map_err(|e| format!("get_client: {e}"))?;
@@ -349,6 +361,39 @@ pub async fn secrets_import_dotenv(
         imported,
         skipped,
         missing_files,
+    })
+}
+
+// ─── Internal read helper (for capability resolvers) ────────────────────────
+
+/// Read a single key from the vault. Used by capability resolvers (e.g.
+/// pkg_content's supabase capability) that need to consult secrets without
+/// going through the public `secrets_get` Tauri command.
+///
+/// Honours the same lock as the Tauri commands so a concurrent set/delete
+/// can't tear an in-flight read.
+pub fn read_secret(
+    app: &AppHandle,
+    lock: &SecretsLock,
+    key: &str,
+) -> Result<Option<String>, String> {
+    if key.as_bytes() == MANIFEST_KEY {
+        return Ok(None);
+    }
+    let _guard = lock.0.lock().unwrap_or_else(|e| e.into_inner());
+    with_store_read(app, |sh| {
+        let client = sh
+            .get_client(CLIENT_NAME)
+            .map_err(|e| format!("get_client: {e}"))?;
+        let store = client.store();
+        match store.get(key.as_bytes()) {
+            Ok(Some(bytes)) => {
+                let s = String::from_utf8(bytes).map_err(|e| format!("utf8: {e}"))?;
+                Ok(Some(s))
+            }
+            Ok(None) => Ok(None),
+            Err(e) => Err(format!("store get: {e}")),
+        }
     })
 }
 

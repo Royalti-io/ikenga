@@ -22,8 +22,9 @@
 use std::sync::Arc;
 
 use serde::Serialize;
-use tauri::State;
+use tauri::{AppHandle, State};
 
+use crate::commands::secrets::{read_secret, SecretsLock};
 use crate::pkg_content::PkgContentServer;
 
 pub struct PkgContentState(pub Arc<PkgContentServer>);
@@ -51,6 +52,13 @@ pub fn pkg_content_url(
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct SupabaseHostConfig {
+    pub url: String,
+    pub anon_key: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PkgContentHtmlHandle {
     /// HTML body with `<base href>` injected — assign to `<iframe srcdoc>`.
     pub html: String,
@@ -58,14 +66,48 @@ pub struct PkgContentHtmlHandle {
     pub base_url: String,
     /// Per-iframe token; pass back to `pkg_content_revoke` on unmount.
     pub token: String,
+    /// Resolved Supabase config when the pkg declared
+    /// `capabilities.supabase`. `None` if the pkg didn't declare it, or
+    /// declared it as non-required and the vault is missing keys.
+    pub supabase: Option<SupabaseHostConfig>,
 }
 
 #[tauri::command]
-pub fn pkg_content_html(
+pub async fn pkg_content_html(
+    app: AppHandle,
     server: State<'_, PkgContentState>,
+    secrets_lock: State<'_, SecretsLock>,
     pkg_id: String,
     source: String,
 ) -> Result<PkgContentHtmlHandle, String> {
+    let supabase = match server.0.supabase_capability(&pkg_id) {
+        None => None,
+        Some(required) => {
+            let url = read_secret(&app, &secrets_lock, "VITE_SUPABASE_URL")
+                .unwrap_or_else(|e| {
+                    log::warn!("[pkg_content] vault read VITE_SUPABASE_URL failed: {e}");
+                    None
+                });
+            let anon = read_secret(&app, &secrets_lock, "VITE_SUPABASE_ANON_KEY")
+                .unwrap_or_else(|e| {
+                    log::warn!("[pkg_content] vault read VITE_SUPABASE_ANON_KEY failed: {e}");
+                    None
+                });
+            match (url, anon) {
+                (Some(u), Some(k)) if !u.is_empty() && !k.is_empty() => {
+                    Some(SupabaseHostConfig { url: u, anon_key: k })
+                }
+                _ => {
+                    if required {
+                        return Err(format!(
+                            "pkg `{pkg_id}` requires supabase capability but vault is missing VITE_SUPABASE_URL and/or VITE_SUPABASE_ANON_KEY — open Settings → Secrets to populate them"
+                        ));
+                    }
+                    None
+                }
+            }
+        }
+    };
     let h = server
         .0
         .mint_html(&pkg_id, &source)
@@ -74,6 +116,7 @@ pub fn pkg_content_html(
         html: h.html,
         base_url: h.base_url,
         token: h.token,
+        supabase,
     })
 }
 

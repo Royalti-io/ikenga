@@ -19,6 +19,7 @@ use tokio::sync::Mutex;
 use commands::db::PaDb;
 use commands::screenshot::new_pending as new_screenshot_pending;
 use commands::{
+    backup_delete, backup_export, backup_import, backup_list,
     chat_cancel, chat_send, claude_chat_kill, claude_chat_send, claude_chat_spawn,
     claude_config_load, claude_config_read_file, claude_config_unwatch, claude_config_watch,
     pa_actions_run,
@@ -157,6 +158,16 @@ pub fn run() {
                 .app_data_dir()
                 .map_err(|e| format!("app_data_dir: {e}"))?;
             std::fs::create_dir_all(&data_dir)?;
+
+            // If the user staged a backup restore last session, swap pa.db
+            // now — before any pool opens. apply_staged_restore_if_present
+            // also wipes -wal/-shm sidecars so SQLite re-derives them
+            // against the restored snapshot.
+            match commands::backup::apply_staged_restore_if_present(&data_dir) {
+                Ok(true) => log::info!("[backup] staged restore applied this boot"),
+                Ok(false) => {}
+                Err(e) => log::error!("[backup] staged restore failed: {e}"),
+            }
 
             // Db wrapper points at the same file the plugin manages.
             let db_path = data_dir.join("pa.db");
@@ -388,6 +399,11 @@ pub fn run() {
             mbox_ping,
             // pa-actions sidecar (mutations + pollers, replaces ikenga)
             pa_actions_run,
+            // backup / restore
+            backup_export,
+            backup_import,
+            backup_list,
+            backup_delete,
             // storyboard (phase 7)
             storyboard_render_still,
             storyboard_promote_rung,

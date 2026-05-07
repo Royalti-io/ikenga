@@ -71,6 +71,10 @@ export function PkgIframeHost({ pkgId, source, onInitialized }: PkgIframeHostPro
   const bridgeRef = useRef<AppBridge | null>(null);
   // We mint the auth token once per mount and reuse it across re-renders.
   const authTokenRef = useRef<string>('');
+  // Resolved by the host when the pkg declared `capabilities.supabase`.
+  // Stored in a ref so theme-flip rebuilds reuse the same value without
+  // forcing the bridge to reconnect.
+  const supabaseConfigRef = useRef<{ url: string; anonKey: string } | null>(null);
 
   // Subscribe to theme so we can push host-context-changed when it flips.
   const themeMode = useIkengaStore((s) => s.mode);
@@ -95,6 +99,7 @@ export function PkgIframeHost({ pkgId, source, onInitialized }: PkgIframeHostPro
           await pkgContentRevoke(handle.token).catch(() => {});
           return;
         }
+        supabaseConfigRef.current = handle.supabase ?? null;
         setTokenForRevoke(handle.token);
         setBaseUrl(handle.baseUrl);
         setSrcDoc(handle.html);
@@ -126,6 +131,7 @@ export function PkgIframeHost({ pkgId, source, onInitialized }: PkgIframeHostPro
         hostContext: buildHostContext({
           pkgId,
           authToken: authTokenRef.current,
+          supabase: supabaseConfigRef.current,
         }),
       });
       bridge.oncalltool = (async (params) => {
@@ -202,6 +208,7 @@ export function PkgIframeHost({ pkgId, source, onInitialized }: PkgIframeHostPro
         hostContext: buildHostContext({
           pkgId,
           authToken: authTokenRef.current,
+          supabase: supabaseConfigRef.current,
         }),
       });
     } catch {

@@ -63,6 +63,7 @@ import { Route as AgentRunsIndexRouteImport } from './routes/agent-runs/index'
 import { Route as VideoQueueRouteImport } from './routes/video/queue'
 import { Route as VideoCompositionIdRouteImport } from './routes/video/$compositionId'
 import { Route as StoryboardIdRouteImport } from './routes/storyboard/$id'
+import { Route as SettingsBackupRouteImport } from './routes/settings/backup'
 import { Route as ReportsIdRouteImport } from './routes/reports/$id'
 import { Route as MailIdRouteImport } from './routes/mail/$id'
 import { Route as HandoffsIdRouteImport } from './routes/handoffs/$id'
@@ -393,6 +394,11 @@ const StoryboardIdRoute = StoryboardIdRouteImport.update({
 } as any).lazy(() =>
   import('./routes/storyboard/$id.lazy').then((d) => d.Route),
 )
+const SettingsBackupRoute = SettingsBackupRouteImport.update({
+  id: '/settings/backup',
+  path: '/settings/backup',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ReportsIdRoute = ReportsIdRouteImport.update({
   id: '/reports/$id',
   path: '/reports/$id',
@@ -715,6 +721,7 @@ export interface FileRoutesByFullPath {
   '/handoffs/$id': typeof HandoffsIdRoute
   '/mail/$id': typeof MailIdRoute
   '/reports/$id': typeof ReportsIdRoute
+  '/settings/backup': typeof SettingsBackupRoute
   '/storyboard/$id': typeof StoryboardIdRoute
   '/video/$compositionId': typeof VideoCompositionIdRoute
   '/video/queue': typeof VideoQueueRoute
@@ -809,6 +816,7 @@ export interface FileRoutesByTo {
   '/handoffs/$id': typeof HandoffsIdRoute
   '/mail/$id': typeof MailIdRoute
   '/reports/$id': typeof ReportsIdRoute
+  '/settings/backup': typeof SettingsBackupRoute
   '/storyboard/$id': typeof StoryboardIdRoute
   '/video/$compositionId': typeof VideoCompositionIdRoute
   '/video/queue': typeof VideoQueueRoute
@@ -919,6 +927,7 @@ export interface FileRoutesById {
   '/handoffs/$id': typeof HandoffsIdRoute
   '/mail/$id': typeof MailIdRoute
   '/reports/$id': typeof ReportsIdRoute
+  '/settings/backup': typeof SettingsBackupRoute
   '/storyboard/$id': typeof StoryboardIdRoute
   '/video/$compositionId': typeof VideoCompositionIdRoute
   '/video/queue': typeof VideoQueueRoute
@@ -1030,6 +1039,7 @@ export interface FileRouteTypes {
     | '/handoffs/$id'
     | '/mail/$id'
     | '/reports/$id'
+    | '/settings/backup'
     | '/storyboard/$id'
     | '/video/$compositionId'
     | '/video/queue'
@@ -1124,6 +1134,7 @@ export interface FileRouteTypes {
     | '/handoffs/$id'
     | '/mail/$id'
     | '/reports/$id'
+    | '/settings/backup'
     | '/storyboard/$id'
     | '/video/$compositionId'
     | '/video/queue'
@@ -1233,6 +1244,7 @@ export interface FileRouteTypes {
     | '/handoffs/$id'
     | '/mail/$id'
     | '/reports/$id'
+    | '/settings/backup'
     | '/storyboard/$id'
     | '/video/$compositionId'
     | '/video/queue'
@@ -1330,6 +1342,7 @@ export interface RootRouteChildren {
   PkgPkgIdRouteRoute: typeof PkgPkgIdRouteRouteWithChildren
   HandoffsIdRoute: typeof HandoffsIdRoute
   ReportsIdRoute: typeof ReportsIdRoute
+  SettingsBackupRoute: typeof SettingsBackupRoute
   AgentRunsIndexRoute: typeof AgentRunsIndexRoute
   ApprovalsIndexRoute: typeof ApprovalsIndexRoute
   CalendarIndexRoute: typeof CalendarIndexRoute
@@ -1726,6 +1739,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/storyboard/$id'
       preLoaderRoute: typeof StoryboardIdRouteImport
       parentRoute: typeof StoryboardRouteRoute
+    }
+    '/settings/backup': {
+      id: '/settings/backup'
+      path: '/settings/backup'
+      fullPath: '/settings/backup'
+      preLoaderRoute: typeof SettingsBackupRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/reports/$id': {
       id: '/reports/$id'
@@ -2426,6 +2446,7 @@ const rootRouteChildren: RootRouteChildren = {
   PkgPkgIdRouteRoute: PkgPkgIdRouteRouteWithChildren,
   HandoffsIdRoute: HandoffsIdRoute,
   ReportsIdRoute: ReportsIdRoute,
+  SettingsBackupRoute: SettingsBackupRoute,
   AgentRunsIndexRoute: AgentRunsIndexRoute,
   ApprovalsIndexRoute: ApprovalsIndexRoute,
   CalendarIndexRoute: CalendarIndexRoute,

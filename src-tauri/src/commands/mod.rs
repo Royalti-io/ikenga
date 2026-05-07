@@ -4,6 +4,7 @@
 //! Rust side.
 
 pub mod actions;
+pub mod backup;
 pub mod chat;
 pub mod claude;
 pub mod claude_config;
@@ -24,6 +25,7 @@ pub mod storyboard;
 pub mod viewer;
 
 pub use actions::pa_actions_run;
+pub use backup::{backup_delete, backup_export, backup_import, backup_list};
 pub use chat::{chat_cancel, chat_send};
 pub use claude::{
     claude_chat_kill, claude_chat_send, claude_chat_spawn, claude_list_sessions,

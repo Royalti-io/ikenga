@@ -41,7 +41,12 @@ glob = "0.3"
 trash = "5"
 hex = "0.4"
 rand = "0.8"
-keyring = "3"
+# Without an explicit platform backend feature, keyring 3 falls back to a
+# mock in-memory store — every app launch generates a fresh random vault
+# key, the previous Stronghold snapshot can't be decrypted, and every secret
+# op after the first session errors with BadFileKey. Enable platform-native
+# persistent backends so the vault key survives across launches.
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"
@@ -65,6 +70,10 @@ serde_yaml = "0.9"
 # tokio-interval loop so we get real cron-expression semantics (6-field with
 # seconds, used by smoke tests for `* * * * * *`).
 tokio-cron-scheduler = "0.13"
+# Backup/restore: zip-archive read+write. Defaults are fine — we use Stored
+# (no compression) for app.db since SQLite content is incompressible enough
+# that the CPU cost isn't worth it, and Deflate for manifest.json.
+zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # Mac-only polish: window vibrancy + dock-tile badge for unread counts.

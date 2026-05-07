@@ -64,6 +64,11 @@ struct PkgEntry {
     csp_overrides: HashMap<String, Vec<String>>,
     /// `ui.permissions` overrides → Permission-Policy directives.
     perm_overrides: HashMap<String, Vec<String>>,
+    /// Whether the pkg declares `capabilities.supabase` and what it expects.
+    /// `None` = no declaration; the pkg never sees URL/anon-key. `Some(true)`
+    /// = required (mint fails if vault keys missing). `Some(false)` = opt-in,
+    /// missing keys surface as null.
+    supabase_required: Option<bool>,
 }
 
 #[derive(Clone)]
@@ -153,6 +158,13 @@ impl PkgContentServer {
             .push(token.clone());
         let url = format!("http://{}/{}/{}/", addr, pkg_id, token);
         Ok(MintedHandle { url, token })
+    }
+
+    /// Capability declaration for a registered pkg's supabase block. Returns
+    /// `None` if the pkg isn't registered or didn't declare the capability;
+    /// `Some(required)` when it did.
+    pub fn supabase_capability(&self, pkg_id: &str) -> Option<bool> {
+        self.pkgs.get(pkg_id).and_then(|e| e.supabase_required)
     }
 
     /// Revoke a single token (iframe unmount).
@@ -616,12 +628,19 @@ impl Registry for PkgContentServer {
         }
         let csp_overrides = ui.csp.clone().unwrap_or_default();
         let perm_overrides = ui.permissions.clone().unwrap_or_default();
+        let supabase_required = pkg
+            .manifest
+            .capabilities
+            .as_ref()
+            .and_then(|c| c.supabase.as_ref())
+            .map(|s| s.required);
         self.pkgs.insert(
             pkg.manifest.id.clone(),
             PkgEntry {
                 dist_root,
                 csp_overrides,
                 perm_overrides,
+                supabase_required,
             },
         );
         Ok(())
