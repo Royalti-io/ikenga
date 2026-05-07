@@ -42,6 +42,18 @@ pub fn pkg_uninstall(kernel: State<'_, KernelState>, pkg_id: String) -> Result<(
 }
 
 #[tauri::command]
+pub fn pkg_set_enabled(
+    kernel: State<'_, KernelState>,
+    pkg_id: String,
+    enabled: bool,
+) -> Result<(), String> {
+    kernel
+        .0
+        .set_enabled(&pkg_id, enabled)
+        .map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
 pub fn pkg_kernel_status(kernel: State<'_, KernelState>) -> KernelStatus {
     kernel.0.status()
 }

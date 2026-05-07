@@ -1,4 +1,4 @@
-import { createFileRoute } from '@tanstack/react-router';
+import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import { open as openDialog, confirm as confirmDialog } from '@tauri-apps/plugin-dialog';
@@ -17,6 +17,7 @@ import {
   AlertTriangle,
   Eye,
   EyeOff,
+  Package,
   Pencil,
   Plus,
   Download,
@@ -257,6 +258,8 @@ function SettingsPage() {
         <LayoutResetSection />
         <ClearDataSection />
 
+        <PackagesSection />
+
         <ApiKeysSection />
 
         <section className="space-y-3">
@@ -271,6 +274,33 @@ function SettingsPage() {
         </section>
       </div>
     </div>
+  );
+}
+
+// ─── Packages ────────────────────────────────────────────────────────────────
+
+function PackagesSection() {
+  const navigate = useNavigate();
+  return (
+    <section className="space-y-3">
+      <div>
+        <h2 className="text-sm font-semibold">Packages</h2>
+        <p className="text-xs text-muted-foreground">
+          Sidecars, cron, MCP, iyke routes, skills, and UI mounts shipped as installable pkgs.
+          Manage what's running, enable/disable, or uninstall.
+        </p>
+      </div>
+      <div className="flex gap-2">
+        <Button variant="outline" size="sm" onClick={() => navigate({ to: '/packages' })}>
+          <Package className="mr-1 h-3.5 w-3.5" />
+          Manage packages
+        </Button>
+        <Button variant="ghost" size="sm" onClick={() => navigate({ to: '/install' })}>
+          <Plus className="mr-1 h-3.5 w-3.5" />
+          Install a package
+        </Button>
+      </div>
+    </section>
   );
 }
 

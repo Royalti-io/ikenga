@@ -35,7 +35,7 @@ use commands::{
     pkg_content_html, pkg_content_revoke, pkg_content_url, pkg_db_diag, pkg_discover_workspace,
     pkg_install_from_path, pkg_kernel_status,
     pkg_mcp_call, pkg_preview_manifest, pkg_settings_get, pkg_settings_set, pkg_supervisor_restart,
-    pkg_uninstall, dev_bind_port, dev_release_port,
+    pkg_uninstall, pkg_set_enabled, dev_bind_port, dev_release_port,
     secrets_set, secrets_vault_status, PkgContentState, SidecarSupervisorState,
     set_dock_badge, spike_grant_fs_read, spike_setup_test_file, KernelState, PkgSettingsState,
     SecretsLock,
@@ -425,6 +425,7 @@ pub fn run() {
             // pkg kernel
             pkg_install_from_path,
             pkg_uninstall,
+            pkg_set_enabled,
             pkg_kernel_status,
             pkg_discover_workspace,
             pkg_db_diag,
