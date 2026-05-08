@@ -32,22 +32,39 @@ export async function captureToPng(target: HTMLElement): Promise<CaptureOutput> 
   // `scale: window.devicePixelRatio` keeps Retina/HiDPI sharp without
   // reading the actual compositor; `backgroundColor: null` preserves
   // transparency edges from rounded panel borders.
-  // `filter` skips iframes (cross-origin contentDocument access throws,
-  // which modern-screenshot treats as a fetch-pending hang) and any node
-  // explicitly opted out via `data-screenshot="skip"`.
+  //
+  // Iframes are walked into (since Phase 1 same-origin viewer-server) so
+  // artifact pane content reaches the PNG. `data-screenshot="skip"` opts
+  // a node out.
+  //
+  // `font: false` skips `embedWebFont` entirely. The shell's index.html
+  // loads Google Fonts via `<link>`; the resulting cross-origin
+  // CSSStyleSheet throws SecurityError on `cssRules` access (which
+  // modern-screenshot catches but logs). Either way no fonts are
+  // inlined — system fallbacks render fine, the SVG foreignObject uses
+  // whatever the browser already has loaded. Skipping saves the
+  // stylesheet walk + any same-origin @font-face URL fetches.
+  //
+  // `fetch.requestInit.cache: 'force-cache'` keeps any unforeseen image
+  // fetches from re-hitting the network on every capture.
+  //
+  // `timeout: 3000` lowers modern-screenshot's per-request fetch
+  // timeout (default 30s) so a hypothetical hung external fetch can't
+  // eat the entire FE_CAPTURE_TIMEOUT_MS budget. With `font: false`
+  // there should be no network at all on the steady-state path; this
+  // is defence-in-depth for future iframe content that might inline
+  // remote images.
   const blobPromise = domToBlob(target, {
     scale: window.devicePixelRatio || 1,
     type: 'image/png',
     backgroundColor: null,
+    font: false,
+    timeout: 3000,
     filter: (node) => {
       if (!(node instanceof Element)) return true;
-      if (node.tagName === 'IFRAME') return false;
       if (node.getAttribute('data-screenshot') === 'skip') return false;
       return true;
     },
-    // Keep modern-screenshot from waiting on font HTTP fetches that may
-    // never resolve in the embedded webview — system fonts are already
-    // available from CSS.
     fetch: { requestInit: { cache: 'force-cache' } },
   });
 
