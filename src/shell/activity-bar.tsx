@@ -11,6 +11,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { useShellStore, type ActivityMode, type CoreMode } from '@/lib/shell/shell-store';
+import { usePaneStore } from '@/lib/panes/pane-store';
 import { useIkengaStore, type IkengaWorkspace } from '@/lib/ikenga/theme-store';
 import { MINI_APPS } from './mini-apps-config';
 import { cn } from '@/components/ui/utils';
@@ -76,6 +77,30 @@ export function ActivityBar() {
     setWorkspace(modeToWorkspace(activeMode));
   }, [activeMode, setWorkspace]);
 
+  // Settings is a real route, not a sidebar mode. Clicking the rail icon (or
+  // hitting ⌘,) needs to: flip activeMode (for workspace tint) AND open
+  // /settings in the focused pane.
+  //
+  // We drive the pane store directly rather than going through
+  // `useNavigate()` (workspace router). The workspace router de-duplicates
+  // navigations — if the URL already matches `/settings/appearance` (e.g.
+  // because Direction B in router-pane-sync left it there before the user
+  // switched the focused tab to a non-route view), `navigate()` is a no-op
+  // and the focused pane never gets the action. Calling navigateFocused
+  // directly is unconditional; Direction B then syncs URL afterward.
+  //
+  // We pass the canonical landing path `/settings/appearance` (matching the
+  // /settings → /settings/appearance redirect) so dedup hits an already-open
+  // settings tab rather than creating a duplicate.
+  const SETTINGS_LANDING = '/settings/appearance';
+
+  function handleSelectMode(mode: ActivityMode) {
+    setActiveMode(mode);
+    if (mode === 'settings') {
+      usePaneStore.getState().navigateFocused(SETTINGS_LANDING);
+    }
+  }
+
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       const mod = e.metaKey || e.ctrlKey;
@@ -86,6 +111,9 @@ export function ActivityBar() {
       if (!next) return;
       e.preventDefault();
       setActiveMode(next);
+      if (next === 'settings') {
+        usePaneStore.getState().navigateFocused(SETTINGS_LANDING);
+      }
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -105,7 +133,7 @@ export function ActivityBar() {
           Icon={item.Icon}
           shortcut={item.shortcut}
           isActive={activeMode === item.mode}
-          onSelect={setActiveMode}
+          onSelect={handleSelectMode}
         />
       ))}
 
@@ -125,7 +153,7 @@ export function ActivityBar() {
           Icon={app.Icon}
           shortcut={app.phaseTag}
           isActive={activeMode === app.id}
-          onSelect={setActiveMode}
+          onSelect={handleSelectMode}
         />
       ))}
 
@@ -139,7 +167,7 @@ export function ActivityBar() {
           Icon={item.Icon}
           shortcut={item.shortcut}
           isActive={activeMode === item.mode}
-          onSelect={setActiveMode}
+          onSelect={handleSelectMode}
         />
       ))}
     </nav>

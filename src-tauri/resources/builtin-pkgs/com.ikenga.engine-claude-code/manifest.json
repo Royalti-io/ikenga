@@ -1,0 +1,38 @@
+{
+  "id": "com.ikenga.engine-claude-code",
+  "name": "Claude Code Engine",
+  "version": "0.1.0",
+  "ikenga_api": "1",
+  "kind": "engine",
+
+  "author": {
+    "name": "Royalti",
+    "key": "royalti"
+  },
+
+  "ui": {},
+
+  "permissions": {
+    "shell.execute": ["claude"],
+    "fs.read": ["$pkg_data/sessions/**"],
+    "fs.write": ["$pkg_data/sessions/**"]
+  },
+
+  "settings": {
+    "schema": [
+      {
+        "key": "claude_binary",
+        "type": "string",
+        "label": "Path to `claude` CLI",
+        "default": "claude",
+        "description": "Resolved against $PATH if not absolute."
+      },
+      {
+        "key": "model",
+        "type": "string",
+        "label": "Default model",
+        "default": "claude-sonnet-4-6"
+      }
+    ]
+  }
+}
