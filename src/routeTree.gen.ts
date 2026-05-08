@@ -28,7 +28,6 @@ import { Route as StoryboardRouteRouteImport } from './routes/storyboard/route'
 import { Route as SessionsRouteRouteImport } from './routes/sessions/route'
 import { Route as OutboxRouteRouteImport } from './routes/outbox/route'
 import { Route as MailRouteRouteImport } from './routes/mail/route'
-import { Route as FundraisingRouteRouteImport } from './routes/fundraising/route'
 import { Route as FinanceRouteRouteImport } from './routes/finance/route'
 import { Route as EmailsRouteRouteImport } from './routes/emails/route'
 import { Route as EmailQueueRouteRouteImport } from './routes/email-queue/route'
@@ -40,14 +39,11 @@ import { Route as TriageIndexRouteImport } from './routes/triage/index'
 import { Route as StoryboardIndexRouteImport } from './routes/storyboard/index'
 import { Route as SettingsIndexRouteImport } from './routes/settings/index'
 import { Route as SessionsIndexRouteImport } from './routes/sessions/index'
-import { Route as SalesIndexRouteImport } from './routes/sales/index'
 import { Route as ReportsIndexRouteImport } from './routes/reports/index'
-import { Route as PartnershipsIndexRouteImport } from './routes/partnerships/index'
 import { Route as OutboxIndexRouteImport } from './routes/outbox/index'
 import { Route as MailIndexRouteImport } from './routes/mail/index'
 import { Route as InboxIndexRouteImport } from './routes/inbox/index'
 import { Route as HandoffsIndexRouteImport } from './routes/handoffs/index'
-import { Route as FundraisingIndexRouteImport } from './routes/fundraising/index'
 import { Route as FinanceIndexRouteImport } from './routes/finance/index'
 import { Route as ExecutiveIndexRouteImport } from './routes/executive/index'
 import { Route as EmailsIndexRouteImport } from './routes/emails/index'
@@ -91,8 +87,6 @@ import { Route as MailTriageIndexRouteImport } from './routes/mail/triage/index'
 import { Route as MailInboxIndexRouteImport } from './routes/mail/inbox/index'
 import { Route as MailDraftsIndexRouteImport } from './routes/mail/drafts/index'
 import { Route as MailAllIndexRouteImport } from './routes/mail/all/index'
-import { Route as FundraisingApprovalsIndexRouteImport } from './routes/fundraising/approvals/index'
-import { Route as FundraisingAnalyticsIndexRouteImport } from './routes/fundraising/analytics/index'
 import { Route as FinanceReportsIndexRouteImport } from './routes/finance/reports/index'
 import { Route as FinanceReceivablesIndexRouteImport } from './routes/finance/receivables/index'
 import { Route as FinanceInterCompanyIndexRouteImport } from './routes/finance/inter-company/index'
@@ -212,11 +206,6 @@ const MailRouteRoute = MailRouteRouteImport.update({
   path: '/mail',
   getParentRoute: () => rootRouteImport,
 } as any)
-const FundraisingRouteRoute = FundraisingRouteRouteImport.update({
-  id: '/fundraising',
-  path: '/fundraising',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const FinanceRouteRoute = FinanceRouteRouteImport.update({
   id: '/finance',
   path: '/finance',
@@ -274,19 +263,9 @@ const SessionsIndexRoute = SessionsIndexRouteImport.update({
   path: '/',
   getParentRoute: () => SessionsRouteRoute,
 } as any)
-const SalesIndexRoute = SalesIndexRouteImport.update({
-  id: '/sales/',
-  path: '/sales/',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const ReportsIndexRoute = ReportsIndexRouteImport.update({
   id: '/reports/',
   path: '/reports/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const PartnershipsIndexRoute = PartnershipsIndexRouteImport.update({
-  id: '/partnerships/',
-  path: '/partnerships/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const OutboxIndexRoute = OutboxIndexRouteImport.update({
@@ -308,11 +287,6 @@ const HandoffsIndexRoute = HandoffsIndexRouteImport.update({
   id: '/handoffs/',
   path: '/handoffs/',
   getParentRoute: () => rootRouteImport,
-} as any)
-const FundraisingIndexRoute = FundraisingIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => FundraisingRouteRoute,
 } as any)
 const FinanceIndexRoute = FinanceIndexRouteImport.update({
   id: '/',
@@ -534,18 +508,6 @@ const MailAllIndexRoute = MailAllIndexRouteImport.update({
   path: '/all/',
   getParentRoute: () => MailRouteRoute,
 } as any)
-const FundraisingApprovalsIndexRoute =
-  FundraisingApprovalsIndexRouteImport.update({
-    id: '/approvals/',
-    path: '/approvals/',
-    getParentRoute: () => FundraisingRouteRoute,
-  } as any)
-const FundraisingAnalyticsIndexRoute =
-  FundraisingAnalyticsIndexRouteImport.update({
-    id: '/analytics/',
-    path: '/analytics/',
-    getParentRoute: () => FundraisingRouteRoute,
-  } as any)
 const FinanceReportsIndexRoute = FinanceReportsIndexRouteImport.update({
   id: '/reports/',
   path: '/reports/',
@@ -680,7 +642,6 @@ export interface FileRoutesByFullPath {
   '/email-queue': typeof EmailQueueRouteRouteWithChildren
   '/emails': typeof EmailsRouteRouteWithChildren
   '/finance': typeof FinanceRouteRouteWithChildren
-  '/fundraising': typeof FundraisingRouteRouteWithChildren
   '/mail': typeof MailRouteRouteWithChildren
   '/outbox': typeof OutboxRouteRouteWithChildren
   '/sessions': typeof SessionsRouteRouteWithChildren
@@ -731,14 +692,11 @@ export interface FileRoutesByFullPath {
   '/emails/': typeof EmailsIndexRoute
   '/executive/': typeof ExecutiveIndexRoute
   '/finance/': typeof FinanceIndexRoute
-  '/fundraising/': typeof FundraisingIndexRoute
   '/handoffs/': typeof HandoffsIndexRoute
   '/inbox/': typeof InboxIndexRoute
   '/mail/': typeof MailIndexRoute
   '/outbox/': typeof OutboxIndexRoute
-  '/partnerships/': typeof PartnershipsIndexRoute
   '/reports/': typeof ReportsIndexRoute
-  '/sales/': typeof SalesIndexRoute
   '/sessions/': typeof SessionsIndexRoute
   '/settings/': typeof SettingsIndexRoute
   '/storyboard/': typeof StoryboardIndexRoute
@@ -755,8 +713,6 @@ export interface FileRoutesByFullPath {
   '/finance/inter-company/': typeof FinanceInterCompanyIndexRoute
   '/finance/receivables/': typeof FinanceReceivablesIndexRoute
   '/finance/reports/': typeof FinanceReportsIndexRoute
-  '/fundraising/analytics/': typeof FundraisingAnalyticsIndexRoute
-  '/fundraising/approvals/': typeof FundraisingApprovalsIndexRoute
   '/mail/all/': typeof MailAllIndexRoute
   '/mail/drafts/': typeof MailDraftsIndexRoute
   '/mail/inbox/': typeof MailInboxIndexRoute
@@ -825,14 +781,11 @@ export interface FileRoutesByTo {
   '/emails': typeof EmailsIndexRoute
   '/executive': typeof ExecutiveIndexRoute
   '/finance': typeof FinanceIndexRoute
-  '/fundraising': typeof FundraisingIndexRoute
   '/handoffs': typeof HandoffsIndexRoute
   '/inbox': typeof InboxIndexRoute
   '/mail': typeof MailIndexRoute
   '/outbox': typeof OutboxIndexRoute
-  '/partnerships': typeof PartnershipsIndexRoute
   '/reports': typeof ReportsIndexRoute
-  '/sales': typeof SalesIndexRoute
   '/sessions': typeof SessionsIndexRoute
   '/settings': typeof SettingsIndexRoute
   '/storyboard': typeof StoryboardIndexRoute
@@ -849,8 +802,6 @@ export interface FileRoutesByTo {
   '/finance/inter-company': typeof FinanceInterCompanyIndexRoute
   '/finance/receivables': typeof FinanceReceivablesIndexRoute
   '/finance/reports': typeof FinanceReportsIndexRoute
-  '/fundraising/analytics': typeof FundraisingAnalyticsIndexRoute
-  '/fundraising/approvals': typeof FundraisingApprovalsIndexRoute
   '/mail/all': typeof MailAllIndexRoute
   '/mail/drafts': typeof MailDraftsIndexRoute
   '/mail/inbox': typeof MailInboxIndexRoute
@@ -884,7 +835,6 @@ export interface FileRoutesById {
   '/email-queue': typeof EmailQueueRouteRouteWithChildren
   '/emails': typeof EmailsRouteRouteWithChildren
   '/finance': typeof FinanceRouteRouteWithChildren
-  '/fundraising': typeof FundraisingRouteRouteWithChildren
   '/mail': typeof MailRouteRouteWithChildren
   '/outbox': typeof OutboxRouteRouteWithChildren
   '/sessions': typeof SessionsRouteRouteWithChildren
@@ -935,14 +885,11 @@ export interface FileRoutesById {
   '/emails/': typeof EmailsIndexRoute
   '/executive/': typeof ExecutiveIndexRoute
   '/finance/': typeof FinanceIndexRoute
-  '/fundraising/': typeof FundraisingIndexRoute
   '/handoffs/': typeof HandoffsIndexRoute
   '/inbox/': typeof InboxIndexRoute
   '/mail/': typeof MailIndexRoute
   '/outbox/': typeof OutboxIndexRoute
-  '/partnerships/': typeof PartnershipsIndexRoute
   '/reports/': typeof ReportsIndexRoute
-  '/sales/': typeof SalesIndexRoute
   '/sessions/': typeof SessionsIndexRoute
   '/settings/': typeof SettingsIndexRoute
   '/storyboard/': typeof StoryboardIndexRoute
@@ -959,8 +906,6 @@ export interface FileRoutesById {
   '/finance/inter-company/': typeof FinanceInterCompanyIndexRoute
   '/finance/receivables/': typeof FinanceReceivablesIndexRoute
   '/finance/reports/': typeof FinanceReportsIndexRoute
-  '/fundraising/analytics/': typeof FundraisingAnalyticsIndexRoute
-  '/fundraising/approvals/': typeof FundraisingApprovalsIndexRoute
   '/mail/all/': typeof MailAllIndexRoute
   '/mail/drafts/': typeof MailDraftsIndexRoute
   '/mail/inbox/': typeof MailInboxIndexRoute
@@ -995,7 +940,6 @@ export interface FileRouteTypes {
     | '/email-queue'
     | '/emails'
     | '/finance'
-    | '/fundraising'
     | '/mail'
     | '/outbox'
     | '/sessions'
@@ -1046,14 +990,11 @@ export interface FileRouteTypes {
     | '/emails/'
     | '/executive/'
     | '/finance/'
-    | '/fundraising/'
     | '/handoffs/'
     | '/inbox/'
     | '/mail/'
     | '/outbox/'
-    | '/partnerships/'
     | '/reports/'
-    | '/sales/'
     | '/sessions/'
     | '/settings/'
     | '/storyboard/'
@@ -1070,8 +1011,6 @@ export interface FileRouteTypes {
     | '/finance/inter-company/'
     | '/finance/receivables/'
     | '/finance/reports/'
-    | '/fundraising/analytics/'
-    | '/fundraising/approvals/'
     | '/mail/all/'
     | '/mail/drafts/'
     | '/mail/inbox/'
@@ -1140,14 +1079,11 @@ export interface FileRouteTypes {
     | '/emails'
     | '/executive'
     | '/finance'
-    | '/fundraising'
     | '/handoffs'
     | '/inbox'
     | '/mail'
     | '/outbox'
-    | '/partnerships'
     | '/reports'
-    | '/sales'
     | '/sessions'
     | '/settings'
     | '/storyboard'
@@ -1164,8 +1100,6 @@ export interface FileRouteTypes {
     | '/finance/inter-company'
     | '/finance/receivables'
     | '/finance/reports'
-    | '/fundraising/analytics'
-    | '/fundraising/approvals'
     | '/mail/all'
     | '/mail/drafts'
     | '/mail/inbox'
@@ -1198,7 +1132,6 @@ export interface FileRouteTypes {
     | '/email-queue'
     | '/emails'
     | '/finance'
-    | '/fundraising'
     | '/mail'
     | '/outbox'
     | '/sessions'
@@ -1249,14 +1182,11 @@ export interface FileRouteTypes {
     | '/emails/'
     | '/executive/'
     | '/finance/'
-    | '/fundraising/'
     | '/handoffs/'
     | '/inbox/'
     | '/mail/'
     | '/outbox/'
-    | '/partnerships/'
     | '/reports/'
-    | '/sales/'
     | '/sessions/'
     | '/settings/'
     | '/storyboard/'
@@ -1273,8 +1203,6 @@ export interface FileRouteTypes {
     | '/finance/inter-company/'
     | '/finance/receivables/'
     | '/finance/reports/'
-    | '/fundraising/analytics/'
-    | '/fundraising/approvals/'
     | '/mail/all/'
     | '/mail/drafts/'
     | '/mail/inbox/'
@@ -1308,7 +1236,6 @@ export interface RootRouteChildren {
   EmailQueueRouteRoute: typeof EmailQueueRouteRouteWithChildren
   EmailsRouteRoute: typeof EmailsRouteRouteWithChildren
   FinanceRouteRoute: typeof FinanceRouteRouteWithChildren
-  FundraisingRouteRoute: typeof FundraisingRouteRouteWithChildren
   MailRouteRoute: typeof MailRouteRouteWithChildren
   OutboxRouteRoute: typeof OutboxRouteRouteWithChildren
   SessionsRouteRoute: typeof SessionsRouteRouteWithChildren
@@ -1340,9 +1267,7 @@ export interface RootRouteChildren {
   ExecutiveIndexRoute: typeof ExecutiveIndexRoute
   HandoffsIndexRoute: typeof HandoffsIndexRoute
   InboxIndexRoute: typeof InboxIndexRoute
-  PartnershipsIndexRoute: typeof PartnershipsIndexRoute
   ReportsIndexRoute: typeof ReportsIndexRoute
-  SalesIndexRoute: typeof SalesIndexRoute
   SettingsIndexRoute: typeof SettingsIndexRoute
   TriageIndexRoute: typeof TriageIndexRoute
 }
@@ -1482,13 +1407,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MailRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/fundraising': {
-      id: '/fundraising'
-      path: '/fundraising'
-      fullPath: '/fundraising'
-      preLoaderRoute: typeof FundraisingRouteRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/finance': {
       id: '/finance'
       path: '/finance'
@@ -1566,25 +1484,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SessionsIndexRouteImport
       parentRoute: typeof SessionsRouteRoute
     }
-    '/sales/': {
-      id: '/sales/'
-      path: '/sales'
-      fullPath: '/sales/'
-      preLoaderRoute: typeof SalesIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/reports/': {
       id: '/reports/'
       path: '/reports'
       fullPath: '/reports/'
       preLoaderRoute: typeof ReportsIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/partnerships/': {
-      id: '/partnerships/'
-      path: '/partnerships'
-      fullPath: '/partnerships/'
-      preLoaderRoute: typeof PartnershipsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/outbox/': {
@@ -1614,13 +1518,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/handoffs/'
       preLoaderRoute: typeof HandoffsIndexRouteImport
       parentRoute: typeof rootRouteImport
-    }
-    '/fundraising/': {
-      id: '/fundraising/'
-      path: '/'
-      fullPath: '/fundraising/'
-      preLoaderRoute: typeof FundraisingIndexRouteImport
-      parentRoute: typeof FundraisingRouteRoute
     }
     '/finance/': {
       id: '/finance/'
@@ -1923,20 +1820,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MailAllIndexRouteImport
       parentRoute: typeof MailRouteRoute
     }
-    '/fundraising/approvals/': {
-      id: '/fundraising/approvals/'
-      path: '/approvals'
-      fullPath: '/fundraising/approvals/'
-      preLoaderRoute: typeof FundraisingApprovalsIndexRouteImport
-      parentRoute: typeof FundraisingRouteRoute
-    }
-    '/fundraising/analytics/': {
-      id: '/fundraising/analytics/'
-      path: '/analytics'
-      fullPath: '/fundraising/analytics/'
-      preLoaderRoute: typeof FundraisingAnalyticsIndexRouteImport
-      parentRoute: typeof FundraisingRouteRoute
-    }
     '/finance/reports/': {
       id: '/finance/reports/'
       path: '/reports'
@@ -2206,21 +2089,6 @@ const FinanceRouteRouteWithChildren = FinanceRouteRoute._addFileChildren(
   FinanceRouteRouteChildren,
 )
 
-interface FundraisingRouteRouteChildren {
-  FundraisingIndexRoute: typeof FundraisingIndexRoute
-  FundraisingAnalyticsIndexRoute: typeof FundraisingAnalyticsIndexRoute
-  FundraisingApprovalsIndexRoute: typeof FundraisingApprovalsIndexRoute
-}
-
-const FundraisingRouteRouteChildren: FundraisingRouteRouteChildren = {
-  FundraisingIndexRoute: FundraisingIndexRoute,
-  FundraisingAnalyticsIndexRoute: FundraisingAnalyticsIndexRoute,
-  FundraisingApprovalsIndexRoute: FundraisingApprovalsIndexRoute,
-}
-
-const FundraisingRouteRouteWithChildren =
-  FundraisingRouteRoute._addFileChildren(FundraisingRouteRouteChildren)
-
 interface MailRouteRouteChildren {
   MailIdRoute: typeof MailIdRoute
   MailIndexRoute: typeof MailIndexRoute
@@ -2404,7 +2272,6 @@ const rootRouteChildren: RootRouteChildren = {
   EmailQueueRouteRoute: EmailQueueRouteRouteWithChildren,
   EmailsRouteRoute: EmailsRouteRouteWithChildren,
   FinanceRouteRoute: FinanceRouteRouteWithChildren,
-  FundraisingRouteRoute: FundraisingRouteRouteWithChildren,
   MailRouteRoute: MailRouteRouteWithChildren,
   OutboxRouteRoute: OutboxRouteRouteWithChildren,
   SessionsRouteRoute: SessionsRouteRouteWithChildren,
@@ -2436,9 +2303,7 @@ const rootRouteChildren: RootRouteChildren = {
   ExecutiveIndexRoute: ExecutiveIndexRoute,
   HandoffsIndexRoute: HandoffsIndexRoute,
   InboxIndexRoute: InboxIndexRoute,
-  PartnershipsIndexRoute: PartnershipsIndexRoute,
   ReportsIndexRoute: ReportsIndexRoute,
-  SalesIndexRoute: SalesIndexRoute,
   SettingsIndexRoute: SettingsIndexRoute,
   TriageIndexRoute: TriageIndexRoute,
 }
