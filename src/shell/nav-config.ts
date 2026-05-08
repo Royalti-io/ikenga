@@ -74,7 +74,7 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: 'Product',
     items: [
-      { to: '/executive', label: 'Executive', Icon: Briefcase },
+      { to: '/pkg/com.ikenga.exec/executive', label: 'Executive', Icon: Briefcase },
       { to: '/pkg/com.ikenga.product/features', label: 'Features', Icon: Lightbulb },
       { to: '/content', label: 'Content', Icon: FileText },
     ],
