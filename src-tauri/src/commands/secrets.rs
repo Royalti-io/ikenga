@@ -450,6 +450,74 @@ pub fn read_secret(
     })
 }
 
+// ─── Backup helpers (phase 2) ────────────────────────────────────────────────
+
+/// Enumerate the entire vault as `key → value` pairs. Used by the backup
+/// exporter; the result is age-encrypted before leaving the process. Skips
+/// the internal `__manifest` key.
+pub fn dump_all_kvs<R: Runtime>(
+    app: &AppHandle<R>,
+    lock: &SecretsLock,
+) -> Result<std::collections::BTreeMap<String, String>, String> {
+    with_stronghold(app, &lock.0, false, |sh| {
+        let manifest = read_manifest(sh)?;
+        let client = sh
+            .get_client(CLIENT_NAME)
+            .map_err(|e| format!("get_client: {e}"))?;
+        let store = client.store();
+        let mut out = std::collections::BTreeMap::new();
+        for k in &manifest {
+            if k.as_bytes() == MANIFEST_KEY {
+                continue;
+            }
+            match store.get(k.as_bytes()) {
+                Ok(Some(b)) => match String::from_utf8(b) {
+                    Ok(v) => {
+                        out.insert(k.clone(), v);
+                    }
+                    Err(_) => log::warn!("secret {k} is non-utf8, skipping in backup"),
+                },
+                Ok(None) => {}
+                Err(e) => log::warn!("secret {k} read failed: {e}"),
+            }
+        }
+        Ok(out)
+    })
+}
+
+/// Apply a full set of `key → value` pairs to the vault. Used by the backup
+/// importer's boot-time apply step. Each key is upserted; the manifest is
+/// updated once at the end. Existing values for keys that aren't in `kvs`
+/// are left in place — this is a merge, not a replacement, so a partial or
+/// secret-less restore can't accidentally wipe a user's vault.
+pub fn bulk_set<R: Runtime>(
+    app: &AppHandle<R>,
+    lock: &SecretsLock,
+    kvs: &std::collections::BTreeMap<String, String>,
+) -> Result<usize, String> {
+    if kvs.is_empty() {
+        return Ok(0);
+    }
+    with_stronghold(app, &lock.0, true, |sh| {
+        let client = sh
+            .get_client(CLIENT_NAME)
+            .map_err(|e| format!("get_client: {e}"))?;
+        let store = client.store();
+        let mut manifest = read_manifest(sh)?;
+        for (k, v) in kvs {
+            if k.as_bytes() == MANIFEST_KEY || k.is_empty() {
+                continue;
+            }
+            store
+                .insert(k.as_bytes().to_vec(), v.as_bytes().to_vec(), None)
+                .map_err(|e| format!("insert {k}: {e}"))?;
+            manifest.insert(k.clone());
+        }
+        write_manifest(sh, &manifest)?;
+        Ok(kvs.len())
+    })
+}
+
 // ─── Runtime env-vault file (for the actions sidecar) ────────────────────────
 
 /// Path to the runtime env-vault file. macOS uses `$TMPDIR`, others use

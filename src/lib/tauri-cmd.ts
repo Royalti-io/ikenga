@@ -1070,10 +1070,26 @@ export async function pkgMcpCall(
 
 // ─── Backup / restore ─────────────────────────────────────────────────────────
 //
-// Phase 1: SQLite-only bundles (.ikbak), no secrets, raw paths. Restore is
-// stage-and-swap-on-boot — `backupImport` writes a staged db + marker; the
-// next app launch picks it up before opening any pool. The frontend reads
-// `requires_restart` and prompts the user.
+// Phase 2: SQLite + age-passphrase-encrypted secrets + installed-pkg list.
+// Restore is stage-and-swap-on-boot. `backupImport` writes a staged db,
+// optionally a chmod-0600 secrets-pending.json (decrypted at import-time),
+// and a marker; the next app launch swaps pa.db before any pool opens, and
+// replays staged secrets through the Stronghold-backed `bulk_set`.
+
+export interface PkgEntry {
+  id: string;
+  version: string;
+  enabled: boolean;
+}
+
+export type PathMode = "raw" | "tokenized" | "bundled";
+
+export interface PathWarning {
+  table: string;
+  column: string;
+  value: string;
+  reason: string;
+}
 
 export interface BackupManifest {
   format_version: number;
@@ -1081,9 +1097,12 @@ export interface BackupManifest {
   created_at: string;
   hostname: string;
   username: string;
-  path_mode: "raw";
+  path_mode: PathMode;
+  /** Export-time $HOME, present iff path_mode === "tokenized". */
+  home_dir: string | null;
   has_secrets: boolean;
   pkg_count: number;
+  path_warnings: PathWarning[];
 }
 
 export interface BackupSummary {
@@ -1092,11 +1111,16 @@ export interface BackupSummary {
   size_bytes: number;
   schema_version: number;
   has_secrets: boolean;
+  pkg_count: number;
+  path_mode: PathMode;
 }
 
 export interface ExportResult {
   path: string;
   size_bytes: number;
+  secrets_count: number;
+  pkg_count: number;
+  path_warnings_count: number;
 }
 
 export type SchemaAction =
@@ -1108,22 +1132,45 @@ export interface ImportPreview {
   manifest: BackupManifest;
   size_bytes: number;
   schema_action: SchemaAction;
+  pkgs: PkgEntry[];
 }
 
 export interface ImportResult {
   staged_at: string;
   requires_restart: boolean;
+  secrets_staged: boolean;
 }
 
-export async function backupExport(destPath: string): Promise<ExportResult> {
-  return invoke<ExportResult>("backup_export", { destPath });
+export interface BackupExportOpts {
+  /** When true, the bundle includes vault secrets encrypted with `passphrase`. */
+  includeSecrets: boolean;
+  /** Required when `includeSecrets` is true. */
+  passphrase?: string;
+  /** Defaults to "raw" on the Rust side. "bundled" is not yet implemented. */
+  pathMode?: PathMode;
+}
+
+export async function backupExport(
+  destPath: string,
+  opts: BackupExportOpts,
+): Promise<ExportResult> {
+  return invoke<ExportResult>("backup_export", {
+    destPath,
+    includeSecrets: opts.includeSecrets,
+    passphrase: opts.passphrase ?? null,
+    pathMode: opts.pathMode ?? null,
+  });
 }
 
 export async function backupImport(
   srcPath: string,
-  opts: { dryRun: boolean },
+  opts: { dryRun: boolean; passphrase?: string },
 ): Promise<ImportPreview | ImportResult> {
-  return invoke("backup_import", { srcPath, dryRun: opts.dryRun });
+  return invoke("backup_import", {
+    srcPath,
+    dryRun: opts.dryRun,
+    passphrase: opts.passphrase ?? null,
+  });
 }
 
 export async function backupList(): Promise<BackupSummary[]> {
