@@ -91,7 +91,7 @@ pub async fn get_state(Extension(state): Extension<Arc<IykeState>>) -> Json<Stat
         app: AppInfo {
             pid: state.pid(),
             started_at_unix_ms: state.started_at_unix_ms(),
-            identifier: "io.royalti.pa.desktop",
+            identifier: "app.ikenga",
         },
         shell: ShellInfo {
             mode: shell.mode,

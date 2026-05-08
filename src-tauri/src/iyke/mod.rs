@@ -169,7 +169,7 @@ fn write_control_file(
         token,
         pid: std::process::id(),
         started_at_unix_ms,
-        identifier: "io.royalti.pa.desktop",
+        identifier: "app.ikenga",
     };
     let json = serde_json::to_vec_pretty(&payload).context("serialize control.json")?;
 
