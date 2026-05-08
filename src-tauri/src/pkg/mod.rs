@@ -12,7 +12,9 @@ pub mod manifest;
 pub mod mcp_runtime;
 pub mod registries;
 pub mod registry;
+pub mod source;
 
 pub use kernel::{DiscoveredPkg, InstalledSummary, Kernel, KernelStatus};
 pub use lifecycle::SidecarSupervisor;
 pub use registry::Registry;
+pub use source::InstallSource;
