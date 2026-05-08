@@ -68,6 +68,9 @@ tokio-cron-scheduler = "0.13"
 # (no compression) for app.db since SQLite content is incompressible enough
 # that the CPU cost isn't worth it, and Deflate for manifest.json.
 zip = { version = "2", default-features = false, features = ["deflate"] }
+# Backup secrets (phase 2): age passphrase encryption for the kv blob inside
+# .ikbak. armor disabled — bundle is binary already.
+age = { version = "0.10", default-features = false }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # Mac-only polish: window vibrancy + dock-tile badge for unread counts.

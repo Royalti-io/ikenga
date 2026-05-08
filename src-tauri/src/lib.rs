@@ -175,6 +175,18 @@ pub fn run() {
             let pa_db = Arc::new(PaDb::new(db_path));
             app.manage(pa_db.clone());
 
+            // Phase 2 of staged-restore: replay the decrypted secrets blob
+            // (if present) into Stronghold. Runs after SecretsLock is in
+            // state (registered via .manage() above on the Builder) and
+            // after pa.db has been swapped. Stronghold opens lazily inside
+            // bulk_set, so no extra wiring is needed here.
+            commands::backup::apply_staged_secrets(app.handle());
+
+            // Phase 3 of staged-restore: rewrite ${IKENGA_HOME} → current
+            // $HOME in the eight path-bearing columns. Independent of
+            // secrets; safe to call unconditionally.
+            commands::backup::apply_staged_path_rewrites(app.handle());
+
             // User-overridable screenshot output dir. JSON-backed; loaded
             // synchronously here so the first capture sees the right value.
             let screenshot_cfg: ScreenshotConfigStateRef =
