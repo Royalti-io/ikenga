@@ -6,6 +6,7 @@ import { ContentPane } from './content-pane';
 import { Dock } from './dock/dock';
 import { useDockStore } from './dock/dock-store';
 import { CommandPalette, useCommandPalette } from './command-palette';
+import { SupabaseBanner } from './supabase-banner';
 import { debounce, loadLayoutState, saveLayoutState } from '@/lib/layout-state';
 import { useIykeBridge } from '@/lib/iyke/bridge';
 import { useIykeControlListener } from '@/lib/iyke/control-listener';
@@ -257,35 +258,38 @@ export function Workspace() {
   }
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-background text-foreground">
-      <ActivityBar />
-      <PanelGroup
-        direction="horizontal"
-        className="flex-1"
-        onLayout={(sizes) => persist(sizes)}
-        autoSaveId="ikenga-workspace-v2"
-      >
-        {!navHidden && (
-          <>
-            <Panel
-              defaultSize={initialSizes[0]}
-              minSize={8}
-              maxSize={30}
-              collapsible
-              collapsedSize={6}
-            >
-              <Sidebar />
-            </Panel>
-            <PanelResizeHandle data-panel-resize-handle-enabled="true" />
-          </>
-        )}
+    <div className="flex h-screen w-screen flex-col overflow-hidden bg-background text-foreground">
+      <SupabaseBanner />
+      <div className="flex min-h-0 flex-1">
+        <ActivityBar />
+        <PanelGroup
+          direction="horizontal"
+          className="flex-1"
+          onLayout={(sizes) => persist(sizes)}
+          autoSaveId="ikenga-workspace-v2"
+        >
+          {!navHidden && (
+            <>
+              <Panel
+                defaultSize={initialSizes[0]}
+                minSize={8}
+                maxSize={30}
+                collapsible
+                collapsedSize={6}
+              >
+                <Sidebar />
+              </Panel>
+              <PanelResizeHandle data-panel-resize-handle-enabled="true" />
+            </>
+          )}
 
-        <Panel defaultSize={navHidden ? 100 : initialSizes[1]} minSize={40}>
-          <ContentPane />
-        </Panel>
-      </PanelGroup>
+          <Panel defaultSize={navHidden ? 100 : initialSizes[1]} minSize={40}>
+            <ContentPane />
+          </Panel>
+        </PanelGroup>
 
-      <Dock />
+        <Dock />
+      </div>
 
       <CommandPalette
         open={palette.open}

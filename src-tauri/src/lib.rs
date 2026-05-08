@@ -41,6 +41,7 @@ use commands::{
     SecretsLock,
     storyboard_export_json, storyboard_import_json, storyboard_list_concepts,
     storyboard_promote_rung, storyboard_render_still,
+    supabase_config_clear, supabase_config_get, supabase_config_set,
     viewer_serve, viewer_stop, ClaudeManager, ClaudeManagerState, IykeRuntimeState,
     JobManagerState, ScreenshotConfigState, ScreenshotConfigStateRef, ScreenshotPending,
     StoryboardJobManager, StoryboardJobManagerState,
@@ -377,6 +378,10 @@ pub fn run() {
             secrets_list_keys,
             secrets_vault_status,
             secrets_import_dotenv,
+            // supabase config (URL + anon key manifest)
+            supabase_config_get,
+            supabase_config_set,
+            supabase_config_clear,
             // db
             db_query,
             db_exec,
