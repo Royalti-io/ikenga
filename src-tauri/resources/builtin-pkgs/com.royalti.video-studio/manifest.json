@@ -24,7 +24,7 @@
     }
   },
   "permissions": {
-    "fs.read": ["$pkg_install/**", "$home/royalti-co/ikenga-desktop/**"],
+    "fs.read": ["$pkg_install/**", "$home/royalti-co/ikenga/shell/**"],
     "fs.write": ["$pkg_data/**"]
   },
   "queries": {

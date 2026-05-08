@@ -27,7 +27,7 @@
     }
   },
   "permissions": {
-    "fs.read": ["$pkg_install/**", "$home/royalti-co/ikenga-desktop/hyperframes-projects/**"],
+    "fs.read": ["$pkg_install/**", "$home/royalti-co/ikenga/shell/hyperframes-projects/**"],
     "fs.write": ["$pkg_data/**"]
   },
   "queries": {
