@@ -99,6 +99,10 @@ export const queryKeys = {
     vaultStatus: () => ['secrets', 'vault-status'] as const,
     keys: () => ['secrets', 'keys'] as const,
   },
+  fs: {
+    all: ['fs'] as const,
+    list: (path: string) => ['fs', 'list', path] as const,
+  },
   claudeConfig: {
     all: ['claude_config'] as const,
     load: (projectRoots: readonly string[]) =>
