@@ -7,7 +7,6 @@ import {
   Moon,
   Sun,
   KeyRound,
-  LogOut,
   Settings,
   FolderPlus,
   FolderOpen,
@@ -50,7 +49,6 @@ import {
   useDeleteSecret,
   useImportDotenv,
 } from '@/lib/queries/secrets';
-import { signOut } from '@/lib/auth';
 import { cn } from '@/components/ui/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -103,10 +101,6 @@ function SettingsPage() {
   const setMode = useIkengaStore((s) => s.setMode);
   const setDensity = useIkengaStore((s) => s.setDensity);
   const setTintStrength = useIkengaStore((s) => s.setTintStrength);
-
-  async function handleSignOut() {
-    await signOut();
-  }
 
   return (
     <div className="flex h-full flex-col">
@@ -261,17 +255,6 @@ function SettingsPage() {
         <PackagesSection />
 
         <ApiKeysSection />
-
-        <section className="space-y-3">
-          <div>
-            <h2 className="text-sm font-semibold">Account</h2>
-            <p className="text-xs text-muted-foreground">Sign out of this desktop app.</p>
-          </div>
-          <Button variant="outline" size="sm" onClick={handleSignOut} className="text-red-700">
-            <LogOut className="mr-1 h-3.5 w-3.5" />
-            Sign out
-          </Button>
-        </section>
       </div>
     </div>
   );
