@@ -18,6 +18,13 @@ export const queryKeys = {
     actionable: () => [...queryKeys.inbox.all, 'actionable'] as const,
     untriaged: () => [...queryKeys.inbox.all, 'untriaged'] as const,
   },
+  tasks: {
+    all: ['tasks'] as const,
+    list: (filter: string) => [...queryKeys.tasks.all, 'list', filter] as const,
+    detail: (id: string) => [...queryKeys.tasks.all, 'detail', id] as const,
+    subtasks: (parentId: string) =>
+      [...queryKeys.tasks.all, 'subtasks', parentId] as const,
+  },
   delegations: {
     all: ['delegations'] as const,
     list: (filter: string) =>

@@ -54,12 +54,12 @@ export function buildInstallPrompt(input: BuildPromptInput): string {
 
   const cloneStep =
     source.kind === 'git'
-      ? `1. Clone the source repo into \`~/.local/share/io.royalti.pa.desktop/staging/${manifest?.id ?? 'pending-id'}\`. Use the ref if provided, otherwise default branch.`
+      ? `1. Clone the source repo into \`~/.local/share/app.ikenga/staging/${manifest?.id ?? 'pending-id'}\`. Use the ref if provided, otherwise default branch.`
       : `1. The package is already on disk; skip the clone step.`;
 
   const finalPath =
     source.kind === 'git'
-      ? `~/.local/share/io.royalti.pa.desktop/staging/${manifest?.id ?? 'pending-id'}`
+      ? `~/.local/share/app.ikenga/staging/${manifest?.id ?? 'pending-id'}`
       : source.kind === 'local'
         ? source.path
         : describeSource(source.entry.source);
