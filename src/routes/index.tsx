@@ -218,7 +218,7 @@ function HomePage() {
             <Card
               title="Cron failures"
               Icon={Activity}
-              to="/cron"
+              to="/pkg/com.ikenga.work/cron"
               count={cronFailures.data ?? null}
               isLoading={cronFailures.isLoading}
               caption="Last 24h"

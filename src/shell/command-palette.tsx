@@ -145,7 +145,7 @@ export function CommandPalette({ open, mode, onOpenChange }: CommandPaletteProps
                     <PaletteItem onSelect={() => go('/mail/drafts')} Icon={Mail} label="Go to Reply Drafts" />
                     <PaletteItem onSelect={() => go('/tasks')} Icon={CheckSquare} label="Go to Tasks" />
                     <PaletteItem
-                      onSelect={() => go('/delegations')}
+                      onSelect={() => go('/pkg/com.ikenga.work/delegations')}
                       Icon={Users}
                       label="Go to Delegations"
                     />
