@@ -37,7 +37,6 @@ import { Route as ClaudeRouteRouteImport } from './routes/claude/route'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as VideoIndexRouteImport } from './routes/video/index'
 import { Route as TriageIndexRouteImport } from './routes/triage/index'
-import { Route as StrategyIndexRouteImport } from './routes/strategy/index'
 import { Route as StoryboardIndexRouteImport } from './routes/storyboard/index'
 import { Route as SettingsIndexRouteImport } from './routes/settings/index'
 import { Route as SessionsIndexRouteImport } from './routes/sessions/index'
@@ -50,7 +49,6 @@ import { Route as InboxIndexRouteImport } from './routes/inbox/index'
 import { Route as HandoffsIndexRouteImport } from './routes/handoffs/index'
 import { Route as FundraisingIndexRouteImport } from './routes/fundraising/index'
 import { Route as FinanceIndexRouteImport } from './routes/finance/index'
-import { Route as FeaturesIndexRouteImport } from './routes/features/index'
 import { Route as ExecutiveIndexRouteImport } from './routes/executive/index'
 import { Route as EmailsIndexRouteImport } from './routes/emails/index'
 import { Route as EmailQueueIndexRouteImport } from './routes/email-queue/index'
@@ -259,11 +257,6 @@ const TriageIndexRoute = TriageIndexRouteImport.update({
   path: '/triage/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const StrategyIndexRoute = StrategyIndexRouteImport.update({
-  id: '/strategy/',
-  path: '/strategy/',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const StoryboardIndexRoute = StoryboardIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -325,11 +318,6 @@ const FinanceIndexRoute = FinanceIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => FinanceRouteRoute,
-} as any)
-const FeaturesIndexRoute = FeaturesIndexRouteImport.update({
-  id: '/features/',
-  path: '/features/',
-  getParentRoute: () => rootRouteImport,
 } as any)
 const ExecutiveIndexRoute = ExecutiveIndexRouteImport.update({
   id: '/executive/',
@@ -742,7 +730,6 @@ export interface FileRoutesByFullPath {
   '/email-queue/': typeof EmailQueueIndexRoute
   '/emails/': typeof EmailsIndexRoute
   '/executive/': typeof ExecutiveIndexRoute
-  '/features/': typeof FeaturesIndexRoute
   '/finance/': typeof FinanceIndexRoute
   '/fundraising/': typeof FundraisingIndexRoute
   '/handoffs/': typeof HandoffsIndexRoute
@@ -755,7 +742,6 @@ export interface FileRoutesByFullPath {
   '/sessions/': typeof SessionsIndexRoute
   '/settings/': typeof SettingsIndexRoute
   '/storyboard/': typeof StoryboardIndexRoute
-  '/strategy/': typeof StrategyIndexRoute
   '/triage/': typeof TriageIndexRoute
   '/video/': typeof VideoIndexRoute
   '/finance/transactions/$id': typeof FinanceTransactionsIdRoute
@@ -838,7 +824,6 @@ export interface FileRoutesByTo {
   '/email-queue': typeof EmailQueueIndexRoute
   '/emails': typeof EmailsIndexRoute
   '/executive': typeof ExecutiveIndexRoute
-  '/features': typeof FeaturesIndexRoute
   '/finance': typeof FinanceIndexRoute
   '/fundraising': typeof FundraisingIndexRoute
   '/handoffs': typeof HandoffsIndexRoute
@@ -851,7 +836,6 @@ export interface FileRoutesByTo {
   '/sessions': typeof SessionsIndexRoute
   '/settings': typeof SettingsIndexRoute
   '/storyboard': typeof StoryboardIndexRoute
-  '/strategy': typeof StrategyIndexRoute
   '/triage': typeof TriageIndexRoute
   '/video': typeof VideoIndexRoute
   '/finance/transactions/$id': typeof FinanceTransactionsIdRoute
@@ -950,7 +934,6 @@ export interface FileRoutesById {
   '/email-queue/': typeof EmailQueueIndexRoute
   '/emails/': typeof EmailsIndexRoute
   '/executive/': typeof ExecutiveIndexRoute
-  '/features/': typeof FeaturesIndexRoute
   '/finance/': typeof FinanceIndexRoute
   '/fundraising/': typeof FundraisingIndexRoute
   '/handoffs/': typeof HandoffsIndexRoute
@@ -963,7 +946,6 @@ export interface FileRoutesById {
   '/sessions/': typeof SessionsIndexRoute
   '/settings/': typeof SettingsIndexRoute
   '/storyboard/': typeof StoryboardIndexRoute
-  '/strategy/': typeof StrategyIndexRoute
   '/triage/': typeof TriageIndexRoute
   '/video/': typeof VideoIndexRoute
   '/finance/transactions/$id': typeof FinanceTransactionsIdRoute
@@ -1063,7 +1045,6 @@ export interface FileRouteTypes {
     | '/email-queue/'
     | '/emails/'
     | '/executive/'
-    | '/features/'
     | '/finance/'
     | '/fundraising/'
     | '/handoffs/'
@@ -1076,7 +1057,6 @@ export interface FileRouteTypes {
     | '/sessions/'
     | '/settings/'
     | '/storyboard/'
-    | '/strategy/'
     | '/triage/'
     | '/video/'
     | '/finance/transactions/$id'
@@ -1159,7 +1139,6 @@ export interface FileRouteTypes {
     | '/email-queue'
     | '/emails'
     | '/executive'
-    | '/features'
     | '/finance'
     | '/fundraising'
     | '/handoffs'
@@ -1172,7 +1151,6 @@ export interface FileRouteTypes {
     | '/sessions'
     | '/settings'
     | '/storyboard'
-    | '/strategy'
     | '/triage'
     | '/video'
     | '/finance/transactions/$id'
@@ -1270,7 +1248,6 @@ export interface FileRouteTypes {
     | '/email-queue/'
     | '/emails/'
     | '/executive/'
-    | '/features/'
     | '/finance/'
     | '/fundraising/'
     | '/handoffs/'
@@ -1283,7 +1260,6 @@ export interface FileRouteTypes {
     | '/sessions/'
     | '/settings/'
     | '/storyboard/'
-    | '/strategy/'
     | '/triage/'
     | '/video/'
     | '/finance/transactions/$id'
@@ -1362,14 +1338,12 @@ export interface RootRouteChildren {
   ContentIndexRoute: typeof ContentIndexRoute
   CronIndexRoute: typeof CronIndexRoute
   ExecutiveIndexRoute: typeof ExecutiveIndexRoute
-  FeaturesIndexRoute: typeof FeaturesIndexRoute
   HandoffsIndexRoute: typeof HandoffsIndexRoute
   InboxIndexRoute: typeof InboxIndexRoute
   PartnershipsIndexRoute: typeof PartnershipsIndexRoute
   ReportsIndexRoute: typeof ReportsIndexRoute
   SalesIndexRoute: typeof SalesIndexRoute
   SettingsIndexRoute: typeof SettingsIndexRoute
-  StrategyIndexRoute: typeof StrategyIndexRoute
   TriageIndexRoute: typeof TriageIndexRoute
 }
 
@@ -1571,13 +1545,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TriageIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/strategy/': {
-      id: '/strategy/'
-      path: '/strategy'
-      fullPath: '/strategy/'
-      preLoaderRoute: typeof StrategyIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/storyboard/': {
       id: '/storyboard/'
       path: '/'
@@ -1661,13 +1628,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/finance/'
       preLoaderRoute: typeof FinanceIndexRouteImport
       parentRoute: typeof FinanceRouteRoute
-    }
-    '/features/': {
-      id: '/features/'
-      path: '/features'
-      fullPath: '/features/'
-      preLoaderRoute: typeof FeaturesIndexRouteImport
-      parentRoute: typeof rootRouteImport
     }
     '/executive/': {
       id: '/executive/'
@@ -2474,14 +2434,12 @@ const rootRouteChildren: RootRouteChildren = {
   ContentIndexRoute: ContentIndexRoute,
   CronIndexRoute: CronIndexRoute,
   ExecutiveIndexRoute: ExecutiveIndexRoute,
-  FeaturesIndexRoute: FeaturesIndexRoute,
   HandoffsIndexRoute: HandoffsIndexRoute,
   InboxIndexRoute: InboxIndexRoute,
   PartnershipsIndexRoute: PartnershipsIndexRoute,
   ReportsIndexRoute: ReportsIndexRoute,
   SalesIndexRoute: SalesIndexRoute,
   SettingsIndexRoute: SettingsIndexRoute,
-  StrategyIndexRoute: StrategyIndexRoute,
   TriageIndexRoute: TriageIndexRoute,
 }
 export const routeTree = rootRouteImport

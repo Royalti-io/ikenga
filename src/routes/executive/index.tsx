@@ -202,7 +202,7 @@ function ExecutivePage() {
       status: highRisks > 2 ? 'critical' : highRisks > 0 ? 'warning' : 'healthy',
       keyMetric: `${activeInitiatives.length} active · ${initiativeProgress}% avg`,
       notes: highRisks > 0 ? `${highRisks} high-severity risks` : undefined,
-      to: '/strategy',
+      to: '/pkg/com.ikenga.product/strategy',
     },
     {
       domain: 'Ops',
@@ -301,7 +301,7 @@ function ExecutivePage() {
               <Row label="Avg progress" value={`${initiativeProgress}%`} />
               <Row label="Total (excl. cancelled)" value={initiatives.length} />
               <Link
-                to="/strategy"
+                to="/pkg/com.ikenga.product/strategy"
                 className="mt-2 inline-block text-xs text-muted-foreground hover:underline"
               >
                 Strategy detail →
@@ -322,7 +322,7 @@ function ExecutivePage() {
               />
               <Row label="Total open" value={risks.length} />
               <Link
-                to="/strategy"
+                to="/pkg/com.ikenga.product/strategy"
                 className="mt-2 inline-block text-xs text-muted-foreground hover:underline"
               >
                 Risk register →
