@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="A" data-mode="dark" data-density="comfortable" data-workspace="exec">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Ikenga · 04-pkgs · Package manager</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,400;1,9..144,500&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="../_shared/tokens.css" />
+<link rel="stylesheet" href="../_shared/components.css" />
+<link rel="stylesheet" href="../_shared/shell.css" />
+<style>
+  .page { max-width: 1480px; margin: 0 auto; padding: var(--space-8) var(--space-12) var(--space-12); }
+  header { margin-bottom: var(--space-8); }
+  h1.title { font-family: var(--font-display); font-weight: 500; font-size: var(--text-h1); letter-spacing: -.012em; margin: var(--space-2) 0; color: var(--fg); }
+  h1.title em { font-style: italic; color: var(--primary); }
+  .lede { font-size: var(--text-body-lg); color: var(--fg-muted); line-height: 1.55; max-width: 70ch; }
+  .eyebrow { display: inline-flex; align-items: center; gap: var(--space-2); font-family: var(--font-mono); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--fg-faint); }
+  .eyebrow-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--primary); }
+  section { margin-top: var(--space-8); }
+  .section-tag { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--fg-faint); margin-bottom: var(--space-4); }
+
+  .card { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-base); overflow: hidden; box-shadow: var(--shadow-2); }
+  .card-head { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border-soft); background: var(--bg-sunken); }
+  .card-name { font-family: var(--font-display); font-weight: 500; font-size: var(--text-h3); color: var(--fg); }
+  .card-meta { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--fg-faint); margin-left: auto; }
+  .stage { display: grid; grid-template-columns: 56px 1fr; height: 880px; background: var(--bg-base); position: relative; }
+  .stage .activity { width: 56px; }
+
+  /* ==== Pkgs page ==== */
+  .pkgs {
+    display: grid; grid-template-rows: auto 1fr;
+    background: var(--bg-base);
+    overflow: hidden;
+    position: relative;
+  }
+  .pkgs-toolbar {
+    display: flex; align-items: center; gap: var(--space-3);
+    padding: var(--space-3) var(--space-6);
+    border-bottom: 1px solid var(--border-soft);
+    background: var(--bg-sunken);
+  }
+  .pkgs-toolbar h2 {
+    font-family: var(--font-display); font-weight: 500; font-size: var(--text-h2);
+    margin: 0; letter-spacing: -.005em;
+  }
+  .pkgs-toolbar-meta { font-family: var(--font-mono); font-size: 10.5px; color: var(--fg-faint); letter-spacing: .06em; }
+  .pkgs-toolbar-spacer { flex: 1; }
+  .btn {
+    height: 32px; padding: 0 var(--space-3);
+    background: var(--bg-base); border: 1px solid var(--border-soft); color: var(--fg);
+    border-radius: var(--radius-sm); cursor: pointer; font-family: inherit; font-size: var(--text-body-sm); font-weight: 500;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .btn:hover { border-color: var(--primary); }
+  .btn.is-primary { background: var(--primary); color: var(--primary-fg); border-color: transparent; }
+  .btn.is-primary:hover { filter: brightness(1.08); }
+  .btn svg { width: 14px; height: 14px; }
+
+  .pkgs-search { display: flex; align-items: center; gap: 6px; background: var(--bg-base); border: 1px solid var(--border-soft); border-radius: var(--radius-sm); padding: 0 8px; height: 30px; min-width: 280px; }
+  .pkgs-search svg { width: 13px; height: 13px; color: var(--fg-faint); }
+  .pkgs-search input { background: transparent; border: 0; outline: none; color: var(--fg); font-size: var(--text-body-sm); font-family: inherit; flex: 1; }
+  .pkgs-search input::placeholder { color: var(--fg-faint); }
+
+  .pkgs-body { overflow-y: auto; padding: var(--space-6); }
+
+  /* Section heading */
+  .group-label { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--fg-faint); margin: var(--space-6) 0 var(--space-3); display: flex; align-items: center; gap: var(--space-2); }
+  .group-label:first-child { margin-top: 0; }
+  .group-label-rule { flex: 1; height: 1px; background: var(--border-soft); }
+  .group-label-count { color: var(--fg-muted); font-size: 10px; }
+
+  /* Pkg card */
+  .pkg-card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-md);
+    padding: var(--space-4) var(--space-5);
+    display: grid;
+    grid-template-columns: 36px 1fr auto;
+    gap: var(--space-4);
+    align-items: start;
+    margin-bottom: var(--space-3);
+    transition: border-color var(--motion-fast) var(--ease-calm);
+  }
+  .pkg-card:hover { border-color: var(--border); }
+  .pkg-card.is-disabled { opacity: .68; }
+  .pkg-card.is-error { border-color: var(--danger-soft); background: color-mix(in srgb, var(--danger-soft) 30%, var(--bg-surface)); }
+
+  .pkg-icon {
+    width: 36px; height: 36px;
+    border-radius: var(--radius-sm);
+    background: var(--tint-bg-active, var(--bg-base));
+    color: var(--tint-fg-active, var(--fg-muted));
+    display: grid; place-items: center;
+  }
+  .pkg-icon svg { width: 20px; height: 20px; }
+
+  .pkg-main { display: grid; gap: var(--space-2); }
+  .pkg-headline { display: flex; align-items: baseline; gap: var(--space-2); flex-wrap: wrap; }
+  .pkg-name { font-family: var(--font-display); font-weight: 500; font-size: var(--text-h3); color: var(--fg); letter-spacing: -.005em; }
+  .pkg-id { font-family: var(--font-mono); font-size: 11px; color: var(--fg-faint); letter-spacing: .04em; }
+  .pkg-version { font-family: var(--font-mono); font-size: 11px; color: var(--fg-muted); padding: 1px 6px; border: 1px solid var(--border-soft); border-radius: var(--radius-xs); background: var(--bg-base); }
+  .pkg-pill { display: inline-flex; align-items: center; gap: 4px; font-family: var(--font-mono); font-size: 10px; letter-spacing: .06em; text-transform: uppercase; padding: 2px 6px; border-radius: var(--radius-xs); border: 1px solid var(--border-soft); color: var(--fg-muted); background: var(--bg-base); }
+  .pkg-pill.is-running { color: var(--live); border-color: var(--live-soft); background: var(--live-soft); }
+  .pkg-pill.is-idle { color: var(--fg-muted); }
+  .pkg-pill.is-disabled-pill { color: var(--fg-faint); }
+  .pkg-pill.is-error { color: var(--danger); border-color: var(--danger-soft); background: var(--danger-soft); }
+  .pkg-pill-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+  .pkg-desc { font-size: var(--text-body-sm); color: var(--fg-muted); line-height: 1.55; max-width: 72ch; }
+
+  .pkg-meta { display: grid; grid-template-columns: 100px 1fr; gap: 6px var(--space-3); font-size: var(--text-caption); color: var(--fg-muted); }
+  .pkg-meta dt { font-family: var(--font-mono); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--fg-faint); }
+  .pkg-meta dd { margin: 0; font-family: var(--font-mono); font-size: 11px; color: var(--fg-muted); display: flex; flex-wrap: wrap; gap: 4px; }
+  .pkg-meta code { background: var(--bg-base); border: 1px solid var(--border-soft); padding: 1px 5px; border-radius: var(--radius-xs); color: var(--fg); }
+  .pkg-meta a { color: var(--primary); text-decoration: none; border-bottom: 1px dotted var(--primary-soft); }
+
+  .pkg-actions { display: flex; align-items: center; gap: var(--space-2); }
+
+  /* ==== Right side-sheet (install) ==== */
+  .sheet-overlay {
+    position: absolute; inset: 0;
+    background: rgba(0,0,0,0); pointer-events: none;
+  }
+  .sheet-overlay.is-open {
+    background: rgba(0,0,0,0.45); pointer-events: auto;
+    transition: background var(--motion-base) var(--ease-calm);
+  }
+  .install-sheet {
+    position: absolute; top: 0; right: 0; bottom: 0;
+    width: 480px;
+    background: var(--bg-surface);
+    border-left: 1px solid var(--border-soft);
+    box-shadow: -16px 0 48px -16px rgba(0,0,0,.6);
+    display: grid; grid-template-rows: auto 1fr auto;
+    transform: translateX(100%);
+    transition: transform var(--motion-base) var(--ease-calm);
+  }
+  .install-sheet.is-open { transform: translateX(0); }
+  .install-sheet-head {
+    display: flex; align-items: center; gap: var(--space-3);
+    padding: var(--space-4) var(--space-5);
+    border-bottom: 1px solid var(--border-soft);
+    background: linear-gradient(180deg, var(--tint-app-bg) 0%, var(--bg-surface) 100%);
+  }
+  .install-sheet-name { font-family: var(--font-display); font-weight: 500; font-size: var(--text-h3); color: var(--fg); }
+  .install-sheet-close { margin-left: auto; background: transparent; border: 0; color: var(--fg-faint); cursor: pointer; padding: 6px; border-radius: var(--radius-xs); }
+  .install-sheet-close:hover { color: var(--fg); background: var(--bg-base); }
+  .install-sheet-body { overflow-y: auto; padding: var(--space-5); display: grid; gap: var(--space-5); }
+  .install-sheet-foot { padding: var(--space-3) var(--space-5); border-top: 1px solid var(--border-soft); background: var(--bg-sunken); display: flex; gap: var(--space-2); justify-content: flex-end; }
+
+  .install-tabs { display: flex; gap: 0; background: var(--bg-base); border: 1px solid var(--border-soft); border-radius: var(--radius-sm); overflow: hidden; padding: 2px; }
+  .install-tabs button { flex: 1; height: 28px; background: transparent; border: 0; color: var(--fg-muted); font-family: inherit; font-size: var(--text-body-sm); font-weight: 500; cursor: pointer; border-radius: var(--radius-xs); }
+  .install-tabs button.is-on { background: var(--bg-raised); color: var(--fg); }
+
+  .install-field { display: grid; gap: 6px; }
+  .install-field-label { font-family: var(--font-mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--fg-faint); }
+  .install-field-input { background: var(--bg-base); border: 1px solid var(--border-soft); border-radius: var(--radius-sm); padding: 8px 10px; color: var(--fg); font-family: var(--font-mono); font-size: var(--text-body-sm); outline: none; }
+  .install-field-input:focus { border-color: var(--primary); }
+  .install-field-help { font-size: var(--text-caption); color: var(--fg-muted); line-height: 1.5; }
+  .install-field-help code { font-family: var(--font-mono); font-size: 11.5px; background: var(--bg-base); padding: 1px 5px; border-radius: var(--radius-xs); color: var(--primary); }
+
+  /* Manifest preview block */
+  .manifest-preview {
+    background: var(--bg-base); border: 1px solid var(--border-soft); border-radius: var(--radius-sm);
+    padding: var(--space-3);
+  }
+  .manifest-preview-head { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2); }
+  .manifest-preview-name { font-family: var(--font-display); font-weight: 500; font-size: var(--text-body-lg); color: var(--fg); }
+  .manifest-preview-id { font-family: var(--font-mono); font-size: 10.5px; color: var(--fg-faint); margin-left: auto; }
+  .manifest-preview-rows { display: grid; grid-template-columns: 110px 1fr; gap: 6px var(--space-3); font-size: var(--text-caption); }
+  .manifest-preview-rows dt { font-family: var(--font-mono); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--fg-faint); }
+  .manifest-preview-rows dd { margin: 0; font-family: var(--font-mono); color: var(--fg-muted); display: flex; flex-wrap: wrap; gap: 4px; }
+  .manifest-preview-rows code { background: var(--bg-sunken); border: 1px solid var(--border-soft); padding: 1px 5px; border-radius: var(--radius-xs); color: var(--fg); }
+  .scope-pill { display: inline-flex; align-items: center; gap: 3px; font-family: var(--font-mono); font-size: 10px; letter-spacing: .06em; padding: 2px 5px; border-radius: var(--radius-xs); background: var(--primary-soft); color: var(--primary); border: 1px solid var(--primary-soft); }
+  .scope-pill.is-warn { background: var(--danger-soft); color: var(--danger); border-color: var(--danger-soft); }
+
+  /* Pkg tint aliases */
+  [data-pkg-tint="email"]   { --tint-bg-active:var(--tint-mail-bg);     --tint-fg-active:var(--tint-mail-fg); }
+  [data-pkg-tint="work"]    { --tint-bg-active:var(--tint-agents-bg);   --tint-fg-active:var(--tint-agents-fg); }
+  [data-pkg-tint="finance"] { --tint-bg-active:var(--tint-sessions-bg); --tint-fg-active:var(--tint-sessions-fg); }
+  [data-pkg-tint="gtm"]     { --tint-bg-active:var(--tint-outbox-bg);   --tint-fg-active:var(--tint-outbox-fg); }
+  [data-pkg-tint="product"] { --tint-bg-active:var(--tint-files-bg);    --tint-fg-active:var(--tint-files-fg); }
+  [data-pkg-tint="exec"]    { --tint-bg-active:var(--tint-app-bg);      --tint-fg-active:var(--tint-app-fg); }
+  [data-pkg-tint="iyke"]    { --tint-bg-active:var(--tint-studio-bg);   --tint-fg-active:var(--tint-studio-fg); }
+  [data-pkg-tint="storyboard"]{ --tint-bg-active:var(--tint-app-bg);    --tint-fg-active:var(--tint-app-fg); }
+  [data-pkg-tint="video-studio"]{ --tint-bg-active:var(--tint-sessions-bg); --tint-fg-active:var(--tint-sessions-fg); }
+  [data-pkg-tint="hyperframes"]{ --tint-bg-active:var(--tint-outbox-bg); --tint-fg-active:var(--tint-outbox-fg); }
+  [data-pkg-tint="engine"]  { --tint-bg-active:var(--bg-raised);        --tint-fg-active:var(--primary); }
+
+  footer { margin-top: var(--space-12); padding-top: var(--space-5); border-top: 1px solid var(--border-soft); font-family: var(--font-mono); font-size: 11px; color: var(--fg-faint); letter-spacing: .06em; display: flex; justify-content: space-between; }
+  footer a { color: var(--fg-muted); text-decoration: none; border-bottom: 1px solid var(--border-soft); }
+  footer a:hover { color: var(--achievement); }
+</style>
+</head>
+<body>
+
+<div class="page">
+
+  <header>
+    <div class="eyebrow"><span class="eyebrow-dot"></span> Ikenga · 04-pkgs / 04 · Package manager</div>
+    <h1 class="title">Pkgs are the <em>unit</em> of the workspace.</h1>
+    <p class="lede">Replaces <code style="font-family:var(--font-mono);font-size:13px;background:var(--bg-sunken);padding:1px 5px;border-radius:3px;color:var(--primary);">/packages</code> + <code style="font-family:var(--font-mono);font-size:13px;background:var(--bg-sunken);padding:1px 5px;border-radius:3px;color:var(--primary);">/install</code>. Installed pkgs are the primary surface, grouped by origin (built-in · user · engine). Each row carries name, id, version, status, declared routes, scopes, sidecars, and the install path. Install lives in a side-sheet from the right; the list never disappears behind a route change.</p>
+  </header>
+
+  <section>
+    <div class="section-tag">⓵ List view — sheet closed · Theme A · dark</div>
+    <div class="card">
+      <div class="card-head">
+        <div class="card-name">/packages · 11 installed · kernel api v1.2</div>
+        <div class="card-meta">Theme A · dark</div>
+      </div>
+      <div class="stage" id="stage-list"></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-tag">⓶ Same page · install side-sheet open · pasting a manifest URL</div>
+    <div class="card">
+      <div class="card-head">
+        <div class="card-name">/packages · install panel · pkg-content@0.3.1 preview</div>
+        <div class="card-meta">side-sheet · 480px</div>
+      </div>
+      <div class="stage" id="stage-install"></div>
+    </div>
+  </section>
+
+  <footer>
+    <span>Ikenga · 04-pkgs · 04 — Package manager · 2026-05-08</span>
+    <span><a href="./03-settings.html">← 03 Settings</a> · <a href="./10-pkg-email.html">10 · Email pkg →</a></span>
+  </footer>
+
+</div>
+
+<script src="../_shared/shell.js"></script>
+<script>
+  var I = Shell.ICONS;
+
+  var ICN = {
+    pkg:      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>',
+    plus:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>',
+    play:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><polygon points="6 4 20 12 6 20"/></svg>',
+    power:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M18.36 6.64A9 9 0 1 1 5.64 6.64"/><line x1="12" y1="2" x2="12" y2="12"/></svg>',
+    trash:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>',
+    cog:      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33"/></svg>',
+    open:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>',
+    search:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.5" y2="16.5"/></svg>',
+    close:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><line x1="6" y1="6" x2="18" y2="18"/><line x1="6" y1="18" x2="18" y2="6"/></svg>',
+    mail:     I.mail,
+    work:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>',
+    finance:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>',
+    gtm:      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>',
+    product:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>',
+    exec:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 9 12 2l9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
+    iyke:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/></svg>',
+    story:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="5" width="6" height="14" rx="1"/><rect x="11" y="5" width="6" height="14" rx="1"/></svg>',
+    studio:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>',
+    hframes:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="6" width="20" height="12" rx="1"/><line x1="2" y1="10" x2="22" y2="10"/></svg>',
+    engine:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><polyline points="4 7 8 11 4 15"/><line x1="12" y1="15" x2="20" y2="15"/></svg>'
+  };
+
+  // ----- Activity bar (decorative) -----
+  function activityBar() {
+    var html = '<div class="activity"><span class="horn-mark">' + I.horn + '</span>';
+    ['mail','work','finance','gtm','product','exec'].forEach(function (k) {
+      html += '<button class="rail-icon" title="' + k + '">' + ICN[k === 'mail' ? 'mail' : k] + '</button>';
+    });
+    html += '<div style="height:6px"></div><div style="height:1px;width:24px;background:var(--border-soft);margin:4px 0;"></div>';
+    ['iyke','story','studio','hframes'].forEach(function (k) {
+      html += '<button class="rail-icon" title="' + k + '">' + ICN[k] + '</button>';
+    });
+    html += '<span class="activity-spacer"></span>';
+    html += '<button class="rail-icon is-on" title="Settings">' + I.settings + '</button></div>';
+    return html;
+  }
+
+  // ----- Pkg data ------------------------------------------------
+  var PKGS = [
+    // Built-in (com.ikenga.*)
+    { id:'com.ikenga.email',   name:'Email',         tint:'email',   icon:'mail',    version:'0.4.2', enabled:true,  state:'running', origin:'builtin',
+      desc:'Mail (inbox · triage · drafts), email queue, outbox campaigns, content pipeline.',
+      routes:['mail/inbox','mail/triage','mail/drafts','outbox/email','outbox/sequences','outbox/sent','content'],
+      scopes:['supabase:read:emails','supabase:write:email_drafts','sidecar:actions','vault:read:resend'],
+      sidecars:['actions','mbox'],
+      installPath:'~/.config/ikenga/pkgs/com.ikenga.email',
+      installed:'2026-05-06' },
+    { id:'com.ikenga.work',    name:'Work',          tint:'work',    icon:'work',    version:'0.4.2', enabled:true,  state:'running', origin:'builtin',
+      desc:'Tasks, delegations, agent-runs, cron, handoffs.',
+      routes:['tasks','delegations','agent-runs','cron','handoffs'],
+      scopes:['supabase:read:tasks','supabase:write:tasks','sidecar:actions'],
+      sidecars:['actions'],
+      installPath:'~/.config/ikenga/pkgs/com.ikenga.work',
+      installed:'2026-05-06' },
+    { id:'com.ikenga.finance', name:'Finance',       tint:'finance', icon:'finance', version:'0.4.1', enabled:true,  state:'idle',    origin:'builtin',
+      desc:'Overview, transactions, receivables, inter-company, reports, agent reports.',
+      routes:['finance/overview','finance/transactions','finance/receivables','finance/inter-company','finance/reports'],
+      scopes:['supabase:read:transactions','supabase:read:bank_accounts','vault:read:exchange-rates'],
+      sidecars:[],
+      installPath:'~/.config/ikenga/pkgs/com.ikenga.finance',
+      installed:'2026-05-06' },
+    { id:'com.ikenga.gtm',     name:'GTM',           tint:'gtm',     icon:'gtm',     version:'0.4.0', enabled:true,  state:'idle',    origin:'builtin',
+      desc:'Sales pipeline, partnerships, fundraising.',
+      routes:['gtm/sales','gtm/partnerships','gtm/fundraising'],
+      scopes:['supabase:read:sales_deals','supabase:write:fundraising_deals'],
+      sidecars:[],
+      installPath:'~/.config/ikenga/pkgs/com.ikenga.gtm',
+      installed:'2026-05-06' },
+    { id:'com.ikenga.product', name:'Product',       tint:'product', icon:'product', version:'0.4.0', enabled:true,  state:'idle',    origin:'builtin',
+      desc:'Features inventory, product strategy.',
+      routes:['product/features','product/strategy'],
+      scopes:['supabase:read:features'],
+      sidecars:[],
+      installPath:'~/.config/ikenga/pkgs/com.ikenga.product',
+      installed:'2026-05-06' },
+    { id:'com.ikenga.exec',    name:'Exec',          tint:'exec',    icon:'exec',    version:'0.4.0', enabled:true,  state:'idle',    origin:'builtin',
+      desc:'Home dashboard · approvals · executive reviews.',
+      routes:['exec/home','exec/approvals','exec/reviews'],
+      scopes:['supabase:read:*'],
+      sidecars:[],
+      installPath:'~/.config/ikenga/pkgs/com.ikenga.exec',
+      installed:'2026-05-06' },
+    { id:'com.ikenga.iyke',    name:'Iyke',          tint:'iyke',    icon:'iyke',    version:'0.3.0', enabled:true,  state:'running', origin:'builtin',
+      desc:'In-app assistant. Drives panes via the iyke control bridge.',
+      routes:['iyke'],
+      scopes:['shell:dom:read','shell:nav:write','vault:read:openai'],
+      sidecars:['iyke-bridge'],
+      installPath:'~/.config/ikenga/pkgs/com.ikenga.iyke',
+      installed:'2026-05-06' },
+
+    // User pkgs (com.royalti.*)
+    { id:'com.royalti.storyboard',  name:'Storyboard',  tint:'storyboard',  icon:'story',   version:'0.2.4', enabled:true,  state:'idle',    origin:'user',
+      desc:'Multi-rung storyboard authoring for video compositions.',
+      routes:['storyboard'],
+      scopes:['fs:read:workspace','fs:write:workspace/storyboards','sidecar:storyboard'],
+      sidecars:['storyboard'],
+      installPath:'~/.config/ikenga/pkgs/com.royalti.storyboard',
+      installed:'2026-05-04' },
+    { id:'com.royalti.video-studio', name:'Studio',     tint:'video-studio', icon:'studio', version:'0.5.0', enabled:true,  state:'idle',    origin:'user',
+      desc:'Remotion-based video studio. Render queue, scene authoring.',
+      routes:['studio'],
+      scopes:['fs:read:workspace','fs:write:workspace/renders','sidecar:video-studio'],
+      sidecars:['video-studio'],
+      installPath:'~/.config/ikenga/pkgs/com.royalti.video-studio',
+      installed:'2026-05-04' },
+    { id:'com.royalti.hyperframes', name:'Hyperframes', tint:'hyperframes', icon:'hframes', version:'0.3.1', enabled:false, state:'disabled',origin:'user',
+      desc:'HyperFrames render server. Audio-reactive HTML video.',
+      routes:['hyperframes'],
+      scopes:['fs:read:workspace/hyperframes-projects','sidecar:hyperframes'],
+      sidecars:['hyperframes'],
+      installPath:'~/.config/ikenga/pkgs/com.royalti.hyperframes',
+      installed:'2026-05-04' },
+
+    // Engine pkg
+    { id:'com.ikenga.engine.claude-code', name:'Claude Code', tint:'engine', icon:'engine', version:'0.4.2', enabled:true,  state:'running', origin:'engine',
+      desc:'Default engine adapter — drives sessions, tools, and the dock chat pane.',
+      routes:['sessions','sessions/by-agent/$agent','sessions/$sessionId'],
+      scopes:['shell:engine:default','vault:read:anthropic','sidecar:claude'],
+      sidecars:['claude'],
+      installPath:'~/.config/ikenga/pkgs/com.ikenga.engine.claude-code',
+      installed:'2026-05-06' }
+  ];
+
+  // ----- Render a pkg row ----------------------------------------
+  function renderPkg(pkg) {
+    var statePill;
+    if (pkg.state === 'running') statePill = '<span class="pkg-pill is-running"><span class="pkg-pill-dot"></span>running</span>';
+    else if (pkg.state === 'idle') statePill = '<span class="pkg-pill is-idle"><span class="pkg-pill-dot"></span>idle</span>';
+    else if (pkg.state === 'disabled') statePill = '<span class="pkg-pill is-disabled-pill"><span class="pkg-pill-dot"></span>disabled</span>';
+    else statePill = '<span class="pkg-pill is-error"><span class="pkg-pill-dot"></span>error</span>';
+
+    var routes = pkg.routes.slice(0, 6).map(function (r) { return '<code>' + r + '</code>'; }).join('');
+    if (pkg.routes.length > 6) routes += '<code>+' + (pkg.routes.length - 6) + ' more</code>';
+
+    var scopes = pkg.scopes.slice(0, 4).map(function (s) {
+      var warn = /write|engine/.test(s) ? ' is-warn' : '';
+      return '<span class="scope-pill' + warn + '">' + s + '</span>';
+    }).join(' ');
+    if (pkg.scopes.length > 4) scopes += ' <code>+' + (pkg.scopes.length - 4) + '</code>';
+
+    var sidecars = pkg.sidecars.length ? pkg.sidecars.map(function (s) { return '<code>' + s + '</code>'; }).join('') : '<span style="color:var(--fg-faint)">none</span>';
+
+    var disableLabel = pkg.enabled ? 'Disable' : 'Enable';
+
+    return ''
+      + '<div class="pkg-card' + (!pkg.enabled ? ' is-disabled' : '') + '" data-pkg-tint="' + pkg.tint + '">'
+      +   '<div class="pkg-icon">' + ICN[pkg.icon] + '</div>'
+      +   '<div class="pkg-main">'
+      +     '<div class="pkg-headline">'
+      +       '<span class="pkg-name">' + pkg.name + '</span>'
+      +       '<span class="pkg-version">v' + pkg.version + '</span>'
+      +       statePill
+      +       '<span class="pkg-id">· ' + pkg.id + '</span>'
+      +     '</div>'
+      +     '<div class="pkg-desc">' + pkg.desc + '</div>'
+      +     '<dl class="pkg-meta">'
+      +       '<dt>routes</dt><dd>' + routes + '</dd>'
+      +       '<dt>scopes</dt><dd style="display:flex;flex-wrap:wrap;gap:4px;align-items:center;">' + scopes + '</dd>'
+      +       '<dt>sidecars</dt><dd>' + sidecars + '</dd>'
+      +       '<dt>install</dt><dd><code>' + pkg.installPath + '</code> · <span style="color:var(--fg-faint)">added ' + pkg.installed + '</span></dd>'
+      +     '</dl>'
+      +   '</div>'
+      +   '<div class="pkg-actions">'
+      +     '<button class="btn" title="Open"><span style="display:grid;place-items:center;">' + ICN.open + '</span>Open</button>'
+      +     '<button class="btn" title="Configure">' + ICN.cog + '</button>'
+      +     '<button class="btn" title="' + disableLabel + '">' + ICN.power + '</button>'
+      +     '<button class="btn" title="Uninstall" style="color:var(--danger);border-color:var(--danger-soft);">' + ICN.trash + '</button>'
+      +   '</div>'
+      + '</div>';
+  }
+
+  function renderGroup(label, pkgs) {
+    if (!pkgs.length) return '';
+    var html = '<div class="group-label"><span>' + label + '</span><span class="group-label-rule"></span><span class="group-label-count">' + pkgs.length + '</span></div>';
+    pkgs.forEach(function (p) { html += renderPkg(p); });
+    return html;
+  }
+
+  // ----- Pkg page wrapper ----------------------------------------
+  function pkgsPage(opts) {
+    opts = opts || {};
+    var sheetOpen = !!opts.sheet;
+    var builtin = PKGS.filter(function (p) { return p.origin === 'builtin'; });
+    var user    = PKGS.filter(function (p) { return p.origin === 'user'; });
+    var engine  = PKGS.filter(function (p) { return p.origin === 'engine'; });
+
+    var html = '<div class="pkgs">';
+    html += '<div class="pkgs-toolbar">'
+      +   '<h2>Packages</h2>'
+      +   '<span class="pkgs-toolbar-meta">11 installed · kernel api v1.2 · 4 sidecars running</span>'
+      +   '<span class="pkgs-toolbar-spacer"></span>'
+      +   '<div class="pkgs-search">' + ICN.search + '<input placeholder="Filter pkgs by name, id, route…" /></div>'
+      +   '<button class="btn">Update all</button>'
+      +   '<button class="btn is-primary" data-action="open-install">' + ICN.plus + 'Install pkg</button>'
+      + '</div>';
+    html += '<div class="pkgs-body">'
+      +   renderGroup('Built-in · com.ikenga', builtin)
+      +   renderGroup('User · com.royalti', user)
+      +   renderGroup('Engine', engine)
+      + '</div>';
+    html += '</div>';
+
+    // Sheet overlay + sheet
+    html += '<div class="sheet-overlay' + (sheetOpen ? ' is-open' : '') + '"></div>';
+    html += '<div class="install-sheet' + (sheetOpen ? ' is-open' : '') + '">' + sheetContent() + '</div>';
+    return html;
+  }
+
+  // ----- Install side-sheet content ------------------------------
+  function sheetContent() {
+    return ''
+      + '<div class="install-sheet-head">'
+      +   ICN.plus
+      +   '<span class="install-sheet-name">Install pkg</span>'
+      +   '<button class="install-sheet-close" data-action="close-install">' + ICN.close + '</button>'
+      + '</div>'
+      + '<div class="install-sheet-body">'
+
+      +   '<div class="install-tabs">'
+      +     '<button class="is-on">Manifest URL</button>'
+      +     '<button>Local path</button>'
+      +     '<button>Registry</button>'
+      +   '</div>'
+
+      +   '<div class="install-field">'
+      +     '<label class="install-field-label">Manifest URL</label>'
+      +     '<input class="install-field-input" value="https://pkgs.ikenga.ai/com.royalti.content/0.3.1/manifest.json" />'
+      +     '<div class="install-field-help">Paste a JSON manifest URL from the registry, or any HTTPS endpoint. The kernel fetches and validates against the Zod schema in <code>@ikenga/contract</code>.</div>'
+      +   '</div>'
+
+      +   '<div class="manifest-preview">'
+      +     '<div class="manifest-preview-head">'
+      +       '<span class="manifest-preview-name">Content</span>'
+      +       '<span class="manifest-preview-id">com.royalti.content@0.3.1</span>'
+      +     '</div>'
+      +     '<div class="pkg-desc" style="margin-bottom:var(--space-3);">Marketing/content pkg — blog drafts, newsletter queue, social calendar. Pulls from <code>.company/content</code> root.</div>'
+      +     '<dl class="manifest-preview-rows">'
+      +       '<dt>routes</dt><dd><code>content/blog</code><code>content/newsletter</code><code>content/social</code></dd>'
+      +       '<dt>scopes</dt><dd><span class="scope-pill">supabase:read:posts</span><span class="scope-pill is-warn">fs:write:.company/content</span><span class="scope-pill">vault:read:buffer</span></dd>'
+      +       '<dt>sidecars</dt><dd><code>content-pipe</code></dd>'
+      +       '<dt>signed by</dt><dd style="color:var(--live);">royalti-io <span style="color:var(--fg-faint);">· verified</span></dd>'
+      +       '<dt>kernel</dt><dd>requires api v1.0+ · <span style="color:var(--live);">compatible</span></dd>'
+      +     '</dl>'
+      +   '</div>'
+
+      +   '<div style="background:var(--danger-soft);border:1px solid var(--danger-soft);border-radius:var(--radius-sm);padding:var(--space-3);font-size:var(--text-body-sm);color:var(--danger);line-height:1.55;">'
+      +     '<strong style="font-weight:600;display:block;margin-bottom:4px;">Review write scopes</strong>'
+      +     'This pkg requests write access to <code style="background:var(--bg-base);padding:1px 5px;border-radius:3px;color:var(--danger);">.company/content</code>. Only install if you trust the publisher.'
+      +   '</div>'
+
+      + '</div>'
+      + '<div class="install-sheet-foot">'
+      +   '<button class="btn" data-action="close-install">Cancel</button>'
+      +   '<button class="btn is-primary">Install</button>'
+      + '</div>';
+  }
+
+  // ----- Mount stages --------------------------------------------
+  function mount(stageId, opts) {
+    var stage = document.getElementById(stageId);
+    stage.innerHTML = activityBar() + pkgsPage(opts);
+    // Wire sheet toggles within this stage
+    var sheet = stage.querySelector('.install-sheet');
+    var overlay = stage.querySelector('.sheet-overlay');
+    function close() {
+      sheet.classList.remove('is-open');
+      overlay.classList.remove('is-open');
+    }
+    function open() {
+      sheet.classList.add('is-open');
+      overlay.classList.add('is-open');
+    }
+    stage.querySelectorAll('[data-action="open-install"]').forEach(function (b) { b.addEventListener('click', open); });
+    stage.querySelectorAll('[data-action="close-install"]').forEach(function (b) { b.addEventListener('click', close); });
+    overlay.addEventListener('click', close);
+  }
+
+  mount('stage-list',    { sheet: false });
+  mount('stage-install', { sheet: true });
+</script>
+
+</body>
+</html>

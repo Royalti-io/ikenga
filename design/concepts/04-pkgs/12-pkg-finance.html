@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="A" data-mode="dark" data-density="comfortable" data-workspace="finance">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Ikenga · 04-pkgs · Finance pkg</title>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;1,9..144,400&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="../_shared/tokens.css" />
+<link rel="stylesheet" href="../_shared/components.css" />
+<link rel="stylesheet" href="../_shared/shell.css" />
+<link rel="stylesheet" href="./_pkg.css" />
+<style>
+  /* Density-respecting table for finance — slightly tighter than email rows */
+  [data-density="comfortable"] .table tbody td { padding: 7px var(--space-3); }
+  [data-density="compact"] .table tbody td { padding: 4px var(--space-3); }
+</style>
+</head>
+<body>
+<div class="page">
+  <header>
+    <div class="eyebrow"><span class="eyebrow-dot"></span> Ikenga · 04-pkgs / 12 · Finance pkg</div>
+    <h1 class="title">Finance — runway, <em>at a glance.</em></h1>
+    <p class="lede">Two dominant views: an overview dashboard (KPIs + small charts) and the transactions table. Receivables, inter-company, and reports follow the table pattern. Gold workspace tint scoped from <code style="font-family:var(--font-mono);font-size:13px;background:var(--bg-sunken);padding:1px 5px;border-radius:3px;color:var(--primary);">--tint-sessions-*</code>.</p>
+  </header>
+
+  <section><div class="section-tag">⓵ Empty — no transactions ingested</div>
+    <div class="card"><div class="card-head"><div class="card-name">com.ikenga.finance · empty</div><div class="card-meta">Theme A · dark</div></div>
+    <div class="stage" id="stage-empty"></div></div>
+  </section>
+
+  <section><div class="section-tag">⓶ Overview — KPI strip + recent activity (Theme A · dark)</div>
+    <div class="card"><div class="card-head"><div class="card-name">com.ikenga.finance · /finance/overview</div><div class="card-meta">multi-currency · NGN/USD/EUR/GBP</div></div>
+    <div class="stage" id="stage-overview"></div></div>
+  </section>
+
+  <section><div class="section-tag">⓷ Transactions table (data-dense)</div>
+    <div class="card"><div class="card-head"><div class="card-name">com.ikenga.finance · /finance/transactions</div><div class="card-meta">Theme A · dark · density compact</div></div>
+    <div class="stage" id="stage-table" data-density="compact"></div></div>
+  </section>
+
+  <section><div class="section-tag">⓸ Transaction detail — sheet over table</div>
+    <div class="card" data-mode="light"><div class="card-head"><div class="card-name">com.ikenga.finance · /finance/transactions/tx_5a23c</div><div class="card-meta">Theme A · light</div></div>
+    <div class="stage" id="stage-detail"></div></div>
+  </section>
+
+  <footer>
+    <span>Ikenga · 04-pkgs · 12 — Finance pkg · 2026-05-08</span>
+    <span><a href="./11-pkg-work.html">← 11 Work</a> · <a href="./13-pkg-gtm.html">13 · GTM →</a></span>
+  </footer>
+</div>
+
+<script src="../_shared/shell.js"></script>
+<script src="./_pkg.js"></script>
+<script>
+  // Apply density override on the table stage
+  document.getElementById('stage-table').closest('.card').setAttribute('data-density','compact');
+  document.getElementById('stage-detail').closest('.card').setAttribute('data-mode','light');
+  document.getElementById('stage-detail').closest('.card').setAttribute('data-workspace','finance');
+  document.getElementById('stage-detail').closest('.card').setAttribute('data-theme','A');
+
+  var P = PkgComp;
+  var ICN = {
+    overview:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>',
+    tx:          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>',
+    receivables: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M22 11.5V18a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h12"/><polyline points="16 2 22 8 16 14"/><line x1="22" y1="8" x2="2" y2="8"/></svg>',
+    inter:       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>',
+    reports:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>'
+  };
+
+  var SIDEBAR = {
+    icon: ICN.overview, name: 'Finance', mode: 'NGN/USD/EUR',
+    groups: [
+      { items: [
+        { label: 'Overview',     icon: ICN.overview, active: true },
+        { label: 'Transactions', icon: ICN.tx,       count: '2.1k' },
+        { label: 'Receivables',  icon: ICN.receivables, count: 7 },
+        { label: 'Inter-company',icon: ICN.inter },
+        { label: 'Reports',      icon: ICN.reports }
+      ]},
+      { label: 'Entities', items: [
+        { label: 'Royalti.io',  icon: ICN.overview },
+        { label: 'Dixtrit Media', icon: ICN.overview },
+        { label: 'Personal',    icon: ICN.overview }
+      ]}
+    ],
+    footLabel: 'Last sync', footStatus: '14:30'
+  };
+
+  var TABS = [
+    { k:'overview',     label:'Overview',     icon:ICN.overview },
+    { k:'transactions', label:'Transactions', icon:ICN.tx, count:'2.1k' },
+    { k:'receivables',  label:'Receivables',  icon:ICN.receivables, count:7 },
+    { k:'inter',        label:'Inter-company',icon:ICN.inter },
+    { k:'reports',      label:'Reports',      icon:ICN.reports }
+  ];
+
+  // ---- Empty ----
+  P.mount('stage-empty', 'finance', SIDEBAR,
+    '<div class="content-body">' + ''
+    + P.emptyState({
+      art: '<line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>',
+      title: 'No transactions yet.',
+      sub: 'Connect a bank or import a statement to start. Multi-currency conversion uses the rates you configure in Settings → Integrations.',
+      primary: 'Import statement',
+      secondary: 'Connect bank'
+    }) + '</div>'
+  );
+
+  // ---- Overview ----
+  function spark(points, color) {
+    color = color || 'var(--tint-fg-active)';
+    var max = Math.max.apply(null, points), min = Math.min.apply(null, points);
+    var w = 200, h = 32;
+    var d = points.map(function (p, i) {
+      var x = (i / (points.length - 1)) * w;
+      var y = h - ((p - min) / (max - min || 1)) * h;
+      return (i ? 'L' : 'M') + x.toFixed(1) + ' ' + y.toFixed(1);
+    }).join(' ');
+    return '<svg viewBox="0 0 ' + w + ' ' + h + '" width="100%" height="32" preserveAspectRatio="none" style="display:block;margin-top:6px;">'
+      + '<path d="' + d + '" stroke="' + color + '" stroke-width="1.5" fill="none"/>'
+      + '</svg>';
+  }
+
+  var KPIS = ''
+    + '<div class="kpis">'
+    +   '<div class="kpi"><div class="kpi-label">Cash on hand</div><div class="kpi-value">$148,220</div><div class="kpi-delta down">−2.4% MoM</div>' + spark([170,168,162,158,160,155,148], 'var(--danger)') + '</div>'
+    +   '<div class="kpi"><div class="kpi-label">Runway</div><div class="kpi-value">11.4 mo</div><div class="kpi-delta">at $13k/mo burn</div>' + spark([14,13.6,13,12.4,12,11.6,11.4]) + '</div>'
+    +   '<div class="kpi"><div class="kpi-label">MRR</div><div class="kpi-value">$3,820</div><div class="kpi-delta up">+$120 this mo</div>' + spark([3.4,3.5,3.55,3.6,3.7,3.7,3.82], 'var(--live)') + '</div>'
+    +   '<div class="kpi"><div class="kpi-label">Receivables</div><div class="kpi-value">₦8.2M</div><div class="kpi-delta">7 invoices · 2 overdue</div>' + spark([6.5,7,7.4,7.8,8,8.1,8.2], 'var(--achievement)') + '</div>'
+    + '</div>';
+
+  function txRow(d, name, sub, amt, ccy, neg, tag) {
+    var cls = neg ? 'is-neg' : 'is-pos';
+    return '<tr><td class="muted">' + d + '</td>'
+      + '<td><div style="font-weight:500">' + name + '</div><div class="muted" style="font-size:10.5px">' + sub + '</div></td>'
+      + '<td>' + (tag || '') + '</td>'
+      + '<td class="num ' + cls + '">' + (neg ? '−' : '+') + amt + '</td>'
+      + '<td class="muted">' + ccy + '</td></tr>';
+  }
+
+  var RECENT_TABLE = ''
+    + '<table class="table" style="margin-top:0;">'
+    +   '<thead><tr><th style="width:80px">Date</th><th>Description</th><th style="width:120px">Category</th><th style="width:110px">Amount</th><th style="width:60px">Ccy</th></tr></thead>'
+    +   '<tbody>'
+    +     txRow('05-07', 'Stripe payout',          'royalti.io · subscriptions',      '$3,420.00', 'USD', false, '<span class="tag tag-live">Revenue</span>')
+    +     txRow('05-06', 'Kuda transfer',          'from Dixtrit Media',              '₦450,000', 'NGN', false, '<span class="tag tag-tint">Inter-co</span>')
+    +     txRow('05-06', 'Anthropic API',          'Claude Code · 1M ctx',            '$284.12', 'USD',  true,  '<span class="tag">Infra</span>')
+    +     txRow('05-05', 'Railway',                'royalti-server-v2.6 hosting',     '$72.00',  'USD',  true,  '<span class="tag">Infra</span>')
+    +     txRow('05-05', 'Verto Payroll',          'salaries · 4 people',             '$5,840',  'USD',  true,  '<span class="tag tag-warn">Payroll</span>')
+    +     txRow('05-04', 'Listmonk → Resend',      'transactional email',             '$48.20',  'USD',  true,  '<span class="tag">Infra</span>')
+    +     txRow('05-04', 'Bank charge',            'GTB monthly maintenance',         '₦2,500',  'NGN',  true,  '<span class="tag">Bank</span>')
+    +     txRow('05-03', 'Stripe payout',          'royalti.io · subscriptions',      '$2,180.00', 'USD', false, '<span class="tag tag-live">Revenue</span>')
+    +   '</tbody></table>';
+
+  P.mount('stage-overview', 'finance', SIDEBAR,
+    '<div class="content-body">' + ''
+    + KPIS
+    + '<div style="overflow-y:auto;background:var(--bg-base);"><div style="padding:var(--space-6);"><div style="display:flex;align-items:baseline;margin-bottom:var(--space-3);"><div style="font-family:var(--font-display);font-weight:500;font-size:var(--text-h3);">Recent activity</div><span style="margin-left:auto;font-family:var(--font-mono);font-size:10.5px;color:var(--fg-faint);">last 7 days · all entities</span></div>' + RECENT_TABLE + '</div></div>'
+    + '</div>'
+  );
+
+  // ---- Transactions table ----
+  var BIG_TABLE = '<table class="table"><thead><tr>'
+    + '<th style="width:90px">Date</th><th>Description</th><th style="width:100px">Account</th>'
+    + '<th style="width:120px">Category</th><th style="width:110px">Amount</th><th style="width:60px">Ccy</th>'
+    + '<th style="width:120px">USD value</th></tr></thead><tbody>';
+  var rows = [
+    ['05-07','Stripe payout','royalti','revenue','+3,420.00','USD','+3,420.00',false,'<span class="tag tag-live">Revenue</span>'],
+    ['05-07','Buffer subscription','royalti','infra','−65.00','USD','−65.00',true,'<span class="tag">SaaS</span>'],
+    ['05-06','Kuda transfer','royalti','inter-co','+450,000','NGN','+285.71',false,'<span class="tag tag-tint">Inter-co</span>'],
+    ['05-06','Anthropic API','royalti','infra','−284.12','USD','−284.12',true,'<span class="tag">Infra</span>'],
+    ['05-06','Twenty Cloud','royalti','infra','−24.00','USD','−24.00',true,'<span class="tag">SaaS</span>'],
+    ['05-05','Railway','royalti','infra','−72.00','USD','−72.00',true,'<span class="tag">Infra</span>'],
+    ['05-05','Verto Payroll','royalti','payroll','−5,840.00','USD','−5,840.00',true,'<span class="tag tag-warn">Payroll</span>'],
+    ['05-05','GCS storage','royalti','infra','−18.40','USD','−18.40',true,'<span class="tag">Infra</span>'],
+    ['05-04','Listmonk SMTP','royalti','infra','−48.20','USD','−48.20',true,'<span class="tag">Infra</span>'],
+    ['05-04','GTB charge','royalti','bank','−2,500','NGN','−1.59',true,'<span class="tag">Bank</span>'],
+    ['05-03','Stripe payout','royalti','revenue','+2,180.00','USD','+2,180.00',false,'<span class="tag tag-live">Revenue</span>'],
+    ['05-03','Domain renewal','royalti','infra','−24.00','USD','−24.00',true,'<span class="tag">SaaS</span>'],
+    ['05-02','Founder draw','personal','draw','−1,500.00','USD','−1,500.00',true,'<span class="tag tag-warn">Personal</span>'],
+    ['05-01','LIRS PAYE','royalti','tax','−180,000','NGN','−114.30',true,'<span class="tag tag-warn">Tax</span>'],
+    ['05-01','Dixtrit invoice','dixtrit','revenue','+₦650,000','NGN','+412.70',false,'<span class="tag tag-live">Revenue</span>']
+  ];
+  rows.forEach(function (r) {
+    BIG_TABLE += '<tr>'
+      + '<td class="muted">' + r[0] + '</td>'
+      + '<td><div style="font-weight:500">' + r[1] + '</div></td>'
+      + '<td class="muted" style="font-size:10.5px;">' + r[2] + '</td>'
+      + '<td>' + r[8] + '</td>'
+      + '<td class="num ' + (r[7]?'is-neg':'is-pos') + '">' + r[4] + '</td>'
+      + '<td class="muted">' + r[5] + '</td>'
+      + '<td class="num ' + (r[7]?'is-neg':'is-pos') + '" style="opacity:.85">' + r[6] + '</td>'
+      + '</tr>';
+  });
+  BIG_TABLE += '</tbody></table>';
+
+  P.mount('stage-table', 'finance', SIDEBAR,
+    '<div class="content-body">' + ''
+    + '<div class="list-pane-head" style="position:sticky;top:0;background:var(--bg-surface);z-index:5;border-bottom:1px solid var(--border-soft);"><div class="list-pane-head-title">Transactions</div><div class="list-pane-head-meta">2,148 · this month · all entities · all currencies (USD-converted)</div></div>'
+    + '<div style="overflow:auto;background:var(--bg-base);">' + BIG_TABLE + '</div>'
+    + '</div>'
+  );
+
+  // ---- Detail (light theme) ----
+  var DETAIL = ''
+    + '<div class="detail-pane">'
+    +   '<div class="detail-pane-toolbar">'
+    +     '<button class="btn" style="border:0;background:transparent;height:28px;padding:0 8px;">← Back</button>'
+    +     '<span style="flex:1"></span>'
+    +     '<button class="btn">Reclassify</button>'
+    +     '<button class="btn">Open receipt</button>'
+    +     '<button class="btn is-primary">Mark reconciled</button>'
+    +   '</div>'
+    +   '<div class="detail-pane-body">'
+    +     '<div><div class="detail-meta"><span><code style="font-family:var(--font-mono);font-size:11px;background:var(--bg-base);padding:1px 5px;border-radius:3px;color:var(--tint-fg-active);">tx_5a23c</code></span><span>2026-05-06 · 11:48</span><span>royalti · main</span><span style="color:var(--live)">Reconciled · auto</span></div>'
+    +       '<h1 class="detail-h1" style="margin-top:var(--space-3);">Stripe payout — royalti.io subscriptions</h1></div>'
+    +     '<div class="kpis" style="grid-template-columns:1fr 1fr;padding:0;border:0;background:transparent;gap:var(--space-3);">'
+    +       '<div class="kpi"><div class="kpi-label">Amount</div><div class="kpi-value" style="color:var(--live)">+$3,420.00</div><div class="kpi-delta">USD · base</div></div>'
+    +       '<div class="kpi"><div class="kpi-label">Net to bank</div><div class="kpi-value">$3,316.80</div><div class="kpi-delta">after Stripe fee 3.0%</div></div>'
+    +     '</div>'
+    +     '<div class="detail-card">'
+    +       '<div class="detail-card-label">Breakdown</div>'
+    +       '<div class="detail-prose"><p>14 active subscriptions · $499/mo plan (12) · $99/mo plan (2). Includes one upgrade prorate +$84.</p></div>'
+    +     '</div>'
+    +     '<div class="detail-card">'
+    +       '<div class="detail-card-label">Linked records</div>'
+    +       '<div class="detail-prose" style="font-size:var(--text-body-sm);"><p>· Stripe payout <code>po_1NX2k3</code> (14 charges)</p><p>· Bank statement row · GTB · 2026-05-06</p><p>· Auto-classified by <code>cfo-transaction-classifier</code></p></div>'
+    +     '</div>'
+    +   '</div>'
+    + '</div>';
+
+  P.mount('stage-detail', 'finance', SIDEBAR,
+    '<div class="content-body">' + ''
+    + '<div class="pane-split"><div class="list-pane">'
+    + '<div class="list-pane-head"><div class="list-pane-head-title">Transactions</div><div class="list-pane-head-meta">selected · 1</div></div>'
+    + BIG_TABLE.replace(/<table class="table">/, '<table class="table" style="font-size:var(--text-caption);">') + '</div>'
+    + DETAIL
+    + '</div></div>'
+  );
+</script>
+</body>
+</html>

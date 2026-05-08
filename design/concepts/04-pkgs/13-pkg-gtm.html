@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="A" data-mode="dark" data-density="comfortable" data-workspace="gtm">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Ikenga · 04-pkgs · GTM pkg</title>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;1,9..144,400&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="../_shared/tokens.css" />
+<link rel="stylesheet" href="../_shared/components.css" />
+<link rel="stylesheet" href="../_shared/shell.css" />
+<link rel="stylesheet" href="./_pkg.css" />
+</head>
+<body>
+<div class="page">
+  <header>
+    <div class="eyebrow"><span class="eyebrow-dot"></span> Ikenga · 04-pkgs / 13 · GTM pkg</div>
+    <h1 class="title">GTM — sales, partners, <em>fundraise.</em></h1>
+    <p class="lede">Three sub-routes share the same pipeline stage shape, so the kanban is the dominant visual. Sales has Lead→Qualified→Demo→Trial→Negotiation→Closed, partnerships use stage scoring, fundraising tracks investor stages. Coral workspace tint.</p>
+  </header>
+
+  <section><div class="section-tag">⓵ Empty — no deals yet</div>
+    <div class="card"><div class="card-head"><div class="card-name">com.ikenga.gtm · empty</div><div class="card-meta">Theme A · dark</div></div>
+    <div class="stage" id="stage-empty"></div></div>
+  </section>
+
+  <section><div class="section-tag">⓶ Sales pipeline kanban</div>
+    <div class="card"><div class="card-head"><div class="card-name">com.ikenga.gtm · /gtm/sales</div><div class="card-meta">Theme A · dark · drag between columns</div></div>
+    <div class="stage" id="stage-kanban"></div></div>
+  </section>
+
+  <section><div class="section-tag">⓷ Deal detail (Theme A · light)</div>
+    <div class="card" data-mode="light"><div class="card-head"><div class="card-name">com.ikenga.gtm · /gtm/sales/valentim</div><div class="card-meta">Theme A · light</div></div>
+    <div class="stage" id="stage-detail"></div></div>
+  </section>
+
+  <section><div class="section-tag">⓸ Section transition — sales → partnerships</div>
+    <div class="card"><div class="card-head"><div class="card-name">com.ikenga.gtm · /gtm/partnerships</div><div class="card-meta">Theme A · dark</div></div>
+    <div class="stage" id="stage-partners"></div></div>
+  </section>
+
+  <footer>
+    <span>Ikenga · 04-pkgs · 13 — GTM pkg · 2026-05-08</span>
+    <span><a href="./12-pkg-finance.html">← 12 Finance</a> · <a href="./14-pkg-product.html">14 · Product →</a></span>
+  </footer>
+</div>
+
+<script src="../_shared/shell.js"></script>
+<script src="./_pkg.js"></script>
+<script>
+  document.getElementById('stage-detail').closest('.card').setAttribute('data-mode','light');
+  document.getElementById('stage-detail').closest('.card').setAttribute('data-workspace','gtm');
+  document.getElementById('stage-detail').closest('.card').setAttribute('data-theme','A');
+
+  var P = PkgComp;
+  var ICN = {
+    sales:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>',
+    partners: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
+    fund:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>'
+  };
+
+  var SIDEBAR = {
+    icon: ICN.sales, name: 'GTM', mode: '12 active',
+    groups: [
+      { items: [
+        { label: 'Sales',         icon: ICN.sales,    count: 12, active: true },
+        { label: 'Partnerships',  icon: ICN.partners, count: 6 },
+        { label: 'Fundraising',   icon: ICN.fund,     count: 18 }
+      ]},
+      { label: 'Sales filters', items: [
+        { label: 'My open deals', icon: ICN.sales, count: 5 },
+        { label: 'Closing this Q', icon: ICN.sales, count: 3 },
+        { label: 'Stalled · 14d', icon: ICN.sales, count: 2 }
+      ]}
+    ],
+    footLabel: 'Twenty CRM', footStatus: 'in-sync'
+  };
+
+  var TABS = [
+    { k:'sales',    label:'Sales',        icon:ICN.sales,    count:12 },
+    { k:'partners', label:'Partnerships', icon:ICN.partners, count:6 },
+    { k:'fund',     label:'Fundraising',  icon:ICN.fund,     count:18 }
+  ];
+
+  // ---- Empty ----
+  P.mount('stage-empty', 'gtm', SIDEBAR,
+    '<div class="content-body">' + ''
+    + P.emptyState({
+      art: '<polyline points="22 4 12 14.01 9 11.01"/><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>',
+      title: 'No deals in pipeline.',
+      sub: 'Add a deal manually, or import qualified leads from email triage. Stage definitions are configurable per pkg.',
+      primary: 'New deal',
+      secondary: 'Import from CRM'
+    }) + '</div>'
+  );
+
+  // ---- Kanban ----
+  function dealCard(opts) {
+    return '<div class="kanban-card">'
+      + '<div class="kanban-card-name">' + opts.name + '</div>'
+      + '<div class="kanban-card-meta"><span>' + opts.country + ' · ' + opts.tag + '</span><span class="kanban-card-amount">' + opts.amt + '</span></div>'
+      + '</div>';
+  }
+  function col(label, count, cards) {
+    return '<div class="kanban-col">'
+      + '<div class="kanban-col-head"><span>' + label + '</span><span class="kanban-col-count">' + count + '</span></div>'
+      + '<div class="kanban-col-body">' + cards + '</div>'
+      + '</div>';
+  }
+
+  var KANBAN = '<div class="kanban">'
+    + col('Lead', 4,
+        dealCard({ name:'Mavin Records',    country:'NG', tag:'inbound',  amt:'$24k/yr' })
+      + dealCard({ name:'AfroBeats Co.',    country:'NG', tag:'referral', amt:'$12k/yr' })
+      + dealCard({ name:'Soundbird Ltd',    country:'KE', tag:'cold',     amt:'$8k/yr'  })
+      + dealCard({ name:'Banque de Musique',country:'FR', tag:'event',    amt:'€15k/yr' })
+    )
+    + col('Qualified', 3,
+        dealCard({ name:'Chocolate City',   country:'NG', tag:'BANT ✓',   amt:'$36k/yr' })
+      + dealCard({ name:'Beja Tunes',       country:'ET', tag:'BANT ✓',   amt:'$10k/yr' })
+      + dealCard({ name:'Lagos Studio Co',  country:'NG', tag:'BANT ✓',   amt:'$18k/yr' })
+    )
+    + col('Demo', 2,
+        dealCard({ name:'Trace Music',      country:'FR', tag:'scheduled',amt:'€48k/yr' })
+      + dealCard({ name:'Soulful Records',  country:'GH', tag:'done',     amt:'$22k/yr' })
+    )
+    + col('Trial', 2,
+        dealCard({ name:'Pulse Africa',     country:'NG', tag:'14d',      amt:'$30k/yr' })
+      + dealCard({ name:'Apoyo Tech',       country:'CO', tag:'7d',       amt:'$14k/yr' })
+    )
+    + col('Negotiation', 1,
+        dealCard({ name:'Valentim de Carvalho', country:'PT', tag:'live·hot', amt:'€65k/yr' })
+    )
+    + col('Closed', 1,
+        '<div class="kanban-card" style="opacity:.85"><div class="kanban-card-name">Loft Records · won</div><div class="kanban-card-meta"><span>NG · onboarded</span><span class="kanban-card-amount" style="color:var(--live)">$28k/yr</span></div></div>'
+    )
+    + '</div>';
+
+  P.mount('stage-kanban', 'gtm', SIDEBAR,
+    '<div class="content-body">' + ''
+    + '<div class="list-pane-head" style="position:sticky;top:0;background:var(--bg-surface);z-index:5;border-bottom:1px solid var(--border-soft);"><div class="list-pane-head-title">Sales pipeline</div><div class="list-pane-head-meta">12 deals · weighted $284k ARR · 1 closing this Q</div></div>'
+    + '<div style="overflow:hidden;height:100%;">' + KANBAN + '</div>'
+    + '</div>'
+  );
+
+  // ---- Deal detail ----
+  var DEAL_DETAIL = ''
+    + '<div class="detail-pane">'
+    +   '<div class="detail-pane-toolbar">'
+    +     '<button class="btn" style="border:0;background:transparent;height:28px;padding:0 8px;">← Pipeline</button>'
+    +     '<span style="flex:1"></span>'
+    +     '<button class="btn">Log activity</button>'
+    +     '<button class="btn">Move stage</button>'
+    +     '<button class="btn is-primary">Mark won</button>'
+    +   '</div>'
+    +   '<div class="detail-pane-body">'
+    +     '<div><div class="detail-meta"><span><code style="font-family:var(--font-mono);font-size:11px;background:var(--bg-base);padding:1px 5px;border-radius:3px;color:var(--tint-fg-active);">deal/valentim</code></span><span>Negotiation · day 42</span><span>Twenty CRM · synced</span><span style="color:var(--achievement)">Hot · live demo</span></div>'
+    +       '<h1 class="detail-h1" style="margin-top:var(--space-3);">Valentim de Carvalho</h1>'
+    +       '<div style="font-family:var(--font-display);font-style:italic;color:var(--fg-muted);font-size:var(--text-body-lg);margin-top:6px;">Portuguese label · post-demo · awaiting signup + files</div></div>'
+    +     '<div class="kpis" style="grid-template-columns:1fr 1fr 1fr;padding:0;border:0;background:transparent;gap:var(--space-3);">'
+    +       '<div class="kpi"><div class="kpi-label">ARR</div><div class="kpi-value">€65k</div><div class="kpi-delta">5-year deal</div></div>'
+    +       '<div class="kpi"><div class="kpi-label">Score</div><div class="kpi-value" style="color:var(--live)">82</div><div class="kpi-delta up">BANT · 4/4</div></div>'
+    +       '<div class="kpi"><div class="kpi-label">Next step</div><div class="kpi-value" style="font-size:18px;line-height:1.3">Verify v_sales_data fix</div><div class="kpi-delta">due today</div></div>'
+    +     '</div>'
+    +     '<div class="detail-card">'
+    +       '<div class="detail-card-label">Activity (recent)</div>'
+    +       '<div class="detail-prose" style="font-size:var(--text-body-sm);">'
+    +         '<p>· 14:02 · email reply received — files ready for processing</p>'
+    +         '<p>· 09:30 · CTO agent ran <code>schema_check</code> on tenant 590, surfaced disparity</p>'
+    +         '<p>· 2026-05-06 · catalog import complete — 28 products / 62 tracks / 28 splits</p>'
+    +         '<p>· 2026-05-04 · live demo · Valentim + 2 ops · 45 min · positive</p>'
+    +       '</div>'
+    +     '</div>'
+    +     '<div class="detail-card"><div class="detail-card-label">Linked tasks</div>'
+    +       '<div class="detail-prose" style="font-size:var(--text-body-sm);"><p>· Reply to Valentim re: catalog import — open · 4h SLA</p><p>· Tenant 590 v_sales_data fix verification — open · Fri</p></div>'
+    +     '</div>'
+    +   '</div>'
+    + '</div>';
+
+  P.mount('stage-detail', 'gtm', SIDEBAR,
+    '<div class="content-body">' + ''
+    + '<div class="pane-split wide"><div class="list-pane">'
+    + '<div class="list-pane-head"><div class="list-pane-head-title">Pipeline</div><div class="list-pane-head-meta">Valentim selected</div></div>'
+    + '<div style="padding:var(--space-3);"><div style="font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--fg-faint);padding:0 var(--space-2) var(--space-2)">Negotiation · 1</div>'
+    + '<div class="kanban-card" style="border-color:var(--tint-fg-active)"><div class="kanban-card-name">Valentim de Carvalho</div><div class="kanban-card-meta"><span>PT · live·hot</span><span class="kanban-card-amount">€65k/yr</span></div></div>'
+    + '<div style="font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--fg-faint);padding:var(--space-3) var(--space-2) var(--space-2)">Trial · 2</div>'
+    + '<div class="kanban-card"><div class="kanban-card-name">Pulse Africa</div><div class="kanban-card-meta"><span>NG · 14d</span><span class="kanban-card-amount">$30k/yr</span></div></div>'
+    + '<div class="kanban-card" style="margin-top:var(--space-2)"><div class="kanban-card-name">Apoyo Tech</div><div class="kanban-card-meta"><span>CO · 7d</span><span class="kanban-card-amount">$14k/yr</span></div></div></div>'
+    + '</div>'
+    + DEAL_DETAIL
+    + '</div></div>'
+  );
+
+  // ---- Partnerships ----
+  function pRow(name, type, score, stage, owner) {
+    return '<div class="list-row">'
+      + '<div class="list-row-tick"></div>'
+      + '<div class="list-row-main">'
+      +   '<div class="list-row-headline"><div class="list-row-title">' + name + '</div><div class="list-row-time">' + stage + '</div></div>'
+      +   '<div class="list-row-sub">'
+      +     '<span class="list-row-sub-item"><span class="tag tag-tint">' + type + '</span></span>'
+      +     '<span class="list-row-sub-item" style="color:var(--fg-faint)">' + owner + '</span>'
+      +     '<span class="list-row-sub-item"><code>score ' + score + '</code></span>'
+      +   '</div>'
+      + '</div></div>';
+  }
+
+  var PARTNER_HTML = ''
+    + '<div class="list-row-section">In flight · 4</div>'
+    + pRow('Anthropic · Agent SDK launch coord', 'co-marketing', 78, 'meeting · day 12', 'CBO')
+    + pRow('FUGA distribution', 'integration', 71, 'tech-eval · day 3', 'CTO')
+    + pRow('Merlin Network', 'integration', 64, 'discovery', 'CBO')
+    + pRow('PipeOps', 'reseller', 58, 'pilot · nso.to', 'CBO')
+    + '<div class="list-row-section">Discovery · 2</div>'
+    + pRow('Spotify For Artists', 'data', 52, 'cold outreach', 'CBO')
+    + pRow('TuneCore', 'integration', 41, 'cold outreach', 'CBO');
+
+  P.mount('stage-partners', 'gtm', { ...SIDEBAR },
+    '<div class="content-body">' + ''
+    + '<div class="list-pane-head" style="position:sticky;top:0;background:var(--bg-surface);z-index:5;border-bottom:1px solid var(--border-soft);"><div class="list-pane-head-title">Partnerships</div><div class="list-pane-head-meta">6 in flight · 2 discovery · score range 41–78</div></div>'
+    + '<div style="overflow-y:auto;background:var(--bg-base);">' + PARTNER_HTML + '</div>'
+    + '</div>'
+  );
+</script>
+</body>
+</html>

@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="A" data-mode="dark" data-density="comfortable" data-workspace="email">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Ikenga · 04-pkgs · Email pkg</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,400;1,9..144,500&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="../_shared/tokens.css" />
+<link rel="stylesheet" href="../_shared/components.css" />
+<link rel="stylesheet" href="../_shared/shell.css" />
+<style>
+  .page { max-width: 1480px; margin: 0 auto; padding: var(--space-8) var(--space-12) var(--space-12); }
+  header { margin-bottom: var(--space-8); }
+  h1.title { font-family: var(--font-display); font-weight: 500; font-size: var(--text-h1); letter-spacing: -.012em; margin: var(--space-2) 0; color: var(--fg); }
+  h1.title em { font-style: italic; color: var(--primary); }
+  .lede { font-size: var(--text-body-lg); color: var(--fg-muted); line-height: 1.55; max-width: 70ch; }
+  .eyebrow { display: inline-flex; align-items: center; gap: var(--space-2); font-family: var(--font-mono); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--fg-faint); }
+  .eyebrow-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--primary); }
+  section { margin-top: var(--space-8); }
+  .section-tag { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--fg-faint); margin-bottom: var(--space-4); }
+
+  [data-workspace="email"] { --tint-bg-active:var(--tint-mail-bg); --tint-fg-active:var(--tint-mail-fg); }
+
+  .card { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-base); overflow: hidden; box-shadow: var(--shadow-2); }
+  .card-head { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border-soft); background: var(--bg-sunken); }
+  .card-name { font-family: var(--font-display); font-weight: 500; font-size: var(--text-h3); color: var(--fg); }
+  .card-meta { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--fg-faint); margin-left: auto; }
+  .stage { display: grid; grid-template-columns: 56px 220px 1fr; height: 720px; background: var(--bg-base); }
+  .stage .activity { width: 56px; }
+
+  /* Sidebar */
+  .sidebar { background: var(--bg-surface); border-right: 1px solid var(--border-soft); display: grid; grid-template-rows: auto 1fr auto; overflow: hidden; }
+  .sidebar-head {
+    padding: var(--space-4) var(--space-3) var(--space-3);
+    background: linear-gradient(180deg, var(--tint-bg-active) 0%, var(--bg-surface) 100%);
+    border-bottom: 1px solid var(--border-soft);
+    display: flex; align-items: center; gap: var(--space-2);
+  }
+  .sidebar-head svg { width: 20px; height: 20px; color: var(--tint-fg-active); }
+  .sidebar-head-name { font-family: var(--font-display); font-weight: 500; font-size: var(--text-h3); color: var(--fg); }
+  .sidebar-head-mode { margin-left: auto; font-family: var(--font-mono); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--fg-faint); padding: 2px 6px; border: 1px solid var(--border-soft); border-radius: var(--radius-xs); background: var(--bg-base); }
+  .sidebar-body { overflow-y: auto; padding: var(--space-3) var(--space-2); }
+  .nav-section-label { font-family: var(--font-mono); font-size: 9.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--fg-faint); padding: var(--space-3) var(--space-2) var(--space-1); }
+  .nav-section-label:first-child { padding-top: 0; }
+  .nav-item { display: flex; align-items: center; gap: var(--space-2); padding: 7px var(--space-2); border-radius: var(--radius-sm); color: var(--fg-muted); cursor: pointer; font-size: var(--text-body-sm); }
+  .nav-item svg { width: 15px; height: 15px; flex-shrink: 0; }
+  .nav-item:hover { background: var(--bg-raised); color: var(--fg); }
+  .nav-item.is-on { background: var(--bg-raised); color: var(--fg); }
+  .nav-item.is-on::before { content: ''; width: 3px; height: 14px; background: var(--tint-fg-active); border-radius: 2px; margin-left: -8px; margin-right: 5px; }
+  .nav-item-count { margin-left: auto; font-family: var(--font-mono); font-size: 10px; color: var(--fg-faint); }
+  .sidebar-foot { border-top: 1px solid var(--border-soft); background: var(--bg-sunken); padding: var(--space-2) var(--space-3); font-family: var(--font-mono); font-size: 10px; color: var(--fg-faint); display: flex; align-items: center; gap: var(--space-2); }
+
+  /* Section tabs (the workspace tab pattern) */
+  .section-tabs {
+    display: flex; align-items: center; gap: 0;
+    padding: 0 var(--space-3);
+    height: var(--tab-h); border-bottom: 1px solid var(--border-soft);
+    background: var(--bg-surface);
+    overflow-x: auto;
+  }
+  .section-tab {
+    height: 100%; padding: 0 var(--space-4);
+    background: transparent; border: 0; color: var(--fg-muted);
+    font-family: inherit; font-size: var(--text-body-sm); font-weight: 500;
+    cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+  }
+  .section-tab:hover { color: var(--fg); }
+  .section-tab.is-on { color: var(--fg); border-bottom-color: var(--tint-fg-active); }
+  .section-tab svg { width: 14px; height: 14px; }
+  .section-tab-count { font-family: var(--font-mono); font-size: 10px; color: var(--fg-faint); padding: 0 5px; border: 1px solid var(--border-soft); border-radius: var(--radius-pill); height: 16px; line-height: 14px; }
+  .section-tab.is-on .section-tab-count { color: var(--tint-fg-active); border-color: var(--tint-fg-active); }
+
+  /* Content body */
+  .content-body { display: grid; grid-template-rows: auto 1fr; overflow: hidden; }
+
+  /* ---- States ---- */
+  .pane-empty, .pane-loading {
+    display: grid; place-items: center; padding: var(--space-12);
+  }
+  .empty-art {
+    width: 88px; height: 88px;
+    color: var(--tint-fg-active); opacity: .5;
+    margin-bottom: var(--space-5);
+  }
+  .empty-title { font-family: var(--font-display); font-weight: 500; font-size: var(--text-h2); letter-spacing: -.005em; color: var(--fg); margin: 0 0 var(--space-2); }
+  .empty-sub { font-family: var(--font-display); font-style: italic; color: var(--fg-muted); font-size: var(--text-body-lg); max-width: 44ch; line-height: 1.5; margin: 0 0 var(--space-5); text-align: center; }
+  .empty-actions { display: flex; gap: var(--space-2); }
+  .btn { height: 32px; padding: 0 var(--space-3); background: var(--bg-base); border: 1px solid var(--border-soft); color: var(--fg); border-radius: var(--radius-sm); cursor: pointer; font-family: inherit; font-size: var(--text-body-sm); font-weight: 500; display: inline-flex; align-items: center; gap: 6px; }
+  .btn:hover { border-color: var(--tint-fg-active); }
+  .btn.is-primary { background: var(--tint-fg-active); color: var(--primary-fg); border-color: transparent; }
+
+  /* Skeleton rows for loading state */
+  .skel-list { padding: 0; }
+  .skel-row { display: grid; grid-template-columns: 4px 1fr; gap: var(--space-2); padding: 12px var(--space-4); border-bottom: 1px solid var(--border-soft); }
+  .skel-row .skel-bar { height: 10px; border-radius: var(--radius-xs); background: linear-gradient(90deg, var(--bg-raised) 0%, var(--bg-sunken) 50%, var(--bg-raised) 100%); background-size: 200% 100%; animation: shimmer 1.4s linear infinite; }
+  @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+  .skel-row .skel-bar.w-40 { width: 40%; }
+  .skel-row .skel-bar.w-70 { width: 70%; }
+  .skel-row .skel-bar.w-25 { width: 25%; }
+  .skel-row .skel-bar + .skel-bar { margin-top: 6px; }
+  .skel-row.is-tick .skel-tick { width: 4px; background: var(--tint-fg-active); opacity: .4; border-radius: 2px; }
+
+  /* List + reader split (primary list view) */
+  .pane-split { display: grid; grid-template-columns: 380px 1fr; overflow: hidden; height: 100%; }
+  .mail-list { border-right: 1px solid var(--border-soft); overflow-y: auto; background: var(--bg-surface); }
+  .mail-list-head { display: flex; align-items: center; justify-content: space-between; padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border-soft); background: var(--bg-surface); position: sticky; top: 0; z-index: 5; }
+  .mail-list-head-title { font-family: var(--font-display); font-weight: 500; font-size: var(--text-h3); color: var(--fg); }
+  .mail-list-head-meta { font-family: var(--font-mono); font-size: 10.5px; color: var(--fg-faint); letter-spacing: .04em; }
+  .mail-list-section { padding: var(--space-3) var(--space-4) var(--space-1); font-family: var(--font-mono); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--fg-faint); background: var(--bg-sunken); border-bottom: 1px solid var(--border-soft); }
+  .mail-row { padding: calc(var(--row-pad-y) + 4px) var(--space-4); border-bottom: 1px solid var(--border-soft); cursor: pointer; display: grid; grid-template-columns: 4px 1fr; gap: var(--space-2); }
+  .mail-row:hover { background: var(--bg-raised); }
+  .mail-row-tick { width: 4px; }
+  .mail-row.is-unread .mail-row-tick { background: var(--tint-fg-active); border-radius: 2px; }
+  .mail-row.is-selected { background: var(--bg-raised); }
+  .mail-row.is-selected .mail-row-tick { background: var(--tint-fg-active); border-radius: 2px; }
+  .mail-row-meta { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); margin-bottom: 2px; }
+  .mail-row-from { font-size: var(--text-body-sm); font-weight: 500; color: var(--fg); }
+  .mail-row.is-unread .mail-row-from { font-weight: 600; }
+  .mail-row-time { font-family: var(--font-mono); font-size: 10.5px; color: var(--fg-faint); flex-shrink: 0; }
+  .mail-row-subject { font-size: var(--text-body-sm); color: var(--fg); line-height: 1.35; margin-bottom: 3px; }
+  .mail-row-preview { font-size: var(--text-caption); color: var(--fg-muted); line-height: 1.4; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .mail-row-tags { display: flex; gap: var(--space-1); margin-top: 6px; flex-wrap: wrap; }
+  .tag { font-family: var(--font-mono); font-size: 9.5px; letter-spacing: .06em; text-transform: uppercase; padding: 2px 6px; border-radius: var(--radius-xs); background: var(--bg-sunken); color: var(--fg-muted); border: 1px solid var(--border-soft); }
+  .tag.tag-deal { color: var(--achievement); border-color: var(--achievement-soft); background: var(--achievement-soft); }
+  .tag.tag-warn { color: var(--danger); border-color: var(--danger-soft); background: var(--danger-soft); }
+  .tag.tag-primary { color: var(--tint-fg-active); border-color: var(--tint-bg-active); background: var(--tint-bg-active); }
+
+  /* Reader */
+  .reader { overflow-y: auto; background: var(--bg-surface); }
+  .reader-toolbar { padding: var(--row-pad-y) var(--space-4); border-bottom: 1px solid var(--border-soft); background: var(--bg-sunken); display: flex; align-items: center; gap: var(--space-1); position: sticky; top: 0; z-index: 5; }
+  .reader-toolbar-spacer { flex: 1; }
+  .reader-body-wrap { padding: var(--space-6) var(--space-8); max-width: 720px; margin: 0 auto; }
+  .reader-from-row { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-4); }
+  .avatar { width: 36px; height: 36px; border-radius: 50%; background: linear-gradient(135deg, var(--tint-bg-active), var(--tint-fg-active)); display: grid; place-items: center; font-family: var(--font-display); font-weight: 500; font-size: 14px; color: var(--bg-base); flex-shrink: 0; }
+  .reader-from-name { font-weight: 600; font-size: var(--text-body); color: var(--fg); }
+  .reader-from-addr { font-family: var(--font-mono); font-size: var(--text-micro); color: var(--fg-muted); }
+  .reader-actions { margin-left: auto; display: flex; gap: var(--space-2); }
+  .reader-subject { font-family: var(--font-display); font-weight: 500; font-size: 28px; line-height: 1.15; letter-spacing: -.012em; margin: var(--space-3) 0; color: var(--fg); }
+  .reader-meta { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .04em; color: var(--fg-muted); display: flex; gap: var(--space-4); flex-wrap: wrap; padding-bottom: var(--space-4); border-bottom: 1px solid var(--border-soft); margin-bottom: var(--space-5); }
+  .reader-body { font-size: var(--text-body); line-height: 1.7; color: var(--fg); max-width: 64ch; }
+  .reader-body p { margin: 0 0 var(--space-4); }
+  .reader-body strong { color: var(--achievement); font-weight: 600; }
+  .reader-body code { font-family: var(--font-mono); font-size: 12.5px; background: var(--bg-sunken); padding: 1px 5px; border-radius: var(--radius-xs); color: var(--tint-fg-active); }
+
+  /* Triage transition view (mail/inbox → mail/triage) */
+  .triage {
+    display: grid; grid-template-rows: auto 1fr;
+    background: var(--bg-base);
+    height: 100%;
+  }
+  .triage-head { padding: var(--space-4) var(--space-6); border-bottom: 1px solid var(--border-soft); background: var(--bg-sunken); display: flex; align-items: center; gap: var(--space-3); }
+  .triage-head h2 { font-family: var(--font-display); font-weight: 500; font-size: var(--text-h2); margin: 0; }
+  .triage-head-progress { margin-left: auto; font-family: var(--font-mono); font-size: 10.5px; color: var(--fg-faint); letter-spacing: .06em; }
+  .triage-card-area { display: grid; place-items: center; padding: var(--space-8); }
+  .triage-card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-3);
+    width: 100%; max-width: 640px;
+    overflow: hidden;
+  }
+  .triage-card-head { padding: var(--space-4) var(--space-5); border-bottom: 1px solid var(--border-soft); display: flex; align-items: center; gap: var(--space-3); }
+  .triage-card-body { padding: var(--space-5); font-size: var(--text-body); line-height: 1.6; color: var(--fg); max-height: 280px; overflow: hidden; position: relative; }
+  .triage-card-body::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 60px; background: linear-gradient(to bottom, transparent, var(--bg-surface)); pointer-events: none; }
+  .triage-card-foot { padding: var(--space-3) var(--space-5); border-top: 1px solid var(--border-soft); background: var(--bg-sunken); display: flex; gap: var(--space-2); align-items: center; }
+  .triage-action { flex: 1; height: 40px; border-radius: var(--radius-sm); border: 1px solid var(--border-soft); background: var(--bg-base); color: var(--fg); font-family: inherit; font-size: var(--text-body-sm); font-weight: 500; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+  .triage-action:hover { border-color: var(--tint-fg-active); }
+  .triage-action.is-primary { background: var(--tint-fg-active); color: var(--bg-base); border-color: transparent; }
+  .triage-action kbd { font-family: var(--font-mono); font-size: 10px; opacity: .6; margin-left: 2px; }
+
+  /* Stage helper: show all five states stacked */
+  .states-grid { display: grid; gap: var(--space-6); }
+
+  footer { margin-top: var(--space-12); padding-top: var(--space-5); border-top: 1px solid var(--border-soft); font-family: var(--font-mono); font-size: 11px; color: var(--fg-faint); letter-spacing: .06em; display: flex; justify-content: space-between; }
+  footer a { color: var(--fg-muted); text-decoration: none; border-bottom: 1px solid var(--border-soft); }
+  footer a:hover { color: var(--achievement); }
+</style>
+</head>
+<body>
+
+<div class="page">
+
+  <header>
+    <div class="eyebrow"><span class="eyebrow-dot"></span> Ikenga · 04-pkgs / 10 · Email pkg</div>
+    <h1 class="title">Email pkg — the <em>reference</em>.</h1>
+    <p class="lede">Five states, one consistent surface. Section-tabs (inbox · triage · drafts · sent · queue · sequences · social) sit beneath the pane toolbar; each pkg follows this same shape with its own tint. Density-aware row heights — what you see is comfortable; compact and spacious shift row-h, tab-h, body size, and gap together.</p>
+  </header>
+
+  <section>
+    <div class="section-tag">⓵ Empty state — first-run, no mailboxes synced</div>
+    <div class="card" data-theme="A" data-mode="dark" data-workspace="email">
+      <div class="card-head"><div class="card-name">com.ikenga.email · empty</div><div class="card-meta">Theme A · dark</div></div>
+      <div class="stage" id="stage-empty"></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-tag">⓶ Loading state — fetching after pkg start</div>
+    <div class="card" data-theme="A" data-mode="dark" data-workspace="email">
+      <div class="card-head"><div class="card-name">com.ikenga.email · loading</div><div class="card-meta">Theme A · dark</div></div>
+      <div class="stage" id="stage-loading"></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-tag">⓷ Primary list — mail/inbox tab active</div>
+    <div class="card" data-theme="A" data-mode="dark" data-workspace="email">
+      <div class="card-head"><div class="card-name">com.ikenga.email · /mail/inbox</div><div class="card-meta">Theme A · dark</div></div>
+      <div class="stage" id="stage-list"></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-tag">⓸ Detail — message open in reader (same screen, item selected)</div>
+    <div class="card" data-theme="A" data-mode="light" data-workspace="email">
+      <div class="card-head"><div class="card-name">com.ikenga.email · /mail/inbox/9d4f2 · Theme A · light</div><div class="card-meta">density · comfortable</div></div>
+      <div class="stage" id="stage-detail"></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-tag">⓹ Section transition — inbox → triage (one-card-at-a-time keyboard mode)</div>
+    <div class="card" data-theme="A" data-mode="dark" data-workspace="email">
+      <div class="card-head"><div class="card-name">com.ikenga.email · /mail/triage</div><div class="card-meta">Theme A · dark</div></div>
+      <div class="stage" id="stage-triage"></div>
+    </div>
+  </section>
+
+  <footer>
+    <span>Ikenga · 04-pkgs · 10 — Email pkg · 2026-05-08</span>
+    <span><a href="./04-package-manager.html">← 04 Pkg manager</a> · <a href="./11-pkg-work.html">11 · Work pkg →</a></span>
+  </footer>
+
+</div>
+
+<script src="../_shared/shell.js"></script>
+<script>
+  var I = Shell.ICONS;
+  var ICN = {
+    inbox: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>',
+    triage: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><polygon points="4 5 20 5 14 12 14 19 10 19 10 12"/></svg>',
+    drafts: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="5" width="18" height="14" rx="2"/><polyline points="8 11 11 14 17 8"/></svg>',
+    queue:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M9 11v8a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2v-8"/><path d="M3 11h18M7 7h10"/></svg>',
+    seq:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><polyline points="3 7 7 11 3 15"/><line x1="11" y1="11" x2="21" y2="11"/></svg>',
+    sent:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>',
+    content:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>',
+    user:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="8" r="4"/><path d="M5 21v-2a4 4 0 0 1 4-4h6a4 4 0 0 1 4 4v2"/></svg>',
+    snooze: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 15"/></svg>',
+    archive:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/></svg>',
+    trash:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>',
+    reply:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></svg>'
+  };
+
+  // ---- Activity bar (decorative, email active) ----
+  function activityBar() {
+    var html = '<div class="activity"><span class="horn-mark">' + I.horn + '</span>';
+    html += '<button class="rail-icon is-on" title="Email">' + I.mail + '</button>';
+    html += '<button class="rail-icon" title="Work"></button>';
+    html += '<button class="rail-icon" title="Finance"></button>';
+    html += '<button class="rail-icon" title="GTM"></button>';
+    html += '<button class="rail-icon" title="Product"></button>';
+    html += '<button class="rail-icon" title="Exec"></button>';
+    html += '<span class="activity-spacer"></span>';
+    html += '<button class="rail-icon" title="Settings">' + I.settings + '</button></div>';
+    return html;
+  }
+
+  // ---- Sidebar ----
+  function sidebar(opts) {
+    opts = opts || {};
+    var mode = opts.mode || '12 unread';
+    var html = '<div class="sidebar">';
+    html += '<div class="sidebar-head">' + I.mail + '<span class="sidebar-head-name">Email</span><span class="sidebar-head-mode">' + mode + '</span></div>';
+    html += '<div class="sidebar-body">';
+    html += '<div class="nav-section-label">Mail</div>';
+    html += '<div class="nav-item ' + (opts.active === 'inbox' ? 'is-on' : '') + '">' + ICN.inbox + '<span>Inbox</span><span class="nav-item-count">' + (opts.empty ? '—' : '12') + '</span></div>';
+    html += '<div class="nav-item ' + (opts.active === 'triage' ? 'is-on' : '') + '">' + ICN.triage + '<span>Triage</span><span class="nav-item-count">' + (opts.empty ? '—' : '4') + '</span></div>';
+    html += '<div class="nav-item">' + ICN.drafts + '<span>Drafts</span><span class="nav-item-count">' + (opts.empty ? '—' : '3') + '</span></div>';
+    html += '<div class="nav-item">' + ICN.sent + '<span>Sent</span></div>';
+    html += '<div class="nav-section-label">Outbox</div>';
+    html += '<div class="nav-item">' + ICN.queue + '<span>Queue</span><span class="nav-item-count">' + (opts.empty ? '—' : '7') + '</span></div>';
+    html += '<div class="nav-item">' + ICN.seq + '<span>Sequences</span></div>';
+    html += '<div class="nav-section-label">Pipeline</div>';
+    html += '<div class="nav-item">' + ICN.content + '<span>Content</span></div>';
+    html += '</div>';
+    html += '<div class="sidebar-foot"><span>Listmonk</span><span style="margin-left:auto;color:var(--live);">healthy</span></div>';
+    html += '</div>';
+    return html;
+  }
+
+  // ---- Section tabs ----
+  function tabs(active) {
+    var T = [
+      { k:'inbox',  label:'Inbox',     icon:ICN.inbox,  count:12 },
+      { k:'triage', label:'Triage',    icon:ICN.triage, count:4 },
+      { k:'drafts', label:'Drafts',    icon:ICN.drafts, count:3 },
+      { k:'queue',  label:'Queue',     icon:ICN.queue,  count:7 },
+      { k:'seq',    label:'Sequences', icon:ICN.seq },
+      { k:'sent',   label:'Sent',      icon:ICN.sent }
+    ];
+    var html = '<div class="section-tabs">';
+    T.forEach(function (t) {
+      var on = t.k === active ? ' is-on' : '';
+      var ct = (t.count != null) ? '<span class="section-tab-count">' + t.count + '</span>' : '';
+      html += '<button class="section-tab' + on + '">' + t.icon + '<span>' + t.label + '</span>' + ct + '</button>';
+    });
+    html += '</div>';
+    return html;
+  }
+
+  // ---- Content variants ----
+  function emptyContent() {
+    return ''
+      + '<div class="content-body">'
+      +   ''
+      +   '<div class="pane-empty">'
+      +     '<div style="display:grid;justify-items:center;text-align:center;">'
+      +       '<svg class="empty-art" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>'
+      +       '<h2 class="empty-title">Inbox is empty.</h2>'
+      +       '<p class="empty-sub">Connect a mailbox to start receiving mail. The pkg syncs to Thunderbird locally; nothing leaves the desktop until you send.</p>'
+      +       '<div class="empty-actions">'
+      +         '<button class="btn is-primary">Connect mailbox</button>'
+      +         '<button class="btn">Import .mbox</button>'
+      +       '</div>'
+      +     '</div>'
+      +   '</div>'
+      + '</div>';
+  }
+
+  function loadingContent() {
+    var rows = '';
+    for (var i = 0; i < 8; i++) {
+      var unread = i < 4;
+      rows += '<div class="skel-row' + (unread ? ' is-tick' : '') + '">'
+           +   (unread ? '<div class="skel-tick"></div>' : '<div></div>')
+           +   '<div>'
+           +     '<div class="skel-bar w-25"></div>'
+           +     '<div class="skel-bar w-70"></div>'
+           +     '<div class="skel-bar w-40"></div>'
+           +   '</div>'
+           + '</div>';
+    }
+    return ''
+      + '<div class="content-body">'
+      +   ''
+      +   '<div class="pane-split">'
+      +     '<div class="mail-list">'
+      +       '<div class="mail-list-head"><div class="mail-list-head-title">Inbox</div><div class="mail-list-head-meta">syncing…</div></div>'
+      +       '<div class="skel-list">' + rows + '</div>'
+      +     '</div>'
+      +     '<div class="reader pane-loading"><div style="text-align:center;color:var(--fg-muted);font-family:var(--font-display);font-style:italic;">'
+      +       '<div style="font-size:var(--text-body-lg);margin-bottom:var(--space-2);">Pulling messages…</div>'
+      +       '<div style="font-family:var(--font-mono);font-size:11px;color:var(--fg-faint);font-style:normal;letter-spacing:.06em;">listmonk · resend · mbox</div>'
+      +     '</div></div>'
+      +   '</div>'
+      + '</div>';
+  }
+
+  function listContent(withReader) {
+    var rows = ''
+      + '<div class="mail-list-section">Today</div>'
+      + '<div class="mail-row is-unread' + (withReader ? ' is-selected' : '') + '"><div class="mail-row-tick"></div><div>'
+      +   '<div class="mail-row-meta"><span class="mail-row-from">Valentim de Carvalho</span><span class="mail-row-time">14:02</span></div>'
+      +   '<div class="mail-row-subject">Re: Catalog import — files ready for processing</div>'
+      +   '<div class="mail-row-preview">Olá Chinedum, anexo os ficheiros de royalty da Pandora e Physical conforme combinado. Os IDs estão alinhados com o que importámos…</div>'
+      +   '<div class="mail-row-tags"><span class="tag tag-deal">Deal · Valentim</span><span class="tag">3 attachments</span></div>'
+      + '</div></div>'
+      + '<div class="mail-row is-unread"><div class="mail-row-tick"></div><div>'
+      +   '<div class="mail-row-meta"><span class="mail-row-from">Stripe</span><span class="mail-row-time">11:48</span></div>'
+      +   '<div class="mail-row-subject">Subscription renewed · royalti.io · $499/mo</div>'
+      +   '<div class="mail-row-preview">A payment of $499.00 was successfully processed for your monthly subscription. Invoice attached.</div>'
+      +   '<div class="mail-row-tags"><span class="tag">Auto-filed</span></div>'
+      + '</div></div>'
+      + '<div class="mail-row is-unread"><div class="mail-row-tick"></div><div>'
+      +   '<div class="mail-row-meta"><span class="mail-row-from">LIRS · PAYE</span><span class="mail-row-time">09:22</span></div>'
+      +   '<div class="mail-row-subject">PAYE filing overdue — Feb 2024 onwards</div>'
+      +   '<div class="mail-row-preview">Your monthly PAYE returns are pending. Please reconcile founder salary changes and submit at your earliest convenience.</div>'
+      +   '<div class="mail-row-tags"><span class="tag tag-warn">Overdue · 4d</span></div>'
+      + '</div></div>'
+      + '<div class="mail-row is-unread"><div class="mail-row-tick"></div><div>'
+      +   '<div class="mail-row-meta"><span class="mail-row-from">CMO agent · Mattermost</span><span class="mail-row-time">08:14</span></div>'
+      +   '<div class="mail-row-subject">April newsletter · draft ready for review</div>'
+      +   '<div class="mail-row-preview">3 sections: tenant 590 close, Pencil reader skill shipped, Q2 strategic shift. Awaiting your edit pass.</div>'
+      +   '<div class="mail-row-tags"><span class="tag tag-primary">Awaiting you</span></div>'
+      + '</div></div>'
+      + '<div class="mail-list-section">Yesterday</div>'
+      + '<div class="mail-row"><div class="mail-row-tick"></div><div>'
+      +   '<div class="mail-row-meta"><span class="mail-row-from">Mattermost · Rex</span><span class="mail-row-time">22:14</span></div>'
+      +   '<div class="mail-row-subject">Deploy succeeded · royalti-server-v2.6</div>'
+      +   '<div class="mail-row-preview">Build #842 deployed to Railway in 4m 12s. 0 failing tests.</div>'
+      + '</div></div>'
+      + '<div class="mail-row"><div class="mail-row-tick"></div><div>'
+      +   '<div class="mail-row-meta"><span class="mail-row-from">Kuda Bank</span><span class="mail-row-time">Tue 15:12</span></div>'
+      +   '<div class="mail-row-subject">Transfer received · ₦450,000.00</div>'
+      +   '<div class="mail-row-preview">From: Dixtrit Media Ltd. Reference: Inter-company April reconciliation.</div>'
+      + '</div></div>';
+
+    var listHtml = ''
+      + '<div class="mail-list">'
+      +   '<div class="mail-list-head"><div class="mail-list-head-title">Inbox</div><div class="mail-list-head-meta">12 unread · 0 snoozed</div></div>'
+      +   rows
+      + '</div>';
+
+    var readerHtml = withReader ? ''
+      + '<div class="reader">'
+      +   '<div class="reader-toolbar">'
+      +     '<button class="btn" title="Reply" style="border:0;background:transparent;height:28px;padding:0 8px;">' + ICN.reply + 'Reply</button>'
+      +     '<button class="btn" title="Snooze" style="border:0;background:transparent;height:28px;padding:0 8px;">' + ICN.snooze + 'Snooze</button>'
+      +     '<button class="btn" title="Archive" style="border:0;background:transparent;height:28px;padding:0 8px;">' + ICN.archive + 'Archive</button>'
+      +     '<span class="reader-toolbar-spacer"></span>'
+      +     '<span style="font-family:var(--font-mono);font-size:10.5px;color:var(--fg-faint);">3 of 12</span>'
+      +   '</div>'
+      +   '<div class="reader-body-wrap">'
+      +     '<div class="reader-from-row">'
+      +       '<div class="avatar">V</div>'
+      +       '<div><div class="reader-from-name">Valentim de Carvalho</div><div class="reader-from-addr">valentim@valentimdc.pt · Tenant 590</div></div>'
+      +       '<div class="reader-actions"><button class="btn">Snooze 4h</button><button class="btn is-primary">Reply</button></div>'
+      +     '</div>'
+      +     '<div class="reader-subject">Re: Catalog import — files ready for processing</div>'
+      +     '<div class="reader-meta"><span>Today 14:02</span><span>Tenant 590</span><span>Thread of 7</span><span style="color:var(--achievement);">Active deal</span></div>'
+      +     '<div class="reader-body">'
+      +       '<p>Olá Chinedum,</p>'
+      +       '<p>Anexo os ficheiros de royalty da Pandora e Physical conforme combinado. Os identificadores estão alinhados com o que importámos na semana passada — <strong>28 produtos, 62 faixas, 28 splits</strong>.</p>'
+      +       '<p>Antes de processarmos, queria confirmar uma coisa do esquema: o campo <code>v_sales_data</code> aparece a zero nos relatórios — é a esperar até o cálculo correr, ou há algo desalinhado entre Pandora e Physical?</p>'
+      +       '<p>Disponível para uma chamada amanhã. Caso contrário, basta dares-me luz verde e arrancamos.</p>'
+      +       '<p>Um abraço,<br/>Valentim</p>'
+      +     '</div>'
+      +   '</div>'
+      + '</div>'
+      : '<div class="reader pane-loading"><div style="color:var(--fg-faint);font-family:var(--font-display);font-style:italic;font-size:var(--text-body-lg);">Select a message</div></div>';
+
+    return ''
+      + '<div class="content-body">'
+      +   ''
+      +   '<div class="pane-split">' + listHtml + readerHtml + '</div>'
+      + '</div>';
+  }
+
+  function triageContent() {
+    return ''
+      + '<div class="content-body">'
+      +   ''
+      +   '<div class="triage">'
+      +     '<div class="triage-head">'
+      +       '<h2>Triage</h2>'
+      +       '<span style="font-family:var(--font-mono);font-size:10.5px;color:var(--fg-muted);letter-spacing:.06em;">one card at a time · keyboard-driven</span>'
+      +       '<span class="triage-head-progress">2 / 4</span>'
+      +     '</div>'
+      +     '<div class="triage-card-area">'
+      +       '<div class="triage-card">'
+      +         '<div class="triage-card-head">'
+      +           '<div class="avatar">L</div>'
+      +           '<div><div class="reader-from-name">LIRS · PAYE Reminder</div><div class="reader-from-addr">noreply@lirs.gov.ng</div></div>'
+      +           '<span class="tag tag-warn" style="margin-left:auto;">Overdue · 4d</span>'
+      +         '</div>'
+      +         '<div class="triage-card-body">'
+      +           '<div style="font-family:var(--font-display);font-weight:500;font-size:22px;line-height:1.2;letter-spacing:-.005em;margin-bottom:var(--space-3);">PAYE filing overdue — Feb 2024 onwards</div>'
+      +           '<p>Dear taxpayer, our records indicate that your monthly PAYE returns for periods Feb 2024 onward are pending submission. Please reconcile founder salary changes and submit your returns at the earliest convenience to avoid penalty assessment.</p>'
+      +           '<p>Your filing officer is available Mon–Fri 9–4 at the Ikoyi office, or via the e-Tax portal.</p>'
+      +         '</div>'
+      +         '<div class="triage-card-foot">'
+      +           '<button class="triage-action">' + ICN.archive + 'Archive<kbd>e</kbd></button>'
+      +           '<button class="triage-action">' + ICN.snooze + 'Snooze<kbd>s</kbd></button>'
+      +           '<button class="triage-action">' + ICN.reply + 'Task it<kbd>t</kbd></button>'
+      +           '<button class="triage-action is-primary">' + ICN.reply + 'Reply<kbd>r</kbd></button>'
+      +         '</div>'
+      +       '</div>'
+      +     '</div>'
+      +   '</div>'
+      + '</div>';
+  }
+
+  // ---- Mount each stage ----
+  function mount(stageId, opts, contentFn) {
+    var stage = document.getElementById(stageId);
+    stage.innerHTML = activityBar() + sidebar(opts) + contentFn();
+  }
+
+  mount('stage-empty',   { active:'inbox',  empty:true,  mode:'no mailbox' }, emptyContent);
+  mount('stage-loading', { active:'inbox',                mode:'syncing…' }, loadingContent);
+  mount('stage-list',    { active:'inbox',                mode:'12 unread' }, function () { return listContent(false); });
+  mount('stage-detail',  { active:'inbox',                mode:'12 unread' }, function () { return listContent(true); });
+  mount('stage-triage',  { active:'triage',               mode:'4 to triage' }, triageContent);
+</script>
+
+</body>
+</html>
