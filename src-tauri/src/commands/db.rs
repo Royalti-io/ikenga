@@ -118,6 +118,11 @@ async fn ensure_schema(pool: &sqlx::SqlitePool) -> Result<(), String> {
             "0007_pkg_kernel",
             include_str!("../../migrations/0007_pkg_kernel.sql"),
         ),
+        (
+            8,
+            "0008_pkg_install_source",
+            include_str!("../../migrations/0008_pkg_install_source.sql"),
+        ),
     ];
 
     for (id, name, sql) in migrations {

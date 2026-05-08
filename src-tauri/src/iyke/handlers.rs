@@ -818,8 +818,14 @@ pub async fn post_pkg_install(
     // run the install on a blocking thread.
     let kernel_arc = kernel.0.clone();
     let path = std::path::PathBuf::from(&body.install_path);
-    let installed = tokio::task::spawn_blocking(move || kernel_arc.install_from_path(&path))
-        .await
+    // iyke-driven installs are local sideloads — same provenance class as
+    // the FE workspace install path.
+    let source = crate::pkg::InstallSource::Local {
+        path: body.install_path.clone(),
+    };
+    let installed =
+        tokio::task::spawn_blocking(move || kernel_arc.install_from_path(&path, source))
+            .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("join error: {e}")))?
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("{e:#}")))?;
     serde_json::to_value(&installed)

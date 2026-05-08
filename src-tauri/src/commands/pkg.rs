@@ -9,7 +9,7 @@ use serde::Serialize;
 use tauri::State;
 
 use crate::pkg::registries::SettingsRegistry;
-use crate::pkg::{DiscoveredPkg, InstalledSummary, Kernel, KernelStatus};
+use crate::pkg::{DiscoveredPkg, InstallSource, InstalledSummary, Kernel, KernelStatus};
 
 /// State wrapper so the kernel can be stored in Tauri state behind an Arc.
 pub struct KernelState(pub Arc<Kernel>);
@@ -28,10 +28,16 @@ pub fn pkg_install_from_path(
     kernel: State<'_, KernelState>,
     install_path: String,
 ) -> Result<PkgInstallResult, String> {
-    let path = PathBuf::from(install_path);
+    let path = PathBuf::from(&install_path);
+    // FE / iyke / dev-mode workspace installs are all `Local` provenance.
+    // Registry installs go through a separate command once the registry
+    // client lands; builtins go through `install_builtins()` at boot.
+    let source = InstallSource::Local {
+        path: install_path,
+    };
     let installed = kernel
         .0
-        .install_from_path(&path)
+        .install_from_path(&path, source)
         .map_err(|e| format!("{e:#}"))?;
     Ok(PkgInstallResult { installed })
 }

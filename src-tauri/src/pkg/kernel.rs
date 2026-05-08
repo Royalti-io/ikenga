@@ -22,6 +22,7 @@ use crate::commands::db::PaDb;
 
 use super::manifest::{Package, IKENGA_API_VERSION, IKENGA_API_MIN_SUPPORTED};
 use super::registry::Registry;
+use super::source::InstallSource;
 
 /// Status returned by `pkg_kernel_status` — useful for debugging and the
 /// future Settings → Packages page.
@@ -56,6 +57,9 @@ pub struct InstalledSummary {
     pub enabled: bool,
     pub installed_at: i64,
     pub compatible: bool,
+    /// Provenance — recorded at install time, used by the UI for grouping
+    /// and by the kernel to refuse uninstall of `Builtin` pkgs.
+    pub source: InstallSource,
 }
 
 pub struct Kernel {
@@ -104,8 +108,15 @@ impl Kernel {
     }
 
     /// Hook for the future install-from-archive path. For now packages are
-    /// expected to already exist on disk at `install_path`.
-    pub fn install_from_path(&self, install_path: &Path) -> Result<InstalledSummary> {
+    /// expected to already exist on disk at `install_path`. The caller must
+    /// declare provenance via `source` so the kernel can stamp the
+    /// `pkg_installed.source_json` row — this is what later distinguishes
+    /// shell-bundled builtins from registry / sideloaded pkgs.
+    pub fn install_from_path(
+        &self,
+        install_path: &Path,
+        source: InstallSource,
+    ) -> Result<InstalledSummary> {
         let pkg = Package::load(install_path).with_context(|| {
             format!("load manifest at {}", install_path.display())
         })?;
@@ -125,14 +136,26 @@ impl Kernel {
         // Reject if already installed at a different path. Re-installing the
         // same path is treated as boot replay (idempotent register, no DB
         // write) — useful for dev-loop where the same dir gets re-poked.
-        if let Some(existing) = self.installed.read().ok().and_then(|g| g.get(&pkg_id).cloned()) {
+        // Preserve a stronger pre-existing source: if the row is already
+        // marked Builtin, never downgrade it to Local on a path-equal replay
+        // (e.g. workspace dev pointing at the same dir as a builtin).
+        let effective_source = if let Some(existing) =
+            self.installed.read().ok().and_then(|g| g.get(&pkg_id).cloned())
+        {
             if existing.install_path != pkg.install_path.display().to_string() {
                 return Err(anyhow!(
                     "package `{pkg_id}` already installed from {} — uninstall first",
                     existing.install_path
                 ));
             }
-        }
+            if existing.source.is_builtin() && !source.is_builtin() {
+                existing.source.clone()
+            } else {
+                source
+            }
+        } else {
+            source
+        };
 
         let installed_at = chrono::Utc::now().timestamp_millis();
         let summary = InstalledSummary {
@@ -143,6 +166,7 @@ impl Kernel {
             enabled: true,
             installed_at,
             compatible: true,
+            source: effective_source,
         };
 
         // Persist the parent `pkg_installed` row BEFORE running registries.
@@ -204,6 +228,8 @@ impl Kernel {
 
     fn persist_install(&self, s: &InstalledSummary, manifest_json: &str) -> Result<()> {
         let db = self.db.clone();
+        let source_json = serde_json::to_string(&s.source)
+            .map_err(|e| anyhow!("serialize install source: {e}"))?;
         let row = (
             s.id.clone(),
             s.version.clone(),
@@ -211,13 +237,14 @@ impl Kernel {
             manifest_json.to_string(),
             s.install_path.clone(),
             s.installed_at,
+            source_json,
         );
         tauri::async_runtime::block_on(async move {
             let pool = db.ensure_pool().await.map_err(|e| anyhow!(e))?;
             sqlx::query(
                 "INSERT OR REPLACE INTO pkg_installed
-                 (id, version, ikenga_api, manifest_json, install_path, installed_at, enabled)
-                 VALUES (?, ?, ?, ?, ?, ?, 1)",
+                 (id, version, ikenga_api, manifest_json, install_path, installed_at, enabled, source_json)
+                 VALUES (?, ?, ?, ?, ?, ?, 1, ?)",
             )
             .bind(&row.0)
             .bind(&row.1)
@@ -225,11 +252,38 @@ impl Kernel {
             .bind(&row.3)
             .bind(&row.4)
             .bind(row.5)
+            .bind(&row.6)
             .execute(&pool)
             .await
             .map_err(|e| anyhow!("insert pkg_installed: {e}"))?;
             Ok::<_, anyhow::Error>(())
         })
+    }
+
+    /// Reconcile a pre-existing row's source. Used by `install_builtins()` to
+    /// stamp `Builtin` on rows whose ids match the bundled set but were
+    /// installed before the source column existed.
+    fn reconcile_source(&self, pkg_id: &str, source: &InstallSource) -> Result<()> {
+        let db = self.db.clone();
+        let id_owned = pkg_id.to_string();
+        let source_json = serde_json::to_string(source)
+            .map_err(|e| anyhow!("serialize install source: {e}"))?;
+        tauri::async_runtime::block_on(async move {
+            let pool = db.ensure_pool().await.map_err(|e| anyhow!(e))?;
+            sqlx::query("UPDATE pkg_installed SET source_json = ? WHERE id = ?")
+                .bind(&source_json)
+                .bind(&id_owned)
+                .execute(&pool)
+                .await
+                .map_err(|e| anyhow!("update source_json: {e}"))?;
+            Ok::<_, anyhow::Error>(())
+        })?;
+        if let Ok(mut g) = self.installed.write() {
+            if let Some(existing) = g.get_mut(pkg_id) {
+                existing.source = source.clone();
+            }
+        }
+        Ok(())
     }
 
     /// Uninstall: walk registries in reverse, drop the row, mark disabled.
@@ -242,6 +296,20 @@ impl Kernel {
         // Recover from poison: the `()` payload carries no state, so a prior
         // panic while holding the lock can't have left anything inconsistent.
         let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+        // Refuse to uninstall shell-bundled builtins. Enforced here (not just
+        // in the UI) so CLI / iyke / future remote callers also can't strip
+        // them — they'd just get auto-reinstalled on next boot anyway.
+        let is_builtin = self
+            .installed
+            .read()
+            .ok()
+            .and_then(|g| g.get(pkg_id).map(|s| s.source.is_builtin()))
+            .unwrap_or(false);
+        if is_builtin {
+            return Err(anyhow!(
+                "package `{pkg_id}` is shipped with the shell and cannot be uninstalled (disable it instead)"
+            ));
+        }
         for reg in self.registries.iter().rev() {
             if let Err(e) = reg.unregister(pkg_id) {
                 log::warn!(
@@ -450,10 +518,29 @@ impl Kernel {
                 .map(|g| g.contains_key(&id))
                 .unwrap_or(false);
             if already_installed {
-                log::debug!("[pkg_kernel] builtin `{id}` already installed — skipping");
+                // Backfill: if the row predates the source column or was
+                // (somehow) installed as Local, restamp it as Builtin so
+                // the uninstall guard and UI grouping behave correctly.
+                let needs_restamp = self
+                    .installed
+                    .read()
+                    .ok()
+                    .and_then(|g| g.get(&id).map(|s| !s.source.is_builtin()))
+                    .unwrap_or(false);
+                if needs_restamp {
+                    if let Err(e) = self.reconcile_source(&id, &InstallSource::Builtin) {
+                        log::warn!(
+                            "[pkg_kernel] could not stamp `{id}` as Builtin (continuing): {e:#}"
+                        );
+                    } else {
+                        log::info!("[pkg_kernel] reconciled `{id}` source → builtin");
+                    }
+                } else {
+                    log::debug!("[pkg_kernel] builtin `{id}` already installed — skipping");
+                }
                 continue;
             }
-            match self.install_from_path(&path) {
+            match self.install_from_path(&path, InstallSource::Builtin) {
                 Ok(s) => log::info!(
                     "[pkg_kernel] auto-installed builtin `{}` v{}",
                     s.id,
@@ -475,7 +562,7 @@ impl Kernel {
     /// to repair or uninstall via the UI.
     pub fn boot(&self) -> Result<()> {
         let db = self.db.clone();
-        let (rows, total_rows): (Vec<(String, String, i64)>, i64) = tauri::async_runtime::block_on(async move {
+        let (rows, total_rows): (Vec<(String, String, i64, Option<String>)>, i64) = tauri::async_runtime::block_on(async move {
             let pool = db.ensure_pool().await.map_err(|e| anyhow!(e))?;
             // Diagnostic: total row count regardless of `enabled`. Distinguishes
             // "wrong DB file" / "missing rows" from "all rows disabled".
@@ -483,8 +570,8 @@ impl Kernel {
                 .fetch_one(&pool)
                 .await
                 .map_err(|e| anyhow!("count pkg_installed: {e}"))?;
-            let r: Vec<(String, String, i64)> = sqlx::query_as(
-                "SELECT id, install_path, installed_at
+            let r: Vec<(String, String, i64, Option<String>)> = sqlx::query_as(
+                "SELECT id, install_path, installed_at, source_json
                  FROM pkg_installed WHERE enabled = 1",
             )
             .fetch_all(&pool)
@@ -496,7 +583,7 @@ impl Kernel {
 
         let mut replayed = 0usize;
         let mut skipped = 0usize;
-        for (id, install_path, installed_at) in rows {
+        for (id, install_path, installed_at, source_raw) in rows {
             match Package::load(Path::new(&install_path)) {
                 Ok(pkg) => {
                     if !pkg.is_compatible() {
@@ -525,6 +612,10 @@ impl Kernel {
                         skipped += 1;
                         continue;
                     }
+                    let source = InstallSource::parse_or_local(
+                        source_raw.as_deref(),
+                        &install_path,
+                    );
                     let summary = InstalledSummary {
                         id: id.clone(),
                         version: pkg.manifest.version.clone(),
@@ -533,6 +624,7 @@ impl Kernel {
                         enabled: true,
                         installed_at,
                         compatible: true,
+                        source,
                     };
                     if let Ok(mut g) = self.installed.write() {
                         g.insert(id.clone(), summary);

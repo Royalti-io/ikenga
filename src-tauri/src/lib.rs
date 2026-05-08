@@ -116,6 +116,12 @@ pub fn run() {
             sql: include_str!("../migrations/0007_pkg_kernel.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 8,
+            description: "pkg_install_source",
+            sql: include_str!("../migrations/0008_pkg_install_source.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()

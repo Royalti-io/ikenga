@@ -871,6 +871,19 @@ export async function spikeGrantFsRead(
 
 // ─── Pkg kernel ────────────────────────────────────────────────────────
 
+/**
+ * Provenance for an installed pkg. Recorded at install time by the kernel
+ * and surfaced here so the UI can group / badge / gate uninstall on the
+ * same source-of-truth that the kernel uses to enforce policy.
+ *
+ * Wire format mirrors `src-tauri/src/pkg/source.rs::InstallSource` —
+ * `{kind}` plus per-variant fields. Keep in sync with that file.
+ */
+export type PkgInstallSource =
+  | { kind: "builtin" }
+  | { kind: "registry"; url: string; publisher_key: string | null }
+  | { kind: "local"; path: string };
+
 export interface PkgInstalledSummary {
   id: string;
   version: string;
@@ -879,6 +892,7 @@ export interface PkgInstalledSummary {
   enabled: boolean;
   installed_at: number;
   compatible: boolean;
+  source: PkgInstallSource;
 }
 
 export interface PkgKernelStatus {
