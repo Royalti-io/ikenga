@@ -34,14 +34,14 @@ function resolveDbPath(): string {
   const platform = process.platform;
   let base: string;
   if (platform === "darwin") {
-    base = join(homedir(), "Library", "Application Support", "io.royalti.pa.desktop");
+    base = join(homedir(), "Library", "Application Support", "app.ikenga");
   } else if (platform === "win32") {
     base = join(
       process.env.LOCALAPPDATA ?? join(homedir(), "AppData", "Local"),
-      "io.royalti.pa.desktop",
+      "app.ikenga",
     );
   } else {
-    base = join(homedir(), ".local", "share", "io.royalti.pa.desktop");
+    base = join(homedir(), ".local", "share", "app.ikenga");
   }
   return join(base, "pa.db");
 }
