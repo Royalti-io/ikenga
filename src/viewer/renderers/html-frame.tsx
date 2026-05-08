@@ -20,17 +20,19 @@ interface HtmlFrameProps {
   paneId?: string;
 }
 
-// Renders HTML artifacts in a sandboxed iframe served by the Rust axum server
-// (`viewer_serve`). Each mount spawns a server scoped to the file's parent
-// directory — relative assets (CSS, fonts, images) resolve naturally because
-// the iframe origin matches the served root. The token in the URL gates
-// access; see `src-tauri/src/viewer_server/mod.rs`.
+// Renders HTML artifacts in a sandboxed iframe served by the shared Rust
+// viewer server (`viewer_serve` registers a token→root mount). The iframe
+// loads from a `/__viewer/<token>/<file>` path on the shell's own origin —
+// Vite proxies it in dev, tauri-plugin-localhost serves it in prod — so the
+// iframe is **same-origin** with the shell. That's what lets
+// modern-screenshot reach into the iframe DOM and lets the iyke iframe
+// bridge run without postMessage cross-origin gymnastics.
 //
 // Sandbox flags:
 // - `allow-scripts`: required for legitimate Claude-generated HTML that uses
 //   inline scripts for interactivity.
 // - `allow-same-origin`: required for relative `<link>` and `<script src>`
-//   resolution under the token-scoped origin.
+//   resolution and (now) for parent→iframe DOM access.
 // External script loads are blocked by the CSP header injected on every
 // response from the viewer server.
 export function HtmlFrame({ path, paneId }: HtmlFrameProps) {
@@ -61,7 +63,12 @@ export function HtmlFrame({ path, paneId }: HtmlFrameProps) {
           void viewerStop(h.token);
           return;
         }
-        setState({ kind: "ready", src: `${h.url}${file}`, handle: h });
+        // `h.url` is now a relative path (`/__viewer/<token>/`). Resolving
+        // against `window.location.origin` keeps the iframe same-origin
+        // with the shell while giving us a proper absolute URL to display
+        // in the chrome strip.
+        const src = `${window.location.origin}${h.url}${file}`;
+        setState({ kind: "ready", src, handle: h });
       })
       .catch((err) => {
         if (cancelled) return;

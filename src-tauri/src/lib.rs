@@ -42,7 +42,7 @@ use commands::{
     storyboard_export_json, storyboard_import_json, storyboard_list_concepts,
     storyboard_promote_rung, storyboard_render_still,
     supabase_config_clear, supabase_config_get, supabase_config_set,
-    viewer_serve, viewer_stop, ClaudeManager, ClaudeManagerState, IykeRuntimeState,
+    viewer_port, viewer_serve, viewer_stop, ClaudeManager, ClaudeManagerState, IykeRuntimeState,
     JobManagerState, ScreenshotConfigState, ScreenshotConfigStateRef, ScreenshotPending,
     StoryboardJobManager, StoryboardJobManagerState,
 };
@@ -67,6 +67,7 @@ pub fn run() {
     let pty_manager = Arc::new(PtyManager::new());
     let fs_watch_manager = Arc::new(FsWatchManager::new());
     let viewer_manager = Arc::new(ViewerServerManager::new());
+    let viewer_manager_for_start = viewer_manager.clone();
     let claude_manager: ClaudeManagerState = Arc::new(ClaudeManager::new());
     let render_manager: JobManagerState = Arc::new(JobManager::new());
     let storyboard_jobs: StoryboardJobManagerState = Arc::new(StoryboardJobManager::new());
@@ -275,6 +276,17 @@ pub fn run() {
             }) {
                 log::warn!("[pkg_content] start failed (continuing): {e:#}");
             }
+
+            // Viewer-server: single shared axum bound at startup so every
+            // artifact iframe is same-origin with the shell (Vite proxies
+            // /__viewer/* to it in dev; tauri-plugin-localhost will route to
+            // it in prod). Failure is non-fatal — html-frame surfaces it.
+            let viewer_for_start = viewer_manager_for_start.clone();
+            if let Err(e) = tauri::async_runtime::block_on(async move {
+                viewer_for_start.start().await
+            }) {
+                tracing::warn!("[viewer] start failed (continuing): {e:#}");
+            }
             let kernel = Arc::new(pkg::Kernel::new(
                 app.handle().clone(),
                 pa_db.clone(),
@@ -383,6 +395,7 @@ pub fn run() {
             // viewer
             viewer_serve,
             viewer_stop,
+            viewer_port,
             // secrets
             secrets_get,
             secrets_set,

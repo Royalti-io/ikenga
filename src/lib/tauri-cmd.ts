@@ -261,10 +261,15 @@ export async function dbExec(sql: string, params: SqlValue[] = []): Promise<void
   return invoke("db_exec", { sql, params });
 }
 
-// ─── Viewer (axum localhost server, phase 4) ──────────────────────────────────
+// ─── Viewer (shared axum server, same-origin via Vite proxy / localhost-plugin)
 
 export interface ViewerHandle {
+  /** Shell-origin-relative URL prefix, e.g. `/__viewer/<token>/`. Append the
+   *  file path to get a full iframe `src`. Resolved against
+   *  `window.location.origin` so it works under both Vite (dev) and
+   *  localhost-plugin (prod). */
   url: string;
+  /** Pass to `viewerStop` to release the mount. */
   token: string;
 }
 
@@ -274,6 +279,11 @@ export async function viewerServe(rootDir: string): Promise<ViewerHandle> {
 
 export async function viewerStop(token: string): Promise<void> {
   return invoke("viewer_stop", { token });
+}
+
+/** Bound port of the shared viewer server. `null` if start failed. */
+export async function viewerPort(): Promise<number | null> {
+  return invoke("viewer_port");
 }
 
 // ─── Claude sessions (phase 3) ────────────────────────────────────────────────

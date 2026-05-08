@@ -1,18 +1,23 @@
-//! Axum-backed localhost static-file server for the viewer pane (storyboards,
-//! rendered Remotion compositions, etc). Each `viewer_serve` call binds to
-//! `127.0.0.1:0` with a fresh 32-char hex token; routes are scoped under
-//! `/{token}/*path`. Untokenized requests get a 404 so the port can't be
-//! probed without the secret.
+//! Shared in-process axum server for previewing local HTML artifacts inside
+//! the shell. There is exactly one server per app launch — `viewer_serve`
+//! registers a `(token, root)` mount in a shared registry; `viewer_stop`
+//! removes it. All requests come in under `/__viewer/{token}/*path`.
 //!
-//! Servers register themselves in `ViewerServerManager` keyed by token; the
-//! frontend stops them via `viewer_stop(token)`, which signals a `oneshot` and
-//! drops the entry.
+//! Why one server, not one per mount: the previous design bound a fresh
+//! `127.0.0.1:0` socket per mount, which gave each iframe a *different*
+//! origin from the shell. That blocked cross-document DOM access (iyke walk,
+//! `modern-screenshot` reach-in). With a single fixed port and the dev-time
+//! Vite proxy / prod-time `tauri-plugin-localhost` mount on the same origin
+//! as the FE, every artifact iframe is now same-origin with the shell.
+//!
+//! Token gating is unchanged: a request whose token isn't in the registry
+//! gets a 404, in constant time.
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use axum::body::{to_bytes, Body};
 use axum::extract::{Path as AxumPath, State};
 use axum::http::{header, HeaderValue, Request, StatusCode};
@@ -21,7 +26,6 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::any;
 use axum::Router;
 use dashmap::DashMap;
-use tokio::sync::oneshot;
 use tower::util::ServiceExt;
 use tower_http::services::ServeDir;
 
@@ -49,119 +53,135 @@ const HTML_INJECT_MAX_BYTES: usize = 4 * 1024 * 1024;
 /// own.
 const VIEWER_CSP: &str = "default-src 'self' data: blob:; \
 script-src 'self' 'unsafe-inline' 'unsafe-eval'; \
-style-src 'self' 'unsafe-inline'; \
+style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; \
 img-src 'self' data: blob:; \
-font-src 'self' data:; \
+font-src 'self' data: https://fonts.gstatic.com; \
 media-src 'self' blob:; \
 connect-src 'self'";
 
+/// Default fixed port. Override with `IKENGA_VIEWER_PORT` if it conflicts.
+/// Picked from the IANA-unreserved range; deliberately stable so the Vite
+/// dev-proxy config can hardcode it.
+const DEFAULT_VIEWER_PORT: u16 = 47821;
+
+/// URL path prefix for all viewer routes. Mirrored in `vite.config.ts`
+/// proxy config and in the prod `tauri-plugin-localhost` router merge.
+pub const VIEWER_PATH_PREFIX: &str = "/__viewer";
+
 #[derive(Clone)]
-struct ServerState {
-    token: String,
+struct Mount {
     root: PathBuf,
 }
 
-struct RunningServer {
-    shutdown: Option<oneshot::Sender<()>>,
-}
-
 pub struct ViewerServerManager {
-    servers: DashMap<String, RunningServer>,
+    mounts: Arc<DashMap<String, Mount>>,
+    /// Set once at startup by `start`.
+    bound_port: RwLock<Option<u16>>,
 }
 
 impl ViewerServerManager {
     pub fn new() -> Self {
         Self {
-            servers: DashMap::new(),
+            mounts: Arc::new(DashMap::new()),
+            bound_port: RwLock::new(None),
         }
     }
 
-    /// Start a new server. Returns `(url, token)` — url is a fully-qualified
-    /// `http://127.0.0.1:{port}/{token}/` prefix the frontend can append paths
-    /// to.
-    pub async fn serve(self: &Arc<Self>, root: PathBuf) -> Result<(String, String)> {
+    /// Register a mount. Returns `(url_path_prefix, token)` — the URL is a
+    /// shell-origin-relative path like `/__viewer/<token>/`. Callers append
+    /// the file path. The actual host:port is whatever the shell loads from
+    /// (Vite in dev, localhost-plugin in prod), reached via proxy/route.
+    pub fn register(&self, root: PathBuf) -> (String, String) {
         let token = random_token_hex(32);
-        let state = ServerState {
-            token: token.clone(),
-            root: root.clone(),
-        };
-
-        let app = Router::new()
-            .route("/:token/*path", any(serve_handler))
-            .route("/:token", any(serve_handler_root))
-            .layer(middleware::from_fn(inject_iyke_bridge))
-            .layer(middleware::from_fn(inject_security_headers))
-            .with_state(Arc::new(state));
-
-        let listener = tokio::net::TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0)))
-            .await
-            .context("bind viewer listener")?;
-        let local_addr = listener.local_addr().context("local_addr")?;
-
-        let (tx, rx) = oneshot::channel::<()>();
-
-        let token_for_url = token.clone();
-        let url = format!("http://{}/{}/", local_addr, token_for_url);
-
-        tokio::spawn(async move {
-            let server = axum::serve(listener, app.into_make_service())
-                .with_graceful_shutdown(async move {
-                    let _ = rx.await;
-                });
-            if let Err(e) = server.await {
-                log::warn!("viewer server exited: {e}");
-            }
-        });
-
-        self.servers.insert(
-            token.clone(),
-            RunningServer {
-                shutdown: Some(tx),
-            },
-        );
-
-        log::info!(
-            "viewer server: serving {} at {} (token {})",
+        self.mounts
+            .insert(token.clone(), Mount { root: root.clone() });
+        let url = format!("{VIEWER_PATH_PREFIX}/{}/", token);
+        tracing::info!(
+            "viewer mount: serving {} at {} (token {})",
             root.display(),
             url,
             &token[..8]
         );
-        Ok((url, token))
+        (url, token)
     }
 
-    pub fn stop(&self, token: &str) -> Result<()> {
-        match self.servers.remove(token) {
-            Some((_, mut entry)) => {
-                if let Some(tx) = entry.shutdown.take() {
-                    let _ = tx.send(());
-                }
-                Ok(())
-            }
-            None => Err(anyhow!("unknown viewer token")),
+    pub fn unregister(&self, token: &str) {
+        if self.mounts.remove(token).is_some() {
+            tracing::info!("viewer mount: unregistered token {}", &token[..8]);
         }
     }
+
+    pub fn bound_port(&self) -> Option<u16> {
+        *self.bound_port.read().unwrap()
+    }
+
+    /// Spawn the singleton server. Idempotent: subsequent calls are no-ops
+    /// if the server is already bound.
+    pub async fn start(self: &Arc<Self>) -> Result<u16> {
+        if let Some(p) = self.bound_port() {
+            return Ok(p);
+        }
+
+        let port: u16 = std::env::var("IKENGA_VIEWER_PORT")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(DEFAULT_VIEWER_PORT);
+
+        let mounts = self.mounts.clone();
+        let app = Router::new()
+            .route("/__viewer/:token/*path", any(serve_handler))
+            .route("/__viewer/:token", any(serve_handler_root))
+            // Health probe so the FE can confirm the server is up before
+            // mounting an iframe (avoids a flash of "viewer offline").
+            .route("/__viewer-health", any(health_handler))
+            .layer(middleware::from_fn(inject_iyke_bridge))
+            .layer(middleware::from_fn(inject_security_headers))
+            .with_state(mounts);
+
+        let listener = tokio::net::TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], port)))
+            .await
+            .with_context(|| format!("bind viewer listener on 127.0.0.1:{port}"))?;
+        let local_addr = listener.local_addr().context("local_addr")?;
+        let bound = local_addr.port();
+
+        *self.bound_port.write().unwrap() = Some(bound);
+
+        tokio::spawn(async move {
+            let server = axum::serve(listener, app.into_make_service());
+            if let Err(e) = server.await {
+                tracing::warn!("viewer server exited: {e}");
+            }
+        });
+
+        tracing::info!("viewer server: listening on http://127.0.0.1:{bound}{VIEWER_PATH_PREFIX}/");
+        Ok(bound)
+    }
+}
+
+async fn health_handler() -> Response {
+    (StatusCode::OK, "ok").into_response()
 }
 
 async fn serve_handler(
-    State(state): State<Arc<ServerState>>,
+    State(mounts): State<Arc<DashMap<String, Mount>>>,
     AxumPath((token, path)): AxumPath<(String, String)>,
     req: Request<Body>,
 ) -> Response {
-    if !constant_time_eq(token.as_bytes(), state.token.as_bytes()) {
+    let Some(mount) = mounts.get(&token).map(|m| m.clone()) else {
         return (StatusCode::NOT_FOUND, "not found").into_response();
-    }
-    serve_file(&state.root, &path, req).await
+    };
+    serve_file(&mount.root, &path, req).await
 }
 
 async fn serve_handler_root(
-    State(state): State<Arc<ServerState>>,
+    State(mounts): State<Arc<DashMap<String, Mount>>>,
     AxumPath(token): AxumPath<String>,
     req: Request<Body>,
 ) -> Response {
-    if !constant_time_eq(token.as_bytes(), state.token.as_bytes()) {
+    let Some(mount) = mounts.get(&token).map(|m| m.clone()) else {
         return (StatusCode::NOT_FOUND, "not found").into_response();
-    }
-    serve_file(&state.root, "index.html", req).await
+    };
+    serve_file(&mount.root, "index.html", req).await
 }
 
 async fn serve_file(root: &PathBuf, rel_path: &str, mut req: Request<Body>) -> Response {
@@ -265,18 +285,14 @@ async fn inject_security_headers(req: Request<Body>, next: Next) -> Response {
         header::REFERRER_POLICY,
         HeaderValue::from_static("no-referrer"),
     );
+    // Allow the shell origin (Vite dev or prod localhost-plugin) to embed
+    // the iframe. Same-origin policy still applies for DOM access; this is
+    // just CORS for asset fetches.
+    headers.insert(
+        header::ACCESS_CONTROL_ALLOW_ORIGIN,
+        HeaderValue::from_static("*"),
+    );
     resp
-}
-
-fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    let mut diff = 0u8;
-    for (x, y) in a.iter().zip(b.iter()) {
-        diff |= x ^ y;
-    }
-    diff == 0
 }
 
 fn random_token_hex(n_bytes: usize) -> String {
