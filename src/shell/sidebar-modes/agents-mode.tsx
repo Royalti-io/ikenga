@@ -26,7 +26,7 @@ const OBSERVABILITY: ObservabilityItem[] = [
   { to: '/handoffs', label: 'Handoffs', Icon: ArrowRightLeft },
   { to: '/agent-runs', label: 'Runs', Icon: Activity },
   { to: '/cron', label: 'Cron', Icon: Timer },
-  { to: '/reports', label: 'Reports', Icon: FileBarChart },
+  { to: '/pkg/com.ikenga.finance/reports', label: 'Reports', Icon: FileBarChart },
 ];
 
 const AGENTS: Array<{ key: string; name: string; description: string }> = [

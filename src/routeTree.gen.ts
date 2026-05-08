@@ -28,7 +28,6 @@ import { Route as StoryboardRouteRouteImport } from './routes/storyboard/route'
 import { Route as SessionsRouteRouteImport } from './routes/sessions/route'
 import { Route as OutboxRouteRouteImport } from './routes/outbox/route'
 import { Route as MailRouteRouteImport } from './routes/mail/route'
-import { Route as FinanceRouteRouteImport } from './routes/finance/route'
 import { Route as EmailsRouteRouteImport } from './routes/emails/route'
 import { Route as EmailQueueRouteRouteImport } from './routes/email-queue/route'
 import { Route as DelegationsRouteRouteImport } from './routes/delegations/route'
@@ -39,12 +38,10 @@ import { Route as TriageIndexRouteImport } from './routes/triage/index'
 import { Route as StoryboardIndexRouteImport } from './routes/storyboard/index'
 import { Route as SettingsIndexRouteImport } from './routes/settings/index'
 import { Route as SessionsIndexRouteImport } from './routes/sessions/index'
-import { Route as ReportsIndexRouteImport } from './routes/reports/index'
 import { Route as OutboxIndexRouteImport } from './routes/outbox/index'
 import { Route as MailIndexRouteImport } from './routes/mail/index'
 import { Route as InboxIndexRouteImport } from './routes/inbox/index'
 import { Route as HandoffsIndexRouteImport } from './routes/handoffs/index'
-import { Route as FinanceIndexRouteImport } from './routes/finance/index'
 import { Route as ExecutiveIndexRouteImport } from './routes/executive/index'
 import { Route as EmailsIndexRouteImport } from './routes/emails/index'
 import { Route as EmailQueueIndexRouteImport } from './routes/email-queue/index'
@@ -59,7 +56,6 @@ import { Route as VideoQueueRouteImport } from './routes/video/queue'
 import { Route as VideoCompositionIdRouteImport } from './routes/video/$compositionId'
 import { Route as StoryboardIdRouteImport } from './routes/storyboard/$id'
 import { Route as SettingsBackupRouteImport } from './routes/settings/backup'
-import { Route as ReportsIdRouteImport } from './routes/reports/$id'
 import { Route as MailIdRouteImport } from './routes/mail/$id'
 import { Route as HandoffsIdRouteImport } from './routes/handoffs/$id'
 import { Route as EmailsIdRouteImport } from './routes/emails/$id'
@@ -74,7 +70,6 @@ import { Route as OutboxSocialRouteRouteImport } from './routes/outbox/social/ro
 import { Route as OutboxSequencesRouteRouteImport } from './routes/outbox/sequences/route'
 import { Route as OutboxNewsletterRouteRouteImport } from './routes/outbox/newsletter/route'
 import { Route as OutboxEmailRouteRouteImport } from './routes/outbox/email/route'
-import { Route as FinanceTransactionsRouteRouteImport } from './routes/finance/transactions/route'
 import { Route as SessionsByAgentIndexRouteImport } from './routes/sessions/by-agent/index'
 import { Route as SessionsAllIndexRouteImport } from './routes/sessions/all/index'
 import { Route as SessionsSessionIdIndexRouteImport } from './routes/sessions/$sessionId/index'
@@ -87,9 +82,6 @@ import { Route as MailTriageIndexRouteImport } from './routes/mail/triage/index'
 import { Route as MailInboxIndexRouteImport } from './routes/mail/inbox/index'
 import { Route as MailDraftsIndexRouteImport } from './routes/mail/drafts/index'
 import { Route as MailAllIndexRouteImport } from './routes/mail/all/index'
-import { Route as FinanceReportsIndexRouteImport } from './routes/finance/reports/index'
-import { Route as FinanceReceivablesIndexRouteImport } from './routes/finance/receivables/index'
-import { Route as FinanceInterCompanyIndexRouteImport } from './routes/finance/inter-company/index'
 import { Route as EmailsDraftsIndexRouteImport } from './routes/emails/drafts/index'
 import { Route as EmailQueueSequencesIndexRouteImport } from './routes/email-queue/sequences/index'
 import { Route as EmailQueueSentIndexRouteImport } from './routes/email-queue/sent/index'
@@ -97,7 +89,6 @@ import { Route as EmailQueueRepliesIndexRouteImport } from './routes/email-queue
 import { Route as EmailQueueApprovalsIndexRouteImport } from './routes/email-queue/approvals/index'
 import { Route as SessionsByAgentAgentRouteImport } from './routes/sessions/by-agent/$agent'
 import { Route as PkgPkgIdSplatRouteImport } from './routes/pkg/$pkgId/$'
-import { Route as FinanceTransactionsIdRouteImport } from './routes/finance/transactions/$id'
 import { Route as OutboxSocialSentIndexRouteImport } from './routes/outbox/social/sent/index'
 import { Route as OutboxSocialScheduleIndexRouteImport } from './routes/outbox/social/schedule/index'
 import { Route as OutboxSocialQueueIndexRouteImport } from './routes/outbox/social/queue/index'
@@ -206,11 +197,6 @@ const MailRouteRoute = MailRouteRouteImport.update({
   path: '/mail',
   getParentRoute: () => rootRouteImport,
 } as any)
-const FinanceRouteRoute = FinanceRouteRouteImport.update({
-  id: '/finance',
-  path: '/finance',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const EmailsRouteRoute = EmailsRouteRouteImport.update({
   id: '/emails',
   path: '/emails',
@@ -263,11 +249,6 @@ const SessionsIndexRoute = SessionsIndexRouteImport.update({
   path: '/',
   getParentRoute: () => SessionsRouteRoute,
 } as any)
-const ReportsIndexRoute = ReportsIndexRouteImport.update({
-  id: '/reports/',
-  path: '/reports/',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const OutboxIndexRoute = OutboxIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -287,11 +268,6 @@ const HandoffsIndexRoute = HandoffsIndexRouteImport.update({
   id: '/handoffs/',
   path: '/handoffs/',
   getParentRoute: () => rootRouteImport,
-} as any)
-const FinanceIndexRoute = FinanceIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => FinanceRouteRoute,
 } as any)
 const ExecutiveIndexRoute = ExecutiveIndexRouteImport.update({
   id: '/executive/',
@@ -367,11 +343,6 @@ const SettingsBackupRoute = SettingsBackupRouteImport.update({
   path: '/settings/backup',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ReportsIdRoute = ReportsIdRouteImport.update({
-  id: '/reports/$id',
-  path: '/reports/$id',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const MailIdRoute = MailIdRouteImport.update({
   id: '/$id',
   path: '/$id',
@@ -442,12 +413,6 @@ const OutboxEmailRouteRoute = OutboxEmailRouteRouteImport.update({
   path: '/email',
   getParentRoute: () => OutboxRouteRoute,
 } as any)
-const FinanceTransactionsRouteRoute =
-  FinanceTransactionsRouteRouteImport.update({
-    id: '/transactions',
-    path: '/transactions',
-    getParentRoute: () => FinanceRouteRoute,
-  } as any)
 const SessionsByAgentIndexRoute = SessionsByAgentIndexRouteImport.update({
   id: '/by-agent/',
   path: '/by-agent/',
@@ -508,22 +473,6 @@ const MailAllIndexRoute = MailAllIndexRouteImport.update({
   path: '/all/',
   getParentRoute: () => MailRouteRoute,
 } as any)
-const FinanceReportsIndexRoute = FinanceReportsIndexRouteImport.update({
-  id: '/reports/',
-  path: '/reports/',
-  getParentRoute: () => FinanceRouteRoute,
-} as any)
-const FinanceReceivablesIndexRoute = FinanceReceivablesIndexRouteImport.update({
-  id: '/receivables/',
-  path: '/receivables/',
-  getParentRoute: () => FinanceRouteRoute,
-} as any)
-const FinanceInterCompanyIndexRoute =
-  FinanceInterCompanyIndexRouteImport.update({
-    id: '/inter-company/',
-    path: '/inter-company/',
-    getParentRoute: () => FinanceRouteRoute,
-  } as any)
 const EmailsDraftsIndexRoute = EmailsDraftsIndexRouteImport.update({
   id: '/drafts/',
   path: '/drafts/',
@@ -560,11 +509,6 @@ const PkgPkgIdSplatRoute = PkgPkgIdSplatRouteImport.update({
   id: '/$',
   path: '/$',
   getParentRoute: () => PkgPkgIdRouteRoute,
-} as any)
-const FinanceTransactionsIdRoute = FinanceTransactionsIdRouteImport.update({
-  id: '/$id',
-  path: '/$id',
-  getParentRoute: () => FinanceTransactionsRouteRoute,
 } as any)
 const OutboxSocialSentIndexRoute = OutboxSocialSentIndexRouteImport.update({
   id: '/sent/',
@@ -641,7 +585,6 @@ export interface FileRoutesByFullPath {
   '/delegations': typeof DelegationsRouteRouteWithChildren
   '/email-queue': typeof EmailQueueRouteRouteWithChildren
   '/emails': typeof EmailsRouteRouteWithChildren
-  '/finance': typeof FinanceRouteRouteWithChildren
   '/mail': typeof MailRouteRouteWithChildren
   '/outbox': typeof OutboxRouteRouteWithChildren
   '/sessions': typeof SessionsRouteRouteWithChildren
@@ -661,7 +604,6 @@ export interface FileRoutesByFullPath {
   '/spike-acl': typeof SpikeAclRoute
   '/sweeper': typeof SweeperRoute
   '/uiroutes-smoke': typeof UiroutesSmokeRoute
-  '/finance/transactions': typeof FinanceTransactionsRouteRouteWithChildren
   '/outbox/email': typeof OutboxEmailRouteRouteWithChildren
   '/outbox/newsletter': typeof OutboxNewsletterRouteRouteWithChildren
   '/outbox/sequences': typeof OutboxSequencesRouteRouteWithChildren
@@ -676,7 +618,6 @@ export interface FileRoutesByFullPath {
   '/emails/$id': typeof EmailsIdRoute
   '/handoffs/$id': typeof HandoffsIdRoute
   '/mail/$id': typeof MailIdRoute
-  '/reports/$id': typeof ReportsIdRoute
   '/settings/backup': typeof SettingsBackupRoute
   '/storyboard/$id': typeof StoryboardIdRoute
   '/video/$compositionId': typeof VideoCompositionIdRoute
@@ -691,18 +632,15 @@ export interface FileRoutesByFullPath {
   '/email-queue/': typeof EmailQueueIndexRoute
   '/emails/': typeof EmailsIndexRoute
   '/executive/': typeof ExecutiveIndexRoute
-  '/finance/': typeof FinanceIndexRoute
   '/handoffs/': typeof HandoffsIndexRoute
   '/inbox/': typeof InboxIndexRoute
   '/mail/': typeof MailIndexRoute
   '/outbox/': typeof OutboxIndexRoute
-  '/reports/': typeof ReportsIndexRoute
   '/sessions/': typeof SessionsIndexRoute
   '/settings/': typeof SettingsIndexRoute
   '/storyboard/': typeof StoryboardIndexRoute
   '/triage/': typeof TriageIndexRoute
   '/video/': typeof VideoIndexRoute
-  '/finance/transactions/$id': typeof FinanceTransactionsIdRoute
   '/pkg/$pkgId/$': typeof PkgPkgIdSplatRoute
   '/sessions/by-agent/$agent': typeof SessionsByAgentAgentRoute
   '/email-queue/approvals/': typeof EmailQueueApprovalsIndexRoute
@@ -710,9 +648,6 @@ export interface FileRoutesByFullPath {
   '/email-queue/sent/': typeof EmailQueueSentIndexRoute
   '/email-queue/sequences/': typeof EmailQueueSequencesIndexRoute
   '/emails/drafts/': typeof EmailsDraftsIndexRoute
-  '/finance/inter-company/': typeof FinanceInterCompanyIndexRoute
-  '/finance/receivables/': typeof FinanceReceivablesIndexRoute
-  '/finance/reports/': typeof FinanceReportsIndexRoute
   '/mail/all/': typeof MailAllIndexRoute
   '/mail/drafts/': typeof MailDraftsIndexRoute
   '/mail/inbox/': typeof MailInboxIndexRoute
@@ -754,7 +689,6 @@ export interface FileRoutesByTo {
   '/spike-acl': typeof SpikeAclRoute
   '/sweeper': typeof SweeperRoute
   '/uiroutes-smoke': typeof UiroutesSmokeRoute
-  '/finance/transactions': typeof FinanceTransactionsRouteRouteWithChildren
   '/pkg/$pkgId': typeof PkgPkgIdRouteRouteWithChildren
   '/claude/commands': typeof ClaudeCommandsRoute
   '/claude/hooks': typeof ClaudeHooksRoute
@@ -765,7 +699,6 @@ export interface FileRoutesByTo {
   '/emails/$id': typeof EmailsIdRoute
   '/handoffs/$id': typeof HandoffsIdRoute
   '/mail/$id': typeof MailIdRoute
-  '/reports/$id': typeof ReportsIdRoute
   '/settings/backup': typeof SettingsBackupRoute
   '/storyboard/$id': typeof StoryboardIdRoute
   '/video/$compositionId': typeof VideoCompositionIdRoute
@@ -780,18 +713,15 @@ export interface FileRoutesByTo {
   '/email-queue': typeof EmailQueueIndexRoute
   '/emails': typeof EmailsIndexRoute
   '/executive': typeof ExecutiveIndexRoute
-  '/finance': typeof FinanceIndexRoute
   '/handoffs': typeof HandoffsIndexRoute
   '/inbox': typeof InboxIndexRoute
   '/mail': typeof MailIndexRoute
   '/outbox': typeof OutboxIndexRoute
-  '/reports': typeof ReportsIndexRoute
   '/sessions': typeof SessionsIndexRoute
   '/settings': typeof SettingsIndexRoute
   '/storyboard': typeof StoryboardIndexRoute
   '/triage': typeof TriageIndexRoute
   '/video': typeof VideoIndexRoute
-  '/finance/transactions/$id': typeof FinanceTransactionsIdRoute
   '/pkg/$pkgId/$': typeof PkgPkgIdSplatRoute
   '/sessions/by-agent/$agent': typeof SessionsByAgentAgentRoute
   '/email-queue/approvals': typeof EmailQueueApprovalsIndexRoute
@@ -799,9 +729,6 @@ export interface FileRoutesByTo {
   '/email-queue/sent': typeof EmailQueueSentIndexRoute
   '/email-queue/sequences': typeof EmailQueueSequencesIndexRoute
   '/emails/drafts': typeof EmailsDraftsIndexRoute
-  '/finance/inter-company': typeof FinanceInterCompanyIndexRoute
-  '/finance/receivables': typeof FinanceReceivablesIndexRoute
-  '/finance/reports': typeof FinanceReportsIndexRoute
   '/mail/all': typeof MailAllIndexRoute
   '/mail/drafts': typeof MailDraftsIndexRoute
   '/mail/inbox': typeof MailInboxIndexRoute
@@ -834,7 +761,6 @@ export interface FileRoutesById {
   '/delegations': typeof DelegationsRouteRouteWithChildren
   '/email-queue': typeof EmailQueueRouteRouteWithChildren
   '/emails': typeof EmailsRouteRouteWithChildren
-  '/finance': typeof FinanceRouteRouteWithChildren
   '/mail': typeof MailRouteRouteWithChildren
   '/outbox': typeof OutboxRouteRouteWithChildren
   '/sessions': typeof SessionsRouteRouteWithChildren
@@ -854,7 +780,6 @@ export interface FileRoutesById {
   '/spike-acl': typeof SpikeAclRoute
   '/sweeper': typeof SweeperRoute
   '/uiroutes-smoke': typeof UiroutesSmokeRoute
-  '/finance/transactions': typeof FinanceTransactionsRouteRouteWithChildren
   '/outbox/email': typeof OutboxEmailRouteRouteWithChildren
   '/outbox/newsletter': typeof OutboxNewsletterRouteRouteWithChildren
   '/outbox/sequences': typeof OutboxSequencesRouteRouteWithChildren
@@ -869,7 +794,6 @@ export interface FileRoutesById {
   '/emails/$id': typeof EmailsIdRoute
   '/handoffs/$id': typeof HandoffsIdRoute
   '/mail/$id': typeof MailIdRoute
-  '/reports/$id': typeof ReportsIdRoute
   '/settings/backup': typeof SettingsBackupRoute
   '/storyboard/$id': typeof StoryboardIdRoute
   '/video/$compositionId': typeof VideoCompositionIdRoute
@@ -884,18 +808,15 @@ export interface FileRoutesById {
   '/email-queue/': typeof EmailQueueIndexRoute
   '/emails/': typeof EmailsIndexRoute
   '/executive/': typeof ExecutiveIndexRoute
-  '/finance/': typeof FinanceIndexRoute
   '/handoffs/': typeof HandoffsIndexRoute
   '/inbox/': typeof InboxIndexRoute
   '/mail/': typeof MailIndexRoute
   '/outbox/': typeof OutboxIndexRoute
-  '/reports/': typeof ReportsIndexRoute
   '/sessions/': typeof SessionsIndexRoute
   '/settings/': typeof SettingsIndexRoute
   '/storyboard/': typeof StoryboardIndexRoute
   '/triage/': typeof TriageIndexRoute
   '/video/': typeof VideoIndexRoute
-  '/finance/transactions/$id': typeof FinanceTransactionsIdRoute
   '/pkg/$pkgId/$': typeof PkgPkgIdSplatRoute
   '/sessions/by-agent/$agent': typeof SessionsByAgentAgentRoute
   '/email-queue/approvals/': typeof EmailQueueApprovalsIndexRoute
@@ -903,9 +824,6 @@ export interface FileRoutesById {
   '/email-queue/sent/': typeof EmailQueueSentIndexRoute
   '/email-queue/sequences/': typeof EmailQueueSequencesIndexRoute
   '/emails/drafts/': typeof EmailsDraftsIndexRoute
-  '/finance/inter-company/': typeof FinanceInterCompanyIndexRoute
-  '/finance/receivables/': typeof FinanceReceivablesIndexRoute
-  '/finance/reports/': typeof FinanceReportsIndexRoute
   '/mail/all/': typeof MailAllIndexRoute
   '/mail/drafts/': typeof MailDraftsIndexRoute
   '/mail/inbox/': typeof MailInboxIndexRoute
@@ -939,7 +857,6 @@ export interface FileRouteTypes {
     | '/delegations'
     | '/email-queue'
     | '/emails'
-    | '/finance'
     | '/mail'
     | '/outbox'
     | '/sessions'
@@ -959,7 +876,6 @@ export interface FileRouteTypes {
     | '/spike-acl'
     | '/sweeper'
     | '/uiroutes-smoke'
-    | '/finance/transactions'
     | '/outbox/email'
     | '/outbox/newsletter'
     | '/outbox/sequences'
@@ -974,7 +890,6 @@ export interface FileRouteTypes {
     | '/emails/$id'
     | '/handoffs/$id'
     | '/mail/$id'
-    | '/reports/$id'
     | '/settings/backup'
     | '/storyboard/$id'
     | '/video/$compositionId'
@@ -989,18 +904,15 @@ export interface FileRouteTypes {
     | '/email-queue/'
     | '/emails/'
     | '/executive/'
-    | '/finance/'
     | '/handoffs/'
     | '/inbox/'
     | '/mail/'
     | '/outbox/'
-    | '/reports/'
     | '/sessions/'
     | '/settings/'
     | '/storyboard/'
     | '/triage/'
     | '/video/'
-    | '/finance/transactions/$id'
     | '/pkg/$pkgId/$'
     | '/sessions/by-agent/$agent'
     | '/email-queue/approvals/'
@@ -1008,9 +920,6 @@ export interface FileRouteTypes {
     | '/email-queue/sent/'
     | '/email-queue/sequences/'
     | '/emails/drafts/'
-    | '/finance/inter-company/'
-    | '/finance/receivables/'
-    | '/finance/reports/'
     | '/mail/all/'
     | '/mail/drafts/'
     | '/mail/inbox/'
@@ -1052,7 +961,6 @@ export interface FileRouteTypes {
     | '/spike-acl'
     | '/sweeper'
     | '/uiroutes-smoke'
-    | '/finance/transactions'
     | '/pkg/$pkgId'
     | '/claude/commands'
     | '/claude/hooks'
@@ -1063,7 +971,6 @@ export interface FileRouteTypes {
     | '/emails/$id'
     | '/handoffs/$id'
     | '/mail/$id'
-    | '/reports/$id'
     | '/settings/backup'
     | '/storyboard/$id'
     | '/video/$compositionId'
@@ -1078,18 +985,15 @@ export interface FileRouteTypes {
     | '/email-queue'
     | '/emails'
     | '/executive'
-    | '/finance'
     | '/handoffs'
     | '/inbox'
     | '/mail'
     | '/outbox'
-    | '/reports'
     | '/sessions'
     | '/settings'
     | '/storyboard'
     | '/triage'
     | '/video'
-    | '/finance/transactions/$id'
     | '/pkg/$pkgId/$'
     | '/sessions/by-agent/$agent'
     | '/email-queue/approvals'
@@ -1097,9 +1001,6 @@ export interface FileRouteTypes {
     | '/email-queue/sent'
     | '/email-queue/sequences'
     | '/emails/drafts'
-    | '/finance/inter-company'
-    | '/finance/receivables'
-    | '/finance/reports'
     | '/mail/all'
     | '/mail/drafts'
     | '/mail/inbox'
@@ -1131,7 +1032,6 @@ export interface FileRouteTypes {
     | '/delegations'
     | '/email-queue'
     | '/emails'
-    | '/finance'
     | '/mail'
     | '/outbox'
     | '/sessions'
@@ -1151,7 +1051,6 @@ export interface FileRouteTypes {
     | '/spike-acl'
     | '/sweeper'
     | '/uiroutes-smoke'
-    | '/finance/transactions'
     | '/outbox/email'
     | '/outbox/newsletter'
     | '/outbox/sequences'
@@ -1166,7 +1065,6 @@ export interface FileRouteTypes {
     | '/emails/$id'
     | '/handoffs/$id'
     | '/mail/$id'
-    | '/reports/$id'
     | '/settings/backup'
     | '/storyboard/$id'
     | '/video/$compositionId'
@@ -1181,18 +1079,15 @@ export interface FileRouteTypes {
     | '/email-queue/'
     | '/emails/'
     | '/executive/'
-    | '/finance/'
     | '/handoffs/'
     | '/inbox/'
     | '/mail/'
     | '/outbox/'
-    | '/reports/'
     | '/sessions/'
     | '/settings/'
     | '/storyboard/'
     | '/triage/'
     | '/video/'
-    | '/finance/transactions/$id'
     | '/pkg/$pkgId/$'
     | '/sessions/by-agent/$agent'
     | '/email-queue/approvals/'
@@ -1200,9 +1095,6 @@ export interface FileRouteTypes {
     | '/email-queue/sent/'
     | '/email-queue/sequences/'
     | '/emails/drafts/'
-    | '/finance/inter-company/'
-    | '/finance/receivables/'
-    | '/finance/reports/'
     | '/mail/all/'
     | '/mail/drafts/'
     | '/mail/inbox/'
@@ -1235,7 +1127,6 @@ export interface RootRouteChildren {
   DelegationsRouteRoute: typeof DelegationsRouteRouteWithChildren
   EmailQueueRouteRoute: typeof EmailQueueRouteRouteWithChildren
   EmailsRouteRoute: typeof EmailsRouteRouteWithChildren
-  FinanceRouteRoute: typeof FinanceRouteRouteWithChildren
   MailRouteRoute: typeof MailRouteRouteWithChildren
   OutboxRouteRoute: typeof OutboxRouteRouteWithChildren
   SessionsRouteRoute: typeof SessionsRouteRouteWithChildren
@@ -1257,7 +1148,6 @@ export interface RootRouteChildren {
   UiroutesSmokeRoute: typeof UiroutesSmokeRoute
   PkgPkgIdRouteRoute: typeof PkgPkgIdRouteRouteWithChildren
   HandoffsIdRoute: typeof HandoffsIdRoute
-  ReportsIdRoute: typeof ReportsIdRoute
   SettingsBackupRoute: typeof SettingsBackupRoute
   AgentRunsIndexRoute: typeof AgentRunsIndexRoute
   ApprovalsIndexRoute: typeof ApprovalsIndexRoute
@@ -1267,7 +1157,6 @@ export interface RootRouteChildren {
   ExecutiveIndexRoute: typeof ExecutiveIndexRoute
   HandoffsIndexRoute: typeof HandoffsIndexRoute
   InboxIndexRoute: typeof InboxIndexRoute
-  ReportsIndexRoute: typeof ReportsIndexRoute
   SettingsIndexRoute: typeof SettingsIndexRoute
   TriageIndexRoute: typeof TriageIndexRoute
 }
@@ -1407,13 +1296,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MailRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/finance': {
-      id: '/finance'
-      path: '/finance'
-      fullPath: '/finance'
-      preLoaderRoute: typeof FinanceRouteRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/emails': {
       id: '/emails'
       path: '/emails'
@@ -1484,13 +1366,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SessionsIndexRouteImport
       parentRoute: typeof SessionsRouteRoute
     }
-    '/reports/': {
-      id: '/reports/'
-      path: '/reports'
-      fullPath: '/reports/'
-      preLoaderRoute: typeof ReportsIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/outbox/': {
       id: '/outbox/'
       path: '/'
@@ -1518,13 +1393,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/handoffs/'
       preLoaderRoute: typeof HandoffsIndexRouteImport
       parentRoute: typeof rootRouteImport
-    }
-    '/finance/': {
-      id: '/finance/'
-      path: '/'
-      fullPath: '/finance/'
-      preLoaderRoute: typeof FinanceIndexRouteImport
-      parentRoute: typeof FinanceRouteRoute
     }
     '/executive/': {
       id: '/executive/'
@@ -1622,13 +1490,6 @@ declare module '@tanstack/react-router' {
       path: '/settings/backup'
       fullPath: '/settings/backup'
       preLoaderRoute: typeof SettingsBackupRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/reports/$id': {
-      id: '/reports/$id'
-      path: '/reports/$id'
-      fullPath: '/reports/$id'
-      preLoaderRoute: typeof ReportsIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/mail/$id': {
@@ -1729,13 +1590,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OutboxEmailRouteRouteImport
       parentRoute: typeof OutboxRouteRoute
     }
-    '/finance/transactions': {
-      id: '/finance/transactions'
-      path: '/transactions'
-      fullPath: '/finance/transactions'
-      preLoaderRoute: typeof FinanceTransactionsRouteRouteImport
-      parentRoute: typeof FinanceRouteRoute
-    }
     '/sessions/by-agent/': {
       id: '/sessions/by-agent/'
       path: '/by-agent'
@@ -1820,27 +1674,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MailAllIndexRouteImport
       parentRoute: typeof MailRouteRoute
     }
-    '/finance/reports/': {
-      id: '/finance/reports/'
-      path: '/reports'
-      fullPath: '/finance/reports/'
-      preLoaderRoute: typeof FinanceReportsIndexRouteImport
-      parentRoute: typeof FinanceRouteRoute
-    }
-    '/finance/receivables/': {
-      id: '/finance/receivables/'
-      path: '/receivables'
-      fullPath: '/finance/receivables/'
-      preLoaderRoute: typeof FinanceReceivablesIndexRouteImport
-      parentRoute: typeof FinanceRouteRoute
-    }
-    '/finance/inter-company/': {
-      id: '/finance/inter-company/'
-      path: '/inter-company'
-      fullPath: '/finance/inter-company/'
-      preLoaderRoute: typeof FinanceInterCompanyIndexRouteImport
-      parentRoute: typeof FinanceRouteRoute
-    }
     '/emails/drafts/': {
       id: '/emails/drafts/'
       path: '/drafts'
@@ -1889,13 +1722,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/pkg/$pkgId/$'
       preLoaderRoute: typeof PkgPkgIdSplatRouteImport
       parentRoute: typeof PkgPkgIdRouteRoute
-    }
-    '/finance/transactions/$id': {
-      id: '/finance/transactions/$id'
-      path: '/$id'
-      fullPath: '/finance/transactions/$id'
-      preLoaderRoute: typeof FinanceTransactionsIdRouteImport
-      parentRoute: typeof FinanceTransactionsRouteRoute
     }
     '/outbox/social/sent/': {
       id: '/outbox/social/sent/'
@@ -2053,40 +1879,6 @@ const EmailsRouteRouteChildren: EmailsRouteRouteChildren = {
 
 const EmailsRouteRouteWithChildren = EmailsRouteRoute._addFileChildren(
   EmailsRouteRouteChildren,
-)
-
-interface FinanceTransactionsRouteRouteChildren {
-  FinanceTransactionsIdRoute: typeof FinanceTransactionsIdRoute
-}
-
-const FinanceTransactionsRouteRouteChildren: FinanceTransactionsRouteRouteChildren =
-  {
-    FinanceTransactionsIdRoute: FinanceTransactionsIdRoute,
-  }
-
-const FinanceTransactionsRouteRouteWithChildren =
-  FinanceTransactionsRouteRoute._addFileChildren(
-    FinanceTransactionsRouteRouteChildren,
-  )
-
-interface FinanceRouteRouteChildren {
-  FinanceTransactionsRouteRoute: typeof FinanceTransactionsRouteRouteWithChildren
-  FinanceIndexRoute: typeof FinanceIndexRoute
-  FinanceInterCompanyIndexRoute: typeof FinanceInterCompanyIndexRoute
-  FinanceReceivablesIndexRoute: typeof FinanceReceivablesIndexRoute
-  FinanceReportsIndexRoute: typeof FinanceReportsIndexRoute
-}
-
-const FinanceRouteRouteChildren: FinanceRouteRouteChildren = {
-  FinanceTransactionsRouteRoute: FinanceTransactionsRouteRouteWithChildren,
-  FinanceIndexRoute: FinanceIndexRoute,
-  FinanceInterCompanyIndexRoute: FinanceInterCompanyIndexRoute,
-  FinanceReceivablesIndexRoute: FinanceReceivablesIndexRoute,
-  FinanceReportsIndexRoute: FinanceReportsIndexRoute,
-}
-
-const FinanceRouteRouteWithChildren = FinanceRouteRoute._addFileChildren(
-  FinanceRouteRouteChildren,
 )
 
 interface MailRouteRouteChildren {
@@ -2271,7 +2063,6 @@ const rootRouteChildren: RootRouteChildren = {
   DelegationsRouteRoute: DelegationsRouteRouteWithChildren,
   EmailQueueRouteRoute: EmailQueueRouteRouteWithChildren,
   EmailsRouteRoute: EmailsRouteRouteWithChildren,
-  FinanceRouteRoute: FinanceRouteRouteWithChildren,
   MailRouteRoute: MailRouteRouteWithChildren,
   OutboxRouteRoute: OutboxRouteRouteWithChildren,
   SessionsRouteRoute: SessionsRouteRouteWithChildren,
@@ -2293,7 +2084,6 @@ const rootRouteChildren: RootRouteChildren = {
   UiroutesSmokeRoute: UiroutesSmokeRoute,
   PkgPkgIdRouteRoute: PkgPkgIdRouteRouteWithChildren,
   HandoffsIdRoute: HandoffsIdRoute,
-  ReportsIdRoute: ReportsIdRoute,
   SettingsBackupRoute: SettingsBackupRoute,
   AgentRunsIndexRoute: AgentRunsIndexRoute,
   ApprovalsIndexRoute: ApprovalsIndexRoute,
@@ -2303,7 +2093,6 @@ const rootRouteChildren: RootRouteChildren = {
   ExecutiveIndexRoute: ExecutiveIndexRoute,
   HandoffsIndexRoute: HandoffsIndexRoute,
   InboxIndexRoute: InboxIndexRoute,
-  ReportsIndexRoute: ReportsIndexRoute,
   SettingsIndexRoute: SettingsIndexRoute,
   TriageIndexRoute: TriageIndexRoute,
 }
