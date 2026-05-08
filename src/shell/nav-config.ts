@@ -38,16 +38,16 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { to: '/', label: 'Dashboard', Icon: Home },
       { to: '/sessions', label: 'Sessions', Icon: TerminalIcon },
-      { to: '/mail/inbox', label: 'Inbox', Icon: Inbox },
+      { to: '/pkg/com.ikenga.email/mail/inbox', label: 'Inbox', Icon: Inbox },
     ],
   },
   {
     label: 'Daily Ops',
     items: [
-      { to: '/mail/triage', label: 'Triage', Icon: Filter },
+      { to: '/pkg/com.ikenga.email/mail/triage', label: 'Triage', Icon: Filter },
       { to: '/pkg/com.ikenga.tasks/', label: 'Tasks', Icon: CheckSquare },
-      { to: '/mail/all', label: 'Emails', Icon: Mail },
-      { to: '/mail/drafts', label: 'Reply Drafts', Icon: MailCheck },
+      { to: '/pkg/com.ikenga.email/mail/all', label: 'Emails', Icon: Mail },
+      { to: '/pkg/com.ikenga.email/mail/drafts', label: 'Reply Drafts', Icon: MailCheck },
       { to: '/calendar', label: 'Calendar', Icon: CalendarIcon },
     ],
   },
@@ -64,11 +64,11 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: 'Outbox',
     items: [
-      { to: '/outbox/email', label: 'Email', Icon: Send },
-      { to: '/outbox/newsletter', label: 'Newsletter', Icon: Newspaper },
-      { to: '/outbox/social', label: 'Social', Icon: Share2 },
-      { to: '/outbox/sequences', label: 'Sequences', Icon: ListOrdered },
-      { to: '/outbox/sent', label: 'Sent', Icon: CheckCircle2 },
+      { to: '/pkg/com.ikenga.email/outbox/email', label: 'Email', Icon: Send },
+      { to: '/pkg/com.ikenga.email/outbox/newsletter', label: 'Newsletter', Icon: Newspaper },
+      { to: '/pkg/com.ikenga.email/outbox/social', label: 'Social', Icon: Share2 },
+      { to: '/pkg/com.ikenga.email/outbox/sequences', label: 'Sequences', Icon: ListOrdered },
+      { to: '/pkg/com.ikenga.email/outbox/sent', label: 'Sent', Icon: CheckCircle2 },
     ],
   },
   {
@@ -76,7 +76,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { to: '/pkg/com.ikenga.exec/executive', label: 'Executive', Icon: Briefcase },
       { to: '/pkg/com.ikenga.product/features', label: 'Features', Icon: Lightbulb },
-      { to: '/content', label: 'Content', Icon: FileText },
+      { to: '/pkg/com.ikenga.email/content', label: 'Content', Icon: FileText },
     ],
   },
 ];

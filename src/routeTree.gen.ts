@@ -26,10 +26,7 @@ import { Route as ClaudeAssetsSmokeRouteImport } from './routes/claude-assets-sm
 import { Route as VideoRouteRouteImport } from './routes/video/route'
 import { Route as StoryboardRouteRouteImport } from './routes/storyboard/route'
 import { Route as SessionsRouteRouteImport } from './routes/sessions/route'
-import { Route as OutboxRouteRouteImport } from './routes/outbox/route'
-import { Route as MailRouteRouteImport } from './routes/mail/route'
 import { Route as EmailsRouteRouteImport } from './routes/emails/route'
-import { Route as EmailQueueRouteRouteImport } from './routes/email-queue/route'
 import { Route as ClaudeRouteRouteImport } from './routes/claude/route'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as VideoIndexRouteImport } from './routes/video/index'
@@ -37,61 +34,26 @@ import { Route as TriageIndexRouteImport } from './routes/triage/index'
 import { Route as StoryboardIndexRouteImport } from './routes/storyboard/index'
 import { Route as SettingsIndexRouteImport } from './routes/settings/index'
 import { Route as SessionsIndexRouteImport } from './routes/sessions/index'
-import { Route as OutboxIndexRouteImport } from './routes/outbox/index'
-import { Route as MailIndexRouteImport } from './routes/mail/index'
 import { Route as InboxIndexRouteImport } from './routes/inbox/index'
 import { Route as EmailsIndexRouteImport } from './routes/emails/index'
-import { Route as EmailQueueIndexRouteImport } from './routes/email-queue/index'
-import { Route as ContentIndexRouteImport } from './routes/content/index'
 import { Route as ClaudeIndexRouteImport } from './routes/claude/index'
 import { Route as CalendarIndexRouteImport } from './routes/calendar/index'
 import { Route as VideoQueueRouteImport } from './routes/video/queue'
 import { Route as VideoCompositionIdRouteImport } from './routes/video/$compositionId'
 import { Route as StoryboardIdRouteImport } from './routes/storyboard/$id'
 import { Route as SettingsBackupRouteImport } from './routes/settings/backup'
-import { Route as MailIdRouteImport } from './routes/mail/$id'
 import { Route as EmailsIdRouteImport } from './routes/emails/$id'
-import { Route as EmailQueueIdRouteImport } from './routes/email-queue/$id'
 import { Route as ClaudeSkillsRouteImport } from './routes/claude/skills'
 import { Route as ClaudeMcpsRouteImport } from './routes/claude/mcps'
 import { Route as ClaudeHooksRouteImport } from './routes/claude/hooks'
 import { Route as ClaudeCommandsRouteImport } from './routes/claude/commands'
 import { Route as PkgPkgIdRouteRouteImport } from './routes/pkg/$pkgId/route'
-import { Route as OutboxSocialRouteRouteImport } from './routes/outbox/social/route'
-import { Route as OutboxSequencesRouteRouteImport } from './routes/outbox/sequences/route'
-import { Route as OutboxNewsletterRouteRouteImport } from './routes/outbox/newsletter/route'
-import { Route as OutboxEmailRouteRouteImport } from './routes/outbox/email/route'
 import { Route as SessionsByAgentIndexRouteImport } from './routes/sessions/by-agent/index'
 import { Route as SessionsAllIndexRouteImport } from './routes/sessions/all/index'
 import { Route as SessionsSessionIdIndexRouteImport } from './routes/sessions/$sessionId/index'
-import { Route as OutboxSocialIndexRouteImport } from './routes/outbox/social/index'
-import { Route as OutboxSequencesIndexRouteImport } from './routes/outbox/sequences/index'
-import { Route as OutboxSentIndexRouteImport } from './routes/outbox/sent/index'
-import { Route as OutboxNewsletterIndexRouteImport } from './routes/outbox/newsletter/index'
-import { Route as OutboxEmailIndexRouteImport } from './routes/outbox/email/index'
-import { Route as MailTriageIndexRouteImport } from './routes/mail/triage/index'
-import { Route as MailInboxIndexRouteImport } from './routes/mail/inbox/index'
-import { Route as MailDraftsIndexRouteImport } from './routes/mail/drafts/index'
-import { Route as MailAllIndexRouteImport } from './routes/mail/all/index'
 import { Route as EmailsDraftsIndexRouteImport } from './routes/emails/drafts/index'
-import { Route as EmailQueueSequencesIndexRouteImport } from './routes/email-queue/sequences/index'
-import { Route as EmailQueueSentIndexRouteImport } from './routes/email-queue/sent/index'
-import { Route as EmailQueueRepliesIndexRouteImport } from './routes/email-queue/replies/index'
-import { Route as EmailQueueApprovalsIndexRouteImport } from './routes/email-queue/approvals/index'
 import { Route as SessionsByAgentAgentRouteImport } from './routes/sessions/by-agent/$agent'
 import { Route as PkgPkgIdSplatRouteImport } from './routes/pkg/$pkgId/$'
-import { Route as OutboxSocialSentIndexRouteImport } from './routes/outbox/social/sent/index'
-import { Route as OutboxSocialScheduleIndexRouteImport } from './routes/outbox/social/schedule/index'
-import { Route as OutboxSocialQueueIndexRouteImport } from './routes/outbox/social/queue/index'
-import { Route as OutboxSequencesSentIndexRouteImport } from './routes/outbox/sequences/sent/index'
-import { Route as OutboxSequencesQueueIndexRouteImport } from './routes/outbox/sequences/queue/index'
-import { Route as OutboxSequencesActiveIndexRouteImport } from './routes/outbox/sequences/active/index'
-import { Route as OutboxNewsletterSentIndexRouteImport } from './routes/outbox/newsletter/sent/index'
-import { Route as OutboxNewsletterScheduleIndexRouteImport } from './routes/outbox/newsletter/schedule/index'
-import { Route as OutboxNewsletterQueueIndexRouteImport } from './routes/outbox/newsletter/queue/index'
-import { Route as OutboxEmailSentIndexRouteImport } from './routes/outbox/email/sent/index'
-import { Route as OutboxEmailScheduleIndexRouteImport } from './routes/outbox/email/schedule/index'
-import { Route as OutboxEmailQueueIndexRouteImport } from './routes/outbox/email/queue/index'
 
 const UiroutesSmokeRoute = UiroutesSmokeRouteImport.update({
   id: '/uiroutes-smoke',
@@ -178,24 +140,9 @@ const SessionsRouteRoute = SessionsRouteRouteImport.update({
   path: '/sessions',
   getParentRoute: () => rootRouteImport,
 } as any)
-const OutboxRouteRoute = OutboxRouteRouteImport.update({
-  id: '/outbox',
-  path: '/outbox',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const MailRouteRoute = MailRouteRouteImport.update({
-  id: '/mail',
-  path: '/mail',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const EmailsRouteRoute = EmailsRouteRouteImport.update({
   id: '/emails',
   path: '/emails',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const EmailQueueRouteRoute = EmailQueueRouteRouteImport.update({
-  id: '/email-queue',
-  path: '/email-queue',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ClaudeRouteRoute = ClaudeRouteRouteImport.update({
@@ -235,16 +182,6 @@ const SessionsIndexRoute = SessionsIndexRouteImport.update({
   path: '/',
   getParentRoute: () => SessionsRouteRoute,
 } as any)
-const OutboxIndexRoute = OutboxIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => OutboxRouteRoute,
-} as any)
-const MailIndexRoute = MailIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => MailRouteRoute,
-} as any)
 const InboxIndexRoute = InboxIndexRouteImport.update({
   id: '/inbox/',
   path: '/inbox/',
@@ -254,16 +191,6 @@ const EmailsIndexRoute = EmailsIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => EmailsRouteRoute,
-} as any)
-const EmailQueueIndexRoute = EmailQueueIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => EmailQueueRouteRoute,
-} as any)
-const ContentIndexRoute = ContentIndexRouteImport.update({
-  id: '/content/',
-  path: '/content/',
-  getParentRoute: () => rootRouteImport,
 } as any)
 const ClaudeIndexRoute = ClaudeIndexRouteImport.update({
   id: '/',
@@ -299,20 +226,10 @@ const SettingsBackupRoute = SettingsBackupRouteImport.update({
   path: '/settings/backup',
   getParentRoute: () => rootRouteImport,
 } as any)
-const MailIdRoute = MailIdRouteImport.update({
-  id: '/$id',
-  path: '/$id',
-  getParentRoute: () => MailRouteRoute,
-} as any)
 const EmailsIdRoute = EmailsIdRouteImport.update({
   id: '/$id',
   path: '/$id',
   getParentRoute: () => EmailsRouteRoute,
-} as any)
-const EmailQueueIdRoute = EmailQueueIdRouteImport.update({
-  id: '/$id',
-  path: '/$id',
-  getParentRoute: () => EmailQueueRouteRoute,
 } as any)
 const ClaudeSkillsRoute = ClaudeSkillsRouteImport.update({
   id: '/skills',
@@ -339,26 +256,6 @@ const PkgPkgIdRouteRoute = PkgPkgIdRouteRouteImport.update({
   path: '/pkg/$pkgId',
   getParentRoute: () => rootRouteImport,
 } as any)
-const OutboxSocialRouteRoute = OutboxSocialRouteRouteImport.update({
-  id: '/social',
-  path: '/social',
-  getParentRoute: () => OutboxRouteRoute,
-} as any)
-const OutboxSequencesRouteRoute = OutboxSequencesRouteRouteImport.update({
-  id: '/sequences',
-  path: '/sequences',
-  getParentRoute: () => OutboxRouteRoute,
-} as any)
-const OutboxNewsletterRouteRoute = OutboxNewsletterRouteRouteImport.update({
-  id: '/newsletter',
-  path: '/newsletter',
-  getParentRoute: () => OutboxRouteRoute,
-} as any)
-const OutboxEmailRouteRoute = OutboxEmailRouteRouteImport.update({
-  id: '/email',
-  path: '/email',
-  getParentRoute: () => OutboxRouteRoute,
-} as any)
 const SessionsByAgentIndexRoute = SessionsByAgentIndexRouteImport.update({
   id: '/by-agent/',
   path: '/by-agent/',
@@ -374,78 +271,11 @@ const SessionsSessionIdIndexRoute = SessionsSessionIdIndexRouteImport.update({
   path: '/$sessionId/',
   getParentRoute: () => SessionsRouteRoute,
 } as any)
-const OutboxSocialIndexRoute = OutboxSocialIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => OutboxSocialRouteRoute,
-} as any)
-const OutboxSequencesIndexRoute = OutboxSequencesIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => OutboxSequencesRouteRoute,
-} as any)
-const OutboxSentIndexRoute = OutboxSentIndexRouteImport.update({
-  id: '/sent/',
-  path: '/sent/',
-  getParentRoute: () => OutboxRouteRoute,
-} as any)
-const OutboxNewsletterIndexRoute = OutboxNewsletterIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => OutboxNewsletterRouteRoute,
-} as any)
-const OutboxEmailIndexRoute = OutboxEmailIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => OutboxEmailRouteRoute,
-} as any)
-const MailTriageIndexRoute = MailTriageIndexRouteImport.update({
-  id: '/triage/',
-  path: '/triage/',
-  getParentRoute: () => MailRouteRoute,
-} as any)
-const MailInboxIndexRoute = MailInboxIndexRouteImport.update({
-  id: '/inbox/',
-  path: '/inbox/',
-  getParentRoute: () => MailRouteRoute,
-} as any)
-const MailDraftsIndexRoute = MailDraftsIndexRouteImport.update({
-  id: '/drafts/',
-  path: '/drafts/',
-  getParentRoute: () => MailRouteRoute,
-} as any)
-const MailAllIndexRoute = MailAllIndexRouteImport.update({
-  id: '/all/',
-  path: '/all/',
-  getParentRoute: () => MailRouteRoute,
-} as any)
 const EmailsDraftsIndexRoute = EmailsDraftsIndexRouteImport.update({
   id: '/drafts/',
   path: '/drafts/',
   getParentRoute: () => EmailsRouteRoute,
 } as any)
-const EmailQueueSequencesIndexRoute =
-  EmailQueueSequencesIndexRouteImport.update({
-    id: '/sequences/',
-    path: '/sequences/',
-    getParentRoute: () => EmailQueueRouteRoute,
-  } as any)
-const EmailQueueSentIndexRoute = EmailQueueSentIndexRouteImport.update({
-  id: '/sent/',
-  path: '/sent/',
-  getParentRoute: () => EmailQueueRouteRoute,
-} as any)
-const EmailQueueRepliesIndexRoute = EmailQueueRepliesIndexRouteImport.update({
-  id: '/replies/',
-  path: '/replies/',
-  getParentRoute: () => EmailQueueRouteRoute,
-} as any)
-const EmailQueueApprovalsIndexRoute =
-  EmailQueueApprovalsIndexRouteImport.update({
-    id: '/approvals/',
-    path: '/approvals/',
-    getParentRoute: () => EmailQueueRouteRoute,
-  } as any)
 const SessionsByAgentAgentRoute = SessionsByAgentAgentRouteImport.update({
   id: '/by-agent/$agent',
   path: '/by-agent/$agent',
@@ -456,82 +286,11 @@ const PkgPkgIdSplatRoute = PkgPkgIdSplatRouteImport.update({
   path: '/$',
   getParentRoute: () => PkgPkgIdRouteRoute,
 } as any)
-const OutboxSocialSentIndexRoute = OutboxSocialSentIndexRouteImport.update({
-  id: '/sent/',
-  path: '/sent/',
-  getParentRoute: () => OutboxSocialRouteRoute,
-} as any)
-const OutboxSocialScheduleIndexRoute =
-  OutboxSocialScheduleIndexRouteImport.update({
-    id: '/schedule/',
-    path: '/schedule/',
-    getParentRoute: () => OutboxSocialRouteRoute,
-  } as any)
-const OutboxSocialQueueIndexRoute = OutboxSocialQueueIndexRouteImport.update({
-  id: '/queue/',
-  path: '/queue/',
-  getParentRoute: () => OutboxSocialRouteRoute,
-} as any)
-const OutboxSequencesSentIndexRoute =
-  OutboxSequencesSentIndexRouteImport.update({
-    id: '/sent/',
-    path: '/sent/',
-    getParentRoute: () => OutboxSequencesRouteRoute,
-  } as any)
-const OutboxSequencesQueueIndexRoute =
-  OutboxSequencesQueueIndexRouteImport.update({
-    id: '/queue/',
-    path: '/queue/',
-    getParentRoute: () => OutboxSequencesRouteRoute,
-  } as any)
-const OutboxSequencesActiveIndexRoute =
-  OutboxSequencesActiveIndexRouteImport.update({
-    id: '/active/',
-    path: '/active/',
-    getParentRoute: () => OutboxSequencesRouteRoute,
-  } as any)
-const OutboxNewsletterSentIndexRoute =
-  OutboxNewsletterSentIndexRouteImport.update({
-    id: '/sent/',
-    path: '/sent/',
-    getParentRoute: () => OutboxNewsletterRouteRoute,
-  } as any)
-const OutboxNewsletterScheduleIndexRoute =
-  OutboxNewsletterScheduleIndexRouteImport.update({
-    id: '/schedule/',
-    path: '/schedule/',
-    getParentRoute: () => OutboxNewsletterRouteRoute,
-  } as any)
-const OutboxNewsletterQueueIndexRoute =
-  OutboxNewsletterQueueIndexRouteImport.update({
-    id: '/queue/',
-    path: '/queue/',
-    getParentRoute: () => OutboxNewsletterRouteRoute,
-  } as any)
-const OutboxEmailSentIndexRoute = OutboxEmailSentIndexRouteImport.update({
-  id: '/sent/',
-  path: '/sent/',
-  getParentRoute: () => OutboxEmailRouteRoute,
-} as any)
-const OutboxEmailScheduleIndexRoute =
-  OutboxEmailScheduleIndexRouteImport.update({
-    id: '/schedule/',
-    path: '/schedule/',
-    getParentRoute: () => OutboxEmailRouteRoute,
-  } as any)
-const OutboxEmailQueueIndexRoute = OutboxEmailQueueIndexRouteImport.update({
-  id: '/queue/',
-  path: '/queue/',
-  getParentRoute: () => OutboxEmailRouteRoute,
-} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/claude': typeof ClaudeRouteRouteWithChildren
-  '/email-queue': typeof EmailQueueRouteRouteWithChildren
   '/emails': typeof EmailsRouteRouteWithChildren
-  '/mail': typeof MailRouteRouteWithChildren
-  '/outbox': typeof OutboxRouteRouteWithChildren
   '/sessions': typeof SessionsRouteRouteWithChildren
   '/storyboard': typeof StoryboardRouteRouteWithChildren
   '/video': typeof VideoRouteRouteWithChildren
@@ -549,30 +308,20 @@ export interface FileRoutesByFullPath {
   '/spike-acl': typeof SpikeAclRoute
   '/sweeper': typeof SweeperRoute
   '/uiroutes-smoke': typeof UiroutesSmokeRoute
-  '/outbox/email': typeof OutboxEmailRouteRouteWithChildren
-  '/outbox/newsletter': typeof OutboxNewsletterRouteRouteWithChildren
-  '/outbox/sequences': typeof OutboxSequencesRouteRouteWithChildren
-  '/outbox/social': typeof OutboxSocialRouteRouteWithChildren
   '/pkg/$pkgId': typeof PkgPkgIdRouteRouteWithChildren
   '/claude/commands': typeof ClaudeCommandsRoute
   '/claude/hooks': typeof ClaudeHooksRoute
   '/claude/mcps': typeof ClaudeMcpsRoute
   '/claude/skills': typeof ClaudeSkillsRoute
-  '/email-queue/$id': typeof EmailQueueIdRoute
   '/emails/$id': typeof EmailsIdRoute
-  '/mail/$id': typeof MailIdRoute
   '/settings/backup': typeof SettingsBackupRoute
   '/storyboard/$id': typeof StoryboardIdRoute
   '/video/$compositionId': typeof VideoCompositionIdRoute
   '/video/queue': typeof VideoQueueRoute
   '/calendar/': typeof CalendarIndexRoute
   '/claude/': typeof ClaudeIndexRoute
-  '/content/': typeof ContentIndexRoute
-  '/email-queue/': typeof EmailQueueIndexRoute
   '/emails/': typeof EmailsIndexRoute
   '/inbox/': typeof InboxIndexRoute
-  '/mail/': typeof MailIndexRoute
-  '/outbox/': typeof OutboxIndexRoute
   '/sessions/': typeof SessionsIndexRoute
   '/settings/': typeof SettingsIndexRoute
   '/storyboard/': typeof StoryboardIndexRoute
@@ -580,35 +329,10 @@ export interface FileRoutesByFullPath {
   '/video/': typeof VideoIndexRoute
   '/pkg/$pkgId/$': typeof PkgPkgIdSplatRoute
   '/sessions/by-agent/$agent': typeof SessionsByAgentAgentRoute
-  '/email-queue/approvals/': typeof EmailQueueApprovalsIndexRoute
-  '/email-queue/replies/': typeof EmailQueueRepliesIndexRoute
-  '/email-queue/sent/': typeof EmailQueueSentIndexRoute
-  '/email-queue/sequences/': typeof EmailQueueSequencesIndexRoute
   '/emails/drafts/': typeof EmailsDraftsIndexRoute
-  '/mail/all/': typeof MailAllIndexRoute
-  '/mail/drafts/': typeof MailDraftsIndexRoute
-  '/mail/inbox/': typeof MailInboxIndexRoute
-  '/mail/triage/': typeof MailTriageIndexRoute
-  '/outbox/email/': typeof OutboxEmailIndexRoute
-  '/outbox/newsletter/': typeof OutboxNewsletterIndexRoute
-  '/outbox/sent/': typeof OutboxSentIndexRoute
-  '/outbox/sequences/': typeof OutboxSequencesIndexRoute
-  '/outbox/social/': typeof OutboxSocialIndexRoute
   '/sessions/$sessionId/': typeof SessionsSessionIdIndexRoute
   '/sessions/all/': typeof SessionsAllIndexRoute
   '/sessions/by-agent/': typeof SessionsByAgentIndexRoute
-  '/outbox/email/queue/': typeof OutboxEmailQueueIndexRoute
-  '/outbox/email/schedule/': typeof OutboxEmailScheduleIndexRoute
-  '/outbox/email/sent/': typeof OutboxEmailSentIndexRoute
-  '/outbox/newsletter/queue/': typeof OutboxNewsletterQueueIndexRoute
-  '/outbox/newsletter/schedule/': typeof OutboxNewsletterScheduleIndexRoute
-  '/outbox/newsletter/sent/': typeof OutboxNewsletterSentIndexRoute
-  '/outbox/sequences/active/': typeof OutboxSequencesActiveIndexRoute
-  '/outbox/sequences/queue/': typeof OutboxSequencesQueueIndexRoute
-  '/outbox/sequences/sent/': typeof OutboxSequencesSentIndexRoute
-  '/outbox/social/queue/': typeof OutboxSocialQueueIndexRoute
-  '/outbox/social/schedule/': typeof OutboxSocialScheduleIndexRoute
-  '/outbox/social/sent/': typeof OutboxSocialSentIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -631,21 +355,15 @@ export interface FileRoutesByTo {
   '/claude/hooks': typeof ClaudeHooksRoute
   '/claude/mcps': typeof ClaudeMcpsRoute
   '/claude/skills': typeof ClaudeSkillsRoute
-  '/email-queue/$id': typeof EmailQueueIdRoute
   '/emails/$id': typeof EmailsIdRoute
-  '/mail/$id': typeof MailIdRoute
   '/settings/backup': typeof SettingsBackupRoute
   '/storyboard/$id': typeof StoryboardIdRoute
   '/video/$compositionId': typeof VideoCompositionIdRoute
   '/video/queue': typeof VideoQueueRoute
   '/calendar': typeof CalendarIndexRoute
   '/claude': typeof ClaudeIndexRoute
-  '/content': typeof ContentIndexRoute
-  '/email-queue': typeof EmailQueueIndexRoute
   '/emails': typeof EmailsIndexRoute
   '/inbox': typeof InboxIndexRoute
-  '/mail': typeof MailIndexRoute
-  '/outbox': typeof OutboxIndexRoute
   '/sessions': typeof SessionsIndexRoute
   '/settings': typeof SettingsIndexRoute
   '/storyboard': typeof StoryboardIndexRoute
@@ -653,44 +371,16 @@ export interface FileRoutesByTo {
   '/video': typeof VideoIndexRoute
   '/pkg/$pkgId/$': typeof PkgPkgIdSplatRoute
   '/sessions/by-agent/$agent': typeof SessionsByAgentAgentRoute
-  '/email-queue/approvals': typeof EmailQueueApprovalsIndexRoute
-  '/email-queue/replies': typeof EmailQueueRepliesIndexRoute
-  '/email-queue/sent': typeof EmailQueueSentIndexRoute
-  '/email-queue/sequences': typeof EmailQueueSequencesIndexRoute
   '/emails/drafts': typeof EmailsDraftsIndexRoute
-  '/mail/all': typeof MailAllIndexRoute
-  '/mail/drafts': typeof MailDraftsIndexRoute
-  '/mail/inbox': typeof MailInboxIndexRoute
-  '/mail/triage': typeof MailTriageIndexRoute
-  '/outbox/email': typeof OutboxEmailIndexRoute
-  '/outbox/newsletter': typeof OutboxNewsletterIndexRoute
-  '/outbox/sent': typeof OutboxSentIndexRoute
-  '/outbox/sequences': typeof OutboxSequencesIndexRoute
-  '/outbox/social': typeof OutboxSocialIndexRoute
   '/sessions/$sessionId': typeof SessionsSessionIdIndexRoute
   '/sessions/all': typeof SessionsAllIndexRoute
   '/sessions/by-agent': typeof SessionsByAgentIndexRoute
-  '/outbox/email/queue': typeof OutboxEmailQueueIndexRoute
-  '/outbox/email/schedule': typeof OutboxEmailScheduleIndexRoute
-  '/outbox/email/sent': typeof OutboxEmailSentIndexRoute
-  '/outbox/newsletter/queue': typeof OutboxNewsletterQueueIndexRoute
-  '/outbox/newsletter/schedule': typeof OutboxNewsletterScheduleIndexRoute
-  '/outbox/newsletter/sent': typeof OutboxNewsletterSentIndexRoute
-  '/outbox/sequences/active': typeof OutboxSequencesActiveIndexRoute
-  '/outbox/sequences/queue': typeof OutboxSequencesQueueIndexRoute
-  '/outbox/sequences/sent': typeof OutboxSequencesSentIndexRoute
-  '/outbox/social/queue': typeof OutboxSocialQueueIndexRoute
-  '/outbox/social/schedule': typeof OutboxSocialScheduleIndexRoute
-  '/outbox/social/sent': typeof OutboxSocialSentIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/claude': typeof ClaudeRouteRouteWithChildren
-  '/email-queue': typeof EmailQueueRouteRouteWithChildren
   '/emails': typeof EmailsRouteRouteWithChildren
-  '/mail': typeof MailRouteRouteWithChildren
-  '/outbox': typeof OutboxRouteRouteWithChildren
   '/sessions': typeof SessionsRouteRouteWithChildren
   '/storyboard': typeof StoryboardRouteRouteWithChildren
   '/video': typeof VideoRouteRouteWithChildren
@@ -708,30 +398,20 @@ export interface FileRoutesById {
   '/spike-acl': typeof SpikeAclRoute
   '/sweeper': typeof SweeperRoute
   '/uiroutes-smoke': typeof UiroutesSmokeRoute
-  '/outbox/email': typeof OutboxEmailRouteRouteWithChildren
-  '/outbox/newsletter': typeof OutboxNewsletterRouteRouteWithChildren
-  '/outbox/sequences': typeof OutboxSequencesRouteRouteWithChildren
-  '/outbox/social': typeof OutboxSocialRouteRouteWithChildren
   '/pkg/$pkgId': typeof PkgPkgIdRouteRouteWithChildren
   '/claude/commands': typeof ClaudeCommandsRoute
   '/claude/hooks': typeof ClaudeHooksRoute
   '/claude/mcps': typeof ClaudeMcpsRoute
   '/claude/skills': typeof ClaudeSkillsRoute
-  '/email-queue/$id': typeof EmailQueueIdRoute
   '/emails/$id': typeof EmailsIdRoute
-  '/mail/$id': typeof MailIdRoute
   '/settings/backup': typeof SettingsBackupRoute
   '/storyboard/$id': typeof StoryboardIdRoute
   '/video/$compositionId': typeof VideoCompositionIdRoute
   '/video/queue': typeof VideoQueueRoute
   '/calendar/': typeof CalendarIndexRoute
   '/claude/': typeof ClaudeIndexRoute
-  '/content/': typeof ContentIndexRoute
-  '/email-queue/': typeof EmailQueueIndexRoute
   '/emails/': typeof EmailsIndexRoute
   '/inbox/': typeof InboxIndexRoute
-  '/mail/': typeof MailIndexRoute
-  '/outbox/': typeof OutboxIndexRoute
   '/sessions/': typeof SessionsIndexRoute
   '/settings/': typeof SettingsIndexRoute
   '/storyboard/': typeof StoryboardIndexRoute
@@ -739,45 +419,17 @@ export interface FileRoutesById {
   '/video/': typeof VideoIndexRoute
   '/pkg/$pkgId/$': typeof PkgPkgIdSplatRoute
   '/sessions/by-agent/$agent': typeof SessionsByAgentAgentRoute
-  '/email-queue/approvals/': typeof EmailQueueApprovalsIndexRoute
-  '/email-queue/replies/': typeof EmailQueueRepliesIndexRoute
-  '/email-queue/sent/': typeof EmailQueueSentIndexRoute
-  '/email-queue/sequences/': typeof EmailQueueSequencesIndexRoute
   '/emails/drafts/': typeof EmailsDraftsIndexRoute
-  '/mail/all/': typeof MailAllIndexRoute
-  '/mail/drafts/': typeof MailDraftsIndexRoute
-  '/mail/inbox/': typeof MailInboxIndexRoute
-  '/mail/triage/': typeof MailTriageIndexRoute
-  '/outbox/email/': typeof OutboxEmailIndexRoute
-  '/outbox/newsletter/': typeof OutboxNewsletterIndexRoute
-  '/outbox/sent/': typeof OutboxSentIndexRoute
-  '/outbox/sequences/': typeof OutboxSequencesIndexRoute
-  '/outbox/social/': typeof OutboxSocialIndexRoute
   '/sessions/$sessionId/': typeof SessionsSessionIdIndexRoute
   '/sessions/all/': typeof SessionsAllIndexRoute
   '/sessions/by-agent/': typeof SessionsByAgentIndexRoute
-  '/outbox/email/queue/': typeof OutboxEmailQueueIndexRoute
-  '/outbox/email/schedule/': typeof OutboxEmailScheduleIndexRoute
-  '/outbox/email/sent/': typeof OutboxEmailSentIndexRoute
-  '/outbox/newsletter/queue/': typeof OutboxNewsletterQueueIndexRoute
-  '/outbox/newsletter/schedule/': typeof OutboxNewsletterScheduleIndexRoute
-  '/outbox/newsletter/sent/': typeof OutboxNewsletterSentIndexRoute
-  '/outbox/sequences/active/': typeof OutboxSequencesActiveIndexRoute
-  '/outbox/sequences/queue/': typeof OutboxSequencesQueueIndexRoute
-  '/outbox/sequences/sent/': typeof OutboxSequencesSentIndexRoute
-  '/outbox/social/queue/': typeof OutboxSocialQueueIndexRoute
-  '/outbox/social/schedule/': typeof OutboxSocialScheduleIndexRoute
-  '/outbox/social/sent/': typeof OutboxSocialSentIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
     | '/claude'
-    | '/email-queue'
     | '/emails'
-    | '/mail'
-    | '/outbox'
     | '/sessions'
     | '/storyboard'
     | '/video'
@@ -795,30 +447,20 @@ export interface FileRouteTypes {
     | '/spike-acl'
     | '/sweeper'
     | '/uiroutes-smoke'
-    | '/outbox/email'
-    | '/outbox/newsletter'
-    | '/outbox/sequences'
-    | '/outbox/social'
     | '/pkg/$pkgId'
     | '/claude/commands'
     | '/claude/hooks'
     | '/claude/mcps'
     | '/claude/skills'
-    | '/email-queue/$id'
     | '/emails/$id'
-    | '/mail/$id'
     | '/settings/backup'
     | '/storyboard/$id'
     | '/video/$compositionId'
     | '/video/queue'
     | '/calendar/'
     | '/claude/'
-    | '/content/'
-    | '/email-queue/'
     | '/emails/'
     | '/inbox/'
-    | '/mail/'
-    | '/outbox/'
     | '/sessions/'
     | '/settings/'
     | '/storyboard/'
@@ -826,35 +468,10 @@ export interface FileRouteTypes {
     | '/video/'
     | '/pkg/$pkgId/$'
     | '/sessions/by-agent/$agent'
-    | '/email-queue/approvals/'
-    | '/email-queue/replies/'
-    | '/email-queue/sent/'
-    | '/email-queue/sequences/'
     | '/emails/drafts/'
-    | '/mail/all/'
-    | '/mail/drafts/'
-    | '/mail/inbox/'
-    | '/mail/triage/'
-    | '/outbox/email/'
-    | '/outbox/newsletter/'
-    | '/outbox/sent/'
-    | '/outbox/sequences/'
-    | '/outbox/social/'
     | '/sessions/$sessionId/'
     | '/sessions/all/'
     | '/sessions/by-agent/'
-    | '/outbox/email/queue/'
-    | '/outbox/email/schedule/'
-    | '/outbox/email/sent/'
-    | '/outbox/newsletter/queue/'
-    | '/outbox/newsletter/schedule/'
-    | '/outbox/newsletter/sent/'
-    | '/outbox/sequences/active/'
-    | '/outbox/sequences/queue/'
-    | '/outbox/sequences/sent/'
-    | '/outbox/social/queue/'
-    | '/outbox/social/schedule/'
-    | '/outbox/social/sent/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -877,21 +494,15 @@ export interface FileRouteTypes {
     | '/claude/hooks'
     | '/claude/mcps'
     | '/claude/skills'
-    | '/email-queue/$id'
     | '/emails/$id'
-    | '/mail/$id'
     | '/settings/backup'
     | '/storyboard/$id'
     | '/video/$compositionId'
     | '/video/queue'
     | '/calendar'
     | '/claude'
-    | '/content'
-    | '/email-queue'
     | '/emails'
     | '/inbox'
-    | '/mail'
-    | '/outbox'
     | '/sessions'
     | '/settings'
     | '/storyboard'
@@ -899,43 +510,15 @@ export interface FileRouteTypes {
     | '/video'
     | '/pkg/$pkgId/$'
     | '/sessions/by-agent/$agent'
-    | '/email-queue/approvals'
-    | '/email-queue/replies'
-    | '/email-queue/sent'
-    | '/email-queue/sequences'
     | '/emails/drafts'
-    | '/mail/all'
-    | '/mail/drafts'
-    | '/mail/inbox'
-    | '/mail/triage'
-    | '/outbox/email'
-    | '/outbox/newsletter'
-    | '/outbox/sent'
-    | '/outbox/sequences'
-    | '/outbox/social'
     | '/sessions/$sessionId'
     | '/sessions/all'
     | '/sessions/by-agent'
-    | '/outbox/email/queue'
-    | '/outbox/email/schedule'
-    | '/outbox/email/sent'
-    | '/outbox/newsletter/queue'
-    | '/outbox/newsletter/schedule'
-    | '/outbox/newsletter/sent'
-    | '/outbox/sequences/active'
-    | '/outbox/sequences/queue'
-    | '/outbox/sequences/sent'
-    | '/outbox/social/queue'
-    | '/outbox/social/schedule'
-    | '/outbox/social/sent'
   id:
     | '__root__'
     | '/'
     | '/claude'
-    | '/email-queue'
     | '/emails'
-    | '/mail'
-    | '/outbox'
     | '/sessions'
     | '/storyboard'
     | '/video'
@@ -953,30 +536,20 @@ export interface FileRouteTypes {
     | '/spike-acl'
     | '/sweeper'
     | '/uiroutes-smoke'
-    | '/outbox/email'
-    | '/outbox/newsletter'
-    | '/outbox/sequences'
-    | '/outbox/social'
     | '/pkg/$pkgId'
     | '/claude/commands'
     | '/claude/hooks'
     | '/claude/mcps'
     | '/claude/skills'
-    | '/email-queue/$id'
     | '/emails/$id'
-    | '/mail/$id'
     | '/settings/backup'
     | '/storyboard/$id'
     | '/video/$compositionId'
     | '/video/queue'
     | '/calendar/'
     | '/claude/'
-    | '/content/'
-    | '/email-queue/'
     | '/emails/'
     | '/inbox/'
-    | '/mail/'
-    | '/outbox/'
     | '/sessions/'
     | '/settings/'
     | '/storyboard/'
@@ -984,44 +557,16 @@ export interface FileRouteTypes {
     | '/video/'
     | '/pkg/$pkgId/$'
     | '/sessions/by-agent/$agent'
-    | '/email-queue/approvals/'
-    | '/email-queue/replies/'
-    | '/email-queue/sent/'
-    | '/email-queue/sequences/'
     | '/emails/drafts/'
-    | '/mail/all/'
-    | '/mail/drafts/'
-    | '/mail/inbox/'
-    | '/mail/triage/'
-    | '/outbox/email/'
-    | '/outbox/newsletter/'
-    | '/outbox/sent/'
-    | '/outbox/sequences/'
-    | '/outbox/social/'
     | '/sessions/$sessionId/'
     | '/sessions/all/'
     | '/sessions/by-agent/'
-    | '/outbox/email/queue/'
-    | '/outbox/email/schedule/'
-    | '/outbox/email/sent/'
-    | '/outbox/newsletter/queue/'
-    | '/outbox/newsletter/schedule/'
-    | '/outbox/newsletter/sent/'
-    | '/outbox/sequences/active/'
-    | '/outbox/sequences/queue/'
-    | '/outbox/sequences/sent/'
-    | '/outbox/social/queue/'
-    | '/outbox/social/schedule/'
-    | '/outbox/social/sent/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ClaudeRouteRoute: typeof ClaudeRouteRouteWithChildren
-  EmailQueueRouteRoute: typeof EmailQueueRouteRouteWithChildren
   EmailsRouteRoute: typeof EmailsRouteRouteWithChildren
-  MailRouteRoute: typeof MailRouteRouteWithChildren
-  OutboxRouteRoute: typeof OutboxRouteRouteWithChildren
   SessionsRouteRoute: typeof SessionsRouteRouteWithChildren
   StoryboardRouteRoute: typeof StoryboardRouteRouteWithChildren
   VideoRouteRoute: typeof VideoRouteRouteWithChildren
@@ -1042,7 +587,6 @@ export interface RootRouteChildren {
   PkgPkgIdRouteRoute: typeof PkgPkgIdRouteRouteWithChildren
   SettingsBackupRoute: typeof SettingsBackupRoute
   CalendarIndexRoute: typeof CalendarIndexRoute
-  ContentIndexRoute: typeof ContentIndexRoute
   InboxIndexRoute: typeof InboxIndexRoute
   SettingsIndexRoute: typeof SettingsIndexRoute
   TriageIndexRoute: typeof TriageIndexRoute
@@ -1169,32 +713,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SessionsRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/outbox': {
-      id: '/outbox'
-      path: '/outbox'
-      fullPath: '/outbox'
-      preLoaderRoute: typeof OutboxRouteRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/mail': {
-      id: '/mail'
-      path: '/mail'
-      fullPath: '/mail'
-      preLoaderRoute: typeof MailRouteRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/emails': {
       id: '/emails'
       path: '/emails'
       fullPath: '/emails'
       preLoaderRoute: typeof EmailsRouteRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/email-queue': {
-      id: '/email-queue'
-      path: '/email-queue'
-      fullPath: '/email-queue'
-      preLoaderRoute: typeof EmailQueueRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/claude': {
@@ -1246,20 +769,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SessionsIndexRouteImport
       parentRoute: typeof SessionsRouteRoute
     }
-    '/outbox/': {
-      id: '/outbox/'
-      path: '/'
-      fullPath: '/outbox/'
-      preLoaderRoute: typeof OutboxIndexRouteImport
-      parentRoute: typeof OutboxRouteRoute
-    }
-    '/mail/': {
-      id: '/mail/'
-      path: '/'
-      fullPath: '/mail/'
-      preLoaderRoute: typeof MailIndexRouteImport
-      parentRoute: typeof MailRouteRoute
-    }
     '/inbox/': {
       id: '/inbox/'
       path: '/inbox'
@@ -1273,20 +782,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/emails/'
       preLoaderRoute: typeof EmailsIndexRouteImport
       parentRoute: typeof EmailsRouteRoute
-    }
-    '/email-queue/': {
-      id: '/email-queue/'
-      path: '/'
-      fullPath: '/email-queue/'
-      preLoaderRoute: typeof EmailQueueIndexRouteImport
-      parentRoute: typeof EmailQueueRouteRoute
-    }
-    '/content/': {
-      id: '/content/'
-      path: '/content'
-      fullPath: '/content/'
-      preLoaderRoute: typeof ContentIndexRouteImport
-      parentRoute: typeof rootRouteImport
     }
     '/claude/': {
       id: '/claude/'
@@ -1330,26 +825,12 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsBackupRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/mail/$id': {
-      id: '/mail/$id'
-      path: '/$id'
-      fullPath: '/mail/$id'
-      preLoaderRoute: typeof MailIdRouteImport
-      parentRoute: typeof MailRouteRoute
-    }
     '/emails/$id': {
       id: '/emails/$id'
       path: '/$id'
       fullPath: '/emails/$id'
       preLoaderRoute: typeof EmailsIdRouteImport
       parentRoute: typeof EmailsRouteRoute
-    }
-    '/email-queue/$id': {
-      id: '/email-queue/$id'
-      path: '/$id'
-      fullPath: '/email-queue/$id'
-      preLoaderRoute: typeof EmailQueueIdRouteImport
-      parentRoute: typeof EmailQueueRouteRoute
     }
     '/claude/skills': {
       id: '/claude/skills'
@@ -1386,34 +867,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PkgPkgIdRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/outbox/social': {
-      id: '/outbox/social'
-      path: '/social'
-      fullPath: '/outbox/social'
-      preLoaderRoute: typeof OutboxSocialRouteRouteImport
-      parentRoute: typeof OutboxRouteRoute
-    }
-    '/outbox/sequences': {
-      id: '/outbox/sequences'
-      path: '/sequences'
-      fullPath: '/outbox/sequences'
-      preLoaderRoute: typeof OutboxSequencesRouteRouteImport
-      parentRoute: typeof OutboxRouteRoute
-    }
-    '/outbox/newsletter': {
-      id: '/outbox/newsletter'
-      path: '/newsletter'
-      fullPath: '/outbox/newsletter'
-      preLoaderRoute: typeof OutboxNewsletterRouteRouteImport
-      parentRoute: typeof OutboxRouteRoute
-    }
-    '/outbox/email': {
-      id: '/outbox/email'
-      path: '/email'
-      fullPath: '/outbox/email'
-      preLoaderRoute: typeof OutboxEmailRouteRouteImport
-      parentRoute: typeof OutboxRouteRoute
-    }
     '/sessions/by-agent/': {
       id: '/sessions/by-agent/'
       path: '/by-agent'
@@ -1435,103 +888,12 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SessionsSessionIdIndexRouteImport
       parentRoute: typeof SessionsRouteRoute
     }
-    '/outbox/social/': {
-      id: '/outbox/social/'
-      path: '/'
-      fullPath: '/outbox/social/'
-      preLoaderRoute: typeof OutboxSocialIndexRouteImport
-      parentRoute: typeof OutboxSocialRouteRoute
-    }
-    '/outbox/sequences/': {
-      id: '/outbox/sequences/'
-      path: '/'
-      fullPath: '/outbox/sequences/'
-      preLoaderRoute: typeof OutboxSequencesIndexRouteImport
-      parentRoute: typeof OutboxSequencesRouteRoute
-    }
-    '/outbox/sent/': {
-      id: '/outbox/sent/'
-      path: '/sent'
-      fullPath: '/outbox/sent/'
-      preLoaderRoute: typeof OutboxSentIndexRouteImport
-      parentRoute: typeof OutboxRouteRoute
-    }
-    '/outbox/newsletter/': {
-      id: '/outbox/newsletter/'
-      path: '/'
-      fullPath: '/outbox/newsletter/'
-      preLoaderRoute: typeof OutboxNewsletterIndexRouteImport
-      parentRoute: typeof OutboxNewsletterRouteRoute
-    }
-    '/outbox/email/': {
-      id: '/outbox/email/'
-      path: '/'
-      fullPath: '/outbox/email/'
-      preLoaderRoute: typeof OutboxEmailIndexRouteImport
-      parentRoute: typeof OutboxEmailRouteRoute
-    }
-    '/mail/triage/': {
-      id: '/mail/triage/'
-      path: '/triage'
-      fullPath: '/mail/triage/'
-      preLoaderRoute: typeof MailTriageIndexRouteImport
-      parentRoute: typeof MailRouteRoute
-    }
-    '/mail/inbox/': {
-      id: '/mail/inbox/'
-      path: '/inbox'
-      fullPath: '/mail/inbox/'
-      preLoaderRoute: typeof MailInboxIndexRouteImport
-      parentRoute: typeof MailRouteRoute
-    }
-    '/mail/drafts/': {
-      id: '/mail/drafts/'
-      path: '/drafts'
-      fullPath: '/mail/drafts/'
-      preLoaderRoute: typeof MailDraftsIndexRouteImport
-      parentRoute: typeof MailRouteRoute
-    }
-    '/mail/all/': {
-      id: '/mail/all/'
-      path: '/all'
-      fullPath: '/mail/all/'
-      preLoaderRoute: typeof MailAllIndexRouteImport
-      parentRoute: typeof MailRouteRoute
-    }
     '/emails/drafts/': {
       id: '/emails/drafts/'
       path: '/drafts'
       fullPath: '/emails/drafts/'
       preLoaderRoute: typeof EmailsDraftsIndexRouteImport
       parentRoute: typeof EmailsRouteRoute
-    }
-    '/email-queue/sequences/': {
-      id: '/email-queue/sequences/'
-      path: '/sequences'
-      fullPath: '/email-queue/sequences/'
-      preLoaderRoute: typeof EmailQueueSequencesIndexRouteImport
-      parentRoute: typeof EmailQueueRouteRoute
-    }
-    '/email-queue/sent/': {
-      id: '/email-queue/sent/'
-      path: '/sent'
-      fullPath: '/email-queue/sent/'
-      preLoaderRoute: typeof EmailQueueSentIndexRouteImport
-      parentRoute: typeof EmailQueueRouteRoute
-    }
-    '/email-queue/replies/': {
-      id: '/email-queue/replies/'
-      path: '/replies'
-      fullPath: '/email-queue/replies/'
-      preLoaderRoute: typeof EmailQueueRepliesIndexRouteImport
-      parentRoute: typeof EmailQueueRouteRoute
-    }
-    '/email-queue/approvals/': {
-      id: '/email-queue/approvals/'
-      path: '/approvals'
-      fullPath: '/email-queue/approvals/'
-      preLoaderRoute: typeof EmailQueueApprovalsIndexRouteImport
-      parentRoute: typeof EmailQueueRouteRoute
     }
     '/sessions/by-agent/$agent': {
       id: '/sessions/by-agent/$agent'
@@ -1546,90 +908,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/pkg/$pkgId/$'
       preLoaderRoute: typeof PkgPkgIdSplatRouteImport
       parentRoute: typeof PkgPkgIdRouteRoute
-    }
-    '/outbox/social/sent/': {
-      id: '/outbox/social/sent/'
-      path: '/sent'
-      fullPath: '/outbox/social/sent/'
-      preLoaderRoute: typeof OutboxSocialSentIndexRouteImport
-      parentRoute: typeof OutboxSocialRouteRoute
-    }
-    '/outbox/social/schedule/': {
-      id: '/outbox/social/schedule/'
-      path: '/schedule'
-      fullPath: '/outbox/social/schedule/'
-      preLoaderRoute: typeof OutboxSocialScheduleIndexRouteImport
-      parentRoute: typeof OutboxSocialRouteRoute
-    }
-    '/outbox/social/queue/': {
-      id: '/outbox/social/queue/'
-      path: '/queue'
-      fullPath: '/outbox/social/queue/'
-      preLoaderRoute: typeof OutboxSocialQueueIndexRouteImport
-      parentRoute: typeof OutboxSocialRouteRoute
-    }
-    '/outbox/sequences/sent/': {
-      id: '/outbox/sequences/sent/'
-      path: '/sent'
-      fullPath: '/outbox/sequences/sent/'
-      preLoaderRoute: typeof OutboxSequencesSentIndexRouteImport
-      parentRoute: typeof OutboxSequencesRouteRoute
-    }
-    '/outbox/sequences/queue/': {
-      id: '/outbox/sequences/queue/'
-      path: '/queue'
-      fullPath: '/outbox/sequences/queue/'
-      preLoaderRoute: typeof OutboxSequencesQueueIndexRouteImport
-      parentRoute: typeof OutboxSequencesRouteRoute
-    }
-    '/outbox/sequences/active/': {
-      id: '/outbox/sequences/active/'
-      path: '/active'
-      fullPath: '/outbox/sequences/active/'
-      preLoaderRoute: typeof OutboxSequencesActiveIndexRouteImport
-      parentRoute: typeof OutboxSequencesRouteRoute
-    }
-    '/outbox/newsletter/sent/': {
-      id: '/outbox/newsletter/sent/'
-      path: '/sent'
-      fullPath: '/outbox/newsletter/sent/'
-      preLoaderRoute: typeof OutboxNewsletterSentIndexRouteImport
-      parentRoute: typeof OutboxNewsletterRouteRoute
-    }
-    '/outbox/newsletter/schedule/': {
-      id: '/outbox/newsletter/schedule/'
-      path: '/schedule'
-      fullPath: '/outbox/newsletter/schedule/'
-      preLoaderRoute: typeof OutboxNewsletterScheduleIndexRouteImport
-      parentRoute: typeof OutboxNewsletterRouteRoute
-    }
-    '/outbox/newsletter/queue/': {
-      id: '/outbox/newsletter/queue/'
-      path: '/queue'
-      fullPath: '/outbox/newsletter/queue/'
-      preLoaderRoute: typeof OutboxNewsletterQueueIndexRouteImport
-      parentRoute: typeof OutboxNewsletterRouteRoute
-    }
-    '/outbox/email/sent/': {
-      id: '/outbox/email/sent/'
-      path: '/sent'
-      fullPath: '/outbox/email/sent/'
-      preLoaderRoute: typeof OutboxEmailSentIndexRouteImport
-      parentRoute: typeof OutboxEmailRouteRoute
-    }
-    '/outbox/email/schedule/': {
-      id: '/outbox/email/schedule/'
-      path: '/schedule'
-      fullPath: '/outbox/email/schedule/'
-      preLoaderRoute: typeof OutboxEmailScheduleIndexRouteImport
-      parentRoute: typeof OutboxEmailRouteRoute
-    }
-    '/outbox/email/queue/': {
-      id: '/outbox/email/queue/'
-      path: '/queue'
-      fullPath: '/outbox/email/queue/'
-      preLoaderRoute: typeof OutboxEmailQueueIndexRouteImport
-      parentRoute: typeof OutboxEmailRouteRoute
     }
   }
 }
@@ -1654,28 +932,6 @@ const ClaudeRouteRouteWithChildren = ClaudeRouteRoute._addFileChildren(
   ClaudeRouteRouteChildren,
 )
 
-interface EmailQueueRouteRouteChildren {
-  EmailQueueIdRoute: typeof EmailQueueIdRoute
-  EmailQueueIndexRoute: typeof EmailQueueIndexRoute
-  EmailQueueApprovalsIndexRoute: typeof EmailQueueApprovalsIndexRoute
-  EmailQueueRepliesIndexRoute: typeof EmailQueueRepliesIndexRoute
-  EmailQueueSentIndexRoute: typeof EmailQueueSentIndexRoute
-  EmailQueueSequencesIndexRoute: typeof EmailQueueSequencesIndexRoute
-}
-
-const EmailQueueRouteRouteChildren: EmailQueueRouteRouteChildren = {
-  EmailQueueIdRoute: EmailQueueIdRoute,
-  EmailQueueIndexRoute: EmailQueueIndexRoute,
-  EmailQueueApprovalsIndexRoute: EmailQueueApprovalsIndexRoute,
-  EmailQueueRepliesIndexRoute: EmailQueueRepliesIndexRoute,
-  EmailQueueSentIndexRoute: EmailQueueSentIndexRoute,
-  EmailQueueSequencesIndexRoute: EmailQueueSequencesIndexRoute,
-}
-
-const EmailQueueRouteRouteWithChildren = EmailQueueRouteRoute._addFileChildren(
-  EmailQueueRouteRouteChildren,
-)
-
 interface EmailsRouteRouteChildren {
   EmailsIdRoute: typeof EmailsIdRoute
   EmailsIndexRoute: typeof EmailsIndexRoute
@@ -1690,120 +946,6 @@ const EmailsRouteRouteChildren: EmailsRouteRouteChildren = {
 
 const EmailsRouteRouteWithChildren = EmailsRouteRoute._addFileChildren(
   EmailsRouteRouteChildren,
-)
-
-interface MailRouteRouteChildren {
-  MailIdRoute: typeof MailIdRoute
-  MailIndexRoute: typeof MailIndexRoute
-  MailAllIndexRoute: typeof MailAllIndexRoute
-  MailDraftsIndexRoute: typeof MailDraftsIndexRoute
-  MailInboxIndexRoute: typeof MailInboxIndexRoute
-  MailTriageIndexRoute: typeof MailTriageIndexRoute
-}
-
-const MailRouteRouteChildren: MailRouteRouteChildren = {
-  MailIdRoute: MailIdRoute,
-  MailIndexRoute: MailIndexRoute,
-  MailAllIndexRoute: MailAllIndexRoute,
-  MailDraftsIndexRoute: MailDraftsIndexRoute,
-  MailInboxIndexRoute: MailInboxIndexRoute,
-  MailTriageIndexRoute: MailTriageIndexRoute,
-}
-
-const MailRouteRouteWithChildren = MailRouteRoute._addFileChildren(
-  MailRouteRouteChildren,
-)
-
-interface OutboxEmailRouteRouteChildren {
-  OutboxEmailIndexRoute: typeof OutboxEmailIndexRoute
-  OutboxEmailQueueIndexRoute: typeof OutboxEmailQueueIndexRoute
-  OutboxEmailScheduleIndexRoute: typeof OutboxEmailScheduleIndexRoute
-  OutboxEmailSentIndexRoute: typeof OutboxEmailSentIndexRoute
-}
-
-const OutboxEmailRouteRouteChildren: OutboxEmailRouteRouteChildren = {
-  OutboxEmailIndexRoute: OutboxEmailIndexRoute,
-  OutboxEmailQueueIndexRoute: OutboxEmailQueueIndexRoute,
-  OutboxEmailScheduleIndexRoute: OutboxEmailScheduleIndexRoute,
-  OutboxEmailSentIndexRoute: OutboxEmailSentIndexRoute,
-}
-
-const OutboxEmailRouteRouteWithChildren =
-  OutboxEmailRouteRoute._addFileChildren(OutboxEmailRouteRouteChildren)
-
-interface OutboxNewsletterRouteRouteChildren {
-  OutboxNewsletterIndexRoute: typeof OutboxNewsletterIndexRoute
-  OutboxNewsletterQueueIndexRoute: typeof OutboxNewsletterQueueIndexRoute
-  OutboxNewsletterScheduleIndexRoute: typeof OutboxNewsletterScheduleIndexRoute
-  OutboxNewsletterSentIndexRoute: typeof OutboxNewsletterSentIndexRoute
-}
-
-const OutboxNewsletterRouteRouteChildren: OutboxNewsletterRouteRouteChildren = {
-  OutboxNewsletterIndexRoute: OutboxNewsletterIndexRoute,
-  OutboxNewsletterQueueIndexRoute: OutboxNewsletterQueueIndexRoute,
-  OutboxNewsletterScheduleIndexRoute: OutboxNewsletterScheduleIndexRoute,
-  OutboxNewsletterSentIndexRoute: OutboxNewsletterSentIndexRoute,
-}
-
-const OutboxNewsletterRouteRouteWithChildren =
-  OutboxNewsletterRouteRoute._addFileChildren(
-    OutboxNewsletterRouteRouteChildren,
-  )
-
-interface OutboxSequencesRouteRouteChildren {
-  OutboxSequencesIndexRoute: typeof OutboxSequencesIndexRoute
-  OutboxSequencesActiveIndexRoute: typeof OutboxSequencesActiveIndexRoute
-  OutboxSequencesQueueIndexRoute: typeof OutboxSequencesQueueIndexRoute
-  OutboxSequencesSentIndexRoute: typeof OutboxSequencesSentIndexRoute
-}
-
-const OutboxSequencesRouteRouteChildren: OutboxSequencesRouteRouteChildren = {
-  OutboxSequencesIndexRoute: OutboxSequencesIndexRoute,
-  OutboxSequencesActiveIndexRoute: OutboxSequencesActiveIndexRoute,
-  OutboxSequencesQueueIndexRoute: OutboxSequencesQueueIndexRoute,
-  OutboxSequencesSentIndexRoute: OutboxSequencesSentIndexRoute,
-}
-
-const OutboxSequencesRouteRouteWithChildren =
-  OutboxSequencesRouteRoute._addFileChildren(OutboxSequencesRouteRouteChildren)
-
-interface OutboxSocialRouteRouteChildren {
-  OutboxSocialIndexRoute: typeof OutboxSocialIndexRoute
-  OutboxSocialQueueIndexRoute: typeof OutboxSocialQueueIndexRoute
-  OutboxSocialScheduleIndexRoute: typeof OutboxSocialScheduleIndexRoute
-  OutboxSocialSentIndexRoute: typeof OutboxSocialSentIndexRoute
-}
-
-const OutboxSocialRouteRouteChildren: OutboxSocialRouteRouteChildren = {
-  OutboxSocialIndexRoute: OutboxSocialIndexRoute,
-  OutboxSocialQueueIndexRoute: OutboxSocialQueueIndexRoute,
-  OutboxSocialScheduleIndexRoute: OutboxSocialScheduleIndexRoute,
-  OutboxSocialSentIndexRoute: OutboxSocialSentIndexRoute,
-}
-
-const OutboxSocialRouteRouteWithChildren =
-  OutboxSocialRouteRoute._addFileChildren(OutboxSocialRouteRouteChildren)
-
-interface OutboxRouteRouteChildren {
-  OutboxEmailRouteRoute: typeof OutboxEmailRouteRouteWithChildren
-  OutboxNewsletterRouteRoute: typeof OutboxNewsletterRouteRouteWithChildren
-  OutboxSequencesRouteRoute: typeof OutboxSequencesRouteRouteWithChildren
-  OutboxSocialRouteRoute: typeof OutboxSocialRouteRouteWithChildren
-  OutboxIndexRoute: typeof OutboxIndexRoute
-  OutboxSentIndexRoute: typeof OutboxSentIndexRoute
-}
-
-const OutboxRouteRouteChildren: OutboxRouteRouteChildren = {
-  OutboxEmailRouteRoute: OutboxEmailRouteRouteWithChildren,
-  OutboxNewsletterRouteRoute: OutboxNewsletterRouteRouteWithChildren,
-  OutboxSequencesRouteRoute: OutboxSequencesRouteRouteWithChildren,
-  OutboxSocialRouteRoute: OutboxSocialRouteRouteWithChildren,
-  OutboxIndexRoute: OutboxIndexRoute,
-  OutboxSentIndexRoute: OutboxSentIndexRoute,
-}
-
-const OutboxRouteRouteWithChildren = OutboxRouteRoute._addFileChildren(
-  OutboxRouteRouteChildren,
 )
 
 interface SessionsRouteRouteChildren {
@@ -1871,10 +1013,7 @@ const PkgPkgIdRouteRouteWithChildren = PkgPkgIdRouteRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ClaudeRouteRoute: ClaudeRouteRouteWithChildren,
-  EmailQueueRouteRoute: EmailQueueRouteRouteWithChildren,
   EmailsRouteRoute: EmailsRouteRouteWithChildren,
-  MailRouteRoute: MailRouteRouteWithChildren,
-  OutboxRouteRoute: OutboxRouteRouteWithChildren,
   SessionsRouteRoute: SessionsRouteRouteWithChildren,
   StoryboardRouteRoute: StoryboardRouteRouteWithChildren,
   VideoRouteRoute: VideoRouteRouteWithChildren,
@@ -1895,7 +1034,6 @@ const rootRouteChildren: RootRouteChildren = {
   PkgPkgIdRouteRoute: PkgPkgIdRouteRouteWithChildren,
   SettingsBackupRoute: SettingsBackupRoute,
   CalendarIndexRoute: CalendarIndexRoute,
-  ContentIndexRoute: ContentIndexRoute,
   InboxIndexRoute: InboxIndexRoute,
   SettingsIndexRoute: SettingsIndexRoute,
   TriageIndexRoute: TriageIndexRoute,
