@@ -74,7 +74,7 @@ pub use storyboard::{
     StoryboardJobManagerState,
 };
 pub use supabase_config::{supabase_config_clear, supabase_config_get, supabase_config_set};
-pub use viewer::{viewer_serve, viewer_stop};
+pub use viewer::{viewer_port, viewer_serve, viewer_stop};
 
 use std::path::{Path, PathBuf};
 

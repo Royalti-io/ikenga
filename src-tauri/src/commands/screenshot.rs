@@ -162,7 +162,12 @@ struct RequestPayload<'a> {
 
 /// Core capture helper. Emits the request event, waits up to
 /// `CAPTURE_TIMEOUT` for the FE to return PNG bytes, writes them to
-/// `out_path` (or a default), returns metadata.
+/// `out_path` (or a default), returns metadata. The FE renders via
+/// `modern-screenshot` against the live React tree; iframes are
+/// composited in via the iyke iframe-bridge (each same-origin iframe
+/// self-screenshots and posts the bytes back). This means screenshots
+/// don't require window focus and can capture any pane that's mounted in
+/// the DOM, even if it isn't the focused pane.
 pub async fn capture(
     app: &AppHandle,
     pending: &ScreenshotPending,
@@ -230,6 +235,193 @@ pub async fn capture(
         height: captured.height,
         bytes_len: captured.png_bytes.len(),
     })
+}
+
+// ─── Native (OS-level) capture path — kept for future opt-in use ─────────────
+//
+// Currently unused: the default capture flow is FE-side modern-screenshot so
+// it doesn't require window focus and can capture any mounted pane (even
+// inactive ones). The native path is kept here so a future `--native` flag
+// can use it when the user explicitly wants compositor-level capture (e.g.
+// to grab a multi-window setup or anything outside the webview).
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy)]
+struct ScreenRect {
+    x: i32,
+    y: i32,
+    w: u32,
+    h: u32,
+}
+
+#[allow(dead_code)]
+async fn capture_window_native(
+    app: &AppHandle,
+    out_path: Option<String>,
+) -> Result<ScreenshotResult> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| anyhow!("main webview window not found"))?;
+
+    // Some platforms' screenshot tools (notably `gnome-screenshot --window`
+    // on mutter) capture the *focused* window. When iyke is invoked from
+    // a terminal, the terminal has focus — so we must focus the Ikenga
+    // window first. The brief focus-steal is the trade-off; the user can
+    // alt-tab back. On X11 + Wayland-with-grim this is a no-op (we use
+    // explicit window coordinates), but the focus call is harmless there
+    // so we always do it.
+    let _ = window.set_focus();
+    // Give the compositor a tick to actually move focus before the
+    // capture tool reads "focused window". 80ms is enough on mutter
+    // without being noticeable.
+    tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+
+    let pos = window.outer_position().context("outer_position")?;
+    let size = window.outer_size().context("outer_size")?;
+    let rect = ScreenRect {
+        x: pos.x,
+        y: pos.y,
+        w: size.width,
+        h: size.height,
+    };
+
+    let png_bytes = tokio::task::spawn_blocking(move || capture_region_native(rect))
+        .await
+        .context("native capture join")?
+        .context("native capture")?;
+
+    let resolved_path = match out_path {
+        Some(p) => PathBuf::from(shellexpand::tilde(&p).into_owned()),
+        None => {
+            let override_dir = match app.try_state::<ScreenshotConfigStateRef>() {
+                Some(state) => state.inner().override_dir().await,
+                None => None,
+            };
+            default_out_path_with(ScreenshotKind::Window, None, override_dir)?
+        }
+    };
+    write_png(&resolved_path, &png_bytes)?;
+
+    let dims = png_dimensions(&png_bytes).unwrap_or((rect.w, rect.h));
+    Ok(ScreenshotResult {
+        path: resolved_path.to_string_lossy().into_owned(),
+        width: dims.0,
+        height: dims.1,
+        bytes_len: png_bytes.len(),
+    })
+}
+
+fn capture_region_native(rect: ScreenRect) -> Result<Vec<u8>> {
+    let tmp = std::env::temp_dir().join(format!("ikenga-screenshot-{}.png", Uuid::new_v4()));
+    let result = capture_region_to(&tmp, rect);
+    let bytes = std::fs::read(&tmp).ok();
+    let _ = std::fs::remove_file(&tmp);
+    result?;
+    bytes.ok_or_else(|| anyhow!("screenshot tool reported success but produced no file"))
+}
+
+#[cfg(target_os = "linux")]
+fn capture_region_to(out: &Path, rect: ScreenRect) -> Result<()> {
+    // Wayland tooling depends on the compositor:
+    //   * wlroots (sway/Hyprland): grim works directly with screencopy.
+    //   * mutter (GNOME): no wlr-screencopy → grim fails. Use
+    //     `gnome-screenshot --window` (portal-backed, captures focused).
+    //   * KDE: use `spectacle --activewindow --background` similarly.
+    // X11 falls back to scrot with the rect from Tauri.
+    let is_wayland = std::env::var_os("WAYLAND_DISPLAY").is_some();
+    if is_wayland {
+        let geom = format!("{},{} {}x{}", rect.x, rect.y, rect.w, rect.h);
+        let grim = run_tool("grim", &["-g", &geom, &out.to_string_lossy()]);
+        if grim.is_ok() {
+            return Ok(());
+        }
+        let grim_err = grim.err().expect("checked above");
+
+        // gnome-screenshot is the canonical mutter path. `-w` grabs the
+        // focused window; the Tauri window is the active one when iyke
+        // dispatches a shortcut/CLI capture, so this DTRT.
+        if which_present("gnome-screenshot") {
+            return run_tool(
+                "gnome-screenshot",
+                &["-w", "-f", &out.to_string_lossy()],
+            );
+        }
+        if which_present("spectacle") {
+            return run_tool(
+                "spectacle",
+                &["--activewindow", "--background", "-o", &out.to_string_lossy()],
+            );
+        }
+        Err(anyhow!(
+            "no working Wayland screenshot tool. grim said: {grim_err}. \
+             Install grim (wlroots), gnome-screenshot, or spectacle."
+        ))
+    } else {
+        // scrot --autoselect (-a) takes "x,y,w,h"; --overwrite (-o) for
+        // determinism, --silent (-z) to avoid stderr chatter.
+        let area = format!("{},{},{},{}", rect.x, rect.y, rect.w, rect.h);
+        run_tool("scrot", &["-z", "-o", "-a", &area, &out.to_string_lossy()])
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn which_present(tool: &str) -> bool {
+    std::process::Command::new("which")
+        .arg(tool)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+#[cfg(target_os = "macos")]
+fn capture_region_to(out: &Path, rect: ScreenRect) -> Result<()> {
+    // -x: silent (no shutter sound). -R: capture rect "x,y,w,h".
+    let region = format!("{},{},{},{}", rect.x, rect.y, rect.w, rect.h);
+    run_tool(
+        "screencapture",
+        &["-x", "-R", &region, &out.to_string_lossy()],
+    )
+}
+
+#[cfg(target_os = "windows")]
+fn capture_region_to(_out: &Path, _rect: ScreenRect) -> Result<()> {
+    // TODO(windows): use PowerShell + System.Drawing or the Windows.Graphics
+    // .Capture API. For now, error out with a clear message so the user can
+    // fall back to modern-screenshot via the FE flag (also a TODO).
+    Err(anyhow!(
+        "native window capture not implemented on Windows yet"
+    ))
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+fn capture_region_to(_out: &Path, _rect: ScreenRect) -> Result<()> {
+    Err(anyhow!("native window capture not supported on this OS"))
+}
+
+fn run_tool(tool: &str, args: &[&str]) -> Result<()> {
+    let out = std::process::Command::new(tool)
+        .args(args)
+        .output()
+        .with_context(|| format!("spawn {tool}"))?;
+    if !out.status.success() {
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        return Err(anyhow!(
+            "{tool} exited with status {}: {}",
+            out.status,
+            stderr.trim()
+        ));
+    }
+    Ok(())
+}
+
+/// Read `width` and `height` from a PNG's IHDR chunk. Cheap — first 24 bytes.
+fn png_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
+    if bytes.len() < 24 || &bytes[0..8] != b"\x89PNG\r\n\x1a\n" {
+        return None;
+    }
+    let w = u32::from_be_bytes(bytes[16..20].try_into().ok()?);
+    let h = u32::from_be_bytes(bytes[20..24].try_into().ok()?);
+    Some((w, h))
 }
 
 fn write_png(path: &Path, bytes: &[u8]) -> Result<()> {

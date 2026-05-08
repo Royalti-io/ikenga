@@ -6,6 +6,11 @@ import path from 'node:path';
 
 const host = process.env.TAURI_DEV_HOST;
 
+// Must match `DEFAULT_VIEWER_PORT` in src-tauri/src/viewer_server/mod.rs.
+// The Rust side honours `IKENGA_VIEWER_PORT` for overrides; if you set that
+// env var, set it here too (or before `bun run tauri dev`).
+const VIEWER_PORT = Number(process.env.IKENGA_VIEWER_PORT ?? 47821);
+
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [
@@ -36,6 +41,21 @@ export default defineConfig({
           port: 1421,
         }
       : undefined,
+    // Same-origin viewer: proxy /__viewer/* to the Rust viewer server so
+    // artifact iframes resolve to the same origin as the shell (Vite at
+    // :1420). Without this, modern-screenshot and DOM walk-ins are blocked
+    // by the browser's Same-Origin Policy.
+    proxy: {
+      '/__viewer': {
+        target: `http://127.0.0.1:${VIEWER_PORT}`,
+        changeOrigin: false,
+        ws: false,
+      },
+      '/__viewer-health': {
+        target: `http://127.0.0.1:${VIEWER_PORT}`,
+        changeOrigin: false,
+      },
+    },
     watch: {
       // Allowlist, not denylist. Vite's HMR is what makes Tauri dev tolerable
       // (edit a .tsx → component swaps in place, panes/terminal/chat survive),
