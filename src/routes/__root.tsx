@@ -1,8 +1,6 @@
 import { Outlet, createRootRoute } from '@tanstack/react-router';
 
 import { Workspace } from '@/shell/workspace';
-import { AuthModal } from '@/shell/auth-modal';
-import { useSession } from '@/lib/auth';
 import { usePaneScope } from '@/shell/panes/views/route-view';
 
 function RootRoute() {
@@ -13,20 +11,6 @@ function RootRoute() {
   const paneScope = usePaneScope();
   if (paneScope !== null) {
     return <Outlet />;
-  }
-
-  const { isAuthed, loading } = useSession();
-
-  if (loading) {
-    return (
-      <div className="flex h-screen w-screen items-center justify-center bg-background text-sm text-muted-foreground">
-        Loading session…
-      </div>
-    );
-  }
-
-  if (!isAuthed) {
-    return <AuthModal />;
   }
 
   return <Workspace />;
