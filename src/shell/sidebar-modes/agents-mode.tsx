@@ -22,10 +22,10 @@ interface ObservabilityItem {
 const OBSERVABILITY: ObservabilityItem[] = [
   { to: '/claude', label: 'Claude config', Icon: SettingsIcon },
   { to: '/approvals', label: 'Approvals', Icon: ShieldCheck },
-  { to: '/delegations', label: 'Delegations', Icon: UserCheck },
-  { to: '/handoffs', label: 'Handoffs', Icon: ArrowRightLeft },
-  { to: '/agent-runs', label: 'Runs', Icon: Activity },
-  { to: '/cron', label: 'Cron', Icon: Timer },
+  { to: '/pkg/com.ikenga.work/delegations', label: 'Delegations', Icon: UserCheck },
+  { to: '/pkg/com.ikenga.work/handoffs', label: 'Handoffs', Icon: ArrowRightLeft },
+  { to: '/pkg/com.ikenga.work/agent-runs', label: 'Runs', Icon: Activity },
+  { to: '/pkg/com.ikenga.work/cron', label: 'Cron', Icon: Timer },
   { to: '/pkg/com.ikenga.finance/reports', label: 'Reports', Icon: FileBarChart },
 ];
 

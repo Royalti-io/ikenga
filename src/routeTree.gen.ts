@@ -30,7 +30,6 @@ import { Route as OutboxRouteRouteImport } from './routes/outbox/route'
 import { Route as MailRouteRouteImport } from './routes/mail/route'
 import { Route as EmailsRouteRouteImport } from './routes/emails/route'
 import { Route as EmailQueueRouteRouteImport } from './routes/email-queue/route'
-import { Route as DelegationsRouteRouteImport } from './routes/delegations/route'
 import { Route as ClaudeRouteRouteImport } from './routes/claude/route'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as VideoIndexRouteImport } from './routes/video/index'
@@ -41,26 +40,20 @@ import { Route as SessionsIndexRouteImport } from './routes/sessions/index'
 import { Route as OutboxIndexRouteImport } from './routes/outbox/index'
 import { Route as MailIndexRouteImport } from './routes/mail/index'
 import { Route as InboxIndexRouteImport } from './routes/inbox/index'
-import { Route as HandoffsIndexRouteImport } from './routes/handoffs/index'
 import { Route as ExecutiveIndexRouteImport } from './routes/executive/index'
 import { Route as EmailsIndexRouteImport } from './routes/emails/index'
 import { Route as EmailQueueIndexRouteImport } from './routes/email-queue/index'
-import { Route as DelegationsIndexRouteImport } from './routes/delegations/index'
-import { Route as CronIndexRouteImport } from './routes/cron/index'
 import { Route as ContentIndexRouteImport } from './routes/content/index'
 import { Route as ClaudeIndexRouteImport } from './routes/claude/index'
 import { Route as CalendarIndexRouteImport } from './routes/calendar/index'
 import { Route as ApprovalsIndexRouteImport } from './routes/approvals/index'
-import { Route as AgentRunsIndexRouteImport } from './routes/agent-runs/index'
 import { Route as VideoQueueRouteImport } from './routes/video/queue'
 import { Route as VideoCompositionIdRouteImport } from './routes/video/$compositionId'
 import { Route as StoryboardIdRouteImport } from './routes/storyboard/$id'
 import { Route as SettingsBackupRouteImport } from './routes/settings/backup'
 import { Route as MailIdRouteImport } from './routes/mail/$id'
-import { Route as HandoffsIdRouteImport } from './routes/handoffs/$id'
 import { Route as EmailsIdRouteImport } from './routes/emails/$id'
 import { Route as EmailQueueIdRouteImport } from './routes/email-queue/$id'
-import { Route as DelegationsIdRouteImport } from './routes/delegations/$id'
 import { Route as ClaudeSkillsRouteImport } from './routes/claude/skills'
 import { Route as ClaudeMcpsRouteImport } from './routes/claude/mcps'
 import { Route as ClaudeHooksRouteImport } from './routes/claude/hooks'
@@ -207,11 +200,6 @@ const EmailQueueRouteRoute = EmailQueueRouteRouteImport.update({
   path: '/email-queue',
   getParentRoute: () => rootRouteImport,
 } as any)
-const DelegationsRouteRoute = DelegationsRouteRouteImport.update({
-  id: '/delegations',
-  path: '/delegations',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const ClaudeRouteRoute = ClaudeRouteRouteImport.update({
   id: '/claude',
   path: '/claude',
@@ -264,11 +252,6 @@ const InboxIndexRoute = InboxIndexRouteImport.update({
   path: '/inbox/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const HandoffsIndexRoute = HandoffsIndexRouteImport.update({
-  id: '/handoffs/',
-  path: '/handoffs/',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const ExecutiveIndexRoute = ExecutiveIndexRouteImport.update({
   id: '/executive/',
   path: '/executive/',
@@ -283,16 +266,6 @@ const EmailQueueIndexRoute = EmailQueueIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => EmailQueueRouteRoute,
-} as any)
-const DelegationsIndexRoute = DelegationsIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => DelegationsRouteRoute,
-} as any)
-const CronIndexRoute = CronIndexRouteImport.update({
-  id: '/cron/',
-  path: '/cron/',
-  getParentRoute: () => rootRouteImport,
 } as any)
 const ContentIndexRoute = ContentIndexRouteImport.update({
   id: '/content/',
@@ -312,11 +285,6 @@ const CalendarIndexRoute = CalendarIndexRouteImport.update({
 const ApprovalsIndexRoute = ApprovalsIndexRouteImport.update({
   id: '/approvals/',
   path: '/approvals/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AgentRunsIndexRoute = AgentRunsIndexRouteImport.update({
-  id: '/agent-runs/',
-  path: '/agent-runs/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const VideoQueueRoute = VideoQueueRouteImport.update({
@@ -348,11 +316,6 @@ const MailIdRoute = MailIdRouteImport.update({
   path: '/$id',
   getParentRoute: () => MailRouteRoute,
 } as any)
-const HandoffsIdRoute = HandoffsIdRouteImport.update({
-  id: '/handoffs/$id',
-  path: '/handoffs/$id',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const EmailsIdRoute = EmailsIdRouteImport.update({
   id: '/$id',
   path: '/$id',
@@ -362,11 +325,6 @@ const EmailQueueIdRoute = EmailQueueIdRouteImport.update({
   id: '/$id',
   path: '/$id',
   getParentRoute: () => EmailQueueRouteRoute,
-} as any)
-const DelegationsIdRoute = DelegationsIdRouteImport.update({
-  id: '/$id',
-  path: '/$id',
-  getParentRoute: () => DelegationsRouteRoute,
 } as any)
 const ClaudeSkillsRoute = ClaudeSkillsRouteImport.update({
   id: '/skills',
@@ -582,7 +540,6 @@ const OutboxEmailQueueIndexRoute = OutboxEmailQueueIndexRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/claude': typeof ClaudeRouteRouteWithChildren
-  '/delegations': typeof DelegationsRouteRouteWithChildren
   '/email-queue': typeof EmailQueueRouteRouteWithChildren
   '/emails': typeof EmailsRouteRouteWithChildren
   '/mail': typeof MailRouteRouteWithChildren
@@ -613,26 +570,20 @@ export interface FileRoutesByFullPath {
   '/claude/hooks': typeof ClaudeHooksRoute
   '/claude/mcps': typeof ClaudeMcpsRoute
   '/claude/skills': typeof ClaudeSkillsRoute
-  '/delegations/$id': typeof DelegationsIdRoute
   '/email-queue/$id': typeof EmailQueueIdRoute
   '/emails/$id': typeof EmailsIdRoute
-  '/handoffs/$id': typeof HandoffsIdRoute
   '/mail/$id': typeof MailIdRoute
   '/settings/backup': typeof SettingsBackupRoute
   '/storyboard/$id': typeof StoryboardIdRoute
   '/video/$compositionId': typeof VideoCompositionIdRoute
   '/video/queue': typeof VideoQueueRoute
-  '/agent-runs/': typeof AgentRunsIndexRoute
   '/approvals/': typeof ApprovalsIndexRoute
   '/calendar/': typeof CalendarIndexRoute
   '/claude/': typeof ClaudeIndexRoute
   '/content/': typeof ContentIndexRoute
-  '/cron/': typeof CronIndexRoute
-  '/delegations/': typeof DelegationsIndexRoute
   '/email-queue/': typeof EmailQueueIndexRoute
   '/emails/': typeof EmailsIndexRoute
   '/executive/': typeof ExecutiveIndexRoute
-  '/handoffs/': typeof HandoffsIndexRoute
   '/inbox/': typeof InboxIndexRoute
   '/mail/': typeof MailIndexRoute
   '/outbox/': typeof OutboxIndexRoute
@@ -694,26 +645,20 @@ export interface FileRoutesByTo {
   '/claude/hooks': typeof ClaudeHooksRoute
   '/claude/mcps': typeof ClaudeMcpsRoute
   '/claude/skills': typeof ClaudeSkillsRoute
-  '/delegations/$id': typeof DelegationsIdRoute
   '/email-queue/$id': typeof EmailQueueIdRoute
   '/emails/$id': typeof EmailsIdRoute
-  '/handoffs/$id': typeof HandoffsIdRoute
   '/mail/$id': typeof MailIdRoute
   '/settings/backup': typeof SettingsBackupRoute
   '/storyboard/$id': typeof StoryboardIdRoute
   '/video/$compositionId': typeof VideoCompositionIdRoute
   '/video/queue': typeof VideoQueueRoute
-  '/agent-runs': typeof AgentRunsIndexRoute
   '/approvals': typeof ApprovalsIndexRoute
   '/calendar': typeof CalendarIndexRoute
   '/claude': typeof ClaudeIndexRoute
   '/content': typeof ContentIndexRoute
-  '/cron': typeof CronIndexRoute
-  '/delegations': typeof DelegationsIndexRoute
   '/email-queue': typeof EmailQueueIndexRoute
   '/emails': typeof EmailsIndexRoute
   '/executive': typeof ExecutiveIndexRoute
-  '/handoffs': typeof HandoffsIndexRoute
   '/inbox': typeof InboxIndexRoute
   '/mail': typeof MailIndexRoute
   '/outbox': typeof OutboxIndexRoute
@@ -758,7 +703,6 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/claude': typeof ClaudeRouteRouteWithChildren
-  '/delegations': typeof DelegationsRouteRouteWithChildren
   '/email-queue': typeof EmailQueueRouteRouteWithChildren
   '/emails': typeof EmailsRouteRouteWithChildren
   '/mail': typeof MailRouteRouteWithChildren
@@ -789,26 +733,20 @@ export interface FileRoutesById {
   '/claude/hooks': typeof ClaudeHooksRoute
   '/claude/mcps': typeof ClaudeMcpsRoute
   '/claude/skills': typeof ClaudeSkillsRoute
-  '/delegations/$id': typeof DelegationsIdRoute
   '/email-queue/$id': typeof EmailQueueIdRoute
   '/emails/$id': typeof EmailsIdRoute
-  '/handoffs/$id': typeof HandoffsIdRoute
   '/mail/$id': typeof MailIdRoute
   '/settings/backup': typeof SettingsBackupRoute
   '/storyboard/$id': typeof StoryboardIdRoute
   '/video/$compositionId': typeof VideoCompositionIdRoute
   '/video/queue': typeof VideoQueueRoute
-  '/agent-runs/': typeof AgentRunsIndexRoute
   '/approvals/': typeof ApprovalsIndexRoute
   '/calendar/': typeof CalendarIndexRoute
   '/claude/': typeof ClaudeIndexRoute
   '/content/': typeof ContentIndexRoute
-  '/cron/': typeof CronIndexRoute
-  '/delegations/': typeof DelegationsIndexRoute
   '/email-queue/': typeof EmailQueueIndexRoute
   '/emails/': typeof EmailsIndexRoute
   '/executive/': typeof ExecutiveIndexRoute
-  '/handoffs/': typeof HandoffsIndexRoute
   '/inbox/': typeof InboxIndexRoute
   '/mail/': typeof MailIndexRoute
   '/outbox/': typeof OutboxIndexRoute
@@ -854,7 +792,6 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/claude'
-    | '/delegations'
     | '/email-queue'
     | '/emails'
     | '/mail'
@@ -885,26 +822,20 @@ export interface FileRouteTypes {
     | '/claude/hooks'
     | '/claude/mcps'
     | '/claude/skills'
-    | '/delegations/$id'
     | '/email-queue/$id'
     | '/emails/$id'
-    | '/handoffs/$id'
     | '/mail/$id'
     | '/settings/backup'
     | '/storyboard/$id'
     | '/video/$compositionId'
     | '/video/queue'
-    | '/agent-runs/'
     | '/approvals/'
     | '/calendar/'
     | '/claude/'
     | '/content/'
-    | '/cron/'
-    | '/delegations/'
     | '/email-queue/'
     | '/emails/'
     | '/executive/'
-    | '/handoffs/'
     | '/inbox/'
     | '/mail/'
     | '/outbox/'
@@ -966,26 +897,20 @@ export interface FileRouteTypes {
     | '/claude/hooks'
     | '/claude/mcps'
     | '/claude/skills'
-    | '/delegations/$id'
     | '/email-queue/$id'
     | '/emails/$id'
-    | '/handoffs/$id'
     | '/mail/$id'
     | '/settings/backup'
     | '/storyboard/$id'
     | '/video/$compositionId'
     | '/video/queue'
-    | '/agent-runs'
     | '/approvals'
     | '/calendar'
     | '/claude'
     | '/content'
-    | '/cron'
-    | '/delegations'
     | '/email-queue'
     | '/emails'
     | '/executive'
-    | '/handoffs'
     | '/inbox'
     | '/mail'
     | '/outbox'
@@ -1029,7 +954,6 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/claude'
-    | '/delegations'
     | '/email-queue'
     | '/emails'
     | '/mail'
@@ -1060,26 +984,20 @@ export interface FileRouteTypes {
     | '/claude/hooks'
     | '/claude/mcps'
     | '/claude/skills'
-    | '/delegations/$id'
     | '/email-queue/$id'
     | '/emails/$id'
-    | '/handoffs/$id'
     | '/mail/$id'
     | '/settings/backup'
     | '/storyboard/$id'
     | '/video/$compositionId'
     | '/video/queue'
-    | '/agent-runs/'
     | '/approvals/'
     | '/calendar/'
     | '/claude/'
     | '/content/'
-    | '/cron/'
-    | '/delegations/'
     | '/email-queue/'
     | '/emails/'
     | '/executive/'
-    | '/handoffs/'
     | '/inbox/'
     | '/mail/'
     | '/outbox/'
@@ -1124,7 +1042,6 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ClaudeRouteRoute: typeof ClaudeRouteRouteWithChildren
-  DelegationsRouteRoute: typeof DelegationsRouteRouteWithChildren
   EmailQueueRouteRoute: typeof EmailQueueRouteRouteWithChildren
   EmailsRouteRoute: typeof EmailsRouteRouteWithChildren
   MailRouteRoute: typeof MailRouteRouteWithChildren
@@ -1147,15 +1064,11 @@ export interface RootRouteChildren {
   SweeperRoute: typeof SweeperRoute
   UiroutesSmokeRoute: typeof UiroutesSmokeRoute
   PkgPkgIdRouteRoute: typeof PkgPkgIdRouteRouteWithChildren
-  HandoffsIdRoute: typeof HandoffsIdRoute
   SettingsBackupRoute: typeof SettingsBackupRoute
-  AgentRunsIndexRoute: typeof AgentRunsIndexRoute
   ApprovalsIndexRoute: typeof ApprovalsIndexRoute
   CalendarIndexRoute: typeof CalendarIndexRoute
   ContentIndexRoute: typeof ContentIndexRoute
-  CronIndexRoute: typeof CronIndexRoute
   ExecutiveIndexRoute: typeof ExecutiveIndexRoute
-  HandoffsIndexRoute: typeof HandoffsIndexRoute
   InboxIndexRoute: typeof InboxIndexRoute
   SettingsIndexRoute: typeof SettingsIndexRoute
   TriageIndexRoute: typeof TriageIndexRoute
@@ -1310,13 +1223,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof EmailQueueRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/delegations': {
-      id: '/delegations'
-      path: '/delegations'
-      fullPath: '/delegations'
-      preLoaderRoute: typeof DelegationsRouteRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/claude': {
       id: '/claude'
       path: '/claude'
@@ -1387,13 +1293,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof InboxIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/handoffs/': {
-      id: '/handoffs/'
-      path: '/handoffs'
-      fullPath: '/handoffs/'
-      preLoaderRoute: typeof HandoffsIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/executive/': {
       id: '/executive/'
       path: '/executive'
@@ -1414,20 +1313,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/email-queue/'
       preLoaderRoute: typeof EmailQueueIndexRouteImport
       parentRoute: typeof EmailQueueRouteRoute
-    }
-    '/delegations/': {
-      id: '/delegations/'
-      path: '/'
-      fullPath: '/delegations/'
-      preLoaderRoute: typeof DelegationsIndexRouteImport
-      parentRoute: typeof DelegationsRouteRoute
-    }
-    '/cron/': {
-      id: '/cron/'
-      path: '/cron'
-      fullPath: '/cron/'
-      preLoaderRoute: typeof CronIndexRouteImport
-      parentRoute: typeof rootRouteImport
     }
     '/content/': {
       id: '/content/'
@@ -1455,13 +1340,6 @@ declare module '@tanstack/react-router' {
       path: '/approvals'
       fullPath: '/approvals/'
       preLoaderRoute: typeof ApprovalsIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/agent-runs/': {
-      id: '/agent-runs/'
-      path: '/agent-runs'
-      fullPath: '/agent-runs/'
-      preLoaderRoute: typeof AgentRunsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/video/queue': {
@@ -1499,13 +1377,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MailIdRouteImport
       parentRoute: typeof MailRouteRoute
     }
-    '/handoffs/$id': {
-      id: '/handoffs/$id'
-      path: '/handoffs/$id'
-      fullPath: '/handoffs/$id'
-      preLoaderRoute: typeof HandoffsIdRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/emails/$id': {
       id: '/emails/$id'
       path: '/$id'
@@ -1519,13 +1390,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/email-queue/$id'
       preLoaderRoute: typeof EmailQueueIdRouteImport
       parentRoute: typeof EmailQueueRouteRoute
-    }
-    '/delegations/$id': {
-      id: '/delegations/$id'
-      path: '/$id'
-      fullPath: '/delegations/$id'
-      preLoaderRoute: typeof DelegationsIdRouteImport
-      parentRoute: typeof DelegationsRouteRoute
     }
     '/claude/skills': {
       id: '/claude/skills'
@@ -1830,19 +1694,6 @@ const ClaudeRouteRouteWithChildren = ClaudeRouteRoute._addFileChildren(
   ClaudeRouteRouteChildren,
 )
 
-interface DelegationsRouteRouteChildren {
-  DelegationsIdRoute: typeof DelegationsIdRoute
-  DelegationsIndexRoute: typeof DelegationsIndexRoute
-}
-
-const DelegationsRouteRouteChildren: DelegationsRouteRouteChildren = {
-  DelegationsIdRoute: DelegationsIdRoute,
-  DelegationsIndexRoute: DelegationsIndexRoute,
-}
-
-const DelegationsRouteRouteWithChildren =
-  DelegationsRouteRoute._addFileChildren(DelegationsRouteRouteChildren)
-
 interface EmailQueueRouteRouteChildren {
   EmailQueueIdRoute: typeof EmailQueueIdRoute
   EmailQueueIndexRoute: typeof EmailQueueIndexRoute
@@ -2060,7 +1911,6 @@ const PkgPkgIdRouteRouteWithChildren = PkgPkgIdRouteRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ClaudeRouteRoute: ClaudeRouteRouteWithChildren,
-  DelegationsRouteRoute: DelegationsRouteRouteWithChildren,
   EmailQueueRouteRoute: EmailQueueRouteRouteWithChildren,
   EmailsRouteRoute: EmailsRouteRouteWithChildren,
   MailRouteRoute: MailRouteRouteWithChildren,
@@ -2083,15 +1933,11 @@ const rootRouteChildren: RootRouteChildren = {
   SweeperRoute: SweeperRoute,
   UiroutesSmokeRoute: UiroutesSmokeRoute,
   PkgPkgIdRouteRoute: PkgPkgIdRouteRouteWithChildren,
-  HandoffsIdRoute: HandoffsIdRoute,
   SettingsBackupRoute: SettingsBackupRoute,
-  AgentRunsIndexRoute: AgentRunsIndexRoute,
   ApprovalsIndexRoute: ApprovalsIndexRoute,
   CalendarIndexRoute: CalendarIndexRoute,
   ContentIndexRoute: ContentIndexRoute,
-  CronIndexRoute: CronIndexRoute,
   ExecutiveIndexRoute: ExecutiveIndexRoute,
-  HandoffsIndexRoute: HandoffsIndexRoute,
   InboxIndexRoute: InboxIndexRoute,
   SettingsIndexRoute: SettingsIndexRoute,
   TriageIndexRoute: TriageIndexRoute,
