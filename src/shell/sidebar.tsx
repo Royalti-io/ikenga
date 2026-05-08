@@ -6,9 +6,9 @@ import { OutboxMode } from './sidebar-modes/outbox-mode';
 import { FilesMode } from './sidebar-modes/files-mode';
 import { AgentsMode } from './sidebar-modes/agents-mode';
 import { SessionsMode } from './sidebar-modes/sessions-mode';
-import { SettingsMode } from './sidebar-modes/settings-mode';
 import { MiniAppPlaceholder } from './sidebar-modes/mini-app-placeholder';
 import { StudioMode } from './sidebar-modes/studio-mode';
+import { SettingsMode } from './sidebar-modes/settings-mode';
 
 const CORE_TITLES = {
   app: 'Ikenga',
