@@ -206,6 +206,42 @@ export async function secretsImportDotenv(args: ImportDotenvArgs): Promise<Impor
   };
 }
 
+// ─── Supabase project config (URL + anon key, stored as a non-secret JSON
+// manifest at app_data_dir/supabase.json — see commands/supabase_config.rs).
+
+export type SupabaseConfig = {
+  url: string;
+  anonKey: string;
+  serviceRoleKey?: string | null;
+};
+
+export async function supabaseConfigGet(): Promise<SupabaseConfig | null> {
+  const raw = await invoke<{
+    url: string;
+    anon_key: string;
+    service_role_key?: string | null;
+  } | null>("supabase_config_get");
+  return raw
+    ? { url: raw.url, anonKey: raw.anon_key, serviceRoleKey: raw.service_role_key ?? null }
+    : null;
+}
+
+export async function supabaseConfigSet(
+  url: string,
+  anonKey: string,
+  serviceRoleKey?: string | null,
+): Promise<void> {
+  return invoke("supabase_config_set", {
+    url,
+    anonKey,
+    serviceRoleKey: serviceRoleKey ?? null,
+  });
+}
+
+export async function supabaseConfigClear(): Promise<void> {
+  return invoke("supabase_config_clear");
+}
+
 // ─── DB (SQLite — chat threads, layout state) ─────────────────────────────────
 //
 // Thin wrapper over tauri-plugin-sql. The plugin can be used directly via

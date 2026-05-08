@@ -22,6 +22,7 @@ pub mod screenshot;
 pub mod secrets;
 pub mod spike;
 pub mod storyboard;
+pub mod supabase_config;
 pub mod viewer;
 
 pub use actions::pa_actions_run;
@@ -72,6 +73,7 @@ pub use storyboard::{
     storyboard_promote_rung, storyboard_render_still, StoryboardJobManager,
     StoryboardJobManagerState,
 };
+pub use supabase_config::{supabase_config_clear, supabase_config_get, supabase_config_set};
 pub use viewer::{viewer_serve, viewer_stop};
 
 use std::path::{Path, PathBuf};
