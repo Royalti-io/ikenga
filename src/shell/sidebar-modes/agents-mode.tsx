@@ -21,7 +21,7 @@ interface ObservabilityItem {
 
 const OBSERVABILITY: ObservabilityItem[] = [
   { to: '/claude', label: 'Claude config', Icon: SettingsIcon },
-  { to: '/approvals', label: 'Approvals', Icon: ShieldCheck },
+  { to: '/pkg/com.ikenga.exec/approvals', label: 'Approvals', Icon: ShieldCheck },
   { to: '/pkg/com.ikenga.work/delegations', label: 'Delegations', Icon: UserCheck },
   { to: '/pkg/com.ikenga.work/handoffs', label: 'Handoffs', Icon: ArrowRightLeft },
   { to: '/pkg/com.ikenga.work/agent-runs', label: 'Runs', Icon: Activity },

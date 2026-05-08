@@ -200,7 +200,7 @@ function HomePage() {
             <Card
               title="Approvals"
               Icon={ShieldCheck}
-              to="/approvals"
+              to="/pkg/com.ikenga.exec/approvals"
               count={approvals.data ?? null}
               isLoading={approvals.isLoading}
               caption="Tasks awaiting approval"

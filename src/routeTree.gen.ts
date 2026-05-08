@@ -40,13 +40,11 @@ import { Route as SessionsIndexRouteImport } from './routes/sessions/index'
 import { Route as OutboxIndexRouteImport } from './routes/outbox/index'
 import { Route as MailIndexRouteImport } from './routes/mail/index'
 import { Route as InboxIndexRouteImport } from './routes/inbox/index'
-import { Route as ExecutiveIndexRouteImport } from './routes/executive/index'
 import { Route as EmailsIndexRouteImport } from './routes/emails/index'
 import { Route as EmailQueueIndexRouteImport } from './routes/email-queue/index'
 import { Route as ContentIndexRouteImport } from './routes/content/index'
 import { Route as ClaudeIndexRouteImport } from './routes/claude/index'
 import { Route as CalendarIndexRouteImport } from './routes/calendar/index'
-import { Route as ApprovalsIndexRouteImport } from './routes/approvals/index'
 import { Route as VideoQueueRouteImport } from './routes/video/queue'
 import { Route as VideoCompositionIdRouteImport } from './routes/video/$compositionId'
 import { Route as StoryboardIdRouteImport } from './routes/storyboard/$id'
@@ -252,11 +250,6 @@ const InboxIndexRoute = InboxIndexRouteImport.update({
   path: '/inbox/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ExecutiveIndexRoute = ExecutiveIndexRouteImport.update({
-  id: '/executive/',
-  path: '/executive/',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const EmailsIndexRoute = EmailsIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -280,11 +273,6 @@ const ClaudeIndexRoute = ClaudeIndexRouteImport.update({
 const CalendarIndexRoute = CalendarIndexRouteImport.update({
   id: '/calendar/',
   path: '/calendar/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApprovalsIndexRoute = ApprovalsIndexRouteImport.update({
-  id: '/approvals/',
-  path: '/approvals/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const VideoQueueRoute = VideoQueueRouteImport.update({
@@ -577,13 +565,11 @@ export interface FileRoutesByFullPath {
   '/storyboard/$id': typeof StoryboardIdRoute
   '/video/$compositionId': typeof VideoCompositionIdRoute
   '/video/queue': typeof VideoQueueRoute
-  '/approvals/': typeof ApprovalsIndexRoute
   '/calendar/': typeof CalendarIndexRoute
   '/claude/': typeof ClaudeIndexRoute
   '/content/': typeof ContentIndexRoute
   '/email-queue/': typeof EmailQueueIndexRoute
   '/emails/': typeof EmailsIndexRoute
-  '/executive/': typeof ExecutiveIndexRoute
   '/inbox/': typeof InboxIndexRoute
   '/mail/': typeof MailIndexRoute
   '/outbox/': typeof OutboxIndexRoute
@@ -652,13 +638,11 @@ export interface FileRoutesByTo {
   '/storyboard/$id': typeof StoryboardIdRoute
   '/video/$compositionId': typeof VideoCompositionIdRoute
   '/video/queue': typeof VideoQueueRoute
-  '/approvals': typeof ApprovalsIndexRoute
   '/calendar': typeof CalendarIndexRoute
   '/claude': typeof ClaudeIndexRoute
   '/content': typeof ContentIndexRoute
   '/email-queue': typeof EmailQueueIndexRoute
   '/emails': typeof EmailsIndexRoute
-  '/executive': typeof ExecutiveIndexRoute
   '/inbox': typeof InboxIndexRoute
   '/mail': typeof MailIndexRoute
   '/outbox': typeof OutboxIndexRoute
@@ -740,13 +724,11 @@ export interface FileRoutesById {
   '/storyboard/$id': typeof StoryboardIdRoute
   '/video/$compositionId': typeof VideoCompositionIdRoute
   '/video/queue': typeof VideoQueueRoute
-  '/approvals/': typeof ApprovalsIndexRoute
   '/calendar/': typeof CalendarIndexRoute
   '/claude/': typeof ClaudeIndexRoute
   '/content/': typeof ContentIndexRoute
   '/email-queue/': typeof EmailQueueIndexRoute
   '/emails/': typeof EmailsIndexRoute
-  '/executive/': typeof ExecutiveIndexRoute
   '/inbox/': typeof InboxIndexRoute
   '/mail/': typeof MailIndexRoute
   '/outbox/': typeof OutboxIndexRoute
@@ -829,13 +811,11 @@ export interface FileRouteTypes {
     | '/storyboard/$id'
     | '/video/$compositionId'
     | '/video/queue'
-    | '/approvals/'
     | '/calendar/'
     | '/claude/'
     | '/content/'
     | '/email-queue/'
     | '/emails/'
-    | '/executive/'
     | '/inbox/'
     | '/mail/'
     | '/outbox/'
@@ -904,13 +884,11 @@ export interface FileRouteTypes {
     | '/storyboard/$id'
     | '/video/$compositionId'
     | '/video/queue'
-    | '/approvals'
     | '/calendar'
     | '/claude'
     | '/content'
     | '/email-queue'
     | '/emails'
-    | '/executive'
     | '/inbox'
     | '/mail'
     | '/outbox'
@@ -991,13 +969,11 @@ export interface FileRouteTypes {
     | '/storyboard/$id'
     | '/video/$compositionId'
     | '/video/queue'
-    | '/approvals/'
     | '/calendar/'
     | '/claude/'
     | '/content/'
     | '/email-queue/'
     | '/emails/'
-    | '/executive/'
     | '/inbox/'
     | '/mail/'
     | '/outbox/'
@@ -1065,10 +1041,8 @@ export interface RootRouteChildren {
   UiroutesSmokeRoute: typeof UiroutesSmokeRoute
   PkgPkgIdRouteRoute: typeof PkgPkgIdRouteRouteWithChildren
   SettingsBackupRoute: typeof SettingsBackupRoute
-  ApprovalsIndexRoute: typeof ApprovalsIndexRoute
   CalendarIndexRoute: typeof CalendarIndexRoute
   ContentIndexRoute: typeof ContentIndexRoute
-  ExecutiveIndexRoute: typeof ExecutiveIndexRoute
   InboxIndexRoute: typeof InboxIndexRoute
   SettingsIndexRoute: typeof SettingsIndexRoute
   TriageIndexRoute: typeof TriageIndexRoute
@@ -1293,13 +1267,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof InboxIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/executive/': {
-      id: '/executive/'
-      path: '/executive'
-      fullPath: '/executive/'
-      preLoaderRoute: typeof ExecutiveIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/emails/': {
       id: '/emails/'
       path: '/'
@@ -1333,13 +1300,6 @@ declare module '@tanstack/react-router' {
       path: '/calendar'
       fullPath: '/calendar/'
       preLoaderRoute: typeof CalendarIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/approvals/': {
-      id: '/approvals/'
-      path: '/approvals'
-      fullPath: '/approvals/'
-      preLoaderRoute: typeof ApprovalsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/video/queue': {
@@ -1934,10 +1894,8 @@ const rootRouteChildren: RootRouteChildren = {
   UiroutesSmokeRoute: UiroutesSmokeRoute,
   PkgPkgIdRouteRoute: PkgPkgIdRouteRouteWithChildren,
   SettingsBackupRoute: SettingsBackupRoute,
-  ApprovalsIndexRoute: ApprovalsIndexRoute,
   CalendarIndexRoute: CalendarIndexRoute,
   ContentIndexRoute: ContentIndexRoute,
-  ExecutiveIndexRoute: ExecutiveIndexRoute,
   InboxIndexRoute: InboxIndexRoute,
   SettingsIndexRoute: SettingsIndexRoute,
   TriageIndexRoute: TriageIndexRoute,
