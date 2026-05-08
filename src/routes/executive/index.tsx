@@ -179,7 +179,7 @@ function ExecutivePage() {
       status: 'warning',
       keyMetric: 'See Finance tab',
       notes: 'Runway/burn aggregation not yet wired into the desktop',
-      to: '/finance',
+      to: '/pkg/com.ikenga.finance/finance',
     },
     {
       domain: 'Sales',

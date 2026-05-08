@@ -339,7 +339,7 @@ function HomePage() {
             <QuickLink to="/mail/triage" Icon={Inbox} label="Triage" />
             <QuickLink to="/mail/drafts" Icon={CheckSquare} label="Reply Drafts" />
             <QuickLink to="/outbox/sent" Icon={Send} label="Outbox · Sent" />
-            <QuickLink to="/finance" Icon={Activity} label="Finance" />
+            <QuickLink to="/pkg/com.ikenga.finance/finance" Icon={Activity} label="Finance" />
             <QuickLink to="/sessions" Icon={Activity} label="Sessions" />
           </div>
         </section>
