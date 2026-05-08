@@ -41,12 +41,6 @@ glob = "0.3"
 trash = "5"
 hex = "0.4"
 rand = "0.8"
-# Without an explicit platform backend feature, keyring 3 falls back to a
-# mock in-memory store — every app launch generates a fresh random vault
-# key, the previous Stronghold snapshot can't be decrypted, and every secret
-# op after the first session errors with BadFileKey. Enable platform-native
-# persistent backends so the vault key survives across launches.
-keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"
