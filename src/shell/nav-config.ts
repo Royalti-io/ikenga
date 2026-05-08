@@ -55,9 +55,9 @@ export const NAV_GROUPS: NavGroup[] = [
     label: 'Pipeline',
     items: [
       { to: '/pkg/com.ikenga.product/strategy', label: 'Strategy', Icon: Target },
-      { to: '/sales', label: 'Sales', Icon: Users },
-      { to: '/partnerships', label: 'Partnerships', Icon: Handshake },
-      { to: '/fundraising', label: 'Fundraising', Icon: Landmark },
+      { to: '/pkg/com.ikenga.gtm/sales', label: 'Sales', Icon: Users },
+      { to: '/pkg/com.ikenga.gtm/partnerships', label: 'Partnerships', Icon: Handshake },
+      { to: '/pkg/com.ikenga.gtm/fundraising', label: 'Fundraising', Icon: Landmark },
       { to: '/finance', label: 'Finance', Icon: Wallet },
     ],
   },
