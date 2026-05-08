@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="A" data-mode="dark" data-density="comfortable" data-workspace="email">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Ikenga · 04-pkgs · Activity Bar</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="../_shared/tokens.css" />
+<link rel="stylesheet" href="../_shared/components.css" />
+<link rel="stylesheet" href="../_shared/shell.css" />
+<style>
+  /* ----- Page chrome ------------------------------------------- */
+  .page { max-width: 1480px; margin: 0 auto; padding: var(--space-8) var(--space-12) var(--space-12); }
+  header { margin-bottom: var(--space-8); }
+  h1.title { font-family: var(--font-display); font-weight: 500; font-size: var(--text-h1); letter-spacing: -.012em; margin: var(--space-2) 0; color: var(--fg); }
+  h1.title em { font-style: italic; color: var(--primary); }
+  .lede { font-size: var(--text-body-lg); color: var(--fg-muted); line-height: 1.55; max-width: 70ch; }
+  .eyebrow { display: inline-flex; align-items: center; gap: var(--space-2); font-family: var(--font-mono); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--fg-faint); }
+  .eyebrow-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--primary); }
+
+  section { margin-top: var(--space-12); }
+  .section-tag { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--fg-faint); margin-bottom: var(--space-4); }
+
+  /* ----- New pkg workspace tint aliases (no new colors — map to existing tints) ----- */
+  /* email→mail, work→agents, finance→sessions, gtm→outbox, product→files, exec→app */
+  [data-workspace="email"]   { --tint-bg-active:var(--tint-mail-bg);     --tint-fg-active:var(--tint-mail-fg); }
+  [data-workspace="work"]    { --tint-bg-active:var(--tint-agents-bg);   --tint-fg-active:var(--tint-agents-fg); }
+  [data-workspace="finance"] { --tint-bg-active:var(--tint-sessions-bg); --tint-fg-active:var(--tint-sessions-fg); }
+  [data-workspace="gtm"]     { --tint-bg-active:var(--tint-outbox-bg);   --tint-fg-active:var(--tint-outbox-fg); }
+  [data-workspace="product"] { --tint-bg-active:var(--tint-files-bg);    --tint-fg-active:var(--tint-files-fg); }
+  [data-workspace="exec"]    { --tint-bg-active:var(--tint-app-bg);      --tint-fg-active:var(--tint-app-fg); }
+  [data-workspace="iyke"]    { --tint-bg-active:var(--tint-studio-bg);   --tint-fg-active:var(--tint-studio-fg); }
+  [data-workspace="storyboard"]   { --tint-bg-active:var(--tint-app-bg);    --tint-fg-active:var(--tint-app-fg); }
+  [data-workspace="video-studio"] { --tint-bg-active:var(--tint-sessions-bg); --tint-fg-active:var(--tint-sessions-fg); }
+  [data-workspace="hyperframes"]  { --tint-bg-active:var(--tint-outbox-bg); --tint-fg-active:var(--tint-outbox-fg); }
+
+  /* ----- Theme cards ------------------------------------------- */
+  .theme-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--space-6); }
+  @media (max-width: 1100px) { .theme-grid { grid-template-columns: 1fr; } }
+
+  .theme-card {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--bg-base);
+    overflow: hidden;
+    box-shadow: var(--shadow-2);
+  }
+  .theme-card-head {
+    display: flex; align-items: center; gap: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    border-bottom: 1px solid var(--border-soft);
+    background: var(--bg-sunken);
+  }
+  .theme-card-name { font-family: var(--font-display); font-weight: 500; font-size: var(--text-h3); color: var(--fg); }
+  .theme-card-meta { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--fg-faint); margin-left: auto; }
+  .swatch-row { display: flex; gap: 2px; }
+  .swatch { width: 16px; height: 16px; border-radius: 3px; border: 1px solid var(--border-soft); }
+
+  /* ----- Activity bar showcase --------------------------------- */
+  .bar-stage {
+    display: grid; grid-template-columns: 64px 1fr;
+    height: 480px; background: var(--bg-base);
+  }
+  .bar-stage .activity { width: 56px; height: 100%; }
+  .stage-canvas {
+    background: linear-gradient(180deg, var(--tint-bg-active, var(--bg-surface)) 0%, var(--bg-surface) 100%);
+    border-left: 1px solid var(--border-soft);
+    padding: var(--space-6);
+    display: grid; place-content: start; gap: var(--space-4);
+  }
+  .stage-name {
+    font-family: var(--font-display); font-style: italic; font-weight: 400;
+    font-size: var(--text-h2); color: var(--tint-fg-active, var(--fg));
+    letter-spacing: -.005em;
+  }
+  .stage-id { font-family: var(--font-mono); font-size: 10.5px; color: var(--fg-faint); letter-spacing: .08em; text-transform: uppercase; }
+  .stage-routes { font-size: var(--text-body-sm); color: var(--fg-muted); line-height: 1.6; }
+  .stage-routes code { font-family: var(--font-mono); font-size: 11.5px; background: var(--bg-sunken); padding: 1px 6px; border-radius: var(--radius-xs); color: var(--tint-fg-active); }
+
+  /* ----- Icon vocabulary table -------------------------------- */
+  .vocab { display: grid; grid-template-columns: repeat(5, 1fr); gap: var(--space-3); }
+  @media (max-width: 1100px) { .vocab { grid-template-columns: repeat(3, 1fr); } }
+  @media (max-width: 700px)  { .vocab { grid-template-columns: repeat(2, 1fr); } }
+  .vocab-cell {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-md);
+    padding: var(--space-3);
+    display: grid; gap: var(--space-2);
+  }
+  .vocab-cell-icons { display: flex; gap: var(--space-3); align-items: center; }
+  .vocab-icon-slot {
+    width: 36px; height: 36px; display: grid; place-items: center;
+    border-radius: var(--radius-sm); border: 1px solid var(--border-soft);
+    background: var(--bg-base); color: var(--fg-muted);
+  }
+  .vocab-icon-slot svg { width: 18px; height: 18px; }
+  .vocab-icon-slot.is-on { color: var(--tint-fg-active, var(--primary)); background: var(--tint-bg-active, var(--bg-raised)); border-color: transparent; }
+  .vocab-cell-name { font-family: var(--font-display); font-weight: 500; font-size: var(--text-body-lg); color: var(--fg); }
+  .vocab-cell-id { font-family: var(--font-mono); font-size: 10.5px; color: var(--fg-faint); letter-spacing: .04em; }
+  .vocab-cell-tint { font-family: var(--font-mono); font-size: 10px; color: var(--fg-muted); }
+  .vocab-cell-tint .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; vertical-align: middle; margin-right: 4px; }
+
+  /* ----- Per-pkg tint chips ----------------------------------- */
+  .chips { display: grid; grid-template-columns: repeat(5, 1fr); gap: var(--space-3); }
+  @media (max-width: 1000px) { .chips { grid-template-columns: repeat(2, 1fr); } }
+  .chip {
+    border-radius: var(--radius-md); border: 1px solid var(--border-soft);
+    padding: var(--space-3) var(--space-4);
+    background: var(--tint-bg-active, var(--bg-surface));
+    color: var(--tint-fg-active, var(--fg));
+  }
+  .chip-key { font-family: var(--font-mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; opacity: .8; }
+  .chip-name { font-family: var(--font-display); font-weight: 500; font-size: var(--text-h3); margin-top: 2px; }
+
+  footer { margin-top: var(--space-12); padding-top: var(--space-5); border-top: 1px solid var(--border-soft); font-family: var(--font-mono); font-size: 11px; color: var(--fg-faint); letter-spacing: .06em; display: flex; justify-content: space-between; }
+  footer a { color: var(--fg-muted); text-decoration: none; border-bottom: 1px solid var(--border-soft); }
+  footer a:hover { color: var(--achievement); }
+</style>
+</head>
+<body>
+
+<div class="page">
+
+  <header>
+    <div class="eyebrow"><span class="eyebrow-dot"></span> Ikenga · 04-pkgs / 01 · Activity bar</div>
+    <h1 class="title">Six pkgs, four utilities, one <em>horn.</em></h1>
+    <p class="lede">The activity bar is the only persistent landmark. After the route extraction it carries 6 user-pkgs (email · work · finance · gtm · product · exec) and 4 utilities (Iyke · Storyboard · Studio · Hyperframes), then settings at the foot. Icon-only — VS Code style — with a tooltip + ⌘N short. Tint swaps the workspace background when active.</p>
+  </header>
+
+  <!-- ============================================================= -->
+  <section>
+    <div class="section-tag">⓵ Theme A · Dusk Wood (canonical) — dark + light</div>
+    <div class="theme-grid">
+      <div class="theme-card" data-theme="A" data-mode="dark" data-workspace="email">
+        <div class="theme-card-head">
+          <div class="swatch-row">
+            <span class="swatch" style="background:hsl(28,18%,4%)"></span>
+            <span class="swatch" style="background:hsl(28,11%,11%)"></span>
+            <span class="swatch" style="background:hsl(20,50%,34%)"></span>
+            <span class="swatch" style="background:hsl(42,78%,54%)"></span>
+          </div>
+          <div class="theme-card-name">Theme A · dark</div>
+          <div class="theme-card-meta">workspace · email</div>
+        </div>
+        <div class="bar-stage" id="stage-A-dark"></div>
+      </div>
+
+      <div class="theme-card" data-theme="A" data-mode="light" data-workspace="finance">
+        <div class="theme-card-head">
+          <div class="swatch-row">
+            <span class="swatch" style="background:hsl(36,22%,96%)"></span>
+            <span class="swatch" style="background:hsl(36,14%,89%)"></span>
+            <span class="swatch" style="background:hsl(20,50%,34%)"></span>
+            <span class="swatch" style="background:hsl(42,78%,42%)"></span>
+          </div>
+          <div class="theme-card-name">Theme A · light</div>
+          <div class="theme-card-meta">workspace · finance</div>
+        </div>
+        <div class="bar-stage" id="stage-A-light"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================= -->
+  <section>
+    <div class="section-tag">⓶ Theme B · Kola Daylight — and Theme C · Bronze Shrine</div>
+    <div class="theme-grid">
+      <div class="theme-card" data-theme="B" data-mode="light" data-workspace="gtm">
+        <div class="theme-card-head">
+          <div class="swatch-row">
+            <span class="swatch" style="background:hsl(36,28%,96%)"></span>
+            <span class="swatch" style="background:hsl(36,18%,90%)"></span>
+            <span class="swatch" style="background:hsl(42,82%,46%)"></span>
+            <span class="swatch" style="background:hsl(14,72%,46%)"></span>
+          </div>
+          <div class="theme-card-name">Theme B · light</div>
+          <div class="theme-card-meta">workspace · gtm</div>
+        </div>
+        <div class="bar-stage" id="stage-B-light"></div>
+      </div>
+
+      <div class="theme-card" data-theme="C" data-mode="dark" data-workspace="work">
+        <div class="theme-card-head">
+          <div class="swatch-row">
+            <span class="swatch" style="background:hsl(180,14%,7%)"></span>
+            <span class="swatch" style="background:hsl(180,10%,15%)"></span>
+            <span class="swatch" style="background:hsl(170,35%,50%)"></span>
+            <span class="swatch" style="background:hsl(40,58%,64%)"></span>
+          </div>
+          <div class="theme-card-name">Theme C · dark</div>
+          <div class="theme-card-meta">workspace · work</div>
+        </div>
+        <div class="bar-stage" id="stage-C-dark"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================= -->
+  <section>
+    <div class="section-tag">⓷ Icon vocabulary — outlined (off) · filled-tint (on)</div>
+    <p class="lede" style="font-size:var(--text-body);max-width:70ch;color:var(--fg-muted);">All icons are 1.6-stroke Lucide-style at 18px in the bar (24px viewBox). Active state swaps stroke colour to the workspace tint and washes a 4px tint chip on the left of the rail icon (existing <code>.rail-icon.is-on::before</code> pattern). No fill changes — stays line-only to keep the rail quiet.</p>
+
+    <div class="vocab" id="vocab"></div>
+  </section>
+
+  <!-- ============================================================= -->
+  <section>
+    <div class="section-tag">⓸ Tint chips — workspace background each pkg paints onto its sidebar header</div>
+    <div class="chips" id="chips"></div>
+  </section>
+
+  <footer>
+    <span>Ikenga · 04-pkgs · 01 — Activity bar · 2026-05-07</span>
+    <span><a href="../03-screens/00-shell.html">← 03 Shell</a> · <a href="./02-welcome.html">02 · Welcome →</a></span>
+  </footer>
+
+</div>
+
+<script src="../_shared/shell.js"></script>
+<script>
+  var I = Shell.ICONS;
+
+  // ---- Extra Lucide-style icons we need beyond Shell.ICONS -------
+  var EXTRA = {
+    work:        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>',
+    finance:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>',
+    gtm:         '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>',
+    product:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>',
+    exec:        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9 12 2l9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>',
+    iyke:        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>',
+    storyboard:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="6" height="14" rx="1"/><rect x="11" y="5" width="6" height="14" rx="1"/><rect x="19" y="9" width="2" height="6" rx="1"/></svg>',
+    videoStudio: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>',
+    hyperframes: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="1"/><line x1="2" y1="10" x2="22" y2="10"/><line x1="2" y1="14" x2="22" y2="14"/><line x1="6" y1="6" x2="6" y2="18"/><line x1="18" y1="6" x2="18" y2="18"/></svg>',
+    settings:    I.settings
+  };
+
+  // ---- The 6 pkgs + 4 utilities + settings ----------------------
+  var PKGS = [
+    { key: 'email',   id: 'com.ikenga.email',   label: 'Email',     icon: EXTRA.work && I.mail,       short: '⌘1' },
+    { key: 'work',    id: 'com.ikenga.work',    label: 'Work',      icon: EXTRA.work,                 short: '⌘2' },
+    { key: 'finance', id: 'com.ikenga.finance', label: 'Finance',   icon: EXTRA.finance,              short: '⌘3' },
+    { key: 'gtm',     id: 'com.ikenga.gtm',     label: 'GTM',       icon: EXTRA.gtm,                  short: '⌘4' },
+    { key: 'product', id: 'com.ikenga.product', label: 'Product',   icon: EXTRA.product,              short: '⌘5' },
+    { key: 'exec',    id: 'com.ikenga.exec',    label: 'Exec',      icon: EXTRA.exec,                 short: '⌘6' }
+  ];
+  var UTILS = [
+    { key: 'iyke',         id: 'com.ikenga.iyke',         label: 'Iyke',         icon: EXTRA.iyke },
+    { key: 'storyboard',   id: 'com.royalti.storyboard',  label: 'Storyboard',   icon: EXTRA.storyboard },
+    { key: 'video-studio', id: 'com.royalti.video-studio',label: 'Studio',       icon: EXTRA.videoStudio },
+    { key: 'hyperframes',  id: 'com.royalti.hyperframes', label: 'Hyperframes',  icon: EXTRA.hyperframes }
+  ];
+
+  // ---- Render activity bar inside a stage with sample workspace canvas ----
+  function buildBar(active) {
+    var html = '<div class="activity">';
+    html += '<span class="horn-mark">' + I.horn + '</span>';
+    PKGS.forEach(function (p) {
+      var on = p.key === active ? ' is-on' : '';
+      html += '<button class="rail-icon' + on + '" title="' + p.label + ' · ' + p.short + '" data-ws="' + p.key + '">' + p.icon + '</button>';
+    });
+    // thin divider
+    html += '<div style="height:6px"></div>';
+    html += '<div style="height:1px;width:24px;background:var(--border-soft);margin:4px 0;"></div>';
+    UTILS.forEach(function (u) {
+      var on = u.key === active ? ' is-on' : '';
+      html += '<button class="rail-icon' + on + '" title="' + u.label + '" data-ws="' + u.key + '">' + u.icon + '</button>';
+    });
+    html += '<span class="activity-spacer"></span>';
+    var sOn = active === 'settings' ? ' is-on' : '';
+    html += '<button class="rail-icon' + sOn + '" title="Settings · ⌘," data-ws="settings">' + I.settings + '</button>';
+    html += '</div>';
+    return html;
+  }
+
+  function buildStage(stageId) {
+    var card = document.getElementById(stageId);
+    var ws = card.parentElement.getAttribute('data-workspace');
+    var meta = PKGS.concat(UTILS).find(function (p) { return p.key === ws; }) || PKGS[0];
+    var routes = {
+      email:   ['inbox', 'triage', 'queue', 'outbox', 'content'],
+      work:    ['tasks', 'delegations', 'agent-runs', 'cron', 'handoffs'],
+      finance: ['overview', 'transactions', 'receivables', 'inter-company', 'reports'],
+      gtm:     ['sales', 'partnerships', 'fundraising'],
+      product: ['features', 'strategy'],
+      exec:    ['home', 'approvals', 'reviews']
+    }[ws] || [];
+    card.innerHTML = buildBar(ws)
+      + '<div class="stage-canvas">'
+      +   '<div class="stage-id">' + (meta.id || '') + '</div>'
+      +   '<div class="stage-name">' + meta.label + '</div>'
+      +   '<div class="stage-routes">routes · ' + routes.map(function(r){return '<code>'+r+'</code>';}).join(' ') + '</div>'
+      +   '<div style="font-size:var(--text-caption);color:var(--fg-faint);font-family:var(--font-mono);letter-spacing:.06em;">tint resolves via <code style="background:var(--bg-sunken);padding:1px 5px;border-radius:3px;color:var(--tint-fg-active);">--tint-bg-active</code> on the sidebar header gradient</div>'
+      + '</div>';
+  }
+
+  ['stage-A-dark', 'stage-A-light', 'stage-B-light', 'stage-C-dark'].forEach(buildStage);
+
+  // ---- Vocabulary cells (off + on side-by-side per pkg) ---------
+  var vocabHost = document.getElementById('vocab');
+  PKGS.concat(UTILS).forEach(function (p) {
+    var div = document.createElement('div');
+    div.className = 'vocab-cell';
+    div.setAttribute('data-workspace', p.key);
+    div.innerHTML = ''
+      + '<div class="vocab-cell-icons">'
+      +   '<div class="vocab-icon-slot">' + p.icon + '</div>'
+      +   '<div class="vocab-icon-slot is-on">' + p.icon + '</div>'
+      + '</div>'
+      + '<div class="vocab-cell-name">' + p.label + '</div>'
+      + '<div class="vocab-cell-id">' + p.id + '</div>'
+      + '<div class="vocab-cell-tint"><span class="dot" style="background:var(--tint-fg-active)"></span>' + p.key + ' tint</div>';
+    vocabHost.appendChild(div);
+  });
+
+  // ---- Tint chips ----------------------------------------------
+  var chipsHost = document.getElementById('chips');
+  PKGS.forEach(function (p) {
+    var div = document.createElement('div');
+    div.className = 'chip';
+    div.setAttribute('data-workspace', p.key);
+    div.innerHTML = '<div class="chip-key">' + p.key + '</div><div class="chip-name">' + p.label + '</div>';
+    chipsHost.appendChild(div);
+  });
+</script>
+
+</body>
+</html>
