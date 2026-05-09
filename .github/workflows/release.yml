@@ -116,6 +116,13 @@ jobs:
           path: pkgs/engine-claude-code
           token: ${{ secrets.WORKSPACE_DEPS_PAT || secrets.GITHUB_TOKEN }}
 
+      - name: Checkout @ikenga/pkg-engine-noop
+        uses: actions/checkout@v4
+        with:
+          repository: royalti-io/ikenga-pkg-engine-noop
+          path: pkgs/engine-noop
+          token: ${{ secrets.WORKSPACE_DEPS_PAT || secrets.GITHUB_TOKEN }}
+
       - name: Checkout iyke MCP source
         uses: actions/checkout@v4
         with:
@@ -205,10 +212,10 @@ jobs:
       # step the Tauri build fails with:
       #   resource path `…/builtin-pkgs/com.ikenga.engine-claude-code/dist`
       #   doesn't exist
-      - name: Build workspace siblings (contract, tokens, engine-claude-code)
+      - name: Build workspace siblings (contract, tokens, engine adapters)
         shell: bash
         run: |
-          for pkg in '@ikenga/contract' '@ikenga/tokens' '@ikenga/pkg-engine-claude-code'; do
+          for pkg in '@ikenga/contract' '@ikenga/tokens' '@ikenga/pkg-engine-claude-code' '@ikenga/pkg-engine-noop'; do
             echo "==> pnpm -F $pkg build"
             pnpm -F "$pkg" build
           done
