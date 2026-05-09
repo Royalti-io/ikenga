@@ -1,22 +1,12 @@
 import { useShellStore } from '@/lib/shell/shell-store';
-import { MINI_APP_BY_ID } from './mini-apps-config';
 import { AppMode } from './sidebar-modes/app-mode';
-import { MailMode } from './sidebar-modes/mail-mode';
-import { OutboxMode } from './sidebar-modes/outbox-mode';
 import { FilesMode } from './sidebar-modes/files-mode';
-import { AgentsMode } from './sidebar-modes/agents-mode';
 import { SessionsMode } from './sidebar-modes/sessions-mode';
-import { MiniAppPlaceholder } from './sidebar-modes/mini-app-placeholder';
-import { StudioMode } from './sidebar-modes/studio-mode';
 import { SettingsMode } from './sidebar-modes/settings-mode';
 
 const CORE_TITLES = {
   app: 'Ikenga',
-  mail: 'Mail',
-  outbox: 'Outbox',
-  studio: 'Studio',
   files: 'Files',
-  agents: 'Agents',
   sessions: 'Sessions',
   settings: 'Settings',
 } as const;
@@ -24,7 +14,7 @@ const CORE_TITLES = {
 export function Sidebar() {
   const activeMode = useShellStore((s) => s.activeMode);
 
-  let title = 'Ikenga';
+  let title: string = CORE_TITLES.app;
   let body: React.ReactNode;
 
   switch (activeMode) {
@@ -32,25 +22,9 @@ export function Sidebar() {
       title = CORE_TITLES.app;
       body = <AppMode />;
       break;
-    case 'mail':
-      title = CORE_TITLES.mail;
-      body = <MailMode />;
-      break;
-    case 'outbox':
-      title = CORE_TITLES.outbox;
-      body = <OutboxMode />;
-      break;
-    case 'studio':
-      title = CORE_TITLES.studio;
-      body = <StudioMode />;
-      break;
     case 'files':
       title = CORE_TITLES.files;
       body = <FilesMode />;
-      break;
-    case 'agents':
-      title = CORE_TITLES.agents;
-      body = <AgentsMode />;
       break;
     case 'sessions':
       title = CORE_TITLES.sessions;
@@ -60,17 +34,11 @@ export function Sidebar() {
       title = CORE_TITLES.settings;
       body = <SettingsMode />;
       break;
-    default: {
-      const app = MINI_APP_BY_ID[activeMode];
-      if (app) {
-        title = app.name;
-        body = <MiniAppPlaceholder app={app} />;
-      } else {
-        // Stale persisted activeMode from a removed rail icon. Fall back.
-        title = CORE_TITLES.app;
-        body = <AppMode />;
-      }
-    }
+    default:
+      // Should be unreachable post-strip — CoreMode is a closed union of
+      // 4 variants. Keeps the compiler honest if the union ever widens.
+      title = CORE_TITLES.app;
+      body = <AppMode />;
   }
 
   return (

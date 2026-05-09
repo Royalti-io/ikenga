@@ -38,10 +38,12 @@ import { useEffect, useRef, useState } from 'react';
 import { mintPkgToken } from '@/lib/pkg/auth-token';
 import { buildHostContext } from '@/lib/pkg/host-context';
 import { useIkengaStore } from '@/lib/ikenga/theme-store';
+import { usePaneStore } from '@/lib/panes/pane-store';
 import {
   pkgContentHtml,
   pkgContentRevoke,
   pkgMcpCall,
+  pkgSidecarCall,
 } from '@/lib/tauri-cmd';
 
 interface PkgIframeHostProps {
@@ -61,6 +63,127 @@ const HOST_CAPABILITIES = {
   serverTools: {},
   logging: {},
 } as const;
+
+// Result shape an MCP-style CallTool handler must return. AppBridge's
+// `oncalltool` typing is wide; we narrow to what we actually emit so the
+// host dispatcher branches stay readable.
+interface HostCallResult {
+  content: Array<{ type: 'text'; text: string }>;
+  structuredContent?: Record<string, unknown>;
+  isError?: boolean;
+}
+
+// Shell-side dispatcher for `host.*` tools. Runs before any pkg MCP
+// lookup. Recognized names today:
+//
+// - `host.pkgSidecarCall({ sidecar, args, stdin?, timeoutSecs? })` —
+//   invokes one of the calling pkg's declared sidecars via Tauri's
+//   `pkg_sidecar_call`. The sidecar's stdout is parsed as JSON when
+//   possible and returned as `structuredContent` so callers can pick up
+//   structured results (success flags, durationMs, payload). Falls back
+//   to wrapping raw stdout when the sidecar emits non-JSON.
+// - `host.navigate({ path })` — navigates the focused pane to the given
+//   route path. Mirrors the `hostNavigate` shape used by older pkgs.
+//
+// Anything else under `host.*` returns an MCP-protocol error (isError:
+// true) so the iframe's error handling fires. We intentionally do NOT
+// fall through to pkg_mcp_call for unknown host.* names — that would
+// make typo'd tool names look like missing-MCP-server failures, which
+// is harder to debug.
+async function dispatchHostCall(
+  pkgId: string,
+  name: string,
+  rawArgs: unknown,
+): Promise<HostCallResult> {
+  const args = (rawArgs ?? {}) as Record<string, unknown>;
+
+  if (name === 'host.pkgSidecarCall') {
+    const sidecar = typeof args.sidecar === 'string' ? args.sidecar : null;
+    if (!sidecar) {
+      return errResult('host.pkgSidecarCall: missing required `sidecar` argument');
+    }
+    const callArgs = Array.isArray(args.args)
+      ? args.args.filter((a): a is string => typeof a === 'string')
+      : [];
+    const stdin = typeof args.stdin === 'string' ? args.stdin : undefined;
+    const timeoutSecs =
+      typeof args.timeoutSecs === 'number' ? args.timeoutSecs : undefined;
+
+    const result = await pkgSidecarCall(pkgId, sidecar, callArgs, {
+      stdin,
+      timeoutSecs,
+    });
+
+    if (!result.ok) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: result.error ?? `sidecar ${sidecar} failed`,
+          },
+        ],
+        isError: true,
+        structuredContent: {
+          ok: false,
+          error: result.error ?? null,
+          stdout: result.stdout ?? null,
+          stderr: result.stderr ?? null,
+          exit_code: result.exit_code,
+          timed_out: result.timed_out,
+        },
+      };
+    }
+
+    // Sidecars that follow the `pa-actions` convention emit one structured
+    // JSON object per run on stdout. Try to parse so callers get the
+    // typed payload; if the sidecar emits raw text, surface that
+    // verbatim so debugging is still possible.
+    let structured: Record<string, unknown>;
+    const rawStdout = result.stdout ?? '';
+    const lastLine = rawStdout
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .pop();
+    try {
+      structured = lastLine
+        ? (JSON.parse(lastLine) as Record<string, unknown>)
+        : { ok: true, stdout: rawStdout };
+    } catch {
+      structured = { ok: true, stdout: rawStdout, stderr: result.stderr ?? '' };
+    }
+    return {
+      content: [{ type: 'text', text: rawStdout }],
+      structuredContent: structured,
+    };
+  }
+
+  if (name === 'host.navigate') {
+    const path = typeof args.path === 'string' ? args.path : null;
+    if (!path) {
+      return errResult('host.navigate: missing required `path` argument');
+    }
+    try {
+      usePaneStore.getState().navigateFocused(path);
+    } catch (e) {
+      return errResult(`host.navigate failed: ${(e as Error).message ?? String(e)}`);
+    }
+    return {
+      content: [{ type: 'text', text: 'navigated' }],
+      structuredContent: { ok: true, path },
+    };
+  }
+
+  return errResult(`unknown host tool: ${name}`);
+}
+
+function errResult(message: string): HostCallResult {
+  return {
+    content: [{ type: 'text', text: message }],
+    isError: true,
+    structuredContent: { ok: false, error: message },
+  };
+}
 
 export function PkgIframeHost({ pkgId, source, onInitialized }: PkgIframeHostProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -135,6 +258,15 @@ export function PkgIframeHost({ pkgId, source, onInitialized }: PkgIframeHostPro
         }),
       });
       bridge.oncalltool = (async (params) => {
+        // host.* tools are dispatched by the shell directly, *before*
+        // any pkg-MCP-server lookup. This is the path pkg iframes use to
+        // invoke their declared sidecars, navigate the focused pane, and
+        // surface notifications back to the shell. Without this branch
+        // every host.* call would fall through to pkg_mcp_call and fail
+        // for pkgs that don't ship an MCP server (which is most of them).
+        if (params.name.startsWith('host.')) {
+          return await dispatchHostCall(pkgId, params.name, params.arguments ?? {});
+        }
         const result = await pkgMcpCall(pkgId, params.name, params.arguments ?? {});
         if (!result.ok) {
           // The MCP call failed at the host; surface as an MCP-level tool

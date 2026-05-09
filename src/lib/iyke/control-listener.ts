@@ -17,35 +17,19 @@ import { useEffect } from 'react';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
 import { usePaneStore } from '@/lib/panes/pane-store';
-import type { MiniAppName, PaneView } from '@/lib/panes/types';
+import type { PaneView } from '@/lib/panes/types';
 import { useShellStore, type ActivityMode } from '@/lib/shell/shell-store';
 import { createTerminalSession } from '@/terminal/single-terminal';
 
-// Must match the `ActivityMode` union in `lib/shell/shell-store.ts`. If you
-// add a mode there, add it here too — there's no compile-time check that
-// catches drift, only a runtime warning when iyke rejects an unknown mode.
+// Must match the `ActivityMode` union in `lib/shell/shell-store.ts`. Post-
+// strip: 4 modes only. Mini-app modes were retired with the shell strip-down.
 const ACTIVITY_MODES: ReadonlyArray<ActivityMode> = [
   'app',
-  'mail',
-  'outbox',
-  'studio',
-  'agents',
   'files',
   'sessions',
   'settings',
-  'storyboard',
-  'video-engine',
-  'hyperframes',
-  'canvas-design',
-  'image-generator',
 ];
 
-const MINI_APP_NAMES: ReadonlyArray<MiniAppName> = [
-  'storyboard',
-  'video-engine',
-  'canvas-design',
-  'image-generator',
-];
 
 interface GoPayload {
   path: string;
@@ -232,15 +216,6 @@ function paneViewFromOpenPayload(payload: unknown): PaneView | null {
       return null;
     }
     return { kind: 'artifact', path };
-  }
-
-  if (kind === 'mini-app') {
-    const name = p.name;
-    if (!MINI_APP_NAMES.includes(name as MiniAppName)) {
-      console.warn('[iyke] iyke:open mini-app ignored — unknown name:', name);
-      return null;
-    }
-    return { kind: 'mini-app', name: name as MiniAppName };
   }
 
   console.warn('[iyke] iyke:open ignored — unknown kind:', kind);

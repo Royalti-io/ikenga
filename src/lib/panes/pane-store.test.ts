@@ -81,38 +81,38 @@ describe('reopenLastClosed', () => {
   });
 });
 
-describe('addTab mini-app sequencing', () => {
-  it('adds distinct mini-app tabs to the focused pane', () => {
+describe('addTab artifact sequencing', () => {
+  // Was 'mini-app sequencing' before strip-down — same behaviour, exercised
+  // through the still-supported 'artifact' kind so we keep coverage of
+  // distinct-tab-add + stale-leaf-fallback without the retired view kind.
+  it('adds distinct artifact tabs to the focused pane', () => {
     const store = usePaneStore.getState();
     const focusedId = store.focusedId;
-    store.addTab(focusedId, { kind: 'mini-app', name: 'storyboard' });
-    store.addTab(focusedId, { kind: 'mini-app', name: 'hyperframes' });
-    store.addTab(focusedId, { kind: 'mini-app', name: 'video-engine' });
+    store.addTab(focusedId, { kind: 'artifact', path: '/a/x.md' });
+    store.addTab(focusedId, { kind: 'artifact', path: '/a/y.md' });
+    store.addTab(focusedId, { kind: 'artifact', path: '/a/z.md' });
 
     const root = usePaneStore.getState().root;
     if (root.type !== 'leaf') throw new Error('expected single leaf');
-    const names = root.tabs
-      .filter((t) => t.kind === 'mini-app')
-      .map((t) => (t as Extract<typeof t, { kind: 'mini-app' }>).name);
-    expect(names).toEqual(['storyboard', 'hyperframes', 'video-engine']);
+    const paths = root.tabs
+      .filter((t) => t.kind === 'artifact')
+      .map((t) => (t as Extract<typeof t, { kind: 'artifact' }>).path);
+    expect(paths).toEqual(['/a/x.md', '/a/y.md', '/a/z.md']);
   });
 
   it('falls back to the focused pane if leafId is stale', () => {
-    // Reproduce: caller passed a stale leafId (e.g., focusedId snapshot from
-    // before a split/close). addTab should still land somewhere visible
-    // rather than silently no-oping.
     const store = usePaneStore.getState();
     const realFocusedId = store.focusedId;
     const stale = 'leaf-does-not-exist';
-    store.addTab(stale, { kind: 'mini-app', name: 'video-engine' });
+    store.addTab(stale, { kind: 'artifact', path: '/a/fallback.md' });
 
     const root = usePaneStore.getState().root;
     if (root.type !== 'leaf') throw new Error('expected single leaf');
     expect(root.id).toBe(realFocusedId);
-    const hasVideoEngine = root.tabs.some(
-      (t) => t.kind === 'mini-app' && t.name === 'video-engine',
+    const hasFallback = root.tabs.some(
+      (t) => t.kind === 'artifact' && t.path === '/a/fallback.md',
     );
-    expect(hasVideoEngine).toBe(true);
+    expect(hasFallback).toBe(true);
   });
 });
 

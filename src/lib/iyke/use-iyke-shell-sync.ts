@@ -77,7 +77,5 @@ function viewTitle(view: PaneView): string {
       return view.sessionId;
     case 'artifact':
       return view.path;
-    case 'mini-app':
-      return view.name;
   }
 }

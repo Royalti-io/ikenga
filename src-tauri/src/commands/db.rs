@@ -98,6 +98,11 @@ async fn ensure_schema(pool: &sqlx::SqlitePool) -> Result<(), String> {
             "0003_claude_sessions",
             include_str!("../../migrations/0003_claude_sessions.sql"),
         ),
+        // 0004 (render_queue), 0005 (mbox_sync), 0006 (storyboards) created
+        // app-specific schema that was retired with the strip-down. We keep
+        // the SQL files in `migrations/` so existing dev DBs still apply
+        // them in version order before 0009 cleans them up; fresh installs
+        // run 0001→0003 then 0007→0009 (no app-specific tables ever exist).
         (
             4,
             "0004_render_queue",
@@ -122,6 +127,11 @@ async fn ensure_schema(pool: &sqlx::SqlitePool) -> Result<(), String> {
             8,
             "0008_pkg_install_source",
             include_str!("../../migrations/0008_pkg_install_source.sql"),
+        ),
+        (
+            9,
+            "0009_strip_legacy",
+            include_str!("../../migrations/0009_strip_legacy.sql"),
         ),
     ];
 
@@ -154,21 +164,6 @@ async fn ensure_schema(pool: &sqlx::SqlitePool) -> Result<(), String> {
             .map_err(|e| format!("record migration {name}: {e}"))?;
         log::info!("applied migration {name}");
     }
-
-    // Render-queue recovery: any job left as 'queued' or 'running' from a
-    // previous launch points at a child process that no longer exists.
-    // Mark them failed so the queue UI doesn't show ghost progress bars.
-    // Idempotent — runs on every boot, no-ops if the table is empty.
-    let _ = sqlx::query(
-        "UPDATE render_jobs
-         SET status = 'failed',
-             completed_at = COALESCE(completed_at, ?),
-             error = COALESCE(error, 'Process gone after app restart')
-         WHERE status IN ('queued', 'running')",
-    )
-    .bind(now_ms())
-    .execute(pool)
-    .await;
 
     Ok(())
 }

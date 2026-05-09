@@ -29,13 +29,29 @@ export function PaneTabStrip({ leaf, isFocused }: PaneTabStripProps) {
   const [dropAt, setDropAt] = useState<{ idx: number; side: 'before' | 'after' } | null>(null);
 
   // Scroll the active tab into view whenever the active index changes
-  // (covers dedup-switch, programmatic switches, and reorder).
+  // (covers dedup-switch, programmatic switches, reorder, and new-tab adds).
+  // We drive scrollLeft on the horizontal scroller directly rather than
+  // calling Element.scrollIntoView — the latter's `block: 'nearest'` can
+  // cascade and scroll ancestor containers vertically.
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const activeTabRef = useRef<HTMLButtonElement | null>(null);
   useEffect(() => {
-    const el = activeTabRef.current;
-    if (!el) return;
-    el.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+    const tab = activeTabRef.current;
+    const scroller = scrollerRef.current;
+    if (!tab || !scroller) return;
+    const tabLeft = tab.offsetLeft;
+    const tabRight = tabLeft + tab.offsetWidth;
+    const viewLeft = scroller.scrollLeft;
+    const viewRight = viewLeft + scroller.clientWidth;
+    let next = viewLeft;
+    if (tabLeft < viewLeft) {
+      next = tabLeft;
+    } else if (tabRight > viewRight) {
+      next = tabRight - scroller.clientWidth;
+    } else {
+      return; // already fully visible
+    }
+    scroller.scrollTo({ left: next, behavior: 'smooth' });
   }, [leaf.activeTabIdx, leaf.tabs.length]);
 
   // Per design/concepts/_shared/shell.css §"Workspace tint on tabs":

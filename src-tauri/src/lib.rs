@@ -5,8 +5,6 @@ mod iyke;
 mod pkg;
 mod pkg_content;
 mod pty;
-mod render;
-mod sidecar;
 pub mod vault_key;
 mod viewer_server;
 
@@ -20,33 +18,28 @@ use commands::db::PaDb;
 use commands::screenshot::new_pending as new_screenshot_pending;
 use commands::{
     backup_delete, backup_export, backup_import, backup_list,
-    chat_cancel, chat_send, claude_chat_kill, claude_chat_send, claude_chat_spawn,
+    claude_chat_kill, claude_chat_send, claude_chat_spawn,
     claude_config_load, claude_config_read_file, claude_config_unwatch, claude_config_watch,
-    pa_actions_run,
     claude_list_sessions, claude_read_jsonl, claude_spawn_session, db_exec, db_query, fs_exists,
     fs_list, fs_mime, fs_read, fs_rename, fs_trash,
     fs_unwatch, fs_watch, fs_write, iyke_dom_done, iyke_endpoint,
     iyke_log_push, iyke_network_push, iyke_query_cache_done, iyke_set_shell, iyke_wait_done,
-    mbox_ping, mbox_read_all, pty_kill,
-    pty_resize, pty_spawn,
-    pty_write, render_cancel, render_composition, screenshot_capture_done,
+    pty_kill, pty_resize, pty_spawn, pty_write,
+    screenshot_capture_done,
     screenshot_capture_failed, screenshot_get_config, screenshot_pane, screenshot_set_dir,
     screenshot_window, secrets_delete, secrets_get, secrets_import_dotenv, secrets_list_keys,
     pkg_content_html, pkg_content_revoke, pkg_content_url, pkg_db_diag, pkg_discover_workspace,
     pkg_install_from_path, pkg_kernel_status,
-    pkg_mcp_call, pkg_preview_manifest, pkg_settings_get, pkg_settings_set, pkg_supervisor_restart,
+    pkg_mcp_call, pkg_preview_manifest, pkg_settings_get, pkg_settings_set, pkg_sidecar_call,
+    pkg_supervisor_restart,
     pkg_uninstall, pkg_set_enabled, dev_bind_port, dev_release_port,
-    secrets_set, secrets_vault_status, PkgContentState, SidecarSupervisorState,
-    set_dock_badge, spike_grant_fs_read, spike_setup_test_file, KernelState, PkgSettingsState,
+    secrets_set, secrets_vault_status, PkgContentState, SidecarsRegistryState, SidecarSupervisorState,
+    set_dock_badge, iyke_mcp_info, spike_grant_fs_read, spike_setup_test_file, KernelState, PkgSettingsState,
     SecretsLock,
-    storyboard_export_json, storyboard_import_json, storyboard_list_concepts,
-    storyboard_promote_rung, storyboard_render_still,
     supabase_config_clear, supabase_config_get, supabase_config_set,
     viewer_port, viewer_serve, viewer_stop, ClaudeManager, ClaudeManagerState, IykeRuntimeState,
-    JobManagerState, ScreenshotConfigState, ScreenshotConfigStateRef, ScreenshotPending,
-    StoryboardJobManager, StoryboardJobManagerState,
+    ScreenshotConfigState, ScreenshotConfigStateRef, ScreenshotPending,
 };
-use render::JobManager;
 use fs_watch::FsWatchManager;
 use iyke::{IykeRpc, IykeState};
 use pty::PtyManager;
@@ -69,8 +62,6 @@ pub fn run() {
     let viewer_manager = Arc::new(ViewerServerManager::new());
     let viewer_manager_for_start = viewer_manager.clone();
     let claude_manager: ClaudeManagerState = Arc::new(ClaudeManager::new());
-    let render_manager: JobManagerState = Arc::new(JobManager::new());
-    let storyboard_jobs: StoryboardJobManagerState = Arc::new(StoryboardJobManager::new());
     let screenshot_pending: ScreenshotPending = new_screenshot_pending();
 
     let migrations = vec![
@@ -122,6 +113,12 @@ pub fn run() {
             sql: include_str!("../migrations/0008_pkg_install_source.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 9,
+            description: "strip_legacy",
+            sql: include_str!("../migrations/0009_strip_legacy.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()
@@ -155,8 +152,6 @@ pub fn run() {
         .manage(fs_watch_manager)
         .manage(viewer_manager)
         .manage(claude_manager)
-        .manage(render_manager)
-        .manage(storyboard_jobs)
         .manage(screenshot_pending.clone())
         .manage(SecretsLock::new())
         .setup(move |app| {
@@ -259,7 +254,10 @@ pub fn run() {
                 pa_db.clone(),
             ));
             let settings_reg = Arc::new(pkg::registries::SettingsRegistry::new(pa_db.clone()));
-            let cron_reg = Arc::new(pkg::registries::CronRegistry::new(app.handle().clone()));
+            let cron_reg = Arc::new(pkg::registries::CronRegistry::new(
+                app.handle().clone(),
+                sidecars_reg.clone(),
+            ));
             let ui_routes_reg = Arc::new(pkg::registries::UiRoutesRegistry::new());
             let claude_assets_reg = Arc::new(pkg::registries::ClaudeAssetsRegistry::new());
             let mcp_reg = Arc::new(pkg::registries::McpRegistry::new());
@@ -297,7 +295,7 @@ pub fn run() {
                 app.handle().clone(),
                 pa_db.clone(),
                 vec![
-                    sidecars_reg as Arc<dyn pkg::Registry>,
+                    sidecars_reg.clone() as Arc<dyn pkg::Registry>,
                     perms_reg as Arc<dyn pkg::Registry>,
                     iyke_routes_reg as Arc<dyn pkg::Registry>,
                     settings_reg.clone() as Arc<dyn pkg::Registry>,
@@ -358,6 +356,7 @@ pub fn run() {
             app.manage(PkgSettingsState(settings_reg));
             app.manage(PkgContentState(pkg_content_server));
             app.manage(SidecarSupervisorState(sidecar_supervisor));
+            app.manage(SidecarsRegistryState(sidecars_reg));
 
             // Phase 14: write the runtime env-vault file so the actions
             // sidecar can read vault values via its existing dotenv loader.
@@ -416,12 +415,6 @@ pub fn run() {
             // db
             db_query,
             db_exec,
-            // chat (stubs)
-            chat_send,
-            chat_cancel,
-            // render (stubs)
-            render_composition,
-            render_cancel,
             // iyke
             iyke_endpoint,
             iyke_set_shell,
@@ -430,24 +423,14 @@ pub fn run() {
             iyke_dom_done,
             iyke_query_cache_done,
             iyke_wait_done,
-            // mbox sidecar
-            mbox_read_all,
-            mbox_ping,
-            // pa-actions sidecar (mutations + pollers, replaces ikenga)
-            pa_actions_run,
             // backup / restore
             backup_export,
             backup_import,
             backup_list,
             backup_delete,
-            // storyboard (phase 7)
-            storyboard_render_still,
-            storyboard_promote_rung,
-            storyboard_list_concepts,
-            storyboard_export_json,
-            storyboard_import_json,
             // desktop
             set_dock_badge,
+            iyke_mcp_info,
             // screenshots
             screenshot_window,
             screenshot_pane,
@@ -472,6 +455,7 @@ pub fn run() {
             pkg_content_html,
             pkg_content_revoke,
             pkg_mcp_call,
+            pkg_sidecar_call,
             pkg_supervisor_restart,
             dev_bind_port,
             dev_release_port,
@@ -664,21 +648,26 @@ struct ControlFileRead {
 }
 
 fn screenshot_cli_control_path() -> Option<std::path::PathBuf> {
+    // Identifier must match `tauri.conf.json:identifier` so the running
+    // shell and the --screenshot CLI path agree on where control.json
+    // lives. Pre-strip this hardcoded `io.royalti.pa.desktop`, which had
+    // drifted from the real bundle id `app.ikenga` and broke the CLI on
+    // any clean install.
     let home = std::env::var_os("HOME").map(std::path::PathBuf::from)?;
     #[cfg(target_os = "macos")]
     {
-        Some(home.join("Library/Application Support/io.royalti.pa.desktop/control.json"))
+        Some(home.join("Library/Application Support/app.ikenga/control.json"))
     }
     #[cfg(all(unix, not(target_os = "macos")))]
     {
-        Some(home.join(".local/share/io.royalti.pa.desktop/control.json"))
+        Some(home.join(".local/share/app.ikenga/control.json"))
     }
     #[cfg(target_os = "windows")]
     {
         let _ = home;
         std::env::var_os("LOCALAPPDATA")
             .map(std::path::PathBuf::from)
-            .map(|p| p.join("io.royalti.pa.desktop").join("control.json"))
+            .map(|p| p.join("app.ikenga").join("control.json"))
     }
 }
 

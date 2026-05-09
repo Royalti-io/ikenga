@@ -1,7 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, Plus, X, Pin, MessageSquare, Terminal as TerminalIcon } from 'lucide-react';
 import { type PaneView } from '@/lib/panes/types';
-import { useDockStore, type DockState } from './dock-store';
+import {
+  useDockStore,
+  DOCK_MIN_WIDTH,
+  DOCK_MAX_WIDTH,
+} from './dock-store';
 import { useDragState } from '@/lib/panes/drag-state';
 import { usePaneStore } from '@/lib/panes/pane-store';
 import { PaneBody, viewLabel } from '@/shell/panes/pane-views';
@@ -9,12 +13,7 @@ import { viewWorkspace } from '@/shell/panes/tab-workspace';
 import { createTerminalSession } from '@/terminal/single-terminal';
 import { cn } from '@/components/ui/utils';
 
-const STATE_WIDTHS: Record<DockState, string> = {
-  hidden: '0px',
-  collapsed: '36px',
-  expanded: '380px',
-  wide: '480px',
-};
+const COLLAPSED_WIDTH = '36px';
 
 export function Dock() {
   const dockState = useDockStore((s) => s.state);
@@ -26,13 +25,15 @@ export function Dock() {
   const togglePinned = useDockStore((s) => s.togglePinned);
   const addTab = useDockStore((s) => s.addTab);
   const appendView = useDockStore((s) => s.appendView);
+  const storedWidth = useDockStore((s) => s.width);
+  const setStoredWidth = useDockStore((s) => s.setWidth);
 
   const drag = useDragState();
   const [dropHover, setDropHover] = useState(false);
 
   if (dockState === 'hidden') return null;
 
-  const width = STATE_WIDTHS[dockState];
+  const width = dockState === 'collapsed' ? COLLAPSED_WIDTH : `${storedWidth}px`;
 
   // Pane → dock: detach the source tab and append it as a dock tab. We use
   // moveTab to a sentinel pane id won't work, so instead we read the source
@@ -144,18 +145,19 @@ export function Dock() {
     );
   }
 
-  // expanded | wide
+  // expanded
   const activeTab = tabs[activeIdx];
   return (
     <aside
       aria-label="Dock"
-      className="flex h-full flex-col border-l"
+      className="relative flex h-full flex-col border-l"
       style={{
         width,
         background: 'var(--bg-base)',
         borderColor: 'var(--border-soft)',
       }}
     >
+      <DockResizeHandle width={storedWidth} setWidth={setStoredWidth} />
       <div
         className="flex shrink-0 items-stretch border-b"
         style={{
@@ -247,19 +249,6 @@ export function Dock() {
           <DockAddButton onAdd={addTab} />
           <button
             type="button"
-            onClick={() => setState(dockState === 'expanded' ? 'wide' : 'expanded')}
-            title={dockState === 'expanded' ? 'Widen dock' : 'Narrow dock'}
-            aria-label="Toggle dock width"
-            className="grid h-6 w-6 place-items-center rounded-sm text-muted-foreground hover:bg-card"
-          >
-            {dockState === 'expanded' ? (
-              <ChevronLeft className="h-3.5 w-3.5" />
-            ) : (
-              <ChevronRight className="h-3.5 w-3.5" />
-            )}
-          </button>
-          <button
-            type="button"
             onClick={() => setState('collapsed')}
             title="Collapse dock"
             aria-label="Collapse dock"
@@ -274,17 +263,95 @@ export function Dock() {
           <PaneBody paneId="__dock__" view={activeTab} />
         ) : (
           <DockEmpty
-            onSeed={() => {
+            onSeedChat={() => {
               const sessionId = createTerminalSession({
                 cmd: ['claude'],
                 title: 'claude',
               });
               appendView({ kind: 'chat', sessionId });
             }}
+            onSeedTerminal={() => {
+              appendView({ kind: 'terminal', sessionId: createTerminalSession() });
+            }}
           />
         )}
+        <div
+          aria-hidden="true"
+          onDragEnter={(e) => {
+            if (drag.active && drag.source === 'pane') e.preventDefault();
+          }}
+          onDragOver={(e) => {
+            if (!drag.active || drag.source !== 'pane') return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            setDropHover(true);
+          }}
+          onDragLeave={() => setDropHover(false)}
+          onDrop={handleExternalDrop}
+          className={cn(
+            'absolute inset-0 z-20 flex items-center justify-center border-2 border-dashed text-xs font-medium transition-colors',
+            drag.active && drag.source === 'pane'
+              ? 'pointer-events-auto'
+              : 'pointer-events-none opacity-0',
+            dropHover
+              ? 'border-primary bg-primary/15 text-primary'
+              : 'border-primary/40 bg-background/60 text-muted-foreground',
+          )}
+        >
+          Drop to dock
+        </div>
       </div>
     </aside>
+  );
+}
+
+function DockResizeHandle({
+  width,
+  setWidth,
+}: {
+  width: number;
+  setWidth: (n: number) => void;
+}) {
+  const startRef = useRef<{ x: number; w: number } | null>(null);
+
+  function onPointerDown(e: React.PointerEvent<HTMLDivElement>) {
+    e.preventDefault();
+    (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
+    startRef.current = { x: e.clientX, w: width };
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  }
+
+  function onPointerMove(e: React.PointerEvent<HTMLDivElement>) {
+    if (!startRef.current) return;
+    const dx = e.clientX - startRef.current.x;
+    // Dock is on the right edge — dragging left grows it.
+    const next = startRef.current.w - dx;
+    setWidth(Math.max(DOCK_MIN_WIDTH, Math.min(DOCK_MAX_WIDTH, next)));
+  }
+
+  function onPointerUp(e: React.PointerEvent<HTMLDivElement>) {
+    startRef.current = null;
+    try {
+      (e.currentTarget as HTMLDivElement).releasePointerCapture(e.pointerId);
+    } catch {
+      // ignore
+    }
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+  }
+
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize dock"
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerUp}
+      className="absolute left-0 top-0 z-10 h-full w-1 -translate-x-1/2 cursor-col-resize hover:bg-primary/30"
+    />
   );
 }
 
@@ -300,39 +367,142 @@ function DockTabIcon({ view }: { view: PaneView }) {
 }
 
 function DockAddButton({ onAdd }: { onAdd: (view: PaneView) => void }) {
+  const [open, setOpen] = useState(false);
+  const btnRef = useRef<HTMLButtonElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node | null;
+      if (
+        t &&
+        !btnRef.current?.contains(t) &&
+        !menuRef.current?.contains(t)
+      ) {
+        setOpen(false);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    window.addEventListener('mousedown', onDown);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('mousedown', onDown);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  function pick(view: PaneView) {
+    onAdd(view);
+    setOpen(false);
+  }
+
+  return (
+    <div className="relative">
+      <button
+        ref={btnRef}
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        title="New tab"
+        aria-label="New tab"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className="grid h-6 w-6 place-items-center rounded-sm text-muted-foreground hover:bg-card"
+      >
+        <Plus className="h-3.5 w-3.5" />
+      </button>
+      {open && (
+        <div
+          ref={menuRef}
+          role="menu"
+          className="absolute right-0 top-full z-50 mt-1 w-44 overflow-hidden rounded-md border border-border bg-popover py-1 text-popover-foreground shadow-lg"
+        >
+          <DockMenuItem
+            Icon={MessageSquare}
+            label="New chat"
+            onClick={() => {
+              const sessionId = createTerminalSession({ cmd: ['claude'], title: 'claude' });
+              pick({ kind: 'chat', sessionId });
+            }}
+          />
+          <DockMenuItem
+            Icon={TerminalIcon}
+            label="New terminal"
+            onClick={() => pick({ kind: 'terminal', sessionId: createTerminalSession() })}
+          />
+          <DockMenuItem
+            Icon={TerminalIcon}
+            label="New Claude terminal"
+            onClick={() =>
+              pick({
+                kind: 'terminal',
+                sessionId: createTerminalSession({ cmd: ['claude'], title: 'claude' }),
+              })
+            }
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DockMenuItem({
+  Icon,
+  label,
+  onClick,
+}: {
+  Icon: typeof Plus;
+  label: string;
+  onClick: () => void;
+}) {
   return (
     <button
       type="button"
-      onClick={() => {
-        const sessionId = createTerminalSession({ cmd: ['claude'], title: 'claude' });
-        onAdd({ kind: 'chat', sessionId });
-      }}
-      title="New chat tab"
-      aria-label="New chat tab"
-      className="grid h-6 w-6 place-items-center rounded-sm text-muted-foreground hover:bg-card"
+      role="menuitem"
+      onClick={onClick}
+      className="flex w-full items-center gap-2 px-2 py-1.5 text-left text-xs hover:bg-accent hover:text-accent-foreground"
     >
-      <Plus className="h-3.5 w-3.5" />
+      <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+      <span className="flex-1 truncate">{label}</span>
     </button>
   );
 }
 
-function DockEmpty({ onSeed }: { onSeed: () => void }) {
+function DockEmpty({
+  onSeedChat,
+  onSeedTerminal,
+}: {
+  onSeedChat: () => void;
+  onSeedTerminal: () => void;
+}) {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-3 px-4 text-center text-sm text-muted-foreground">
       <p>The dock is empty.</p>
       <p className="text-xs">
         Drag tabs in from any pane, or
         <br />
-        seed a chat session.
+        seed a new session.
       </p>
-      <button
-        type="button"
-        onClick={onSeed}
-        className="rounded border px-3 py-1 text-xs hover:bg-card"
-        style={{ borderColor: 'var(--border)' }}
-      >
-        New chat
-      </button>
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={onSeedChat}
+          className="rounded border px-3 py-1 text-xs hover:bg-card"
+          style={{ borderColor: 'var(--border)' }}
+        >
+          New chat
+        </button>
+        <button
+          type="button"
+          onClick={onSeedTerminal}
+          className="rounded border px-3 py-1 text-xs hover:bg-card"
+          style={{ borderColor: 'var(--border)' }}
+        >
+          New terminal
+        </button>
+      </div>
     </div>
   );
 }

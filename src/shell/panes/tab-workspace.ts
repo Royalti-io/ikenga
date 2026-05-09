@@ -1,16 +1,11 @@
 import { type PaneView } from '@/lib/panes/types';
 import { type IkengaWorkspace } from '@/lib/ikenga/theme-store';
 
-// Map a route prefix to its workspace tint. Order matters — check longest
-// prefixes first when paths nest.
+// Map a route prefix to its workspace tint. Post-strip, only shell-internal
+// routes are admitted to the union; pkg routes (`/pkg/...`) all roll up to
+// 'app'.
 const ROUTE_PREFIXES: Array<[string, IkengaWorkspace]> = [
-  ['/mail', 'mail'],
-  ['/outbox', 'outbox'],
-  ['/agent-runs', 'agents'],
-  ['/agents', 'agents'],
-  ['/claude', 'agents'],
   ['/sessions', 'sessions'],
-  ['/cron', 'sessions'],
   ['/settings', 'settings'],
   ['/files', 'files'],
 ];
@@ -29,7 +24,5 @@ export function viewWorkspace(view: PaneView): IkengaWorkspace {
       return 'sessions';
     case 'artifact':
       return 'files';
-    case 'mini-app':
-      return 'studio';
   }
 }

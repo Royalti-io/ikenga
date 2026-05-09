@@ -4,7 +4,9 @@
 //! cron expression (sec min hour day month dow — tokio-cron-scheduler's
 //! native shape). `handler` reuses the same parser as the iyke routes
 //! registry today: `event:<name>` emits a Tauri event named `pkg://<name>`,
-//! `sidecar:<name> <sub>` is declared but not yet wired (returns a warning).
+//! `sidecar:<name> <sub>` resolves the named sidecar via the
+//! [`SidecarsRegistry`], spawns it with the given subcommand, and emits a
+//! `pkg://cron/<pkg_id>/<cron_id>/result` event with captured stdout/stderr.
 //!
 //! Job-key shape: `<pkg_id>::<cron_id>`. We keep a `pkg_id → [(cron_id,
 //! Uuid)]` map so uninstall can remove the right scheduler entries without
@@ -12,16 +14,26 @@
 //! register so packages with no cron entries don't pay the startup cost.
 
 use std::collections::HashMap;
-use std::sync::RwLock;
+use std::path::PathBuf;
+use std::process::Stdio;
+use std::sync::{Arc, RwLock};
+use std::time::Instant;
 
 use anyhow::{anyhow, Result};
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter};
+use tokio::process::Command;
 use tokio_cron_scheduler::{Job, JobScheduler};
 use uuid::Uuid;
 
 use crate::pkg::manifest::Package;
+use crate::pkg::registries::SidecarsRegistry;
 use crate::pkg::registry::Registry;
+
+/// Hard cap on cron-fired sidecar runs. Pollers/sends are quick; if a job
+/// blows past 10 minutes something is wrong and we'd rather kill it than
+/// stack overlapping schedules.
+const CRON_SIDECAR_TIMEOUT_SECS: u64 = 600;
 
 /// One scheduled job, surfaced in the kernel snapshot. `job_uuid` is the
 /// scheduler-internal id we use on remove.
@@ -36,6 +48,10 @@ struct CronJob {
 
 pub struct CronRegistry {
     app: AppHandle,
+    /// Resolved at fire time so `sidecar:<name> <sub>` handlers can find
+    /// their binary by name. Held as Arc so multiple closures share one
+    /// registry without per-job clones of the index itself.
+    sidecars: Arc<SidecarsRegistry>,
     /// `JobScheduler` is async; lazy-init under a tokio Mutex so multiple
     /// registers don't race the first construction.
     sched: tokio::sync::Mutex<Option<JobScheduler>>,
@@ -43,9 +59,10 @@ pub struct CronRegistry {
 }
 
 impl CronRegistry {
-    pub fn new(app: AppHandle) -> Self {
+    pub fn new(app: AppHandle, sidecars: Arc<SidecarsRegistry>) -> Self {
         Self {
             app,
+            sidecars,
             sched: tokio::sync::Mutex::new(None),
             jobs: RwLock::new(HashMap::new()),
         }
@@ -123,7 +140,9 @@ impl Registry for CronRegistry {
         }
 
         let pkg_id = pkg.manifest.id.clone();
+        let install_path = pkg.install_path.clone();
         let app = self.app.clone();
+        let sidecars = self.sidecars.clone();
         let mut new_jobs: Vec<CronJob> = Vec::new();
 
         // Scheduler ops are async; do them all in one block_on.
@@ -151,10 +170,36 @@ impl Registry for CronRegistry {
                     })
                     .map_err(|e| anyhow!("build cron job `{cron_id}` (`{expr}`): {e}"))?,
                     HandlerSpec::Sidecar { name, subcommand } => {
-                        log::warn!(
-                            "[pkg.cron] sidecar handler not yet wired — skipping `{name} {subcommand}` for `{pkg_inner}::{cron_id}`"
-                        );
-                        continue;
+                        // Capture once, clone per fire — the closure has to be
+                        // FnMut + Send, so all captured state must be owned
+                        // and Send-safe.
+                        let sidecars_for_job = sidecars.clone();
+                        let install_path_for_job = install_path.clone();
+                        Job::new(expr.as_str(), move |_uuid, _l| {
+                            let app2 = app_inner.clone();
+                            let pkg2 = pkg_inner.clone();
+                            let cron2 = cron_inner.clone();
+                            let name2 = name.clone();
+                            let sub2 = subcommand.clone();
+                            let sidecars2 = sidecars_for_job.clone();
+                            let install_path2 = install_path_for_job.clone();
+                            // tokio-cron-scheduler hands us a sync closure;
+                            // do the spawn-and-wait work on the runtime so
+                            // it doesn't block scheduler ticks.
+                            tauri::async_runtime::spawn(async move {
+                                run_sidecar_cron(
+                                    app2,
+                                    pkg2,
+                                    cron2,
+                                    name2,
+                                    sub2,
+                                    sidecars2,
+                                    install_path2,
+                                )
+                                .await;
+                            });
+                        })
+                        .map_err(|e| anyhow!("build cron job `{cron_id}` (`{expr}`): {e}"))?
                     }
                 };
                 let job_uuid = sched
@@ -235,6 +280,143 @@ impl Registry for CronRegistry {
             })
             .collect();
         json!({ "count": entries.len(), "entries": entries })
+    }
+}
+
+/// Cron-fired sidecar runner. Resolves the binary, spawns it with the
+/// declared subcommand, captures stdout/stderr/exit, emits a result event,
+/// and logs. Best-effort throughout — failures are reported via the event +
+/// log; we never panic the scheduler thread.
+///
+/// Event shape: `pkg://cron/<pkg_id>/<cron_id>/result` with payload
+/// `{ pkg_id, cron_id, sidecar_name, subcommand, ok, exit_code, stdout,
+///   stderr, duration_ms, timed_out }`. Pkg iframes / observability UI
+/// can subscribe to a wildcard.
+#[allow(clippy::too_many_arguments)]
+async fn run_sidecar_cron(
+    app: AppHandle,
+    pkg_id: String,
+    cron_id: String,
+    sidecar_name: String,
+    subcommand: String,
+    sidecars: Arc<SidecarsRegistry>,
+    install_path: PathBuf,
+) {
+    let started = Instant::now();
+    let event = format!("pkg://cron/{pkg_id}/{cron_id}/result");
+
+    let entry = match sidecars.resolve(&sidecar_name) {
+        Some(e) => e,
+        None => {
+            let msg = format!(
+                "sidecar `{sidecar_name}` not registered (pkg `{pkg_id}` may not be installed)"
+            );
+            log::warn!("[pkg.cron] {msg}");
+            let _ = app.emit(
+                &event,
+                json!({
+                    "pkg_id": pkg_id,
+                    "cron_id": cron_id,
+                    "sidecar_name": sidecar_name,
+                    "subcommand": subcommand,
+                    "ok": false,
+                    "error": msg,
+                    "duration_ms": started.elapsed().as_millis() as u64,
+                    "timed_out": false,
+                }),
+            );
+            return;
+        }
+    };
+
+    if entry.pkg_id != pkg_id {
+        // Defense in depth: SidecarsRegistry already prevents cross-pkg
+        // collisions at register time. If we got here, something is very
+        // wrong — surface it loudly and bail.
+        log::error!(
+            "[pkg.cron] sidecar `{sidecar_name}` resolves to `{}` but cron belongs to `{pkg_id}` — refusing to run",
+            entry.pkg_id
+        );
+        return;
+    }
+
+    log::info!(
+        "[pkg.cron] firing `{pkg_id}::{cron_id}` → {} {subcommand}",
+        entry.bin_path.display()
+    );
+
+    let mut cmd = Command::new(&entry.bin_path);
+    cmd.arg(&subcommand);
+    cmd.current_dir(&install_path);
+    cmd.stdin(Stdio::null());
+    cmd.stdout(Stdio::piped());
+    cmd.stderr(Stdio::piped());
+    cmd.kill_on_drop(true);
+
+    let timeout = std::time::Duration::from_secs(CRON_SIDECAR_TIMEOUT_SECS);
+    let child = match cmd.spawn() {
+        Ok(c) => c,
+        Err(e) => {
+            let msg = format!("spawn `{}`: {e}", entry.bin_path.display());
+            log::warn!("[pkg.cron] {msg}");
+            let _ = app.emit(
+                &event,
+                json!({
+                    "pkg_id": pkg_id,
+                    "cron_id": cron_id,
+                    "sidecar_name": sidecar_name,
+                    "subcommand": subcommand,
+                    "ok": false,
+                    "error": msg,
+                    "duration_ms": started.elapsed().as_millis() as u64,
+                    "timed_out": false,
+                }),
+            );
+            return;
+        }
+    };
+
+    let (output, timed_out) = match tokio::time::timeout(timeout, child.wait_with_output()).await {
+        Ok(Ok(out)) => (Some(out), false),
+        Ok(Err(e)) => {
+            log::warn!("[pkg.cron] wait `{pkg_id}::{cron_id}`: {e}");
+            (None, false)
+        }
+        Err(_) => {
+            log::warn!(
+                "[pkg.cron] `{pkg_id}::{cron_id}` timed out after {}s",
+                timeout.as_secs()
+            );
+            (None, true)
+        }
+    };
+
+    let payload = match output {
+        Some(out) => json!({
+            "pkg_id": pkg_id,
+            "cron_id": cron_id,
+            "sidecar_name": sidecar_name,
+            "subcommand": subcommand,
+            "ok": out.status.success(),
+            "exit_code": out.status.code(),
+            "stdout": String::from_utf8_lossy(&out.stdout).into_owned(),
+            "stderr": String::from_utf8_lossy(&out.stderr).into_owned(),
+            "duration_ms": started.elapsed().as_millis() as u64,
+            "timed_out": false,
+        }),
+        None => json!({
+            "pkg_id": pkg_id,
+            "cron_id": cron_id,
+            "sidecar_name": sidecar_name,
+            "subcommand": subcommand,
+            "ok": false,
+            "error": if timed_out { "timed out" } else { "wait failed" },
+            "duration_ms": started.elapsed().as_millis() as u64,
+            "timed_out": timed_out,
+        }),
+    };
+    if let Err(e) = app.emit(&event, payload) {
+        log::warn!("[pkg.cron] emit `{event}` failed: {e}");
     }
 }
 

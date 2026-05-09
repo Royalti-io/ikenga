@@ -1,31 +1,23 @@
+// Default sidebar entries for App mode. These are shell-internal surfaces
+// only — app pkgs contribute their own nav via the UiRoutesRegistry and
+// declarative `ui.nav` blocks in their manifests, surfaced by the kernel
+// snapshot. The pkg-aware sidebar is rendered alongside this list inside
+// AppMode so users can launch installed pkgs without needing a custom
+// per-pkg rail icon.
+
 import {
   Home,
-  Inbox,
-  Filter,
-  CheckSquare,
-  Mail,
-  MailCheck,
-  Calendar as CalendarIcon,
-  Briefcase,
-  Target,
-  Users,
-  Handshake,
-  Landmark,
-  Wallet,
-  Lightbulb,
-  FileText,
-  Share2,
-  Newspaper,
-  Send,
-  ListOrdered,
-  CheckCircle2,
+  Package,
+  PackagePlus,
+  Bot,
   Terminal as TerminalIcon,
+  Settings as SettingsIcon,
 } from 'lucide-react';
 
 export interface NavItem {
   to: string;
   label: string;
-  Icon: typeof Inbox;
+  Icon: typeof Home;
 }
 export interface NavGroup {
   label: string | null;
@@ -36,47 +28,21 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: null,
     items: [
-      { to: '/', label: 'Dashboard', Icon: Home },
       { to: '/sessions', label: 'Sessions', Icon: TerminalIcon },
-      { to: '/pkg/com.ikenga.email/mail/inbox', label: 'Inbox', Icon: Inbox },
+      { to: '/claude', label: 'Claude', Icon: Bot },
     ],
   },
   {
-    label: 'Daily Ops',
+    label: 'Packages',
     items: [
-      { to: '/pkg/com.ikenga.email/mail/triage', label: 'Triage', Icon: Filter },
-      { to: '/pkg/com.ikenga.tasks/', label: 'Tasks', Icon: CheckSquare },
-      { to: '/pkg/com.ikenga.email/mail/all', label: 'Emails', Icon: Mail },
-      { to: '/pkg/com.ikenga.email/mail/drafts', label: 'Reply Drafts', Icon: MailCheck },
-      { to: '/calendar', label: 'Calendar', Icon: CalendarIcon },
+      { to: '/packages', label: 'Installed', Icon: Package },
+      { to: '/install', label: 'Install', Icon: PackagePlus },
     ],
   },
   {
-    label: 'Pipeline',
+    label: 'Workspace',
     items: [
-      { to: '/pkg/com.ikenga.product/strategy', label: 'Strategy', Icon: Target },
-      { to: '/pkg/com.ikenga.gtm/sales', label: 'Sales', Icon: Users },
-      { to: '/pkg/com.ikenga.gtm/partnerships', label: 'Partnerships', Icon: Handshake },
-      { to: '/pkg/com.ikenga.gtm/fundraising', label: 'Fundraising', Icon: Landmark },
-      { to: '/pkg/com.ikenga.finance/finance', label: 'Finance', Icon: Wallet },
-    ],
-  },
-  {
-    label: 'Outbox',
-    items: [
-      { to: '/pkg/com.ikenga.email/outbox/email', label: 'Email', Icon: Send },
-      { to: '/pkg/com.ikenga.email/outbox/newsletter', label: 'Newsletter', Icon: Newspaper },
-      { to: '/pkg/com.ikenga.email/outbox/social', label: 'Social', Icon: Share2 },
-      { to: '/pkg/com.ikenga.email/outbox/sequences', label: 'Sequences', Icon: ListOrdered },
-      { to: '/pkg/com.ikenga.email/outbox/sent', label: 'Sent', Icon: CheckCircle2 },
-    ],
-  },
-  {
-    label: 'Product',
-    items: [
-      { to: '/pkg/com.ikenga.exec/executive', label: 'Executive', Icon: Briefcase },
-      { to: '/pkg/com.ikenga.product/features', label: 'Features', Icon: Lightbulb },
-      { to: '/pkg/com.ikenga.email/content', label: 'Content', Icon: FileText },
+      { to: '/settings/appearance', label: 'Settings', Icon: SettingsIcon },
     ],
   },
 ];

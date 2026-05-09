@@ -25,17 +25,11 @@ export type IkengaDensity = 'compact' | 'comfortable' | 'spacious';
 /** How aggressive the workspace tint reads on chrome. */
 export type IkengaTintStrength = 'off' | 'subtle' | 'strong';
 
-/** First-class workspaces (design/system §1). Activity-bar modes roll up
- *  here, with mini-apps that lack their own tint cascading to 'studio'. */
-export type IkengaWorkspace =
-  | 'app'
-  | 'mail'
-  | 'outbox'
-  | 'studio'
-  | 'agents'
-  | 'files'
-  | 'sessions'
-  | 'settings';
+/** First-class workspaces post-strip. Old tints (mail/outbox/studio/
+ *  agents) stay as dormant CSS variables in the design tokens for any
+ *  pkg that wants to opt into them, but the type union doesn't carry
+ *  them anymore. */
+export type IkengaWorkspace = 'app' | 'files' | 'sessions' | 'settings';
 
 interface IkengaState {
   theme: IkengaTheme;
