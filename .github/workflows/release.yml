@@ -157,6 +157,21 @@ jobs:
         with:
           bun-version: latest
 
+      # pnpm handles workspace:* resolution at the workspace root (matches
+      # the local dev pattern — `pnpm install` at root, `bun run` from shell).
+      # Without this step, bun install from shell/ doesn't walk up to find
+      # the workspace and errors with "@ikenga/contract not found".
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+          run_install: false
+
+      - name: Set up Node (for pnpm)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
       # Linux runner needs WebKit + GTK headers. macOS / Windows runners
       # ship the platform SDKs by default.
       - name: Install Linux build deps
@@ -171,14 +186,17 @@ jobs:
             libssl-dev \
             patchelf
 
-      # ── Frontend build ─────────────────────────────────────────────────────
-      # Bun reads the synthesized pnpm-workspace.yaml at the workspace root
-      # and symlinks @ikenga/* siblings into shell/node_modules/@ikenga/.
-      # Same code path as `bun install` from shell/ on a developer machine.
-      - name: bun install (shell + workspace deps)
+      # ── Frontend deps ──────────────────────────────────────────────────────
+      # pnpm at workspace root creates the shell/node_modules/@ikenga/*
+      # symlinks for the four sibling repos. Mirrors the local dev flow
+      # (developer runs `pnpm install` at root, then `bun run X` from
+      # shell/). --no-frozen-lockfile because the synthesized workspace
+      # in CI is a subset of the local pnpm-lock.yaml's importers (we
+      # don't clone cli/registry/cc-config — they're not part of the
+      # shell build path).
+      - name: pnpm install (workspace root)
         shell: bash
-        working-directory: shell
-        run: bun install
+        run: pnpm install --no-frozen-lockfile
 
       - name: Build iyke MCP binary
         shell: bash
