@@ -202,9 +202,6 @@ pub fn run() {
             }
             register_screenshot_shortcuts(app.handle());
 
-            #[cfg(target_os = "macos")]
-            apply_mac_vibrancy(app.handle());
-
             // Iyke (Phase 11): localhost control bridge. Boot synchronously so
             // the server is ready by the time the webview asks for its
             // endpoint via `iyke_endpoint`. block_on is safe here — setup
@@ -586,20 +583,6 @@ fn register_screenshot_shortcuts(app: &tauri::AppHandle) {
         if let Err(e) = app.global_shortcut().register(sc) {
             log::warn!("{label} shortcut not registered (continuing): {e}");
         }
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn apply_mac_vibrancy(app: &tauri::AppHandle) {
-    use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectState};
-    if let Some(window) = app.get_webview_window("main") {
-        // HudWindow blends well with our dark theme; failure is non-fatal.
-        let _ = apply_vibrancy(
-            &window,
-            NSVisualEffectMaterial::HudWindow,
-            Some(NSVisualEffectState::Active),
-            None,
-        );
     }
 }
 

@@ -1,42 +1,25 @@
-//! Desktop / OS-integration commands. cfg-gated bodies — Linux call sites
-//! are no-ops, Mac uses AppKit via objc2.
+//! Desktop / OS-integration commands. cfg-gated bodies — currently a no-op
+//! across all platforms.
 //!
-//! Mac code paths are unverified-on-Linux-session per Phase 8 spec; verify on
-//! next-Mac-boot. The objc2 calls follow the standard NSApp.dockTile API.
+//! The macOS dock-tile-badge code (NSApp.dockTile via objc2) was removed
+//! when the strip-down hit Mac CI: the resolved objc2 v0.5 doesn't export
+//! `MainThreadMarker` at the path the code expected, and the feature was
+//! never functionally verified on a Mac anyway (per the prior README
+//! caveat). Re-introduce when there's a Mac dev session to validate
+//! against — pin objc2 to a known-working version then.
 
 use serde::Serialize;
 use tauri::{AppHandle, Manager};
 
 /// Set the macOS dock-tile badge. `label = None` clears it.
 ///
-/// On Linux this is a no-op. Frontend may call unconditionally with the
-/// unread inbox count.
+/// Currently a no-op on every platform (see module doc). Kept as a Tauri
+/// command so the frontend's unconditional `setDockBadge(unreadCount)`
+/// call still resolves cleanly — re-implement the body when Mac support
+/// is verified.
 #[tauri::command]
 pub fn set_dock_badge(_app: AppHandle, label: Option<String>) -> Result<(), String> {
-    #[cfg(target_os = "macos")]
-    {
-        let label = label;
-        _app.run_on_main_thread(move || {
-            use objc2::rc::autoreleasepool;
-            use objc2::MainThreadMarker;
-            use objc2_app_kit::NSApplication;
-            use objc2_foundation::NSString;
-
-            autoreleasepool(|_| {
-                // Safe: we're on the main thread inside run_on_main_thread.
-                let mtm = unsafe { MainThreadMarker::new_unchecked() };
-                let app = NSApplication::sharedApplication(mtm);
-                let tile = unsafe { app.dockTile() };
-                let ns = label.as_deref().map(NSString::from_str);
-                unsafe { tile.setBadgeLabel(ns.as_deref()) };
-            });
-        })
-        .map_err(|e| format!("dock badge dispatch: {e}"))?;
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = label;
-    }
+    let _ = label;
     Ok(())
 }
 
