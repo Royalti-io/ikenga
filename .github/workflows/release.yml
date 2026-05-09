@@ -44,59 +44,49 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # Surface which matrix legs to skip based on the dispatch input. For
-  # tag-triggered runs the input is unset and `selected` defaults to
-  # 'all', so every matrix leg runs. For manual dispatch the user can
-  # narrow to a single platform (saves ~10–15 min when iterating on the
-  # workflow itself).
+  # Build the matrix dynamically based on the dispatch input. GitHub
+  # Actions doesn't expose `matrix.*` to job-level `if:` conditions, so
+  # we can't filter legs after the fact — instead we synthesize the
+  # JSON matrix here and feed it into the build job's
+  # `strategy.matrix.include`. Tag-triggered runs default to `all` and
+  # produce the full 4-leg matrix; manual dispatch narrows it.
   plan:
     runs-on: ubuntu-latest
     outputs:
-      selected: ${{ steps.set.outputs.selected }}
+      matrix: ${{ steps.set.outputs.matrix }}
     steps:
       - id: set
+        shell: bash
         run: |
           input='${{ github.event.inputs.platforms }}'
           if [ -z "$input" ]; then input=all; fi
-          echo "selected=$input" >> "$GITHUB_OUTPUT"
-          echo "Building platform set: $input"
+          echo "Selected platform set: $input"
+
+          mac_arm='{"platform":"macos-latest","target":"aarch64-apple-darwin","arch_label":"macos-arm64"}'
+          mac_x64='{"platform":"macos-latest","target":"x86_64-apple-darwin","arch_label":"macos-x64"}'
+          windows='{"platform":"windows-latest","target":"x86_64-pc-windows-msvc","arch_label":"windows-x64"}'
+          linux='{"platform":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","arch_label":"linux-x64"}'
+
+          case "$input" in
+            all)            include="[$mac_arm,$mac_x64,$windows,$linux]" ;;
+            linux-only)     include="[$linux]" ;;
+            mac-arm-only)   include="[$mac_arm]" ;;
+            mac-x64-only)   include="[$mac_x64]" ;;
+            mac-only)       include="[$mac_arm,$mac_x64]" ;;
+            windows-only)   include="[$windows]" ;;
+            *) echo "::error::unknown platforms input: $input"; exit 1 ;;
+          esac
+
+          echo "matrix={\"include\":$include}" >> "$GITHUB_OUTPUT"
 
   build:
     needs: plan
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - platform: macos-latest
-            target: aarch64-apple-darwin
-            arch_label: macos-arm64
-            tag: mac-arm
-          - platform: macos-latest
-            target: x86_64-apple-darwin
-            arch_label: macos-x64
-            tag: mac-x64
-          - platform: windows-latest
-            target: x86_64-pc-windows-msvc
-            arch_label: windows-x64
-            tag: windows
-          - platform: ubuntu-22.04
-            target: x86_64-unknown-linux-gnu
-            arch_label: linux-x64
-            tag: linux
+      matrix: ${{ fromJson(needs.plan.outputs.matrix) }}
 
     runs-on: ${{ matrix.platform }}
     timeout-minutes: 60
-
-    # Skip matrix legs the user didn't ask for. Each tag is matched
-    # against the input filter; tag-triggered runs see `all` and skip
-    # nothing.
-    if: |
-      needs.plan.outputs.selected == 'all' ||
-      (needs.plan.outputs.selected == 'linux-only' && matrix.tag == 'linux') ||
-      (needs.plan.outputs.selected == 'mac-arm-only' && matrix.tag == 'mac-arm') ||
-      (needs.plan.outputs.selected == 'mac-x64-only' && matrix.tag == 'mac-x64') ||
-      (needs.plan.outputs.selected == 'mac-only' && (matrix.tag == 'mac-arm' || matrix.tag == 'mac-x64')) ||
-      (needs.plan.outputs.selected == 'windows-only' && matrix.tag == 'windows')
 
     steps:
       # ── Checkout shell + sibling workspace repos ────────────────────────────
