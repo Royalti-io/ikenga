@@ -231,6 +231,27 @@ jobs:
             pnpm -F "$pkg" build
           done
 
+      # Materialize the engine adapter dist/ inside shell's resources tree.
+      # Locally these are git-tracked symlinks that point at
+      # pkgs/<engine>/dist; Windows runners don't preserve symlinks
+      # reliably (even with core.symlinks=true, actions/checkout creates
+      # file-symlinks rather than directory-junctions). On every CI host
+      # we replace the symlink with a real copy of the freshly-built
+      # dist so Tauri's resource scan finds the files.
+      - name: Materialize engine dist into shell resources
+        shell: bash
+        run: |
+          for engine in engine-claude-code engine-noop; do
+            src="pkgs/${engine}/dist"
+            dest="shell/src-tauri/resources/builtin-pkgs/com.ikenga.${engine}/dist"
+            echo "==> $src → $dest"
+            rm -rf "$dest"
+            mkdir -p "$(dirname "$dest")"
+            cp -r "$src" "$dest"
+          done
+          ls shell/src-tauri/resources/builtin-pkgs/com.ikenga.engine-claude-code/dist
+          ls shell/src-tauri/resources/builtin-pkgs/com.ikenga.engine-noop/dist
+
       - name: Build iyke MCP binary
         shell: bash
         working-directory: shell
