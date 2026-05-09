@@ -198,6 +198,21 @@ jobs:
         shell: bash
         run: pnpm install --no-frozen-lockfile
 
+      # Build the workspace siblings' dist/ output. Each pkg gitignores its
+      # dist (proper convention), and the shell references them through
+      # symlinks under src-tauri/resources/builtin-pkgs/, plus type-import
+      # via the @ikenga/* package mains that point at ./dist. Without this
+      # step the Tauri build fails with:
+      #   resource path `…/builtin-pkgs/com.ikenga.engine-claude-code/dist`
+      #   doesn't exist
+      - name: Build workspace siblings (contract, tokens, engine-claude-code)
+        shell: bash
+        run: |
+          for pkg in '@ikenga/contract' '@ikenga/tokens' '@ikenga/pkg-engine-claude-code'; do
+            echo "==> pnpm -F $pkg build"
+            pnpm -F "$pkg" build
+          done
+
       - name: Build iyke MCP binary
         shell: bash
         working-directory: shell
