@@ -90,6 +90,17 @@ jobs:
 
     steps:
       # ── Checkout shell + sibling workspace repos ────────────────────────────
+      # Windows runners have core.symlinks=false by default; the shell repo
+      # contains a symlink at src-tauri/resources/builtin-pkgs/com.ikenga.
+      # engine-{claude-code,noop}/dist → ../../../../../pkgs/<pkg>/dist.
+      # Without this flip, checkout writes the symlink as a regular file
+      # containing the target path string, and Tauri's resource scan then
+      # fails with "resource path … doesn't exist".
+      - name: Enable git symlinks (Windows runner)
+        if: matrix.target == 'x86_64-pc-windows-msvc'
+        shell: bash
+        run: git config --global core.symlinks true
+
       - name: Checkout shell
         uses: actions/checkout@v4
         with:
