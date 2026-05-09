@@ -220,8 +220,6 @@ function viewLabelShort(view: PaneView): string {
       return `Chat · ${view.sessionId.slice(0, 8)}`;
     case 'artifact':
       return `Artifact ${view.path}`;
-    case 'mini-app':
-      return `Mini-app · ${view.name}`;
   }
 }
 
@@ -273,8 +271,6 @@ function iconForView(view: PaneView): typeof Inbox {
       return MessageSquare;
     case 'artifact':
       return FolderOpen;
-    case 'mini-app':
-      return Plus;
   }
 }
 

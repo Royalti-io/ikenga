@@ -13,7 +13,6 @@ import { useIykeControlListener } from '@/lib/iyke/control-listener';
 import { useIykeShellSync } from '@/lib/iyke/use-iyke-shell-sync';
 import { useScreenshotListener } from '@/lib/use-screenshot-listener';
 import { usePreloadViewers } from '@/lib/use-preload-viewers';
-import { useMboxSyncScheduler } from '@/lib/mbox/use-mbox-sync';
 import { dumpBootTimings, mark } from '@/lib/boot-timing';
 import { usePaneStore } from '@/lib/panes/pane-store';
 import { loadPaneTree, persistPaneTree } from '@/lib/panes/pane-persistence';
@@ -54,10 +53,8 @@ export function Workspace() {
   // Warm the lazy artifact viewer chunks during idle so the first
   // PDF/XLSX/code file open isn't a cold fetch.
   usePreloadViewers();
-  // Background mbox poller: 30-min interval, replaces ikenga's
-  // external 4-hour cron. Must mount at workspace level only — a per-pane
-  // mount would install duplicate intervals.
-  useMboxSyncScheduler();
+  // Note: the mbox sync scheduler that used to live here moved into the
+  // com.ikenga.email pkg's manifest cron when the strip-down landed.
 
   // Boot-timing checkpoint (see src/lib/boot-timing.ts). Fires once per
   // process — the marks are no-ops on warm reloads.

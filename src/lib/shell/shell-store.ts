@@ -1,24 +1,12 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
-// Ikenga locks 7 first-class workspaces + Settings (design/system/tokens.md §1).
-// Mail / Outbox / Studio promoted from sub-routes / mini-apps to cores.
-export type CoreMode =
-  | 'app'
-  | 'mail'
-  | 'outbox'
-  | 'studio'
-  | 'agents'
-  | 'files'
-  | 'sessions'
-  | 'settings';
-export type MiniAppMode =
-  | 'storyboard'
-  | 'video-engine'
-  | 'hyperframes'
-  | 'canvas-design'
-  | 'image-generator';
-export type ActivityMode = CoreMode | MiniAppMode;
+// Post-strip: only 4 first-class workspaces. Mail / Outbox / Studio /
+// Agents were app-pkg surfaces and got removed with the strip-down.
+// Mini-apps are gone too — they were placeholders for media tooling
+// that lives in app pkgs now.
+export type CoreMode = 'app' | 'files' | 'sessions' | 'settings';
+export type ActivityMode = CoreMode;
 
 // Default file roots match the Tauri capability allowlist in
 // `src-tauri/capabilities/default.json`. Reads outside these paths fail
@@ -87,9 +75,25 @@ export const useShellStore = create<ShellState>()(
       setClaudeWatchEnabled: (claudeWatchEnabled) => set({ claudeWatchEnabled }),
     }),
     // Bump version when ActivityMode union or persisted shape changes.
-    // v5: mail/outbox/studio promoted to CoreMode. Stale persisted activeMode
-    //     values still map cleanly because the union widened, not narrowed.
+    // v5: mail/outbox/studio promoted to CoreMode (then v7 narrowed).
     // v6: added claudeProjectRoots / claudeWatchEnabled.
-    { name: 'shell-store', version: 6 },
+    // v7: strip-down — CoreMode narrowed to {app, files, sessions, settings};
+    //     migrate snaps any stale persisted activeMode (mail/outbox/studio/
+    //     agents/mini-app names) → 'app' so users coming from the legacy
+    //     shell don't crash on an invalid persisted union value.
+    {
+      name: 'shell-store',
+      version: 7,
+      migrate: (persisted, _version) => {
+        const p = (persisted ?? {}) as Partial<ShellState> & {
+          activeMode?: string;
+        };
+        const valid: ActivityMode[] = ['app', 'files', 'sessions', 'settings'];
+        if (p.activeMode && !valid.includes(p.activeMode as ActivityMode)) {
+          p.activeMode = 'app';
+        }
+        return p as ShellState;
+      },
+    },
   ),
 );

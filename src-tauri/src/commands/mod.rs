@@ -3,31 +3,25 @@
 //! in `src/lib/tauri-cmd.ts` mirror this, so later phases just fill in the
 //! Rust side.
 
-pub mod actions;
 pub mod backup;
-pub mod chat;
 pub mod claude;
 pub mod claude_config;
 pub mod db;
 pub mod desktop;
 pub mod fs;
 pub mod iyke;
-pub mod mbox;
 pub mod pkg;
 pub mod pkg_content;
 pub mod pkg_mcp;
+pub mod pkg_sidecar;
 pub mod pty;
-pub mod render;
 pub mod screenshot;
 pub mod secrets;
 pub mod spike;
-pub mod storyboard;
 pub mod supabase_config;
 pub mod viewer;
 
-pub use actions::pa_actions_run;
 pub use backup::{backup_delete, backup_export, backup_import, backup_list};
-pub use chat::{chat_cancel, chat_send};
 pub use claude::{
     claude_chat_kill, claude_chat_send, claude_chat_spawn, claude_list_sessions,
     claude_read_jsonl, claude_spawn_session, ClaudeManager, ClaudeManagerState,
@@ -36,7 +30,7 @@ pub use claude_config::{
     claude_config_load, claude_config_read_file, claude_config_unwatch, claude_config_watch,
 };
 pub use db::{db_exec, db_query};
-pub use desktop::set_dock_badge;
+pub use desktop::{iyke_mcp_info, set_dock_badge, IykeMcpInfo};
 pub use fs::{
     fs_exists, fs_list, fs_mime, fs_read, fs_rename, fs_trash, fs_unwatch, fs_watch, fs_write,
 };
@@ -44,7 +38,6 @@ pub use iyke::{
     iyke_dom_done, iyke_endpoint, iyke_log_push, iyke_network_push, iyke_query_cache_done,
     iyke_set_shell, iyke_wait_done, IykeRuntimeState,
 };
-pub use mbox::{mbox_ping, mbox_read_all};
 pub use pkg::{
     pkg_db_diag, pkg_discover_workspace, pkg_install_from_path, pkg_kernel_status,
     pkg_preview_manifest, pkg_set_enabled, pkg_settings_get, pkg_settings_set, pkg_uninstall,
@@ -56,8 +49,8 @@ pub use pkg_content::{
 pub use pkg_mcp::{
     dev_bind_port, dev_release_port, pkg_mcp_call, pkg_supervisor_restart, SidecarSupervisorState,
 };
+pub use pkg_sidecar::{pkg_sidecar_call, SidecarsRegistryState};
 pub use pty::{pty_kill, pty_resize, pty_spawn, pty_write};
-pub use render::{render_cancel, render_composition, JobManagerState};
 pub use screenshot::{
     screenshot_capture_done, screenshot_capture_failed, screenshot_get_config, screenshot_pane,
     screenshot_set_dir, screenshot_window, ScreenshotConfigState, ScreenshotConfigStateRef,
@@ -68,11 +61,6 @@ pub use secrets::{
     secrets_vault_status, SecretsLock,
 };
 pub use spike::{spike_grant_fs_read, spike_setup_test_file};
-pub use storyboard::{
-    storyboard_export_json, storyboard_import_json, storyboard_list_concepts,
-    storyboard_promote_rung, storyboard_render_still, StoryboardJobManager,
-    StoryboardJobManagerState,
-};
 pub use supabase_config::{supabase_config_clear, supabase_config_get, supabase_config_set};
 pub use viewer::{viewer_port, viewer_serve, viewer_stop};
 

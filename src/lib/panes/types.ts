@@ -1,18 +1,13 @@
 export type PaneId = string;
 
-export type MiniAppName =
-  | 'storyboard'
-  | 'video-engine'
-  | 'hyperframes'
-  | 'canvas-design'
-  | 'image-generator';
-
+// Pane view kinds. `mini-app` was removed in the strip-down — media tooling
+// (storyboard/video-engine/hyperframes/canvas/image-generator) now lives in
+// app pkgs that mount via /pkg/$pkgId/* routes.
 export type PaneView = (
   | { kind: 'route'; path: string }
   | { kind: 'terminal'; sessionId: string }
   | { kind: 'chat'; sessionId: string }
   | { kind: 'artifact'; path: string }
-  | { kind: 'mini-app'; name: MiniAppName }
 ) & { pinned?: boolean };
 
 export type PaneDirection = 'horizontal' | 'vertical';

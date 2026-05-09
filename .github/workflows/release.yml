@@ -1,0 +1,265 @@
+name: Release
+
+# Builds installers for macOS (ARM + Intel), Windows (x64), and Linux (x64)
+# in parallel on each platform's native runner. Triggered by tag push (v*)
+# or manual dispatch. Tag-triggered runs publish to a GitHub Release;
+# dispatch runs upload artifacts only.
+#
+# Workspace deps (`@ikenga/contract`, `@ikenga/tokens`, `@ikenga/pkg-
+# engine-claude-code`, the iyke MCP source) are sibling GitHub repos
+# under royalti-io/. Each runner clones them into the right sibling
+# directory and a synthesized `pnpm-workspace.yaml` lets bun resolve
+# `workspace:*` references — bun walks up from shell/ and reads the
+# pnpm-workspace.yaml the same way the local dev setup does.
+#
+# Setup before first run:
+#   1. Create a fine-grained PAT with read access to:
+#        royalti-io/ikenga-contract
+#        royalti-io/ikenga-tokens
+#        royalti-io/ikenga-pkg-engine-claude-code
+#        royalti-io/ikenga-pkg-mcp-iyke
+#      Add as `WORKSPACE_DEPS_PAT` secret on royalti-io/ikenga.
+#      (Skip if all four repos are public — the default GITHUB_TOKEN suffices.)
+#   2. Push a tag matching `v*` (e.g. `git tag v0.0.1 && git push origin v0.0.1`).
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      platforms:
+        description: 'Which platforms to build (comma-separated; default = all)'
+        type: choice
+        options:
+          - all
+          - linux-only
+          - mac-arm-only
+          - mac-x64-only
+          - mac-only
+          - windows-only
+        default: all
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Surface which matrix legs to skip based on the dispatch input. For
+  # tag-triggered runs the input is unset and `selected` defaults to
+  # 'all', so every matrix leg runs. For manual dispatch the user can
+  # narrow to a single platform (saves ~10–15 min when iterating on the
+  # workflow itself).
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      selected: ${{ steps.set.outputs.selected }}
+    steps:
+      - id: set
+        run: |
+          input='${{ github.event.inputs.platforms }}'
+          if [ -z "$input" ]; then input=all; fi
+          echo "selected=$input" >> "$GITHUB_OUTPUT"
+          echo "Building platform set: $input"
+
+  build:
+    needs: plan
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            target: aarch64-apple-darwin
+            arch_label: macos-arm64
+            tag: mac-arm
+          - platform: macos-latest
+            target: x86_64-apple-darwin
+            arch_label: macos-x64
+            tag: mac-x64
+          - platform: windows-latest
+            target: x86_64-pc-windows-msvc
+            arch_label: windows-x64
+            tag: windows
+          - platform: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            arch_label: linux-x64
+            tag: linux
+
+    runs-on: ${{ matrix.platform }}
+    timeout-minutes: 60
+
+    # Skip matrix legs the user didn't ask for. Each tag is matched
+    # against the input filter; tag-triggered runs see `all` and skip
+    # nothing.
+    if: |
+      needs.plan.outputs.selected == 'all' ||
+      (needs.plan.outputs.selected == 'linux-only' && matrix.tag == 'linux') ||
+      (needs.plan.outputs.selected == 'mac-arm-only' && matrix.tag == 'mac-arm') ||
+      (needs.plan.outputs.selected == 'mac-x64-only' && matrix.tag == 'mac-x64') ||
+      (needs.plan.outputs.selected == 'mac-only' && (matrix.tag == 'mac-arm' || matrix.tag == 'mac-x64')) ||
+      (needs.plan.outputs.selected == 'windows-only' && matrix.tag == 'windows')
+
+    steps:
+      # ── Checkout shell + sibling workspace repos ────────────────────────────
+      - name: Checkout shell
+        uses: actions/checkout@v4
+        with:
+          path: shell
+
+      - name: Checkout @ikenga/contract
+        uses: actions/checkout@v4
+        with:
+          repository: royalti-io/ikenga-contract
+          path: contract
+          token: ${{ secrets.WORKSPACE_DEPS_PAT || secrets.GITHUB_TOKEN }}
+
+      - name: Checkout @ikenga/tokens
+        uses: actions/checkout@v4
+        with:
+          repository: royalti-io/ikenga-tokens
+          path: tokens
+          token: ${{ secrets.WORKSPACE_DEPS_PAT || secrets.GITHUB_TOKEN }}
+
+      - name: Checkout @ikenga/pkg-engine-claude-code
+        uses: actions/checkout@v4
+        with:
+          repository: royalti-io/ikenga-pkg-engine-claude-code
+          path: pkgs/engine-claude-code
+          token: ${{ secrets.WORKSPACE_DEPS_PAT || secrets.GITHUB_TOKEN }}
+
+      - name: Checkout iyke MCP source
+        uses: actions/checkout@v4
+        with:
+          repository: royalti-io/ikenga-pkg-mcp-iyke
+          path: pkgs/mcp-iyke
+          token: ${{ secrets.WORKSPACE_DEPS_PAT || secrets.GITHUB_TOKEN }}
+
+      # Synthesize the workspace root so `workspace:*` resolves the same way
+      # it does on a developer machine. The shell's `iyke:mcp:build` script
+      # references `../pkgs/mcp-iyke` relative to shell/ — sibling layout
+      # below matches that contract.
+      - name: Synthesize workspace
+        shell: bash
+        run: |
+          cat > pnpm-workspace.yaml <<'EOF'
+          packages:
+            - shell
+            - contract
+            - tokens
+            - pkgs/*
+          EOF
+          echo "Workspace layout:"
+          ls -la
+
+      # ── Toolchains ─────────────────────────────────────────────────────────
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: shell/src-tauri -> target
+          key: ${{ matrix.target }}
+
+      - name: Install bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      # Linux runner needs WebKit + GTK headers. macOS / Windows runners
+      # ship the platform SDKs by default.
+      - name: Install Linux build deps
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            patchelf
+
+      # ── Frontend build ─────────────────────────────────────────────────────
+      # Bun reads the synthesized pnpm-workspace.yaml at the workspace root
+      # and symlinks @ikenga/* siblings into shell/node_modules/@ikenga/.
+      # Same code path as `bun install` from shell/ on a developer machine.
+      - name: bun install (shell + workspace deps)
+        shell: bash
+        working-directory: shell
+        run: bun install
+
+      - name: Build iyke MCP binary
+        shell: bash
+        working-directory: shell
+        env:
+          TARGET: ${{ matrix.target }}
+        run: bash scripts/build-iyke-mcp.sh
+
+      - name: Vite build (frontend dist)
+        shell: bash
+        working-directory: shell
+        run: bun run build
+
+      # ── Tauri bundle ───────────────────────────────────────────────────────
+      - name: Tauri build
+        shell: bash
+        working-directory: shell
+        env:
+          TAURI_TARGET: ${{ matrix.target }}
+        run: bunx tauri build --target ${{ matrix.target }}
+
+      # ── Collect installer artifacts ────────────────────────────────────────
+      - name: Stage artifacts
+        shell: bash
+        run: |
+          mkdir -p out
+          BUNDLE=shell/src-tauri/target/${{ matrix.target }}/release/bundle
+          # Copy whatever the platform produced; -name args cover all
+          # supported Tauri output formats.
+          find "$BUNDLE" -type f \( \
+            -name '*.dmg' -o \
+            -name '*.app.tar.gz' -o \
+            -name '*.deb' -o \
+            -name '*.AppImage' -o \
+            -name '*.msi' -o \
+            -name '*.exe' \
+          \) -exec cp {} out/ \; || true
+          ls -la out/
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ikenga-${{ matrix.arch_label }}
+          path: out/*
+          if-no-files-found: error
+          retention-days: 14
+
+  # ── Publish a GitHub Release on tag push ──────────────────────────────────
+  # Manual dispatch never publishes — the build job uploads artifacts
+  # which the user downloads from the workflow run page in the GitHub UI.
+  # Releases are gated to tag-triggered runs only.
+  release:
+    if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Flatten artifact tree
+        run: |
+          mkdir -p release
+          find artifacts -type f -exec cp -v {} release/ \;
+          ls -la release/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          generate_release_notes: true
+          draft: true   # Reviewable in the GitHub UI before going live

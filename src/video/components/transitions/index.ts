@@ -1,7 +1,0 @@
-export {
-  SECTION_FADE,
-  SECTION_SLIDE_LEFT,
-  SECTION_SLIDE_RIGHT,
-  SECTION_WIPE,
-  SECTION_CLOCK,
-} from "./presets";

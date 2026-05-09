@@ -17,7 +17,13 @@ import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
 import rehypeSlug from 'rehype-slug';
 import rehypeAutolinkHeadings from 'rehype-autolink-headings';
-import type { PluggableList } from 'unified';
+// `unified`'s types ship transitively via react-markdown; the previous
+// direct import broke once unified left node_modules. Use the
+// react-markdown type instead so we stay compatible with whatever
+// version comes through.
+type PluggableList = NonNullable<
+  React.ComponentProps<typeof ReactMarkdown>['rehypePlugins']
+>;
 import { homeDir } from '@tauri-apps/api/path';
 import { useTheme } from '@/lib/theme';
 import { usePaneStore } from '@/lib/panes/pane-store';

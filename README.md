@@ -130,31 +130,68 @@ A **global summon shortcut** is registered on app start:
 Pressing it from anywhere on the system shows / hides + focuses the Royalti
 PA window.
 
-## Local install (personal use)
+## Distribution
 
-Unsigned, no notarization, no auto-updater, no remote distribution. See
-`.company/technical/plans/2026-04-30-pa-desktop-migration/09-phase-8-mac-packaging.md`
-and `…/10-phase-9-linux-packaging.md` for the full rationale.
+There are two release paths now: **GitHub Actions cross-platform** for
+multi-OS builds, and **local build + install scripts** for fast iteration
+on a single platform.
 
-### Linux (Pop_OS! / Ubuntu — primary daily driver)
+### GitHub Actions (recommended for releases)
+
+`.github/workflows/release.yml` runs on tag push (`v*`) and produces
+installers for all four targets in parallel:
+
+| Runner | Target | Output |
+|---|---|---|
+| `macos-latest` | `aarch64-apple-darwin` | `.dmg`, `.app.tar.gz` (Apple Silicon) |
+| `macos-latest` | `x86_64-apple-darwin` | `.dmg`, `.app.tar.gz` (Intel) |
+| `windows-latest` | `x86_64-pc-windows-msvc` | `.msi`, `.exe` |
+| `ubuntu-22.04` | `x86_64-unknown-linux-gnu` | `.deb` (`.AppImage` see caveat) |
 
 ```bash
-cd ikenga-desktop
+# Tag and push to trigger:
+git tag v0.0.1
+git push origin v0.0.1
+```
+
+Artifacts land in a draft release on the GitHub Releases page.
+
+**Manual test build** (without tagging): go to the Actions tab → Release
+workflow → Run workflow. Pick `linux-only` / `mac-arm-only` / etc. to
+test a single matrix leg fast (~10 min instead of ~25). Artifacts attach
+to the workflow run for download; no release is published.
+
+**Setup before first run:** if any of `ikenga-contract`, `ikenga-tokens`,
+`ikenga-pkg-engine-claude-code`, `ikenga-pkg-mcp-iyke` are private repos,
+create a fine-grained PAT with read access to all four and add it as the
+`WORKSPACE_DEPS_PAT` secret on `royalti-io/ikenga`. If they're all public,
+the default `GITHUB_TOKEN` works.
+
+Caveats:
+- macOS builds are **unsigned + un-notarized** (no Apple Developer ID
+  configured). Users will see Gatekeeper warnings; right-click → Open
+  on first launch. Notarization requires a paid Apple Dev account.
+- Windows builds are **unsigned**. SmartScreen warns on first run.
+- Linux `.AppImage` may fail because `linuxdeploy` runs `ldd` on every
+  ELF in the AppDir and the bundled bun-compiled `iyke-mcp` is a self-
+  contained binary that ldd can't parse. The `.deb` always succeeds.
+
+### Local install (single platform)
+
+Unsigned, no notarization, no auto-updater, no remote distribution.
+
+#### Linux (Pop_OS! / Ubuntu — primary daily driver)
+
+```bash
+cd ikenga/shell
 bunx tauri build --target x86_64-unknown-linux-gnu
 ./scripts/install-linux.sh
 ```
 
-Produces both an AppImage and a `.deb`. The install script copies the
-AppImage to `~/Applications/ikenga.AppImage`, marks it executable, and
-installs a `.desktop` entry under `~/.local/share/applications/` so the OS
-launcher picks it up.
-
-`.deb` fallback (system-managed, requires sudo):
-
-```bash
-sudo dpkg -i src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/deb/ikenga_*.deb
-ikenga
-```
+The install script wraps `sudo dpkg -i` against the produced `.deb`. The
+binary lands at `/usr/bin/ikenga-desktop` and the `.desktop` entry under
+`/usr/share/applications/`. Re-running the script is idempotent —
+`dpkg -i` overwrites cleanly. Uninstall with `sudo dpkg -r ikenga-desktop`.
 
 WebKit2GTK 4.1 is required (`libwebkit2gtk-4.1-dev` for build,
 `libwebkit2gtk-4.1-0` at runtime). Pop_OS! 22.04+ and Ubuntu 24.04+ ship
@@ -164,17 +201,16 @@ If the webview crashes on startup with intel-iris HW accel issues, launch
 with:
 
 ```bash
-WEBKIT_DISABLE_COMPOSITING_MODE=1 ~/Applications/ikenga.AppImage
+WEBKIT_DISABLE_COMPOSITING_MODE=1 ikenga-desktop
 ```
 
-### macOS (Apple Silicon — verification deferred)
+#### macOS (Apple Silicon — local build path)
 
-> ⚠️ The Mac build path is committed but **unverified on this Linux session**.
-> The first time you boot a Mac, run through these steps and update the
-> README if anything's different.
+> ⚠️ Recommended path for non-CI builds is GitHub Actions (see above).
+> This local-build path is for fast iteration on a Mac dev machine.
 
 ```bash
-cd ikenga-desktop
+cd ikenga/shell
 bunx tauri build --target aarch64-apple-darwin
 ./scripts/install-mac.sh
 ```
@@ -203,20 +239,21 @@ TAURI_TARGET=universal-apple-darwin bunx tauri build --target universal-apple-da
 TAURI_TARGET=universal-apple-darwin ./scripts/install-mac.sh
 ```
 
-### Re-build / upgrade
+#### Re-build / upgrade
 
 Re-run the same `bunx tauri build` + install script. The script wipes the
 existing install before copying, so it's idempotent.
 
-### What this install path does NOT do
+### What we don't do yet
 
-- No code signing (no Apple Developer ID, no Linux signing)
+- No code signing (no Apple Developer ID, no Windows EV cert, no Linux signing)
 - No notarization
 - No auto-updater (`tauri-plugin-updater` is intentionally absent)
 - No Snap, no Flatpak, no Mac App Store
-- No remote artifact upload (no GCS, no GitHub Releases, no Cloudflare)
 - No system-tray icon (deferred — global shortcut covers summon UX)
 - No auto-add-to-startup (opt-in only via your OS's startup-apps config)
 
-If `ikenga-desktop` ever needs to be installed by anyone other than the
-maintainer, revisit signing / notarization / a real CI flow at that point.
+GitHub Releases (via the Actions workflow) is the supported remote
+distribution channel. If ikenga ever needs to be installed by anyone
+other than the maintainer at scale, revisit signing / notarization at
+that point.

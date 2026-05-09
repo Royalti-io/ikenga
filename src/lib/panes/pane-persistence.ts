@@ -99,7 +99,6 @@ function isViewLive(view: PaneView, liveTerminalIds: Set<string>): boolean {
   switch (view.kind) {
     case 'route':
     case 'artifact':
-    case 'mini-app':
       return true;
     case 'terminal':
       return liveTerminalIds.has(view.sessionId);

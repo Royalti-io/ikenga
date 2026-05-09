@@ -30,10 +30,6 @@
   "bundle": {
     "active": true,
     "targets": ["dmg", "app", "deb", "appimage"],
-    "externalBin": [
-      "../sidecars/mbox/dist/ikenga-mbox",
-      "../sidecars/actions/dist/ikenga-actions"
-    ],
     "resources": {
       "resources/builtin-pkgs/**/*": "builtin-pkgs/"
     },

@@ -10,9 +10,6 @@ import type { LeafNode, PaneView } from '@/lib/panes/types';
 import { usePaneStore } from '@/lib/panes/pane-store';
 import { createTerminalSession } from '@/terminal/single-terminal';
 import { NAV_GROUPS } from '@/shell/nav-config';
-import { MINI_APPS } from '@/shell/mini-apps-config';
-import { Clapperboard, Film, Sparkles } from 'lucide-react';
-import type { MiniAppName } from '@/lib/panes/types';
 
 interface NewTabMenuProps {
   leaf: LeafNode;
@@ -115,36 +112,6 @@ export function NewTabMenu({ leaf, open, onClose, anchor }: NewTabMenuProps) {
                 Icon={Icon}
                 label={label}
                 detail={to}
-              />
-            ))}
-          </Command.Group>
-
-          <Command.Group heading="Mini-apps" className="text-[10px] uppercase tracking-wider text-muted-foreground">
-            <MenuItem
-              onSelect={() => commit({ kind: 'mini-app', name: 'storyboard' })}
-              Icon={Clapperboard}
-              label="Storyboard"
-              detail="Studio"
-            />
-            <MenuItem
-              onSelect={() => commit({ kind: 'mini-app', name: 'video-engine' })}
-              Icon={Film}
-              label="Video Engine"
-              detail="Studio"
-            />
-            <MenuItem
-              onSelect={() => commit({ kind: 'mini-app', name: 'hyperframes' })}
-              Icon={Sparkles}
-              label="HyperFrames"
-              detail="Studio"
-            />
-            {MINI_APPS.map((app) => (
-              <MenuItem
-                key={app.id}
-                onSelect={() => commit({ kind: 'mini-app', name: app.id as MiniAppName })}
-                Icon={app.Icon}
-                label={app.name}
-                detail={app.phaseTag}
               />
             ))}
           </Command.Group>

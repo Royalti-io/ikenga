@@ -571,67 +571,6 @@ export async function claudeConfigListen(
   };
 }
 
-// ─── Chat (SDK adapter, phase 5+ — stubs in phase 1) ──────────────────────────
-
-export interface ChatMsg {
-  role: "user" | "assistant" | "system";
-  content: string;
-}
-
-export interface ToolDef {
-  name: string;
-  description?: string;
-  input_schema: unknown;
-}
-
-export async function chatSend(
-  threadId: string,
-  messages: ChatMsg[],
-  tools: ToolDef[],
-  model: string,
-): Promise<string> {
-  return invoke("chat_send", { threadId, messages, tools, model });
-}
-
-export async function chatCancel(streamId: string): Promise<void> {
-  return invoke("chat_cancel", { streamId });
-}
-
-// ─── Render (phase 6 day 3 — Remotion CLI shell-out + progress events) ───────
-//
-// Spawns `node_modules/.bin/remotion render <composition> <output> --props=...`
-// from PA root. Emits `render://{jobId}` events as the job progresses; the
-// frontend consumes them via renderListen().
-
-/** Discriminated union mirroring `crate::render::RenderEvent`. */
-export type RenderEvent =
-  | { kind: "started" }
-  | { kind: "progress"; value: number /* 0..1 */ }
-  | { kind: "log"; line: string }
-  | { kind: "complete"; outputPath: string }
-  | { kind: "error"; message: string }
-  | { kind: "cancelled" };
-
-export async function renderComposition(
-  compositionId: string,
-  props: unknown,
-  output: string,
-): Promise<string> {
-  return invoke("render_composition", { compositionId, props, output });
-}
-
-export async function renderCancel(jobId: string): Promise<void> {
-  return invoke("render_cancel", { jobId });
-}
-
-/** Subscribe to all events for a single render job. Returns the unlisten fn. */
-export async function renderListen(
-  jobId: string,
-  onEvent: (event: RenderEvent) => void,
-): Promise<UnlistenFn> {
-  return listen<RenderEvent>(`render://${jobId}`, (e) => onEvent(e.payload));
-}
-
 // ─── Iyke (phase 11 — Day 1: read-side state + shell mirror push) ─────────────
 
 export interface IykeEndpoint {
@@ -696,169 +635,6 @@ export async function screenshotGetConfig(): Promise<ScreenshotConfig> {
 export async function screenshotSetDir(dir: string | null): Promise<void> {
   return invoke("screenshot_set_dir", { dir: dir ?? null });
 }
-
-// ─── Mbox sidecar (Thunderbird mbox parser, bundled bun binary) ───────────────
-
-export interface ParsedEmail {
-  message_id: string;
-  in_reply_to: string | null;
-  from_address: string;
-  to_address: string | null;
-  cc_address: string | null;
-  reply_to: string | null;
-  subject: string | null;
-  body_text: string | null;
-  received_at: string;
-  inbox_source: string;
-}
-
-export interface MboxReadAllOpts {
-  /** ISO 8601 timestamp; only emails received on/after this are returned. */
-  sinceIso?: string;
-  /** Optional subset of mailbox keys (e.g. ["royalti-inbox"]); omit for all. */
-  mailboxes?: string[];
-  /** Bytes to read from each mbox file; defaults to 20 MB. */
-  chunkSize?: number;
-}
-
-export async function mboxReadAll(opts: MboxReadAllOpts = {}): Promise<ParsedEmail[]> {
-  return invoke<ParsedEmail[]>("mbox_read_all", {
-    sinceIso: opts.sinceIso ?? null,
-    mailboxes: opts.mailboxes ?? null,
-    chunkSize: opts.chunkSize ?? null,
-  });
-}
-
-export async function mboxPing(): Promise<boolean> {
-  return invoke<boolean>("mbox_ping");
-}
-
-// ─── Storyboard (phase 7 — engine CLI shell-out + concept FS reads) ───────────
-
-export interface StoryboardConceptFile {
-  filename: string;
-  angle: string | null;
-  built: string | null;
-  modified_at_ms: number;
-  size: number;
-  feel: string | null;
-  beat_translations: Record<string, string>;
-}
-
-export interface StoryboardStillResult {
-  beat_id: string;
-  still_path: string | null;
-  error: string | null;
-}
-
-/**
- * Discriminated union mirroring `crate::commands::storyboard::jobs::StoryboardJobEvent`.
- * Emitted on `storyboard://{jobId}` while a render-still or promote-rung op runs.
- */
-export type StoryboardJobEvent =
-  | { kind: "started" }
-  | { kind: "progress"; value: number /* 0..1 */ }
-  | { kind: "log"; line: string }
-  | {
-      kind: "still_ready";
-      beat_id: string;
-      rung: "lofi" | "hifi";
-      still_path: string;
-    }
-  | { kind: "complete" }
-  | { kind: "error"; message: string }
-  | { kind: "cancelled" };
-
-export async function storyboardListConcepts(
-  slug: string,
-): Promise<StoryboardConceptFile[]> {
-  return invoke("storyboard_list_concepts", { slug });
-}
-
-export async function storyboardExportJson(
-  slug: string,
-  payload: unknown,
-): Promise<string> {
-  return invoke("storyboard_export_json", { slug, payload });
-}
-
-export async function storyboardImportJson(slug: string): Promise<unknown> {
-  return invoke("storyboard_import_json", { slug });
-}
-
-export async function storyboardRenderStill(args: {
-  jobId: string;
-  slug: string;
-  beatId: string;
-  rung: 1 | 2;
-}): Promise<string | null> {
-  return invoke("storyboard_render_still", {
-    jobId: args.jobId,
-    slug: args.slug,
-    beatId: args.beatId,
-    rung: args.rung,
-  });
-}
-
-export async function storyboardPromoteRung(args: {
-  jobId: string;
-  slug: string;
-  beats: string[];
-  targetRung: 1 | 2;
-}): Promise<StoryboardStillResult[]> {
-  return invoke("storyboard_promote_rung", {
-    jobId: args.jobId,
-    slug: args.slug,
-    beats: args.beats,
-    targetRung: args.targetRung,
-  });
-}
-
-export async function storyboardListenJob(
-  jobId: string,
-  onEvent: (event: StoryboardJobEvent) => void,
-): Promise<UnlistenFn> {
-  return listen<StoryboardJobEvent>(`storyboard://${jobId}`, (e) =>
-    onEvent(e.payload),
-  );
-}
-
-// ─── PA-ACTIONS SIDECAR ───────────────────────────────────────────────────────
-//
-// Wraps the pa-actions sidecar. Subcommands are typed as a string union so
-// the call site doesn't have to remember the registry. Result is left as
-// `unknown` because each subcommand returns a different shape — callers that
-// care should narrow at the use site.
-
-export type PaActionsSubcommand =
-  | "resend-poll"
-  | "twenty-poll"
-  | "email-send"
-  | "reply-send"
-  | "listmonk-poll"
-  | "sequence-advance"
-  | "send-scheduled"
-  | "fundraising-send"
-  | "crm-lookup";
-
-export interface PaActionsOutcome {
-  ok: boolean;
-  subcommand: string;
-  durationMs: number;
-  result?: unknown;
-  error?: string;
-}
-
-export async function paActionsRun(
-  subcommand: PaActionsSubcommand,
-  args?: string[],
-): Promise<PaActionsOutcome> {
-  return invoke<PaActionsOutcome>("pa_actions_run", {
-    subcommand,
-    args: args ?? null,
-  });
-}
-
 
 // ─── Spike: dynamic ACL verification (delete after kernel lands) ─────────
 
@@ -1090,6 +866,58 @@ export async function pkgMcpCall(
   args: unknown,
 ): Promise<PkgMcpCallResult> {
   return invoke<PkgMcpCallResult>("pkg_mcp_call", { pkgId, tool, args });
+}
+
+// ─── pkg sidecar invocation ───────────────────────────────────────────────────
+//
+// Invoke a package-declared sidecar binary one-shot. Counterpart to the
+// `sidecars: [{ name, bin }]` manifest block. Returns captured stdout +
+// stderr + exit_code. The pkg_id must own the named sidecar; cross-pkg
+// invocations are rejected at the Rust side.
+//
+// Used by pkg iframes (via the AppBridge) and by the cron registry's
+// `sidecar:<name> <sub>` handler.
+
+export interface PkgSidecarCallResult {
+  ok: boolean;
+  error: string | null;
+  stdout: string | null;
+  stderr: string | null;
+  exit_code: number | null;
+  timed_out: boolean;
+}
+
+export async function pkgSidecarCall(
+  pkgId: string,
+  name: string,
+  args: string[] = [],
+  options: { stdin?: string; timeoutSecs?: number } = {},
+): Promise<PkgSidecarCallResult> {
+  return invoke<PkgSidecarCallResult>("pkg_sidecar_call", {
+    pkgId,
+    name,
+    args,
+    stdin: options.stdin ?? null,
+    timeoutSecs: options.timeoutSecs ?? null,
+  });
+}
+
+// ─── Iyke MCP info (settings panel) ───────────────────────────────────────────
+//
+// Resolves the absolute path of the bundled iyke-mcp binary so the settings
+// panel can render a copy-to-clipboard MCP-client config snippet.
+
+export interface IykeMcpInfo {
+  // Absolute path the user should configure their MCP client against.
+  path: string;
+  // True when the binary actually exists at `path`.
+  present: boolean;
+  // "dev-tree" | "resource-dir" | "unknown" — surfaced for the help text.
+  source: string;
+}
+
+export async function iykeMcpInfo(): Promise<IykeMcpInfo> {
+  return invoke<IykeMcpInfo>("iyke_mcp_info");
 }
 
 // ─── Backup / restore ─────────────────────────────────────────────────────────

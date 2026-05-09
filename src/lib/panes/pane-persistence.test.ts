@@ -40,7 +40,6 @@ describe('filterTreeViews', () => {
     const keep = (v: PaneView) =>
       v.kind === 'route' ||
       v.kind === 'artifact' ||
-      v.kind === 'mini-app' ||
       (v.kind === 'terminal' && live.has(v.sessionId));
     const r = filterTreeViews(root, keep) as LeafNode;
     expect(r.tabs).toHaveLength(2); // route + alive terminal

@@ -42,13 +42,19 @@ export function PaneDropZones({ paneId }: { paneId: PaneId }) {
   const canSplit = usePaneStore((s) => s.canSplit());
   const [hoverZone, setHoverZone] = useState<Zone | null>(null);
 
-  if (!drag.active) return null;
-
   // No-op self-drag of a pane's only tab (pane-source only — dock id can
   // never collide with a pane id).
   const sameAsSrc = drag.source === 'pane' && drag.srcLeafId === paneId;
 
+  function onDragEnter(e: React.DragEvent<HTMLDivElement>) {
+    if (!drag.active) return;
+    // WebKit/Tauri requires preventDefault on dragenter for subsequent
+    // dragover events to fire reliably on absolutely-positioned overlays.
+    e.preventDefault();
+  }
+
   function onDragOver(e: React.DragEvent<HTMLDivElement>) {
+    if (!drag.active) return;
     e.preventDefault();
     const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
     const zone = detectZone(rect, e.clientX, e.clientY);
@@ -66,6 +72,7 @@ export function PaneDropZones({ paneId }: { paneId: PaneId }) {
   }
 
   function onDrop(e: React.DragEvent<HTMLDivElement>) {
+    if (!drag.active) return;
     e.preventDefault();
     if (drag.srcTabIdx == null) {
       drag.end();
@@ -117,7 +124,14 @@ export function PaneDropZones({ paneId }: { paneId: PaneId }) {
 
   return (
     <div
-      className="absolute inset-0 z-20"
+      className={cn(
+        'absolute inset-0 z-20',
+        // Stay mounted so WebKit registers us as a drop target before the
+        // user starts dragging; only intercept events while a drag is in
+        // flight.
+        drag.active ? 'pointer-events-auto' : 'pointer-events-none',
+      )}
+      onDragEnter={onDragEnter}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}

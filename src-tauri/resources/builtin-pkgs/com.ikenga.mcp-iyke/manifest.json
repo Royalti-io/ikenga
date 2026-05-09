@@ -1,0 +1,25 @@
+{
+  "id": "com.ikenga.mcp-iyke",
+  "name": "Iyke MCP",
+  "version": "0.1.0",
+  "ikenga_api": "1",
+  "kind": "skill",
+
+  "author": {
+    "name": "Royalti",
+    "key": "royalti"
+  },
+
+  "mcp": [
+    {
+      "name": "iyke",
+      "command": "./bin/iyke-mcp",
+      "args": [],
+      "lifecycle": "long-lived"
+    }
+  ],
+
+  "permissions": {
+    "net": ["http://127.0.0.1:*"]
+  }
+}

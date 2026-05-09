@@ -191,7 +191,7 @@ function TreeNode({ entry, depth }: TreeNodeProps) {
         <ContextMenuTrigger asChild>
       <div
         className={cn(
-          'group/row relative flex w-full items-center text-xs transition-colors',
+          'group/row relative flex w-max min-w-full items-center text-xs transition-colors',
           'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
           isSelected && 'bg-accent text-accent-foreground font-medium',
         )}
@@ -199,7 +199,7 @@ function TreeNode({ entry, depth }: TreeNodeProps) {
         <button
           type="button"
           onClick={handleClick}
-          className="flex min-w-0 flex-1 items-center gap-1 px-2 py-1 text-left"
+          className="flex flex-1 items-center gap-1 whitespace-nowrap px-2 py-1 text-left"
           style={{ paddingLeft: `${Math.min(depth, 10) * 12 + 8}px` }}
           title={entry.path}
         >
@@ -236,7 +236,7 @@ function TreeNode({ entry, depth }: TreeNodeProps) {
               className="w-full min-w-0 rounded border border-border bg-background px-1 py-0 text-xs text-foreground outline-none focus:border-ring"
             />
           ) : (
-            <span className="truncate">{entry.name}</span>
+            <span className="whitespace-nowrap">{entry.name}</span>
           )}
         </button>
         {!renaming && (
@@ -463,7 +463,7 @@ export function FilesMode() {
 
   return (
     <div className="flex h-full flex-col">
-      <div ref={scrollerRef} onScroll={onScroll} className="flex-1 overflow-y-auto">
+      <div ref={scrollerRef} onScroll={onScroll} className="flex-1 overflow-auto">
         {fileRoots.length === 0 && (
           <div className="p-4 text-xs text-muted-foreground">
             No file roots configured. Add one from{' '}

@@ -10,8 +10,6 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as UiroutesSmokeRouteImport } from './routes/uiroutes-smoke'
-import { Route as SweeperRouteImport } from './routes/sweeper'
-import { Route as SpikeAclRouteImport } from './routes/spike-acl'
 import { Route as SettingsSmokeRouteImport } from './routes/settings-smoke'
 import { Route as PkgSmokeRouteImport } from './routes/pkg-smoke'
 import { Route as PkgKernelStatusRouteImport } from './routes/pkg-kernel-status'
@@ -23,26 +21,19 @@ import { Route as InstallRouteImport } from './routes/install'
 import { Route as IframeMountSmokeRouteImport } from './routes/iframe-mount-smoke'
 import { Route as CronSmokeRouteImport } from './routes/cron-smoke'
 import { Route as ClaudeAssetsSmokeRouteImport } from './routes/claude-assets-smoke'
-import { Route as VideoRouteRouteImport } from './routes/video/route'
-import { Route as StoryboardRouteRouteImport } from './routes/storyboard/route'
+import { Route as SettingsRouteRouteImport } from './routes/settings/route'
 import { Route as SessionsRouteRouteImport } from './routes/sessions/route'
-import { Route as EmailsRouteRouteImport } from './routes/emails/route'
 import { Route as ClaudeRouteRouteImport } from './routes/claude/route'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as VideoIndexRouteImport } from './routes/video/index'
-import { Route as TriageIndexRouteImport } from './routes/triage/index'
-import { Route as StoryboardIndexRouteImport } from './routes/storyboard/index'
 import { Route as SettingsIndexRouteImport } from './routes/settings/index'
 import { Route as SessionsIndexRouteImport } from './routes/sessions/index'
-import { Route as InboxIndexRouteImport } from './routes/inbox/index'
-import { Route as EmailsIndexRouteImport } from './routes/emails/index'
 import { Route as ClaudeIndexRouteImport } from './routes/claude/index'
-import { Route as CalendarIndexRouteImport } from './routes/calendar/index'
-import { Route as VideoQueueRouteImport } from './routes/video/queue'
-import { Route as VideoCompositionIdRouteImport } from './routes/video/$compositionId'
-import { Route as StoryboardIdRouteImport } from './routes/storyboard/$id'
+import { Route as SettingsStorageRouteImport } from './routes/settings/storage'
+import { Route as SettingsPackagesRouteImport } from './routes/settings/packages'
+import { Route as SettingsIntegrationsRouteImport } from './routes/settings/integrations'
 import { Route as SettingsBackupRouteImport } from './routes/settings/backup'
-import { Route as EmailsIdRouteImport } from './routes/emails/$id'
+import { Route as SettingsAppearanceRouteImport } from './routes/settings/appearance'
+import { Route as SettingsAboutRouteImport } from './routes/settings/about'
 import { Route as ClaudeSkillsRouteImport } from './routes/claude/skills'
 import { Route as ClaudeMcpsRouteImport } from './routes/claude/mcps'
 import { Route as ClaudeHooksRouteImport } from './routes/claude/hooks'
@@ -51,23 +42,13 @@ import { Route as PkgPkgIdRouteRouteImport } from './routes/pkg/$pkgId/route'
 import { Route as SessionsByAgentIndexRouteImport } from './routes/sessions/by-agent/index'
 import { Route as SessionsAllIndexRouteImport } from './routes/sessions/all/index'
 import { Route as SessionsSessionIdIndexRouteImport } from './routes/sessions/$sessionId/index'
-import { Route as EmailsDraftsIndexRouteImport } from './routes/emails/drafts/index'
+import { Route as PkgPkgIdIndexRouteImport } from './routes/pkg/$pkgId/index'
 import { Route as SessionsByAgentAgentRouteImport } from './routes/sessions/by-agent/$agent'
 import { Route as PkgPkgIdSplatRouteImport } from './routes/pkg/$pkgId/$'
 
 const UiroutesSmokeRoute = UiroutesSmokeRouteImport.update({
   id: '/uiroutes-smoke',
   path: '/uiroutes-smoke',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const SweeperRoute = SweeperRouteImport.update({
-  id: '/sweeper',
-  path: '/sweeper',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const SpikeAclRoute = SpikeAclRouteImport.update({
-  id: '/spike-acl',
-  path: '/spike-acl',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SettingsSmokeRoute = SettingsSmokeRouteImport.update({
@@ -125,24 +106,14 @@ const ClaudeAssetsSmokeRoute = ClaudeAssetsSmokeRouteImport.update({
   path: '/claude-assets-smoke',
   getParentRoute: () => rootRouteImport,
 } as any)
-const VideoRouteRoute = VideoRouteRouteImport.update({
-  id: '/video',
-  path: '/video',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const StoryboardRouteRoute = StoryboardRouteRouteImport.update({
-  id: '/storyboard',
-  path: '/storyboard',
+const SettingsRouteRoute = SettingsRouteRouteImport.update({
+  id: '/settings',
+  path: '/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SessionsRouteRoute = SessionsRouteRouteImport.update({
   id: '/sessions',
   path: '/sessions',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const EmailsRouteRoute = EmailsRouteRouteImport.update({
-  id: '/emails',
-  path: '/emails',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ClaudeRouteRoute = ClaudeRouteRouteImport.update({
@@ -155,81 +126,50 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const VideoIndexRoute = VideoIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => VideoRouteRoute,
-} as any).lazy(() => import('./routes/video/index.lazy').then((d) => d.Route))
-const TriageIndexRoute = TriageIndexRouteImport.update({
-  id: '/triage/',
-  path: '/triage/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const StoryboardIndexRoute = StoryboardIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => StoryboardRouteRoute,
-} as any).lazy(() =>
-  import('./routes/storyboard/index.lazy').then((d) => d.Route),
-)
 const SettingsIndexRoute = SettingsIndexRouteImport.update({
-  id: '/settings/',
-  path: '/settings/',
-  getParentRoute: () => rootRouteImport,
+  id: '/',
+  path: '/',
+  getParentRoute: () => SettingsRouteRoute,
 } as any)
 const SessionsIndexRoute = SessionsIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => SessionsRouteRoute,
 } as any)
-const InboxIndexRoute = InboxIndexRouteImport.update({
-  id: '/inbox/',
-  path: '/inbox/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const EmailsIndexRoute = EmailsIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => EmailsRouteRoute,
-} as any)
 const ClaudeIndexRoute = ClaudeIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => ClaudeRouteRoute,
 } as any)
-const CalendarIndexRoute = CalendarIndexRouteImport.update({
-  id: '/calendar/',
-  path: '/calendar/',
-  getParentRoute: () => rootRouteImport,
+const SettingsStorageRoute = SettingsStorageRouteImport.update({
+  id: '/storage',
+  path: '/storage',
+  getParentRoute: () => SettingsRouteRoute,
 } as any)
-const VideoQueueRoute = VideoQueueRouteImport.update({
-  id: '/queue',
-  path: '/queue',
-  getParentRoute: () => VideoRouteRoute,
-} as any).lazy(() => import('./routes/video/queue.lazy').then((d) => d.Route))
-const VideoCompositionIdRoute = VideoCompositionIdRouteImport.update({
-  id: '/$compositionId',
-  path: '/$compositionId',
-  getParentRoute: () => VideoRouteRoute,
-} as any).lazy(() =>
-  import('./routes/video/$compositionId.lazy').then((d) => d.Route),
-)
-const StoryboardIdRoute = StoryboardIdRouteImport.update({
-  id: '/$id',
-  path: '/$id',
-  getParentRoute: () => StoryboardRouteRoute,
-} as any).lazy(() =>
-  import('./routes/storyboard/$id.lazy').then((d) => d.Route),
-)
+const SettingsPackagesRoute = SettingsPackagesRouteImport.update({
+  id: '/packages',
+  path: '/packages',
+  getParentRoute: () => SettingsRouteRoute,
+} as any)
+const SettingsIntegrationsRoute = SettingsIntegrationsRouteImport.update({
+  id: '/integrations',
+  path: '/integrations',
+  getParentRoute: () => SettingsRouteRoute,
+} as any)
 const SettingsBackupRoute = SettingsBackupRouteImport.update({
-  id: '/settings/backup',
-  path: '/settings/backup',
-  getParentRoute: () => rootRouteImport,
+  id: '/backup',
+  path: '/backup',
+  getParentRoute: () => SettingsRouteRoute,
 } as any)
-const EmailsIdRoute = EmailsIdRouteImport.update({
-  id: '/$id',
-  path: '/$id',
-  getParentRoute: () => EmailsRouteRoute,
+const SettingsAppearanceRoute = SettingsAppearanceRouteImport.update({
+  id: '/appearance',
+  path: '/appearance',
+  getParentRoute: () => SettingsRouteRoute,
+} as any)
+const SettingsAboutRoute = SettingsAboutRouteImport.update({
+  id: '/about',
+  path: '/about',
+  getParentRoute: () => SettingsRouteRoute,
 } as any)
 const ClaudeSkillsRoute = ClaudeSkillsRouteImport.update({
   id: '/skills',
@@ -271,10 +211,10 @@ const SessionsSessionIdIndexRoute = SessionsSessionIdIndexRouteImport.update({
   path: '/$sessionId/',
   getParentRoute: () => SessionsRouteRoute,
 } as any)
-const EmailsDraftsIndexRoute = EmailsDraftsIndexRouteImport.update({
-  id: '/drafts/',
-  path: '/drafts/',
-  getParentRoute: () => EmailsRouteRoute,
+const PkgPkgIdIndexRoute = PkgPkgIdIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => PkgPkgIdRouteRoute,
 } as any)
 const SessionsByAgentAgentRoute = SessionsByAgentAgentRouteImport.update({
   id: '/by-agent/$agent',
@@ -290,10 +230,8 @@ const PkgPkgIdSplatRoute = PkgPkgIdSplatRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/claude': typeof ClaudeRouteRouteWithChildren
-  '/emails': typeof EmailsRouteRouteWithChildren
   '/sessions': typeof SessionsRouteRouteWithChildren
-  '/storyboard': typeof StoryboardRouteRouteWithChildren
-  '/video': typeof VideoRouteRouteWithChildren
+  '/settings': typeof SettingsRouteRouteWithChildren
   '/claude-assets-smoke': typeof ClaudeAssetsSmokeRoute
   '/cron-smoke': typeof CronSmokeRoute
   '/iframe-mount-smoke': typeof IframeMountSmokeRoute
@@ -305,31 +243,24 @@ export interface FileRoutesByFullPath {
   '/pkg-kernel-status': typeof PkgKernelStatusRoute
   '/pkg-smoke': typeof PkgSmokeRoute
   '/settings-smoke': typeof SettingsSmokeRoute
-  '/spike-acl': typeof SpikeAclRoute
-  '/sweeper': typeof SweeperRoute
   '/uiroutes-smoke': typeof UiroutesSmokeRoute
   '/pkg/$pkgId': typeof PkgPkgIdRouteRouteWithChildren
   '/claude/commands': typeof ClaudeCommandsRoute
   '/claude/hooks': typeof ClaudeHooksRoute
   '/claude/mcps': typeof ClaudeMcpsRoute
   '/claude/skills': typeof ClaudeSkillsRoute
-  '/emails/$id': typeof EmailsIdRoute
+  '/settings/about': typeof SettingsAboutRoute
+  '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/backup': typeof SettingsBackupRoute
-  '/storyboard/$id': typeof StoryboardIdRoute
-  '/video/$compositionId': typeof VideoCompositionIdRoute
-  '/video/queue': typeof VideoQueueRoute
-  '/calendar/': typeof CalendarIndexRoute
+  '/settings/integrations': typeof SettingsIntegrationsRoute
+  '/settings/packages': typeof SettingsPackagesRoute
+  '/settings/storage': typeof SettingsStorageRoute
   '/claude/': typeof ClaudeIndexRoute
-  '/emails/': typeof EmailsIndexRoute
-  '/inbox/': typeof InboxIndexRoute
   '/sessions/': typeof SessionsIndexRoute
   '/settings/': typeof SettingsIndexRoute
-  '/storyboard/': typeof StoryboardIndexRoute
-  '/triage/': typeof TriageIndexRoute
-  '/video/': typeof VideoIndexRoute
   '/pkg/$pkgId/$': typeof PkgPkgIdSplatRoute
   '/sessions/by-agent/$agent': typeof SessionsByAgentAgentRoute
-  '/emails/drafts/': typeof EmailsDraftsIndexRoute
+  '/pkg/$pkgId/': typeof PkgPkgIdIndexRoute
   '/sessions/$sessionId/': typeof SessionsSessionIdIndexRoute
   '/sessions/all/': typeof SessionsAllIndexRoute
   '/sessions/by-agent/': typeof SessionsByAgentIndexRoute
@@ -347,31 +278,23 @@ export interface FileRoutesByTo {
   '/pkg-kernel-status': typeof PkgKernelStatusRoute
   '/pkg-smoke': typeof PkgSmokeRoute
   '/settings-smoke': typeof SettingsSmokeRoute
-  '/spike-acl': typeof SpikeAclRoute
-  '/sweeper': typeof SweeperRoute
   '/uiroutes-smoke': typeof UiroutesSmokeRoute
-  '/pkg/$pkgId': typeof PkgPkgIdRouteRouteWithChildren
   '/claude/commands': typeof ClaudeCommandsRoute
   '/claude/hooks': typeof ClaudeHooksRoute
   '/claude/mcps': typeof ClaudeMcpsRoute
   '/claude/skills': typeof ClaudeSkillsRoute
-  '/emails/$id': typeof EmailsIdRoute
+  '/settings/about': typeof SettingsAboutRoute
+  '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/backup': typeof SettingsBackupRoute
-  '/storyboard/$id': typeof StoryboardIdRoute
-  '/video/$compositionId': typeof VideoCompositionIdRoute
-  '/video/queue': typeof VideoQueueRoute
-  '/calendar': typeof CalendarIndexRoute
+  '/settings/integrations': typeof SettingsIntegrationsRoute
+  '/settings/packages': typeof SettingsPackagesRoute
+  '/settings/storage': typeof SettingsStorageRoute
   '/claude': typeof ClaudeIndexRoute
-  '/emails': typeof EmailsIndexRoute
-  '/inbox': typeof InboxIndexRoute
   '/sessions': typeof SessionsIndexRoute
   '/settings': typeof SettingsIndexRoute
-  '/storyboard': typeof StoryboardIndexRoute
-  '/triage': typeof TriageIndexRoute
-  '/video': typeof VideoIndexRoute
   '/pkg/$pkgId/$': typeof PkgPkgIdSplatRoute
   '/sessions/by-agent/$agent': typeof SessionsByAgentAgentRoute
-  '/emails/drafts': typeof EmailsDraftsIndexRoute
+  '/pkg/$pkgId': typeof PkgPkgIdIndexRoute
   '/sessions/$sessionId': typeof SessionsSessionIdIndexRoute
   '/sessions/all': typeof SessionsAllIndexRoute
   '/sessions/by-agent': typeof SessionsByAgentIndexRoute
@@ -380,10 +303,8 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/claude': typeof ClaudeRouteRouteWithChildren
-  '/emails': typeof EmailsRouteRouteWithChildren
   '/sessions': typeof SessionsRouteRouteWithChildren
-  '/storyboard': typeof StoryboardRouteRouteWithChildren
-  '/video': typeof VideoRouteRouteWithChildren
+  '/settings': typeof SettingsRouteRouteWithChildren
   '/claude-assets-smoke': typeof ClaudeAssetsSmokeRoute
   '/cron-smoke': typeof CronSmokeRoute
   '/iframe-mount-smoke': typeof IframeMountSmokeRoute
@@ -395,31 +316,24 @@ export interface FileRoutesById {
   '/pkg-kernel-status': typeof PkgKernelStatusRoute
   '/pkg-smoke': typeof PkgSmokeRoute
   '/settings-smoke': typeof SettingsSmokeRoute
-  '/spike-acl': typeof SpikeAclRoute
-  '/sweeper': typeof SweeperRoute
   '/uiroutes-smoke': typeof UiroutesSmokeRoute
   '/pkg/$pkgId': typeof PkgPkgIdRouteRouteWithChildren
   '/claude/commands': typeof ClaudeCommandsRoute
   '/claude/hooks': typeof ClaudeHooksRoute
   '/claude/mcps': typeof ClaudeMcpsRoute
   '/claude/skills': typeof ClaudeSkillsRoute
-  '/emails/$id': typeof EmailsIdRoute
+  '/settings/about': typeof SettingsAboutRoute
+  '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/backup': typeof SettingsBackupRoute
-  '/storyboard/$id': typeof StoryboardIdRoute
-  '/video/$compositionId': typeof VideoCompositionIdRoute
-  '/video/queue': typeof VideoQueueRoute
-  '/calendar/': typeof CalendarIndexRoute
+  '/settings/integrations': typeof SettingsIntegrationsRoute
+  '/settings/packages': typeof SettingsPackagesRoute
+  '/settings/storage': typeof SettingsStorageRoute
   '/claude/': typeof ClaudeIndexRoute
-  '/emails/': typeof EmailsIndexRoute
-  '/inbox/': typeof InboxIndexRoute
   '/sessions/': typeof SessionsIndexRoute
   '/settings/': typeof SettingsIndexRoute
-  '/storyboard/': typeof StoryboardIndexRoute
-  '/triage/': typeof TriageIndexRoute
-  '/video/': typeof VideoIndexRoute
   '/pkg/$pkgId/$': typeof PkgPkgIdSplatRoute
   '/sessions/by-agent/$agent': typeof SessionsByAgentAgentRoute
-  '/emails/drafts/': typeof EmailsDraftsIndexRoute
+  '/pkg/$pkgId/': typeof PkgPkgIdIndexRoute
   '/sessions/$sessionId/': typeof SessionsSessionIdIndexRoute
   '/sessions/all/': typeof SessionsAllIndexRoute
   '/sessions/by-agent/': typeof SessionsByAgentIndexRoute
@@ -429,10 +343,8 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/claude'
-    | '/emails'
     | '/sessions'
-    | '/storyboard'
-    | '/video'
+    | '/settings'
     | '/claude-assets-smoke'
     | '/cron-smoke'
     | '/iframe-mount-smoke'
@@ -444,31 +356,24 @@ export interface FileRouteTypes {
     | '/pkg-kernel-status'
     | '/pkg-smoke'
     | '/settings-smoke'
-    | '/spike-acl'
-    | '/sweeper'
     | '/uiroutes-smoke'
     | '/pkg/$pkgId'
     | '/claude/commands'
     | '/claude/hooks'
     | '/claude/mcps'
     | '/claude/skills'
-    | '/emails/$id'
+    | '/settings/about'
+    | '/settings/appearance'
     | '/settings/backup'
-    | '/storyboard/$id'
-    | '/video/$compositionId'
-    | '/video/queue'
-    | '/calendar/'
+    | '/settings/integrations'
+    | '/settings/packages'
+    | '/settings/storage'
     | '/claude/'
-    | '/emails/'
-    | '/inbox/'
     | '/sessions/'
     | '/settings/'
-    | '/storyboard/'
-    | '/triage/'
-    | '/video/'
     | '/pkg/$pkgId/$'
     | '/sessions/by-agent/$agent'
-    | '/emails/drafts/'
+    | '/pkg/$pkgId/'
     | '/sessions/$sessionId/'
     | '/sessions/all/'
     | '/sessions/by-agent/'
@@ -486,31 +391,23 @@ export interface FileRouteTypes {
     | '/pkg-kernel-status'
     | '/pkg-smoke'
     | '/settings-smoke'
-    | '/spike-acl'
-    | '/sweeper'
     | '/uiroutes-smoke'
-    | '/pkg/$pkgId'
     | '/claude/commands'
     | '/claude/hooks'
     | '/claude/mcps'
     | '/claude/skills'
-    | '/emails/$id'
+    | '/settings/about'
+    | '/settings/appearance'
     | '/settings/backup'
-    | '/storyboard/$id'
-    | '/video/$compositionId'
-    | '/video/queue'
-    | '/calendar'
+    | '/settings/integrations'
+    | '/settings/packages'
+    | '/settings/storage'
     | '/claude'
-    | '/emails'
-    | '/inbox'
     | '/sessions'
     | '/settings'
-    | '/storyboard'
-    | '/triage'
-    | '/video'
     | '/pkg/$pkgId/$'
     | '/sessions/by-agent/$agent'
-    | '/emails/drafts'
+    | '/pkg/$pkgId'
     | '/sessions/$sessionId'
     | '/sessions/all'
     | '/sessions/by-agent'
@@ -518,10 +415,8 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/claude'
-    | '/emails'
     | '/sessions'
-    | '/storyboard'
-    | '/video'
+    | '/settings'
     | '/claude-assets-smoke'
     | '/cron-smoke'
     | '/iframe-mount-smoke'
@@ -533,31 +428,24 @@ export interface FileRouteTypes {
     | '/pkg-kernel-status'
     | '/pkg-smoke'
     | '/settings-smoke'
-    | '/spike-acl'
-    | '/sweeper'
     | '/uiroutes-smoke'
     | '/pkg/$pkgId'
     | '/claude/commands'
     | '/claude/hooks'
     | '/claude/mcps'
     | '/claude/skills'
-    | '/emails/$id'
+    | '/settings/about'
+    | '/settings/appearance'
     | '/settings/backup'
-    | '/storyboard/$id'
-    | '/video/$compositionId'
-    | '/video/queue'
-    | '/calendar/'
+    | '/settings/integrations'
+    | '/settings/packages'
+    | '/settings/storage'
     | '/claude/'
-    | '/emails/'
-    | '/inbox/'
     | '/sessions/'
     | '/settings/'
-    | '/storyboard/'
-    | '/triage/'
-    | '/video/'
     | '/pkg/$pkgId/$'
     | '/sessions/by-agent/$agent'
-    | '/emails/drafts/'
+    | '/pkg/$pkgId/'
     | '/sessions/$sessionId/'
     | '/sessions/all/'
     | '/sessions/by-agent/'
@@ -566,10 +454,8 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ClaudeRouteRoute: typeof ClaudeRouteRouteWithChildren
-  EmailsRouteRoute: typeof EmailsRouteRouteWithChildren
   SessionsRouteRoute: typeof SessionsRouteRouteWithChildren
-  StoryboardRouteRoute: typeof StoryboardRouteRouteWithChildren
-  VideoRouteRoute: typeof VideoRouteRouteWithChildren
+  SettingsRouteRoute: typeof SettingsRouteRouteWithChildren
   ClaudeAssetsSmokeRoute: typeof ClaudeAssetsSmokeRoute
   CronSmokeRoute: typeof CronSmokeRoute
   IframeMountSmokeRoute: typeof IframeMountSmokeRoute
@@ -581,15 +467,8 @@ export interface RootRouteChildren {
   PkgKernelStatusRoute: typeof PkgKernelStatusRoute
   PkgSmokeRoute: typeof PkgSmokeRoute
   SettingsSmokeRoute: typeof SettingsSmokeRoute
-  SpikeAclRoute: typeof SpikeAclRoute
-  SweeperRoute: typeof SweeperRoute
   UiroutesSmokeRoute: typeof UiroutesSmokeRoute
   PkgPkgIdRouteRoute: typeof PkgPkgIdRouteRouteWithChildren
-  SettingsBackupRoute: typeof SettingsBackupRoute
-  CalendarIndexRoute: typeof CalendarIndexRoute
-  InboxIndexRoute: typeof InboxIndexRoute
-  SettingsIndexRoute: typeof SettingsIndexRoute
-  TriageIndexRoute: typeof TriageIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -599,20 +478,6 @@ declare module '@tanstack/react-router' {
       path: '/uiroutes-smoke'
       fullPath: '/uiroutes-smoke'
       preLoaderRoute: typeof UiroutesSmokeRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/sweeper': {
-      id: '/sweeper'
-      path: '/sweeper'
-      fullPath: '/sweeper'
-      preLoaderRoute: typeof SweeperRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/spike-acl': {
-      id: '/spike-acl'
-      path: '/spike-acl'
-      fullPath: '/spike-acl'
-      preLoaderRoute: typeof SpikeAclRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/settings-smoke': {
@@ -692,18 +557,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ClaudeAssetsSmokeRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/video': {
-      id: '/video'
-      path: '/video'
-      fullPath: '/video'
-      preLoaderRoute: typeof VideoRouteRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/storyboard': {
-      id: '/storyboard'
-      path: '/storyboard'
-      fullPath: '/storyboard'
-      preLoaderRoute: typeof StoryboardRouteRouteImport
+    '/settings': {
+      id: '/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof SettingsRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/sessions': {
@@ -711,13 +569,6 @@ declare module '@tanstack/react-router' {
       path: '/sessions'
       fullPath: '/sessions'
       preLoaderRoute: typeof SessionsRouteRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/emails': {
-      id: '/emails'
-      path: '/emails'
-      fullPath: '/emails'
-      preLoaderRoute: typeof EmailsRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/claude': {
@@ -734,33 +585,12 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/video/': {
-      id: '/video/'
-      path: '/'
-      fullPath: '/video/'
-      preLoaderRoute: typeof VideoIndexRouteImport
-      parentRoute: typeof VideoRouteRoute
-    }
-    '/triage/': {
-      id: '/triage/'
-      path: '/triage'
-      fullPath: '/triage/'
-      preLoaderRoute: typeof TriageIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/storyboard/': {
-      id: '/storyboard/'
-      path: '/'
-      fullPath: '/storyboard/'
-      preLoaderRoute: typeof StoryboardIndexRouteImport
-      parentRoute: typeof StoryboardRouteRoute
-    }
     '/settings/': {
       id: '/settings/'
-      path: '/settings'
+      path: '/'
       fullPath: '/settings/'
       preLoaderRoute: typeof SettingsIndexRouteImport
-      parentRoute: typeof rootRouteImport
+      parentRoute: typeof SettingsRouteRoute
     }
     '/sessions/': {
       id: '/sessions/'
@@ -769,20 +599,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SessionsIndexRouteImport
       parentRoute: typeof SessionsRouteRoute
     }
-    '/inbox/': {
-      id: '/inbox/'
-      path: '/inbox'
-      fullPath: '/inbox/'
-      preLoaderRoute: typeof InboxIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/emails/': {
-      id: '/emails/'
-      path: '/'
-      fullPath: '/emails/'
-      preLoaderRoute: typeof EmailsIndexRouteImport
-      parentRoute: typeof EmailsRouteRoute
-    }
     '/claude/': {
       id: '/claude/'
       path: '/'
@@ -790,47 +606,47 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ClaudeIndexRouteImport
       parentRoute: typeof ClaudeRouteRoute
     }
-    '/calendar/': {
-      id: '/calendar/'
-      path: '/calendar'
-      fullPath: '/calendar/'
-      preLoaderRoute: typeof CalendarIndexRouteImport
-      parentRoute: typeof rootRouteImport
+    '/settings/storage': {
+      id: '/settings/storage'
+      path: '/storage'
+      fullPath: '/settings/storage'
+      preLoaderRoute: typeof SettingsStorageRouteImport
+      parentRoute: typeof SettingsRouteRoute
     }
-    '/video/queue': {
-      id: '/video/queue'
-      path: '/queue'
-      fullPath: '/video/queue'
-      preLoaderRoute: typeof VideoQueueRouteImport
-      parentRoute: typeof VideoRouteRoute
+    '/settings/packages': {
+      id: '/settings/packages'
+      path: '/packages'
+      fullPath: '/settings/packages'
+      preLoaderRoute: typeof SettingsPackagesRouteImport
+      parentRoute: typeof SettingsRouteRoute
     }
-    '/video/$compositionId': {
-      id: '/video/$compositionId'
-      path: '/$compositionId'
-      fullPath: '/video/$compositionId'
-      preLoaderRoute: typeof VideoCompositionIdRouteImport
-      parentRoute: typeof VideoRouteRoute
-    }
-    '/storyboard/$id': {
-      id: '/storyboard/$id'
-      path: '/$id'
-      fullPath: '/storyboard/$id'
-      preLoaderRoute: typeof StoryboardIdRouteImport
-      parentRoute: typeof StoryboardRouteRoute
+    '/settings/integrations': {
+      id: '/settings/integrations'
+      path: '/integrations'
+      fullPath: '/settings/integrations'
+      preLoaderRoute: typeof SettingsIntegrationsRouteImport
+      parentRoute: typeof SettingsRouteRoute
     }
     '/settings/backup': {
       id: '/settings/backup'
-      path: '/settings/backup'
+      path: '/backup'
       fullPath: '/settings/backup'
       preLoaderRoute: typeof SettingsBackupRouteImport
-      parentRoute: typeof rootRouteImport
+      parentRoute: typeof SettingsRouteRoute
     }
-    '/emails/$id': {
-      id: '/emails/$id'
-      path: '/$id'
-      fullPath: '/emails/$id'
-      preLoaderRoute: typeof EmailsIdRouteImport
-      parentRoute: typeof EmailsRouteRoute
+    '/settings/appearance': {
+      id: '/settings/appearance'
+      path: '/appearance'
+      fullPath: '/settings/appearance'
+      preLoaderRoute: typeof SettingsAppearanceRouteImport
+      parentRoute: typeof SettingsRouteRoute
+    }
+    '/settings/about': {
+      id: '/settings/about'
+      path: '/about'
+      fullPath: '/settings/about'
+      preLoaderRoute: typeof SettingsAboutRouteImport
+      parentRoute: typeof SettingsRouteRoute
     }
     '/claude/skills': {
       id: '/claude/skills'
@@ -888,12 +704,12 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SessionsSessionIdIndexRouteImport
       parentRoute: typeof SessionsRouteRoute
     }
-    '/emails/drafts/': {
-      id: '/emails/drafts/'
-      path: '/drafts'
-      fullPath: '/emails/drafts/'
-      preLoaderRoute: typeof EmailsDraftsIndexRouteImport
-      parentRoute: typeof EmailsRouteRoute
+    '/pkg/$pkgId/': {
+      id: '/pkg/$pkgId/'
+      path: '/'
+      fullPath: '/pkg/$pkgId/'
+      preLoaderRoute: typeof PkgPkgIdIndexRouteImport
+      parentRoute: typeof PkgPkgIdRouteRoute
     }
     '/sessions/by-agent/$agent': {
       id: '/sessions/by-agent/$agent'
@@ -932,22 +748,6 @@ const ClaudeRouteRouteWithChildren = ClaudeRouteRoute._addFileChildren(
   ClaudeRouteRouteChildren,
 )
 
-interface EmailsRouteRouteChildren {
-  EmailsIdRoute: typeof EmailsIdRoute
-  EmailsIndexRoute: typeof EmailsIndexRoute
-  EmailsDraftsIndexRoute: typeof EmailsDraftsIndexRoute
-}
-
-const EmailsRouteRouteChildren: EmailsRouteRouteChildren = {
-  EmailsIdRoute: EmailsIdRoute,
-  EmailsIndexRoute: EmailsIndexRoute,
-  EmailsDraftsIndexRoute: EmailsDraftsIndexRoute,
-}
-
-const EmailsRouteRouteWithChildren = EmailsRouteRoute._addFileChildren(
-  EmailsRouteRouteChildren,
-)
-
 interface SessionsRouteRouteChildren {
   SessionsIndexRoute: typeof SessionsIndexRoute
   SessionsByAgentAgentRoute: typeof SessionsByAgentAgentRoute
@@ -968,42 +768,38 @@ const SessionsRouteRouteWithChildren = SessionsRouteRoute._addFileChildren(
   SessionsRouteRouteChildren,
 )
 
-interface StoryboardRouteRouteChildren {
-  StoryboardIdRoute: typeof StoryboardIdRoute
-  StoryboardIndexRoute: typeof StoryboardIndexRoute
+interface SettingsRouteRouteChildren {
+  SettingsAboutRoute: typeof SettingsAboutRoute
+  SettingsAppearanceRoute: typeof SettingsAppearanceRoute
+  SettingsBackupRoute: typeof SettingsBackupRoute
+  SettingsIntegrationsRoute: typeof SettingsIntegrationsRoute
+  SettingsPackagesRoute: typeof SettingsPackagesRoute
+  SettingsStorageRoute: typeof SettingsStorageRoute
+  SettingsIndexRoute: typeof SettingsIndexRoute
 }
 
-const StoryboardRouteRouteChildren: StoryboardRouteRouteChildren = {
-  StoryboardIdRoute: StoryboardIdRoute,
-  StoryboardIndexRoute: StoryboardIndexRoute,
+const SettingsRouteRouteChildren: SettingsRouteRouteChildren = {
+  SettingsAboutRoute: SettingsAboutRoute,
+  SettingsAppearanceRoute: SettingsAppearanceRoute,
+  SettingsBackupRoute: SettingsBackupRoute,
+  SettingsIntegrationsRoute: SettingsIntegrationsRoute,
+  SettingsPackagesRoute: SettingsPackagesRoute,
+  SettingsStorageRoute: SettingsStorageRoute,
+  SettingsIndexRoute: SettingsIndexRoute,
 }
 
-const StoryboardRouteRouteWithChildren = StoryboardRouteRoute._addFileChildren(
-  StoryboardRouteRouteChildren,
-)
-
-interface VideoRouteRouteChildren {
-  VideoCompositionIdRoute: typeof VideoCompositionIdRoute
-  VideoQueueRoute: typeof VideoQueueRoute
-  VideoIndexRoute: typeof VideoIndexRoute
-}
-
-const VideoRouteRouteChildren: VideoRouteRouteChildren = {
-  VideoCompositionIdRoute: VideoCompositionIdRoute,
-  VideoQueueRoute: VideoQueueRoute,
-  VideoIndexRoute: VideoIndexRoute,
-}
-
-const VideoRouteRouteWithChildren = VideoRouteRoute._addFileChildren(
-  VideoRouteRouteChildren,
+const SettingsRouteRouteWithChildren = SettingsRouteRoute._addFileChildren(
+  SettingsRouteRouteChildren,
 )
 
 interface PkgPkgIdRouteRouteChildren {
   PkgPkgIdSplatRoute: typeof PkgPkgIdSplatRoute
+  PkgPkgIdIndexRoute: typeof PkgPkgIdIndexRoute
 }
 
 const PkgPkgIdRouteRouteChildren: PkgPkgIdRouteRouteChildren = {
   PkgPkgIdSplatRoute: PkgPkgIdSplatRoute,
+  PkgPkgIdIndexRoute: PkgPkgIdIndexRoute,
 }
 
 const PkgPkgIdRouteRouteWithChildren = PkgPkgIdRouteRoute._addFileChildren(
@@ -1013,10 +809,8 @@ const PkgPkgIdRouteRouteWithChildren = PkgPkgIdRouteRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ClaudeRouteRoute: ClaudeRouteRouteWithChildren,
-  EmailsRouteRoute: EmailsRouteRouteWithChildren,
   SessionsRouteRoute: SessionsRouteRouteWithChildren,
-  StoryboardRouteRoute: StoryboardRouteRouteWithChildren,
-  VideoRouteRoute: VideoRouteRouteWithChildren,
+  SettingsRouteRoute: SettingsRouteRouteWithChildren,
   ClaudeAssetsSmokeRoute: ClaudeAssetsSmokeRoute,
   CronSmokeRoute: CronSmokeRoute,
   IframeMountSmokeRoute: IframeMountSmokeRoute,
@@ -1028,15 +822,8 @@ const rootRouteChildren: RootRouteChildren = {
   PkgKernelStatusRoute: PkgKernelStatusRoute,
   PkgSmokeRoute: PkgSmokeRoute,
   SettingsSmokeRoute: SettingsSmokeRoute,
-  SpikeAclRoute: SpikeAclRoute,
-  SweeperRoute: SweeperRoute,
   UiroutesSmokeRoute: UiroutesSmokeRoute,
   PkgPkgIdRouteRoute: PkgPkgIdRouteRouteWithChildren,
-  SettingsBackupRoute: SettingsBackupRoute,
-  CalendarIndexRoute: CalendarIndexRoute,
-  InboxIndexRoute: InboxIndexRoute,
-  SettingsIndexRoute: SettingsIndexRoute,
-  TriageIndexRoute: TriageIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

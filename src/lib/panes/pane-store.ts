@@ -99,8 +99,6 @@ function viewsMatch(a: PaneView, b: PaneView): boolean {
       return a.sessionId === (b as Extract<PaneView, { kind: 'chat' }>).sessionId;
     case 'artifact':
       return a.path === (b as Extract<PaneView, { kind: 'artifact' }>).path;
-    case 'mini-app':
-      return a.name === (b as Extract<PaneView, { kind: 'mini-app' }>).name;
   }
 }
 
