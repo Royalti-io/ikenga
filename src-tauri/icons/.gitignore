@@ -1,0 +1,7 @@
+# Tauri's `tauri icon` command generates iOS / Android / Windows-tile assets
+# we don't ship in this build path. Keep just the .ico, .icns, and the
+# desktop-bundle PNGs that tauri.conf.json references.
+ios/
+android/
+Square*Logo.png
+StoreLogo.png
