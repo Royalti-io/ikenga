@@ -42,6 +42,12 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  # Opt into Node.js 24 for all JS actions ahead of the 2026-06-02
+  # forced-default and the 2026-09-16 Node.js 20 removal. Surfaces
+  # any incompat with checkout/setup-node/upload-artifact/pnpm-setup
+  # now rather than on the cutover. Drop this var once Node.js 24 is
+  # the default.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
   # Build the matrix dynamically based on the dispatch input. GitHub
