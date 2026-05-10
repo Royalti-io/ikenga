@@ -1,6 +1,8 @@
 import { useCallback } from 'react';
-import { type LeafNode } from '@/lib/panes/types';
+import type { LeafNode } from '@/lib/panes/types';
+import { hasAddressBar } from '@/lib/panes/pane-address';
 import { usePaneStore } from '@/lib/panes/pane-store';
+import { PaneAddressBar } from './pane-address-bar';
 import { PaneIykeOverlay } from './pane-iyke-overlay';
 import { PaneTabStrip } from './pane-tab-strip';
 import { PaneToolbar } from './pane-toolbar';
@@ -54,6 +56,9 @@ export function Pane({ leaf }: PaneProps) {
           <PaneToolbar paneId={leaf.id} />
         </div>
       </div>
+      {activeTab && hasAddressBar(activeTab) && (
+        <PaneAddressBar paneId={leaf.id} view={activeTab} />
+      )}
       <div className="relative flex-1 min-h-0 overflow-hidden">
         {activeTab && (
           <PaneBody
