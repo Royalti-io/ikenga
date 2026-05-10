@@ -1,3 +1,4 @@
+/// <reference types="vitest" />
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { TanStackRouterVite } from '@tanstack/router-vite-plugin';
@@ -87,5 +88,9 @@ export default defineConfig({
   },
   optimizeDeps: {
     exclude: ['@tauri-apps/api'],
+  },
+  test: {
+    include: ['src/**/*.{test,spec}.{ts,tsx}'],
+    exclude: ['node_modules', 'dist', 'src-tauri'],
   },
 });
