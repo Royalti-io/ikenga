@@ -133,6 +133,11 @@ async fn ensure_schema(pool: &sqlx::SqlitePool) -> Result<(), String> {
             "0009_strip_legacy",
             include_str!("../../migrations/0009_strip_legacy.sql"),
         ),
+        (
+            10,
+            "0010_activity_bar_pinning",
+            include_str!("../../migrations/0010_activity_bar_pinning.sql"),
+        ),
     ];
 
     for (id, name, sql) in migrations {

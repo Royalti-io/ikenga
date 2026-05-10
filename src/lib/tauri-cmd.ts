@@ -920,6 +920,124 @@ export async function iykeMcpInfo(): Promise<IykeMcpInfo> {
   return invoke<IykeMcpInfo>("iyke_mcp_info");
 }
 
+// ─── Activity-bar pinning (user-level) ────────────────────────────────────────
+//
+// Two distinct domains:
+//
+//   * **Sections** are user-created groups for the pinned area of the
+//     activity bar. Reserved ids (`system`, `settings`) are host-owned and
+//     rejected by Rust.
+//   * **Pins** are user pins of artifacts/routes/files/etc. They may belong
+//     to a section (`sectionId`) or sit section-less (`null`). Reorder is
+//     scoped to a single section — pass `''` (empty string) as `sectionId`
+//     to the reorder command to mean "no section".
+
+export type ActivityPinKind =
+  | "artifact"
+  | "route"
+  | "file"
+  | "external"
+  | "pkg-route";
+
+export interface ActivityPin {
+  id: string;
+  kind: ActivityPinKind;
+  target: string;
+  label: string;
+  iconLucide: string | null;
+  iconEmoji: string | null;
+  sectionId: string | null;
+  sortOrder: number;
+  createdAt: string;
+}
+
+export interface ActivitySection {
+  id: string;
+  label: string;
+  iconLucide: string | null;
+  iconEmoji: string | null;
+  sortOrder: number;
+  createdAt: string;
+}
+
+export async function activityPinsList(): Promise<ActivityPin[]> {
+  return invoke<ActivityPin[]>("activity_pins_list");
+}
+
+export async function activityPinsAdd(args: {
+  kind: ActivityPinKind;
+  target: string;
+  label: string;
+  iconLucide?: string | null;
+  iconEmoji?: string | null;
+  sectionId?: string | null;
+}): Promise<ActivityPin> {
+  return invoke<ActivityPin>("activity_pins_add", {
+    kind: args.kind,
+    target: args.target,
+    label: args.label,
+    iconLucide: args.iconLucide ?? null,
+    iconEmoji: args.iconEmoji ?? null,
+    sectionId: args.sectionId ?? null,
+  });
+}
+
+export async function activityPinsRemove(id: string): Promise<void> {
+  return invoke("activity_pins_remove", { id });
+}
+
+/** Reorder pins within a section. Pass `''` as `sectionId` for the
+ *  section-less group. The Rust side validates non-empty ids. */
+export async function activityPinsReorder(
+  orderedIds: string[],
+  sectionId: string,
+): Promise<void> {
+  return invoke("activity_pins_reorder", { orderedIds, sectionId });
+}
+
+export async function activitySectionsList(): Promise<ActivitySection[]> {
+  return invoke<ActivitySection[]>("activity_sections_list");
+}
+
+export async function activitySectionsCreate(args: {
+  id: string;
+  label: string;
+  iconLucide?: string | null;
+  iconEmoji?: string | null;
+}): Promise<ActivitySection> {
+  return invoke<ActivitySection>("activity_sections_create", {
+    id: args.id,
+    label: args.label,
+    iconLucide: args.iconLucide ?? null,
+    iconEmoji: args.iconEmoji ?? null,
+  });
+}
+
+export async function activitySectionsUpdate(args: {
+  id: string;
+  label?: string;
+  /** `undefined` = leave unchanged. `null` = clear. `string` = set. */
+  iconLucide?: string | null;
+  iconEmoji?: string | null;
+}): Promise<ActivitySection> {
+  // Distinguish "not supplied" (don't touch the column) from "explicit null"
+  // (clear it) by serializing both cases differently. Rust deserializes
+  // `Option<Option<String>>`: outer None = leave, inner None = NULL.
+  const payload: Record<string, unknown> = { id: args.id };
+  if (args.label !== undefined) payload.label = args.label;
+  if (Object.hasOwn(args, "iconLucide")) {
+    payload.iconLucide = args.iconLucide ?? null;
+  }
+  if (Object.hasOwn(args, "iconEmoji")) {
+    payload.iconEmoji = args.iconEmoji ?? null;
+  }
+  return invoke<ActivitySection>("activity_sections_update", payload);
+}
+
+export async function activitySectionsRemove(id: string): Promise<void> {
+  return invoke("activity_sections_remove", { id });
+}
+
 // ─── Backup / restore ─────────────────────────────────────────────────────────
 //
 // Phase 2: SQLite + age-passphrase-encrypted secrets + installed-pkg list.

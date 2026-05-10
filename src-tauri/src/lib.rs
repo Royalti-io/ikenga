@@ -17,6 +17,9 @@ use tokio::sync::Mutex;
 use commands::db::PaDb;
 use commands::screenshot::new_pending as new_screenshot_pending;
 use commands::{
+    activity_pins_add, activity_pins_list, activity_pins_remove, activity_pins_reorder,
+    activity_sections_create, activity_sections_list, activity_sections_remove,
+    activity_sections_update,
     backup_delete, backup_export, backup_import, backup_list,
     claude_chat_kill, claude_chat_send, claude_chat_spawn,
     claude_config_load, claude_config_read_file, claude_config_unwatch, claude_config_watch,
@@ -117,6 +120,12 @@ pub fn run() {
             version: 9,
             description: "strip_legacy",
             sql: include_str!("../migrations/0009_strip_legacy.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 10,
+            description: "activity_bar_pinning",
+            sql: include_str!("../migrations/0010_activity_bar_pinning.sql"),
             kind: MigrationKind::Up,
         },
     ];
@@ -456,6 +465,15 @@ pub fn run() {
             pkg_supervisor_restart,
             dev_bind_port,
             dev_release_port,
+            // activity bar pinning
+            activity_pins_list,
+            activity_pins_add,
+            activity_pins_remove,
+            activity_pins_reorder,
+            activity_sections_list,
+            activity_sections_create,
+            activity_sections_update,
+            activity_sections_remove,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
