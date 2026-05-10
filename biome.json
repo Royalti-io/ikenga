@@ -28,11 +28,15 @@
     }
   },
   "files": {
-    "ignore": [
-      "src/routeTree.gen.ts",
-      "dist",
-      "node_modules",
-      "src-tauri"
+    "includes": [
+      "**",
+      "!src/routeTree.gen.ts",
+      "!dist",
+      "!node_modules",
+      "!src-tauri",
+      "!design",
+      "!hyperframes-projects",
+      "!sidecars"
     ]
   },
   "vcs": {
