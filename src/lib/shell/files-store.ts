@@ -13,12 +13,20 @@ interface Persisted {
   expanded: string[];
   selectedPath: string | null;
   scrollTop: number;
+  showHidden: boolean;
+  showIgnored: boolean;
 }
 
 interface FilesState {
   expanded: Set<string>;
   selectedPath: string | null;
   scrollTop: number;
+  /** Show dotfile-prefixed entries (e.g. `.git`, `.next`, `.env`). Default off. */
+  showHidden: boolean;
+  /** Show heavy-ignored directories (`node_modules`, `target`, `dist`, etc.).
+   * Lazy expansion still applies — toggling this on does NOT auto-expand the
+   * dirs, so it stays cheap until the user clicks one. Default off. */
+  showIgnored: boolean;
   hydrated: boolean;
   hydrate: () => Promise<void>;
   toggle: (path: string) => void;
@@ -26,6 +34,10 @@ interface FilesState {
   collapse: (path: string) => void;
   setSelected: (path: string | null) => void;
   setScrollTop: (n: number) => void;
+  setShowHidden: (b: boolean) => void;
+  setShowIgnored: (b: boolean) => void;
+  toggleShowHidden: () => void;
+  toggleShowIgnored: () => void;
   /** Drop paths from the expanded set (used after rename/trash/missing). */
   prune: (paths: string[]) => void;
 }
@@ -39,6 +51,8 @@ function snapshot(s: FilesState): Persisted {
     expanded: [...s.expanded],
     selectedPath: s.selectedPath,
     scrollTop: s.scrollTop,
+    showHidden: s.showHidden,
+    showIgnored: s.showIgnored,
   };
 }
 
@@ -46,6 +60,8 @@ export const useFilesStore = create<FilesState>((set, get) => ({
   expanded: new Set<string>(),
   selectedPath: null,
   scrollTop: 0,
+  showHidden: false,
+  showIgnored: false,
   hydrated: false,
 
   hydrate: async () => {
@@ -54,11 +70,15 @@ export const useFilesStore = create<FilesState>((set, get) => ({
       expanded: [],
       selectedPath: null,
       scrollTop: 0,
+      showHidden: false,
+      showIgnored: false,
     });
     set({
       expanded: new Set(data.expanded ?? []),
       selectedPath: data.selectedPath ?? null,
       scrollTop: data.scrollTop ?? 0,
+      showHidden: data.showHidden ?? false,
+      showIgnored: data.showIgnored ?? false,
       hydrated: true,
     });
   },
@@ -97,6 +117,28 @@ export const useFilesStore = create<FilesState>((set, get) => ({
     persist(snapshot(get()));
   },
 
+  setShowHidden: (showHidden) => {
+    if (get().showHidden === showHidden) return;
+    set({ showHidden });
+    persist(snapshot(get()));
+  },
+
+  setShowIgnored: (showIgnored) => {
+    if (get().showIgnored === showIgnored) return;
+    set({ showIgnored });
+    persist(snapshot(get()));
+  },
+
+  toggleShowHidden: () => {
+    set({ showHidden: !get().showHidden });
+    persist(snapshot(get()));
+  },
+
+  toggleShowIgnored: () => {
+    set({ showIgnored: !get().showIgnored });
+    persist(snapshot(get()));
+  },
+
   prune: (paths) => {
     const cur = get().expanded;
     let changed = false;
@@ -105,7 +147,7 @@ export const useFilesStore = create<FilesState>((set, get) => ({
       if (next.delete(p)) changed = true;
       // also prune descendants — if `p` was a directory, anything under it
       // is now stale.
-      const prefix = p.endsWith('/') ? p : p + '/';
+      const prefix = p.endsWith('/') ? p : `${p}/`;
       for (const e of cur) {
         if (e.startsWith(prefix) && next.delete(e)) changed = true;
       }

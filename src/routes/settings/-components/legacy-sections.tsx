@@ -47,6 +47,7 @@ import {
   useShellStore,
 } from '@/lib/shell/shell-store';
 import {
+  fsList,
   type ScreenshotConfig as ScreenshotCfg,
   screenshotGetConfig,
   screenshotSetDir,
@@ -67,12 +68,118 @@ export const KNOWN_LOCALSTORAGE_KEYS = [
 export const LAYOUT_LS_PREFIX = '__lstate__:';
 export const REVEAL_TIMEOUT_MS = 30_000;
 
+// ─── Editable path row ───────────────────────────────────────────────────────
+//
+// Replaces the read-only span in path lists (file roots, claude project
+// roots) with an `<input>` that commits on blur or Enter. Validation is
+// best-effort (fsList(path) succeeds for valid + allowlisted directories);
+// invalid paths get an aria-invalid border and the user can re-edit. We do
+// NOT validate per-keystroke — that would hammer the fs commands while the
+// user is mid-edit.
+
+interface EditablePathRowProps {
+  value: string;
+  onCommit: (next: string) => void;
+  onRemove: () => void;
+  removeLabel: string;
+  isDefault?: boolean;
+}
+
+function EditablePathRow({
+  value,
+  onCommit,
+  onRemove,
+  removeLabel,
+  isDefault,
+}: EditablePathRowProps) {
+  const [draft, setDraft] = useState(value);
+  const [invalid, setInvalid] = useState(false);
+
+  // Resync if the underlying value changes from outside (e.g. reset to
+  // defaults) and we're not actively focused — leave focused edits alone.
+  useEffect(() => {
+    setDraft(value);
+    setInvalid(false);
+  }, [value]);
+
+  async function commit() {
+    const trimmed = draft.trim();
+    if (!trimmed || trimmed === value) {
+      setDraft(value);
+      setInvalid(false);
+      return;
+    }
+    // fsList probes the directory via the same allowlist the rest of the
+    // shell uses. If it throws, the path is missing OR outside the
+    // allowlist — either way, not safe to commit silently.
+    try {
+      await fsList(trimmed);
+    } catch {
+      setInvalid(true);
+      return;
+    }
+    setInvalid(false);
+    onCommit(trimmed);
+  }
+
+  return (
+    <li className="flex items-center justify-between gap-2 border-b border-border px-3 py-2 text-sm last:border-b-0">
+      <div className="flex min-w-0 flex-1 items-center gap-2">
+        <FolderOpen className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <input
+          value={draft}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            // Clear the invalid state as soon as the user resumes typing —
+            // gives them visual feedback that the field is "live" again.
+            if (invalid) setInvalid(false);
+          }}
+          onBlur={() => void commit()}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              (e.target as HTMLInputElement).blur();
+            } else if (e.key === 'Escape') {
+              e.preventDefault();
+              setDraft(value);
+              setInvalid(false);
+              (e.target as HTMLInputElement).blur();
+            }
+          }}
+          aria-invalid={invalid || undefined}
+          className={cn(
+            'min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 py-0.5 font-mono text-xs text-foreground outline-none',
+            'hover:border-border focus:border-ring focus:bg-background',
+            invalid && 'border-destructive bg-destructive/5 focus:border-destructive'
+          )}
+          spellCheck={false}
+        />
+        {isDefault && (
+          <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase text-muted-foreground">
+            default
+          </span>
+        )}
+      </div>
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={onRemove}
+        className="h-7 px-2 text-muted-foreground hover:text-red-700"
+        aria-label={removeLabel}
+      >
+        <Trash2 className="h-3.5 w-3.5" />
+      </Button>
+    </li>
+  );
+}
+
 // ─── File roots ──────────────────────────────────────────────────────────────
 
 export function FileRootsSectionBody() {
   const fileRoots = useShellStore((s) => s.fileRoots);
   const addFileRoot = useShellStore((s) => s.addFileRoot);
   const removeFileRoot = useShellStore((s) => s.removeFileRoot);
+  const updateFileRoot = useShellStore((s) => s.updateFileRoot);
   const resetFileRoots = useShellStore((s) => s.resetFileRoots);
 
   async function handleAdd() {
@@ -83,37 +190,23 @@ export function FileRootsSectionBody() {
   return (
     <div className="space-y-3 px-4 py-3">
       <p className="text-xs text-muted-foreground">
-        Directories the file browser and editor are allowed to open. The Tauri capability
-        allowlist still restricts reads to <code>~/royalti-co</code>, <code>~/.claude</code>,
-        and <code>~/.company</code> — paths added here outside those will surface a warning.
+        Directories the file browser and editor are allowed to open. The Tauri capability allowlist
+        still restricts reads to <code>~/royalti-co</code>, <code>~/.claude</code>, and{' '}
+        <code>~/.company</code> — paths added here outside those will surface a warning. Click any
+        path to edit it; press <kbd>Enter</kbd> to commit, <kbd>Esc</kbd> to revert.
       </p>
       <ul className="space-y-1 rounded-md border border-border bg-background">
         {fileRoots.map((root) => {
           const isDefault = (DEFAULT_FILE_ROOTS as readonly string[]).includes(root);
           return (
-            <li
+            <EditablePathRow
               key={root}
-              className="flex items-center justify-between gap-2 border-b border-border px-3 py-2 text-sm last:border-b-0"
-            >
-              <div className="flex min-w-0 items-center gap-2">
-                <FolderOpen className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                <span className="truncate font-mono text-xs">{root}</span>
-                {isDefault && (
-                  <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase text-muted-foreground">
-                    default
-                  </span>
-                )}
-              </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => removeFileRoot(root)}
-                className="h-7 px-2 text-muted-foreground hover:text-red-700"
-                aria-label={`Remove ${root}`}
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </Button>
-            </li>
+              value={root}
+              onCommit={(next) => updateFileRoot(root, next)}
+              onRemove={() => removeFileRoot(root)}
+              removeLabel={`Remove ${root}`}
+              isDefault={isDefault}
+            />
           );
         })}
         {fileRoots.length === 0 && (
@@ -140,6 +233,7 @@ export function ClaudeConfigSectionBody() {
   const claudeProjectRoots = useShellStore((s) => s.claudeProjectRoots);
   const addClaudeProjectRoot = useShellStore((s) => s.addClaudeProjectRoot);
   const removeClaudeProjectRoot = useShellStore((s) => s.removeClaudeProjectRoot);
+  const updateClaudeProjectRoot = useShellStore((s) => s.updateClaudeProjectRoot);
   const resetClaudeProjectRoots = useShellStore((s) => s.resetClaudeProjectRoots);
   const claudeWatchEnabled = useShellStore((s) => s.claudeWatchEnabled);
   const setClaudeWatchEnabled = useShellStore((s) => s.setClaudeWatchEnabled);
@@ -152,37 +246,22 @@ export function ClaudeConfigSectionBody() {
   return (
     <div className="space-y-3 px-4 py-3">
       <p className="text-xs text-muted-foreground">
-        Project roots scanned by the <code>/claude</code> config browser. Each root should
-        contain a <code>.claude/</code> dir with agents/skills/commands. Personal{' '}
-        <code>~/.claude/</code> is always scanned in addition to these — no need to add it.
+        Project roots scanned by the <code>/claude</code> config browser. Each root should contain a{' '}
+        <code>.claude/</code> dir with agents/skills/commands. Personal <code>~/.claude/</code> is
+        always scanned in addition to these — no need to add it.
       </p>
       <ul className="space-y-1 rounded-md border border-border bg-background">
         {claudeProjectRoots.map((root) => {
           const isDefault = (DEFAULT_CLAUDE_PROJECT_ROOTS as readonly string[]).includes(root);
           return (
-            <li
+            <EditablePathRow
               key={root}
-              className="flex items-center justify-between gap-2 border-b border-border px-3 py-2 text-sm last:border-b-0"
-            >
-              <div className="flex min-w-0 items-center gap-2">
-                <FolderOpen className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                <span className="truncate font-mono text-xs">{root}</span>
-                {isDefault && (
-                  <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase text-muted-foreground">
-                    default
-                  </span>
-                )}
-              </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => removeClaudeProjectRoot(root)}
-                className="h-7 px-2 text-muted-foreground hover:text-red-700"
-                aria-label={`Remove ${root}`}
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </Button>
-            </li>
+              value={root}
+              onCommit={(next) => updateClaudeProjectRoot(root, next)}
+              onRemove={() => removeClaudeProjectRoot(root)}
+              removeLabel={`Remove ${root}`}
+              isDefault={isDefault}
+            />
           );
         })}
         {claudeProjectRoots.length === 0 && (
@@ -267,16 +346,14 @@ export function ScreenshotDirSectionBody() {
   return (
     <div className="space-y-3 px-4 py-3">
       <p className="text-xs text-muted-foreground">
-        Where <code>screenshot_window</code> / <code>screenshot_pane</code> save PNGs (also
-        used by the global Ctrl+Alt+Shift+S/P shortcuts and the iyke CLI bridge).
+        Where <code>screenshot_window</code> / <code>screenshot_pane</code> save PNGs (also used by
+        the global Ctrl+Alt+Shift+S/P shortcuts and the iyke CLI bridge).
       </p>
       <div className="rounded-md border border-border bg-background p-3 text-sm">
         <div className="flex items-start gap-2">
           <Camera className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
           <div className="min-w-0 flex-1 space-y-1">
-            <div className="font-mono text-xs break-all">
-              {cfg?.effectiveDir ?? 'Loading…'}
-            </div>
+            <div className="font-mono text-xs break-all">{cfg?.effectiveDir ?? 'Loading…'}</div>
             {cfg && (
               <div className="text-[11px] text-muted-foreground">
                 {cfg.overrideDir
@@ -316,7 +393,7 @@ export function ClearDataSectionBody() {
   async function handleClear() {
     const ok = await confirmDialog(
       'This wipes all locally cached app state: chat threads, viewer recents, render queue, mbox sync, storyboards, layout, dock, sequences, and all browser localStorage for this app. Stronghold secrets, screenshots on disk, and your Supabase data are kept. The app will reload.',
-      { title: 'Clear all local data', kind: 'warning' },
+      { title: 'Clear all local data', kind: 'warning' }
     );
     if (!ok) return;
     setBusy(true);
@@ -376,8 +453,8 @@ export function ClearDataSectionBody() {
   return (
     <div className="space-y-3 px-4 py-3">
       <p className="text-xs text-muted-foreground">
-        Destructive. Wipes the SQLite cache and all browser localStorage for this app. Auth
-        and theme are preserved; Supabase data is untouched.
+        Destructive. Wipes the SQLite cache and all browser localStorage for this app. Auth and
+        theme are preserved; Supabase data is untouched.
       </p>
       <div className="rounded-md border border-amber-300/60 bg-amber-50/40 p-3 text-xs text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/20 dark:text-amber-200">
         <div className="flex items-start gap-2">
@@ -485,8 +562,8 @@ export function ApiKeysSectionBody() {
   return (
     <div className="space-y-3 px-4 py-3">
       <p className="text-xs text-muted-foreground">
-        Stored encrypted in your OS keychain. Sidecars read these instead of <code>.env</code>{' '}
-        files when the app is running.
+        Stored encrypted in your OS keychain. Sidecars read these instead of <code>.env</code> files
+        when the app is running.
       </p>
 
       {/* Vault status banner */}
@@ -496,7 +573,7 @@ export function ApiKeysSectionBody() {
             'rounded-md border px-3 py-2 text-xs',
             vaultAvailable
               ? 'border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-200'
-              : 'border-red-200 bg-red-50 text-red-900 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-200',
+              : 'border-red-200 bg-red-50 text-red-900 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-200'
           )}
         >
           <div className="flex items-start gap-2">
@@ -510,8 +587,8 @@ export function ApiKeysSectionBody() {
                 <span>Vault unlocked via {status.data.keychainBackend}.</span>
               ) : (
                 <span>
-                  Vault unavailable: {status.data.error ?? 'unknown error'}. Sidecars will fall
-                  back to dotenv files.
+                  Vault unavailable: {status.data.error ?? 'unknown error'}. Sidecars will fall back
+                  to dotenv files.
                 </span>
               )}
             </div>
@@ -548,7 +625,7 @@ export function ApiKeysSectionBody() {
                     key={k.name}
                     className={cn(
                       'flex items-center gap-3 px-3 py-2',
-                      i > 0 && 'border-t border-border',
+                      i > 0 && 'border-t border-border'
                     )}
                   >
                     <KeyRound className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
@@ -609,9 +686,7 @@ export function ApiKeysSectionBody() {
           onClose={() => setEditKey(null)}
         />
       )}
-      {importOpen && (
-        <ImportDotenvDialog existing={known} onClose={() => setImportOpen(false)} />
-      )}
+      {importOpen && <ImportDotenvDialog existing={known} onClose={() => setImportOpen(false)} />}
     </div>
   );
 }
@@ -722,7 +797,7 @@ export function ImportDotenvDialog({
   // Default-check only known catalog keys; default-uncheck overwrite of existing.
   const knownKeys = useMemo(() => KEY_CATALOG.flatMap((c) => c.keys.map((k) => k.name)), []);
   const [selected, setSelected] = useState<Set<string>>(
-    () => new Set(knownKeys.filter((k) => !existing.has(k))),
+    () => new Set(knownKeys.filter((k) => !existing.has(k)))
   );
   const [overwrite, setOverwrite] = useState(false);
   const [busy, setBusy] = useState(false);
