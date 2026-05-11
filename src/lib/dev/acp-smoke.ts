@@ -18,6 +18,7 @@ import {
 	acpPrompt,
 	acpRespondPermission,
 	acpSetMode,
+	type AcpContentBlock,
 	type AcpRequestEnvelope,
 	type AcpSessionModeId,
 	type AcpSessionModes,
@@ -114,6 +115,94 @@ export async function runAcpSmokeTest(
 		// but Tauri events may still flush a tick later. Don't unlisten
 		// synchronously or we lose the tail; let the microtask queue
 		// drain first.
+		await Promise.resolve();
+		unlisten();
+		unlistenRequests();
+	}
+
+	return {
+		threadId,
+		updates,
+		stopReason: response.stopReason,
+		permissionRequests,
+		advertisedModes,
+		finalMode,
+	};
+}
+
+/**
+ * Phase 7: smoke-test sending an image through the ACP wire. The image
+ * MUST be supplied as a data URL (e.g. `data:image/png;base64,...`) — we
+ * don't read disk paths from the harness because the FileSystem API is
+ * not directly available in webview contexts and the existing fs Tauri
+ * commands are allowlist-scoped. iyke can build a data URL from a real
+ * file with one round-trip:
+ *
+ *   const bytes = await invoke('fs_read', { path: '/abs/path.png' });
+ *   const b64 = btoa(String.fromCharCode(...bytes.bytes));
+ *   const dataUrl = `data:${bytes.mime};base64,${b64}`;
+ *
+ * Returns the same shape as `runAcpSmokeTest` so callers can assert on
+ * `updates.length`, `stopReason`, etc. Bound to
+ * `globalThis.ikengaAcpImageSmoke` from `src/lib/dev/index.ts`.
+ *
+ *   iyke javascript "(await window.ikengaAcpImageSmoke('What is in this?', dataUrl)).updates.length"
+ */
+export async function runAcpImageSmokeTest(
+	prompt: string,
+	imageDataUrl: string,
+	opts: { cwd?: string } = {}
+): Promise<AcpSmokeResult> {
+	const cwd = opts.cwd ?? '/';
+
+	// Parse the data URL — claude wants the raw base64 + the media_type,
+	// not the prefixed URI form.
+	const match = imageDataUrl.match(/^data:([^;,]+);base64,(.+)$/);
+	if (!match) {
+		throw new Error(
+			'imageDataUrl must be a base64 data URL like `data:image/png;base64,...`',
+		);
+	}
+	const mimeType = match[1];
+	const data = match[2];
+
+	await acpInitialize({ protocolVersion: 1 });
+
+	const session = await acpNewSession({ cwd, mcpServers: [] });
+	const threadId = session.sessionId;
+	const advertisedModes = session.modes ?? null;
+	const finalMode: AcpSessionModeId =
+		(advertisedModes?.currentModeId ?? 'default') as AcpSessionModeId;
+
+	const updates: AcpSessionUpdate[] = [];
+	const unlisten = await acpListen(threadId, (notif: AcpSessionNotification) => {
+		updates.push(notif.update);
+	});
+
+	const permissionRequests: AcpRequestEnvelope[] = [];
+	const unlistenRequests = await acpListenRequests(threadId, (env: AcpRequestEnvelope) => {
+		permissionRequests.push(env);
+		const firstOption = env.request.options[0];
+		if (!firstOption) {
+			void acpRespondPermission(env.requestId, {
+				outcome: { outcome: 'cancelled' },
+			});
+			return;
+		}
+		void acpRespondPermission(env.requestId, {
+			outcome: { outcome: 'selected', optionId: firstOption.optionId },
+		});
+	});
+
+	const blocks: AcpContentBlock[] = [
+		{ type: 'text', text: prompt },
+		{ type: 'image', data, mimeType },
+	];
+
+	let response;
+	try {
+		response = await acpPrompt({ sessionId: threadId, prompt: blocks });
+	} finally {
 		await Promise.resolve();
 		unlisten();
 		unlistenRequests();

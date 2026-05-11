@@ -3,18 +3,24 @@
 // through a UI. Production builds tree-shake the import via the
 // `import.meta.env.DEV` guard in main.tsx.
 
-import { runAcpInterruptSmokeTest, runAcpSmokeTest } from './acp-smoke';
+import {
+	runAcpImageSmokeTest,
+	runAcpInterruptSmokeTest,
+	runAcpSmokeTest,
+} from './acp-smoke';
 
 declare global {
 	interface Window {
 		ikengaAcpSmoke?: typeof runAcpSmokeTest;
 		ikengaAcpInterruptSmoke?: typeof runAcpInterruptSmokeTest;
+		ikengaAcpImageSmoke?: typeof runAcpImageSmokeTest;
 	}
 }
 
 if (typeof window !== 'undefined') {
 	window.ikengaAcpSmoke = runAcpSmokeTest;
 	window.ikengaAcpInterruptSmoke = runAcpInterruptSmokeTest;
+	window.ikengaAcpImageSmoke = runAcpImageSmokeTest;
 }
 
 export {};
