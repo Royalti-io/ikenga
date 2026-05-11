@@ -8,6 +8,12 @@
 --     assistant turns and tool-result-shaped user envelopes, so we need our
 --     own record to render the user side of the conversation across reloads).
 --
+-- Phase 11 (2026-05-11) audited and KEPT this table. ACP's
+-- `user_message_chunk` is not emitted by our `AcpServer` for our own writes
+-- (only agent-side events forward back), and `stream_parser.rs::dispatch_user`
+-- drops plain-string user messages from claude's JSONL. So this table is the
+-- only durable record of user input. See `shell/docs/acp-migration.md` § Phase 11.
+--
 -- Schema for chat_threads predates this — see 0001_init.sql + 0003_claude_sessions.sql.
 
 CREATE TABLE IF NOT EXISTS chat_user_turns (

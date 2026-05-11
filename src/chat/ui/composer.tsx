@@ -89,16 +89,6 @@ interface ComposerProps {
   threadId: string | null;
   className?: string;
   placeholder?: string;
-  /**
-   * Phase 5: surfaces the ACP session-mode picker (badge + dropdown) next
-   * to the adapter label. Phase 10 makes this default-on — the ACP adapter
-   * is the new default chat engine, and the picker pairs with it. Callers
-   * can still set `acpEnabled={false}` to mirror the legacy CLI path (used
-   * by the opt-out feature flag).
-   *
-   * TODO(phase-11): retire this flag once the legacy adapter is removed.
-   */
-  acpEnabled?: boolean;
 }
 
 /** Display labels for the four canonical ACP session modes. Keep in sync
@@ -115,7 +105,6 @@ export function Composer({
   threadId,
   className,
   placeholder,
-  acpEnabled = true,
 }: ComposerProps) {
   const [text, setText] = useState('');
   const state = useThreadState(threadId);
@@ -150,13 +139,13 @@ export function Composer({
     setText(next);
   }
 
-  // Phase 7: image attachment state. Only consumed when `acpEnabled` is on
-  // — the legacy adapter has no image support yet.
-  // TODO(phase-10): support images in the legacy adapter, or just retire it.
+  // Phase 7 image attachment state. Phase 11 unconditionally accepts images;
+  // legacy CLI sends still go through the standard `send` path with no image
+  // strip attached.
   const [pendingImages, setPendingImages] = useState<PendingImage[]>([]);
 
   async function appendImagesFromFiles(files: FileList | File[] | null | undefined) {
-    if (!files || !acpEnabled) return;
+    if (!files) return;
     const list = Array.from(files);
     const additions: PendingImage[] = [];
     for (const f of list) {
@@ -169,7 +158,6 @@ export function Composer({
   }
 
   async function handlePaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
-    if (!acpEnabled) return; // silent no-op on legacy adapter (Phase 10)
     const files = e.clipboardData?.files;
     if (!files || files.length === 0) return;
     // Only consume the event if there's actually an image — otherwise let
@@ -181,7 +169,6 @@ export function Composer({
   }
 
   async function handleDrop(e: React.DragEvent<HTMLDivElement>) {
-    if (!acpEnabled) return;
     const files = e.dataTransfer?.files;
     if (!files || files.length === 0) return;
     const hasImage = Array.from(files).some((f) => SUPPORTED_IMAGE_MIME_TYPES.has(f.type));
@@ -191,9 +178,7 @@ export function Composer({
   }
 
   function handleDragOver(e: React.DragEvent<HTMLDivElement>) {
-    // Required to allow drop. Only intercept while ACP is on; otherwise
-    // let drag events bubble (the legacy adapter ignores them).
-    if (!acpEnabled) return;
+    // Required to allow drop.
     e.preventDefault();
   }
 
@@ -208,11 +193,11 @@ export function Composer({
     setText('');
     lastSentRef.current = value;
 
-    if (acpEnabled && hasImages && threadId) {
-      // Phase 7 hack: bypass the legacy adapter and fire `acpPrompt`
-      // directly so the images reach claude's stream-json envelope.
-      // Phase 10 reshapes the composer around ACP and this branch goes
-      // away (everything routes through one path).
+    if (hasImages && threadId) {
+      // Image-bearing sends fire `acpPrompt` directly so the images reach
+      // claude's stream-json envelope. Text-only sends still route through
+      // the adapter so the legacy CLI path stays functional for opt-out
+      // users.
       const images = pendingImages;
       setPendingImages([]);
       const blocks: AcpContentBlock[] = [];
@@ -360,10 +345,9 @@ export function Composer({
           </span>
         </div>
       )}
-      {acpEnabled && pendingImages.length > 0 && (
-        // Phase 7: thumbnail strip for pasted/dropped images. Minimal
-        // visual — Phase 10 refits this when the composer is reshaped
-        // around ACP. Each thumb has an inline × to remove it pre-send.
+      {pendingImages.length > 0 && (
+        // Phase 7: thumbnail strip for pasted/dropped images. Each thumb has
+        // an inline × to remove it pre-send.
         <div className="mb-2 flex flex-wrap gap-2">
           {pendingImages.map((img) => (
             <div
@@ -401,31 +385,27 @@ export function Composer({
             <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
               <span>{adapterLabel}</span>
               {state?.thread.model && <span>· {state.thread.model.replace(/^claude-/, '')}</span>}
-              {acpEnabled && (
-                // Phase 5 mode picker: badge-styled trigger + select dropdown.
-                // Visual polish is intentionally minimal — Phase 10 reshapes
-                // the composer around ACP and the picker gets a proper design pass.
-                <Select
-                  value={currentMode}
-                  onValueChange={(v) => void handleModeChange(v as AcpSessionModeId)}
-                  disabled={!threadId}
+              {/* Phase 5 mode picker: badge-styled trigger + select dropdown. */}
+              <Select
+                value={currentMode}
+                onValueChange={(v) => void handleModeChange(v as AcpSessionModeId)}
+                disabled={!threadId}
+              >
+                <SelectTrigger
+                  className="h-5 gap-1 rounded border border-border bg-muted/40 px-1.5 py-0 text-[10px] font-medium uppercase tracking-wide text-foreground hover:bg-muted [&>svg]:size-3"
+                  aria-label="Session mode"
                 >
-                  <SelectTrigger
-                    className="h-5 gap-1 rounded border border-border bg-muted/40 px-1.5 py-0 text-[10px] font-medium uppercase tracking-wide text-foreground hover:bg-muted [&>svg]:size-3"
-                    aria-label="Session mode"
-                  >
-                    <SelectValue>{MODE_LABELS[currentMode]}</SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    {MODE_IDS.map((m) => (
-                      <SelectItem key={m} value={m} className="text-xs">
-                        {MODE_LABELS[m]}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-              {acpEnabled && modeError && (
+                  <SelectValue>{MODE_LABELS[currentMode]}</SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {MODE_IDS.map((m) => (
+                    <SelectItem key={m} value={m} className="text-xs">
+                      {MODE_LABELS[m]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {modeError && (
                 <span className="text-destructive" title={modeError}>
                   · mode change failed
                 </span>
@@ -451,10 +431,9 @@ export function Composer({
                   !isStreaming &&
                   (disabled ||
                     (text.trim().length === 0 &&
-                      // Phase 7: image-only sends are valid when ACP is on
-                      // — the extractor adds a default text anchor on the
-                      // Rust side.
-                      !(acpEnabled && pendingImages.length > 0)))
+                      // Image-only sends are valid — the Rust-side extractor
+                      // adds a default text anchor when needed.
+                      pendingImages.length === 0))
                 }
               />
             </div>

@@ -1,4 +1,14 @@
 /**
+ * TODO(phase-12): retire this adapter. Phase 10 made the ACP adapter the
+ * default; Phase 11 left this adapter in place because several non-chat
+ * call sites (`routes/install.tsx`, `shell/dock/dock.tsx`,
+ * `shell/panes/new-tab-menu.tsx`, `shell/sessions/new-session-dialog.tsx`,
+ * `routes/sessions/$sessionId/index.tsx`, `lib/engine/host-bridge.ts`)
+ * still call `sessionEnsure` / `sessionSend` directly. Each needs its own
+ * migration to ACP (lazy session creation + a non-prompt "ensure thread
+ * row" path) before this adapter and the matching `session_*` Tauri
+ * commands can be deleted.
+ *
  * ClaudeCliAdapter — chat backend over Claude Code's streaming-input mode.
  *
  * Transport: ONE long-lived `claude --print --input-format stream-json
