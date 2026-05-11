@@ -10,8 +10,16 @@
 //! future until the stream's `Done` event arrives, while concurrently
 //! emitting ACP `SessionUpdate` notifications on
 //! `acp://session/{threadId}` so the frontend can render the assistant's
-//! turn as it streams. `cancel` is wired to `cancel_streaming` for now;
-//! Phase 6 will swap in the real interrupt-control-request path.
+//! turn as it streams.
+//!
+//! Phase 6: `cancel` writes an `sdk_control_request { subtype: "interrupt"
+//! }` envelope to claude's stdin instead of killing the child. Claude
+//! stops mid-turn and emits its normal `Done` envelope, so the prompt
+//! loop in `handle_prompt` exits naturally via its existing `Done` watch.
+//! Transcript stays intact and the streaming child remains alive for the
+//! next prompt. The legacy `cancel_streaming` (kill-the-child) path is
+//! still used by the non-ACP `session_cancel` / `session_destroy` Tauri
+//! commands for hard tear-down.
 //!
 //! Why this file deliberately hides the `agent-client-protocol` surface
 //! from callers: spec churn touches the schema crate often, and we want a
@@ -41,7 +49,7 @@ use crate::acp::{
 };
 use crate::claude::event::ChatEvent;
 use crate::claude::session::{
-    cancel_streaming, send_control_response, send_set_mode, send_user_message, SessionOpts,
+    send_control_response, send_interrupt, send_set_mode, send_user_message, SessionOpts,
     SessionsManager,
 };
 
@@ -375,16 +383,28 @@ impl AcpServer {
     }
 
 
-    /// Handle ACP `session/cancel`. Today this just kills the streaming
-    /// child via `cancel_streaming`; Phase 6 swaps in the real
-    /// `control_request { subtype: "interrupt" }` path so transcripts
-    /// stay intact.
+    /// Handle ACP `session/cancel`. Phase 6: write an interrupt
+    /// control_request to claude's stdin instead of killing the child.
+    /// Claude stops mid-turn and emits its normal `Done` envelope, so the
+    /// prompt loop in `handle_prompt` exits naturally via its existing
+    /// `Done` watch. Transcript stays intact and the streaming child
+    /// remains alive for the next prompt — we don't pay re-spawn cost on
+    /// every Stop click.
+    ///
+    /// `send_interrupt` short-circuits to Ok when there's no streaming
+    /// child to interrupt, so an unknown / stale `threadId` is a no-op
+    /// (matches the previous "best-effort cancel" semantics).
+    ///
+    /// The legacy `cancel_streaming` (hard-kill) path is still used by
+    /// the non-ACP `session_cancel` / `session_destroy` Tauri commands
+    /// in `commands/claude.rs`, which need the guarantee for tear-down
+    /// and HMR hygiene.
     #[allow(non_snake_case)]
     pub async fn handle_cancel(&self, threadId: String) -> Result<(), String> {
         let Some(session) = self.sessions.get(&threadId).await else {
             return Ok(());
         };
-        cancel_streaming(session).await
+        send_interrupt(session).await
     }
 
     /// Handle ACP `session/set_mode`. Updates the tracked current mode for
@@ -573,6 +593,54 @@ mod tests {
             .expect_err("unknown thread should error");
         assert!(err.contains("no session for thread"));
     }
+
+    #[tokio::test]
+    async fn handle_cancel_with_no_session_is_ok() {
+        // Phase 6: stale Stop clicks (thread already destroyed, never
+        // registered, etc.) must be no-ops. The frontend can fire
+        // `acpCancel` without checking session state first.
+        let server = AcpServer::default();
+        server
+            .handle_cancel("never_registered".into())
+            .await
+            .expect("unknown thread should be Ok");
+    }
+
+    #[tokio::test]
+    async fn handle_cancel_with_no_streaming_child_returns_ok() {
+        // Phase 6: a session that exists but has no live streaming child
+        // (turn already over, never spawned) should be a no-op. The
+        // interrupt envelope is only meaningful while claude is reading
+        // stdin mid-turn — outside of that window there's nothing to do.
+        let server = AcpServer::default();
+        let session = server
+            .sessions
+            .get_or_create(
+                "t_cancel_idle",
+                "/tmp",
+                crate::claude::session::SessionOpts::default(),
+            )
+            .await;
+        assert!(session.streaming.lock().await.is_none());
+
+        server
+            .handle_cancel("t_cancel_idle".into())
+            .await
+            .expect("idle session cancel returns Ok");
+
+        // No streaming child was created as a side effect.
+        assert!(session.streaming.lock().await.is_none());
+    }
+
+    // NOTE: "interrupt actually writes to stdin" is intentionally not
+    // unit-tested here — that path needs a live streaming child, which
+    // requires spawning the real `claude` binary or an elaborate mock
+    // around `tokio::process::Child` + `ChildStdin`. The building blocks
+    // (`interrupt_envelope` shape + `send_interrupt` no-op semantics) are
+    // covered by `crate::acp::interrupt::tests` and
+    // `crate::claude::session::tests::send_interrupt_with_no_streaming_child_is_ok`.
+    // Integrated coverage lives in the iyke smoke harness
+    // (`runAcpInterruptSmokeTest`).
 
     // NOTE: `handle_new_session` takes an `AppHandle`, which can't be
     // constructed in a `#[cfg(test)]` context without enabling tauri's

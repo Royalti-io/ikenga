@@ -695,8 +695,13 @@ export async function acpPrompt(req: AcpPromptRequest): Promise<AcpPromptRespons
 	return invoke<AcpPromptResponse>('acp_prompt', { req });
 }
 
-/** ACP `session/cancel` — Phase 3 calls `cancel_streaming` (kills the
- *  child); Phase 6 swaps in real interrupt control-request. */
+/** ACP `session/cancel`. Phase 6: now uses a clean interrupt envelope
+ *  instead of killing the child — the Rust side writes
+ *  `sdk_control_request { subtype: "interrupt" }` to claude's stdin and
+ *  claude stops mid-turn while emitting its normal `Done` event. The
+ *  transcript stays intact and the streaming child stays alive, so the
+ *  next prompt re-uses it instead of paying spawn cost. Best-effort: a
+ *  stale or unknown `threadId` resolves cleanly as a no-op. */
 export async function acpCancel(threadId: string): Promise<void> {
 	return invoke('acp_cancel', { threadId });
 }

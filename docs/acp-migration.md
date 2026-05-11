@@ -1,6 +1,6 @@
 # ACP migration — chat engine rewrite
 
-**Status:** Phases 1–5 complete (2026-05-11). Phases 6–11 pending. Phase 12 deferred.
+**Status:** Phases 1–6 complete (2026-05-11). Phases 7–11 pending. Phase 12 deferred.
 
 ## Decision
 
@@ -62,7 +62,7 @@ Phase 10 reshapes the contract.
 | 3 | Prompt handling — first real chat over ACP | ✅ landed | `3d45e65` |
 | 4 | `--permission-prompt-tool stdio` + AskUserQuestion fix | ✅ landed | (this commit) |
 | 5 | Session modes (plan/default/auto/bypassPermissions) | ✅ landed | (this commit) |
-| 6 | Interrupt via control_request | pending | |
+| 6 | Interrupt via control_request | ✅ landed | (this commit) |
 | 7 | Image input via ACP content blocks | pending | |
 | 8 | Session `/branch` (ACP `fork`) + faster resume | pending | |
 | 9 | Notification + PermissionRequest hooks → OS | pending | |
