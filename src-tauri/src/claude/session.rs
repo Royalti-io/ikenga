@@ -35,6 +35,7 @@ use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::{broadcast, Mutex};
 
 use crate::acp::mode::AcpSessionMode;
+use crate::acp::prompt::PromptContent;
 use crate::claude::{
     artifact_watcher::ArtifactWatcher, event::ChatEvent, stream_parser::StreamParser,
 };
@@ -194,6 +195,52 @@ fn user_envelope(text: &str) -> String {
     let value = serde_json::json!({
         "type": "user",
         "message": { "role": "user", "content": text },
+    });
+    let mut s = serde_json::to_string(&value).unwrap_or_else(|_| String::from("{}"));
+    s.push('\n');
+    s
+}
+
+/// Phase 7: build the line-delimited user envelope for a `PromptContent`.
+///
+/// When `content.images` is empty this returns the same string-content
+/// shape as `user_envelope` so the heavily-exercised text path is byte-
+/// identical to its Phase 3 form. Only image-bearing messages take the
+/// array-content branch — that keeps wire traces simple, doesn't risk
+/// regressing the text path, and matches what claude accepts on both
+/// sides (it tolerates array-form for text-only too, but the string form
+/// is what it ships in its own SDK).
+///
+/// Image source shape mirrors what the Anthropic API accepts in
+/// stream-json mode:
+///   `{"type":"image","source":{"type":"base64","media_type":"...","data":"..."}}`
+pub fn build_user_envelope(content: &PromptContent) -> String {
+    if content.images.is_empty() {
+        return user_envelope(&content.text);
+    }
+    let mut blocks: Vec<serde_json::Value> = Vec::with_capacity(1 + content.images.len());
+    if !content.text.is_empty() {
+        blocks.push(serde_json::json!({
+            "type": "text",
+            "text": content.text,
+        }));
+    }
+    for image in &content.images {
+        blocks.push(serde_json::json!({
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": image.mime_type,
+                "data": image.base64_data,
+            },
+        }));
+    }
+    let value = serde_json::json!({
+        "type": "user",
+        "message": {
+            "role": "user",
+            "content": blocks,
+        },
     });
     let mut s = serde_json::to_string(&value).unwrap_or_else(|_| String::from("{}"));
     s.push('\n');
@@ -414,6 +461,62 @@ pub async fn send_user_message(
         .cloned()
         .ok_or_else(|| "streaming child vanished".to_string())?;
     let envelope = user_envelope(&text);
+    let mut stdin = streaming.stdin.lock().await;
+    stdin
+        .write_all(envelope.as_bytes())
+        .await
+        .map_err(|e| format!("stdin write: {e}"))?;
+    stdin
+        .flush()
+        .await
+        .map_err(|e| format!("stdin flush: {e}"))?;
+    Ok(())
+}
+
+/// Phase 7: variant of `send_user_message` that accepts a structured
+/// `PromptContent` (text + optional images). Text-only payloads delegate
+/// straight to `send_user_message` so the legacy hot path is unchanged.
+/// Image-bearing payloads build an array-content stream-json envelope
+/// (see `build_user_envelope`) and write it to the streaming child, with
+/// the same spawn-on-first-turn semantics as `send_user_message`.
+pub async fn send_user_message_with_content(
+    app: AppHandle,
+    session: Arc<Session>,
+    content: PromptContent,
+) -> Result<(), String> {
+    if content.images.is_empty() {
+        // No images → preserve the byte-for-byte wire shape the text path
+        // has been emitting since Phase 3.
+        return send_user_message(app, session, content.text).await;
+    }
+
+    let needs_spawn = session.streaming.lock().await.is_none();
+    if needs_spawn {
+        // First-turn spawn: `spawn_streaming` only knows how to wrap a
+        // plain text string into a stream-json envelope. For images we
+        // spawn without an initial prompt, then write the prebuilt
+        // array-content envelope ourselves on the new stdin. The reader
+        // task is already drained-by-then but claude buffers stdin
+        // before it starts processing, so order on the write side is
+        // what matters and it lines up the same way.
+        let resume_id = session.claude_session_id.lock().await.clone();
+        if resume_id.is_some() {
+            let mut o = session.opts.lock().await;
+            if o.resume_session_id.is_none() {
+                o.resume_session_id = resume_id;
+            }
+        }
+        spawn_streaming(app, session.clone(), None).await?;
+    }
+
+    let streaming = session
+        .streaming
+        .lock()
+        .await
+        .as_ref()
+        .cloned()
+        .ok_or_else(|| "streaming child vanished".to_string())?;
+    let envelope = build_user_envelope(&content);
     let mut stdin = streaming.stdin.lock().await;
     stdin
         .write_all(envelope.as_bytes())
@@ -689,6 +792,75 @@ mod tests {
             .expect("no-op send_set_mode returns Ok");
         // Still no child afterwards.
         assert!(session.streaming.lock().await.is_none());
+    }
+
+    #[test]
+    fn user_envelope_with_text_only_uses_string_content() {
+        // Phase 7: text-only `PromptContent` must produce byte-identical
+        // output to the Phase 3 string-content shape. This preserves the
+        // wire trace for the legacy, heavily-exercised text path.
+        let content = PromptContent {
+            text: "hello".into(),
+            images: Vec::new(),
+        };
+        let env = build_user_envelope(&content);
+        assert!(env.ends_with('\n'));
+        let parsed: serde_json::Value =
+            serde_json::from_str(env.trim_end()).expect("envelope is JSON");
+        assert_eq!(parsed["type"], json!("user"));
+        assert_eq!(parsed["message"]["role"], json!("user"));
+        // Critically: content stays a STRING, not an array.
+        assert_eq!(parsed["message"]["content"], json!("hello"));
+    }
+
+    #[test]
+    fn user_envelope_with_image_has_array_content() {
+        // Phase 7: any image attachment forces the array-content branch.
+        // The shape mirrors Anthropic's stream-json image content block:
+        // `{"type":"image","source":{"type":"base64","media_type":"...","data":"..."}}`.
+        let content = PromptContent {
+            text: "what's this?".into(),
+            images: vec![crate::acp::prompt::PromptImage {
+                mime_type: "image/png".into(),
+                base64_data: "aGVsbG8=".into(),
+            }],
+        };
+        let env = build_user_envelope(&content);
+        assert!(env.ends_with('\n'));
+        let parsed: serde_json::Value =
+            serde_json::from_str(env.trim_end()).expect("envelope is JSON");
+        let blocks = parsed["message"]["content"]
+            .as_array()
+            .expect("content is an array when images are present");
+        assert_eq!(blocks.len(), 2);
+        assert_eq!(blocks[0]["type"], json!("text"));
+        assert_eq!(blocks[0]["text"], json!("what's this?"));
+        assert_eq!(blocks[1]["type"], json!("image"));
+        assert_eq!(blocks[1]["source"]["type"], json!("base64"));
+        assert_eq!(blocks[1]["source"]["media_type"], json!("image/png"));
+        assert_eq!(blocks[1]["source"]["data"], json!("aGVsbG8="));
+    }
+
+    #[test]
+    fn user_envelope_with_image_only_omits_text_block() {
+        // Edge case: caller built a PromptContent with empty text (e.g.
+        // user dragged an image and hit send without typing anything,
+        // and the extractor's default-prompt fallback was bypassed).
+        // The envelope should not emit an empty text block; the array
+        // should contain only the image.
+        let content = PromptContent {
+            text: String::new(),
+            images: vec![crate::acp::prompt::PromptImage {
+                mime_type: "image/jpeg".into(),
+                base64_data: "aGVsbG8=".into(),
+            }],
+        };
+        let env = build_user_envelope(&content);
+        let parsed: serde_json::Value =
+            serde_json::from_str(env.trim_end()).expect("envelope is JSON");
+        let blocks = parsed["message"]["content"].as_array().expect("array");
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0]["type"], json!("image"));
     }
 
     #[test]

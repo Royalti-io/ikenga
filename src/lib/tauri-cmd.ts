@@ -569,6 +569,12 @@ export interface AcpTextContentBlock {
 	text: string;
 }
 
+/** ACP `ContentBlock::Image`. `data` is base64-encoded image bytes with NO
+ *  `data:` URI prefix (composer paste/drop handlers strip it before
+ *  building the block). `mimeType` deserializes natively on the Rust side
+ *  because `agent_client_protocol::schema::ImageContent` is annotated
+ *  `#[serde(rename_all = "camelCase")]` — no boundary translation needed.
+ *  Phase 7 made this content block end-to-end functional. */
 export interface AcpImageContentBlock {
 	type: 'image';
 	data: string;

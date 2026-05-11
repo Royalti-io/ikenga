@@ -9,7 +9,7 @@
  */
 
 import { useMemo, useRef, useState } from 'react';
-import { AlertCircle, Square } from 'lucide-react';
+import { AlertCircle, Square, X } from 'lucide-react';
 import type { ChatStatus } from 'ai';
 import { cn } from '@/components/ui/utils';
 import {
@@ -26,13 +26,64 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { acpSetMode, type AcpSessionModeId } from '@/lib/tauri-cmd';
+import {
+  acpPrompt,
+  acpSetMode,
+  type AcpContentBlock,
+  type AcpSessionModeId,
+} from '@/lib/tauri-cmd';
 import { useChatActions, useThreadState } from '../hooks';
 import {
   filterSlashCommands,
   useSlashCommands,
   type SlashCommand,
 } from '../slash-commands';
+
+/**
+ * Phase 7: in-memory image attachment state. `base64` is the raw payload
+ * we ship to claude (no `data:` URI prefix). `previewUrl` is a data URL
+ * built once for the thumbnail strip — keeping it separate from `base64`
+ * means we don't re-concatenate the long string on every render.
+ */
+interface PendingImage {
+  id: string;
+  mimeType: string;
+  base64: string;
+  previewUrl: string;
+}
+
+/** MIME types claude accepts for input images. We refuse the rest at the
+ *  paste/drop boundary so the user sees nothing rather than a confusing
+ *  "image type not supported" error from the Anthropic API. */
+const SUPPORTED_IMAGE_MIME_TYPES = new Set([
+  'image/png',
+  'image/jpeg',
+  'image/webp',
+  'image/gif',
+]);
+
+/** Strip the `data:image/png;base64,` prefix from a FileReader.readAsDataURL
+ *  result so we get the raw base64 payload claude wants on the wire. */
+function stripDataUrlPrefix(dataUrl: string): string {
+  const idx = dataUrl.indexOf(',');
+  return idx === -1 ? dataUrl : dataUrl.slice(idx + 1);
+}
+
+async function fileToPendingImage(file: File): Promise<PendingImage | null> {
+  if (!SUPPORTED_IMAGE_MIME_TYPES.has(file.type)) return null;
+  const dataUrl: string = await new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(fr.result as string);
+    fr.onerror = () => reject(fr.error ?? new Error('FileReader failed'));
+    fr.readAsDataURL(file);
+  });
+  return {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    mimeType: file.type,
+    base64: stripDataUrlPrefix(dataUrl),
+    previewUrl: dataUrl,
+  };
+}
 
 interface ComposerProps {
   threadId: string | null;
@@ -95,11 +146,89 @@ export function Composer({ threadId, className, placeholder, acpEnabled }: Compo
     setText(next);
   }
 
+  // Phase 7: image attachment state. Only consumed when `acpEnabled` is on
+  // — the legacy adapter has no image support yet.
+  // TODO(phase-10): support images in the legacy adapter, or just retire it.
+  const [pendingImages, setPendingImages] = useState<PendingImage[]>([]);
+
+  async function appendImagesFromFiles(files: FileList | File[] | null | undefined) {
+    if (!files || !acpEnabled) return;
+    const list = Array.from(files);
+    const additions: PendingImage[] = [];
+    for (const f of list) {
+      const img = await fileToPendingImage(f);
+      if (img) additions.push(img);
+    }
+    if (additions.length > 0) {
+      setPendingImages((prev) => [...prev, ...additions]);
+    }
+  }
+
+  async function handlePaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
+    if (!acpEnabled) return; // silent no-op on legacy adapter (Phase 10)
+    const files = e.clipboardData?.files;
+    if (!files || files.length === 0) return;
+    // Only consume the event if there's actually an image — otherwise let
+    // text paste flow through to the textarea unimpeded.
+    const hasImage = Array.from(files).some((f) => SUPPORTED_IMAGE_MIME_TYPES.has(f.type));
+    if (!hasImage) return;
+    e.preventDefault();
+    await appendImagesFromFiles(files);
+  }
+
+  async function handleDrop(e: React.DragEvent<HTMLDivElement>) {
+    if (!acpEnabled) return;
+    const files = e.dataTransfer?.files;
+    if (!files || files.length === 0) return;
+    const hasImage = Array.from(files).some((f) => SUPPORTED_IMAGE_MIME_TYPES.has(f.type));
+    if (!hasImage) return;
+    e.preventDefault();
+    await appendImagesFromFiles(files);
+  }
+
+  function handleDragOver(e: React.DragEvent<HTMLDivElement>) {
+    // Required to allow drop. Only intercept while ACP is on; otherwise
+    // let drag events bubble (the legacy adapter ignores them).
+    if (!acpEnabled) return;
+    e.preventDefault();
+  }
+
+  function removePendingImage(id: string) {
+    setPendingImages((prev) => prev.filter((p) => p.id !== id));
+  }
+
   async function handleSubmit(message: PromptInputMessage) {
     const value = message.text;
-    if (!value.trim()) return;
+    const hasImages = pendingImages.length > 0;
+    if (!value.trim() && !hasImages) return;
     setText('');
     lastSentRef.current = value;
+
+    if (acpEnabled && hasImages && threadId) {
+      // Phase 7 hack: bypass the legacy adapter and fire `acpPrompt`
+      // directly so the images reach claude's stream-json envelope.
+      // Phase 10 reshapes the composer around ACP and this branch goes
+      // away (everything routes through one path).
+      const images = pendingImages;
+      setPendingImages([]);
+      const blocks: AcpContentBlock[] = [];
+      if (value.trim().length > 0) {
+        blocks.push({ type: 'text', text: value });
+      }
+      for (const img of images) {
+        blocks.push({ type: 'image', data: img.base64, mimeType: img.mimeType });
+      }
+      try {
+        await acpPrompt({ sessionId: threadId, prompt: blocks });
+      } catch (e) {
+        // Surface failures via the same lastError banner the legacy path
+        // uses. The hooks layer doesn't own this state for ACP yet, so
+        // we just log; Phase 10 unifies error handling.
+        console.error('acpPrompt failed:', e);
+      }
+      return;
+    }
+
     await send(value);
   }
 
@@ -169,6 +298,8 @@ export function Composer({ threadId, className, placeholder, acpEnabled }: Compo
         'border-t border-border bg-background px-4 py-3',
         className,
       )}
+      onDrop={handleDrop}
+      onDragOver={handleDragOver}
     >
       {lastError && !isStreaming && (
         <div className="mb-2 flex items-start gap-2 rounded-md border border-destructive/50 bg-destructive/10 p-2 text-xs text-destructive">
@@ -225,12 +356,40 @@ export function Composer({ threadId, className, placeholder, acpEnabled }: Compo
           </span>
         </div>
       )}
+      {acpEnabled && pendingImages.length > 0 && (
+        // Phase 7: thumbnail strip for pasted/dropped images. Minimal
+        // visual — Phase 10 refits this when the composer is reshaped
+        // around ACP. Each thumb has an inline × to remove it pre-send.
+        <div className="mb-2 flex flex-wrap gap-2">
+          {pendingImages.map((img) => (
+            <div
+              key={img.id}
+              className="relative h-16 w-16 overflow-hidden rounded border border-border"
+            >
+              <img
+                src={img.previewUrl}
+                alt="attachment"
+                className="h-full w-full object-cover"
+              />
+              <button
+                type="button"
+                onClick={() => removePendingImage(img.id)}
+                className="absolute right-0 top-0 flex h-4 w-4 items-center justify-center bg-background/80 text-foreground hover:bg-background"
+                aria-label="Remove image"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
       <PromptInput onSubmit={handleSubmit} className="rounded-md border border-input">
         <PromptInputBody>
           <PromptInputTextarea
             value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={onKeyDown}
+            onPaste={handlePaste}
             placeholder={placeholder ?? 'Send a message — Enter to submit, Shift+Enter for newline'}
             disabled={disabled && !isStreaming}
           />
@@ -284,7 +443,15 @@ export function Composer({ threadId, className, placeholder, acpEnabled }: Compo
               <PromptInputSubmit
                 status={status}
                 onStop={() => void cancel()}
-                disabled={!isStreaming && (disabled || text.trim().length === 0)}
+                disabled={
+                  !isStreaming &&
+                  (disabled ||
+                    (text.trim().length === 0 &&
+                      // Phase 7: image-only sends are valid when ACP is on
+                      // — the extractor adds a default text anchor on the
+                      // Rust side.
+                      !(acpEnabled && pendingImages.length > 0)))
+                }
               />
             </div>
           </div>

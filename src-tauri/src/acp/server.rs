@@ -45,12 +45,12 @@ use crate::acp::mode::{mode_state, AcpSessionMode};
 use crate::acp::permission::{build_permission_options, outcome_to_response_body};
 use crate::acp::{
     mapping::chat_event_to_session_updates,
-    prompt::{extract_text, map_stop_reason},
+    prompt::{extract_content, map_stop_reason},
 };
 use crate::claude::event::ChatEvent;
 use crate::claude::session::{
-    send_control_response, send_interrupt, send_set_mode, send_user_message, SessionOpts,
-    SessionsManager,
+    send_control_response, send_interrupt, send_set_mode, send_user_message_with_content,
+    SessionOpts, SessionsManager,
 };
 
 /// How long we wait for the client to answer a `session/request_permission`
@@ -143,6 +143,9 @@ impl AcpServer {
         let negotiated = std::cmp::min(req.protocol_version, Self::PROTOCOL_VERSION);
 
         // Schema structs are `#[non_exhaustive]` with fluent builders.
+        // Phase 7: `image(true)` is now backed by real wire handling in
+        // `handle_prompt` → `extract_content` → `build_user_envelope`.
+        // Until Phase 1 we were advertising the capability optimistically.
         let prompt_caps = PromptCapabilities::default()
             .image(true)
             .embedded_context(true)
@@ -209,15 +212,22 @@ impl AcpServer {
             .await
             .ok_or_else(|| format!("no session for thread {thread_id}"))?;
 
-        let text = extract_text(&req)?;
+        // Phase 7: `extract_content` returns text + any image attachments.
+        // The Phase 1 capability advertisement (`prompt_capabilities.image
+        // = true`) is now backed by real wire handling here — image-bearing
+        // prompts route through the array-content envelope builder.
+        let content = extract_content(&req)?;
 
         // Subscribe BEFORE sending so we never miss a chunk emitted between
-        // `send_user_message` returning and the receiver's first `recv()`.
+        // `send_user_message_with_content` returning and the receiver's
+        // first `recv()`.
         let mut rx = session.events.subscribe();
 
         // Hand off to the existing streaming path. It may spawn the child
         // (first turn), or write to an existing stdin (follow-up turn).
-        send_user_message(app.clone(), session.clone(), text).await?;
+        // `send_user_message_with_content` short-circuits to the legacy
+        // text-only path when `content.images` is empty.
+        send_user_message_with_content(app.clone(), session.clone(), content).await?;
 
         let channel = format!("acp://session/{thread_id}");
         let request_channel = format!("acp://session/{thread_id}/request");
