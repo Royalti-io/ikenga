@@ -5,13 +5,17 @@
 //! we can register them in the `invoke_handler!` macro without dragging
 //! `agent-client-protocol` schema concerns into `lib.rs`.
 
+use std::sync::Arc;
+
 use agent_client_protocol::schema::{
-    InitializeRequest, InitializeResponse, NewSessionRequest, NewSessionResponse, PromptRequest,
-    PromptResponse, RequestPermissionResponse,
+    InitializeRequest, InitializeResponse, LoadSessionResponse, NewSessionRequest,
+    NewSessionResponse, PromptRequest, PromptResponse, RequestPermissionResponse,
 };
 use tauri::{AppHandle, State};
 
+use crate::acp::fork::{ForkRequest, ForkResult};
 use crate::acp::server::AcpServerState;
+use crate::commands::db::PaDb;
 
 #[tauri::command]
 pub async fn acp_initialize(
@@ -74,4 +78,42 @@ pub async fn acp_set_mode(
     #[allow(non_snake_case)] modeId: String,
 ) -> Result<(), String> {
     state.handle_set_mode(threadId, modeId).await
+}
+
+/// Phase 8: ACP `session/fork`. Clones an existing thread from a chosen
+/// turn — the new thread inherits the source's `claude_session_id` so
+/// the first prompt resumes from the on-disk JSONL. See
+/// `crate::acp::fork` for the Phase 8 contract; transcript byte-for-byte
+/// divergence is deferred to a later phase.
+#[tauri::command]
+pub async fn acp_fork_session(
+    state: State<'_, AcpServerState>,
+    db: State<'_, Arc<PaDb>>,
+    #[allow(non_snake_case)] sourceThreadId: String,
+    #[allow(non_snake_case)] upToTurn: Option<u32>,
+    label: Option<String>,
+) -> Result<ForkResult, String> {
+    state
+        .handle_fork_session(
+            db.inner(),
+            ForkRequest {
+                source_thread_id: sourceThreadId,
+                up_to_turn: upToTurn,
+                label,
+            },
+        )
+        .await
+}
+
+/// Phase 8: ACP `session/load`. Re-attach to a session by `threadId`
+/// without paying the cold-spawn cost. Returns the session's current
+/// mode advertisement so the frontend's mode picker hydrates instantly.
+/// The on-disk JSONL transcript is loaded via the existing
+/// `claude_read_jsonl` path — this call only signals "loadable".
+#[tauri::command]
+pub async fn acp_load_session(
+    state: State<'_, AcpServerState>,
+    #[allow(non_snake_case)] threadId: String,
+) -> Result<LoadSessionResponse, String> {
+    state.handle_load_session(threadId).await
 }

@@ -4,6 +4,7 @@
 // `import.meta.env.DEV` guard in main.tsx.
 
 import {
+	runAcpForkSmokeTest,
 	runAcpImageSmokeTest,
 	runAcpInterruptSmokeTest,
 	runAcpSmokeTest,
@@ -14,6 +15,7 @@ declare global {
 		ikengaAcpSmoke?: typeof runAcpSmokeTest;
 		ikengaAcpInterruptSmoke?: typeof runAcpInterruptSmokeTest;
 		ikengaAcpImageSmoke?: typeof runAcpImageSmokeTest;
+		ikengaAcpForkSmoke?: typeof runAcpForkSmokeTest;
 	}
 }
 
@@ -21,6 +23,7 @@ if (typeof window !== 'undefined') {
 	window.ikengaAcpSmoke = runAcpSmokeTest;
 	window.ikengaAcpInterruptSmoke = runAcpInterruptSmokeTest;
 	window.ikengaAcpImageSmoke = runAcpImageSmokeTest;
+	window.ikengaAcpForkSmoke = runAcpForkSmokeTest;
 }
 
 export {};

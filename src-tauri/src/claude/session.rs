@@ -314,6 +314,11 @@ pub async fn spawn_streaming(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
+    // Phase 8: forks seed `resume_session_id` with the SOURCE thread's
+    // `claude_session_id` at fork time (see `acp::server::handle_fork_session`),
+    // so the first prompt on a forked thread resumes against the source's
+    // on-disk JSONL transcript. The user effectively continues the same
+    // claude conversation in a separate Ikenga thread.
     if let Some(ref id) = opts.resume_session_id {
         command.arg("--resume").arg(id);
     }

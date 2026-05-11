@@ -11,6 +11,7 @@
 
 import {
 	acpCancel,
+	acpForkSession,
 	acpInitialize,
 	acpListen,
 	acpListenRequests,
@@ -19,6 +20,7 @@ import {
 	acpRespondPermission,
 	acpSetMode,
 	type AcpContentBlock,
+	type AcpForkResult,
 	type AcpRequestEnvelope,
 	type AcpSessionModeId,
 	type AcpSessionModes,
@@ -311,4 +313,24 @@ export async function runAcpInterruptSmokeTest(
 		advertisedModes,
 		finalMode,
 	};
+}
+
+/**
+ * Phase 8: smoke-test the fork path. Given a `sourceThreadId` (typically
+ * minted via a prior `runAcpSmokeTest` so a real claude session exists),
+ * fork it and return the result. The new thread's first prompt will
+ * spawn `claude --resume <source_session_id>` so it resumes from the
+ * same on-disk JSONL transcript — the fork relationship is recorded in
+ * `chat_threads.branched_from` / `branched_from_turn`.
+ *
+ * Bound to `globalThis.ikengaAcpForkSmoke` from `src/lib/dev/index.ts`.
+ * From iyke:
+ *
+ *   iyke javascript "(await window.ikengaAcpForkSmoke(sourceThreadId, { upToTurn: 1 })).newThreadId"
+ */
+export async function runAcpForkSmokeTest(
+	sourceThreadId: string,
+	opts: { upToTurn?: number; label?: string } = {},
+): Promise<AcpForkResult> {
+	return acpForkSession(sourceThreadId, opts);
 }

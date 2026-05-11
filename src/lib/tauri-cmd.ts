@@ -812,6 +812,54 @@ export async function acpSetMode(threadId: string, modeId: AcpSessionModeId): Pr
 	return invoke('acp_set_mode', { threadId, modeId });
 }
 
+// ─── ACP session fork + load (phase 8) ────────────────────────────────────────
+//
+// `session/fork` clones an existing session from a chosen turn. The new thread
+// inherits the source's `claude_session_id` so the first prompt resumes
+// against the source's on-disk JSONL transcript (`claude --resume <id>`).
+// `session/load` re-attaches to an existing thread by id and returns its
+// current mode advertisement so the frontend's mode picker can hydrate
+// without paying cold-spawn cost. See `src-tauri/src/acp/server.rs`
+// (`handle_fork_session` / `handle_load_session`) for the Phase 8 contract.
+
+export interface AcpForkResult {
+	newThreadId: string;
+	sourceThreadId: string;
+	branchedFromTurn?: number;
+}
+
+export interface AcpLoadSessionResponse {
+	/** Initial mode state — same shape as `AcpNewSessionResponse.modes`,
+	 *  exists when the server tracks per-session modes. */
+	modes?: AcpSessionModes;
+}
+
+/** Phase 8: ACP `session/fork`. Clones `sourceThreadId` into a new thread
+ *  that inherits the source's claude session id, so the first prompt resumes
+ *  from the source's on-disk JSONL (`--resume <source_session_id>`).
+ *
+ *  `upToTurn` records the cutoff turn index for the relationship but does
+ *  NOT (yet) truncate the JSONL byte-for-byte — Phase 8 is the minimum
+ *  implementation; a future phase can do full transcript divergence. */
+export async function acpForkSession(
+	sourceThreadId: string,
+	opts?: { upToTurn?: number; label?: string },
+): Promise<AcpForkResult> {
+	return invoke<AcpForkResult>('acp_fork_session', {
+		sourceThreadId,
+		upToTurn: opts?.upToTurn,
+		label: opts?.label,
+	});
+}
+
+/** Phase 8: ACP `session/load`. Re-attach to a session by `threadId` and
+ *  return its current mode advertisement so the picker can hydrate. The
+ *  claude child stays lazy — it spawns on the next `acpPrompt`. The
+ *  on-disk transcript is read via the existing JSONL reader path. */
+export async function acpLoadSession(threadId: string): Promise<AcpLoadSessionResponse> {
+	return invoke<AcpLoadSessionResponse>('acp_load_session', { threadId });
+}
+
 // ─── Claude config browser (/claude route) ────────────────────────────────────
 //
 // Read-only scan of `.claude/{agents,skills,commands}` and `.claude/settings*.json`

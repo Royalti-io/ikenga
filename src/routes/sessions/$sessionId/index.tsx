@@ -1,5 +1,5 @@
-import { useMemo } from 'react';
-import { Link, createFileRoute, redirect } from '@tanstack/react-router';
+import { useEffect, useMemo } from 'react';
+import { Link, createFileRoute, redirect, useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import {
   AlertCircle,
@@ -24,7 +24,12 @@ import {
 
 import '../sessions.css';
 import { useLiveSessions } from '@/lib/queries/live-sessions';
-import { sessionAttachPty, sessionCancel } from '@/lib/tauri-cmd';
+import {
+  acpForkSession,
+  acpLoadSession,
+  sessionAttachPty,
+  sessionCancel,
+} from '@/lib/tauri-cmd';
 import {
   AdapterSwitcher,
   Composer,
@@ -47,8 +52,44 @@ const CLAUDE_SESSION_ID_RE =
 
 function SessionDetailPage() {
   const { sessionId: threadId } = Route.useParams();
+  const navigate = useNavigate();
   const live = useLiveSessions((s) => s.get(threadId));
   const removeLive = useLiveSessions((s) => s.remove);
+
+  // Phase 8: ACP `session/load` — re-attach to the session by thread id
+  // so the mode picker can hydrate without paying cold-spawn cost. The
+  // claude child stays lazy; spawn happens on the next prompt. We
+  // silently swallow "no session for thread" (expected for first-open
+  // threads that haven't gone through `acpNewSession` yet) and only
+  // surface loud errors via console.warn for real failures.
+  useEffect(() => {
+    let cancelled = false;
+    void acpLoadSession(threadId).catch((err: unknown) => {
+      if (cancelled) return;
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes('no session for thread')) return;
+      console.warn('acpLoadSession:', err);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [threadId]);
+
+  // Phase 8: "Branch from here" handler. Forks the current thread at the
+  // user-turn index of the clicked assistant message, then navigates to
+  // the new thread so the user can continue in a separate Ikenga thread
+  // that resumes from the same on-disk JSONL transcript.
+  async function handleBranch(upToTurn: number) {
+    try {
+      const result = await acpForkSession(threadId, { upToTurn });
+      void navigate({
+        to: '/sessions/$sessionId',
+        params: { sessionId: result.newThreadId },
+      });
+    } catch (e) {
+      console.warn('acpForkSession:', e);
+    }
+  }
 
   // Bind this route's threadId to a chat thread. The hook hydrates the
   // store from SQLite + JSONL and asks the adapter to attach a live
@@ -237,7 +278,15 @@ function SessionDetailPage() {
             )}
             {!loading && !error && (
               <>
-                <Thread threadId={threadId} className="flex-1" />
+                {/* Phase 8: surface "Branch from here" on assistant
+                    turns. Gated behind `acpEnabled` to mirror the
+                    Composer — legacy adapter has no fork concept. */}
+                <Thread
+                  threadId={threadId}
+                  className="flex-1"
+                  acpEnabled
+                  onBranch={handleBranch}
+                />
                 {/* Phase 5: enable the ACP session-mode picker on the
                     dedicated session route. Pane chat-view stays on the
                     legacy path until Phase 10 reshapes the composer.

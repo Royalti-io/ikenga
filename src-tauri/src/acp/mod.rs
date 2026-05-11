@@ -23,6 +23,7 @@
 //!  - `mapping` — translates `claude/event::ChatEvent` → ACP
 //!    `SessionUpdate` notifications, and back. (Phase 2.)
 
+pub mod fork;
 pub mod interrupt;
 pub mod mapping;
 pub mod mode;

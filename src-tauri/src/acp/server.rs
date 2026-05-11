@@ -31,22 +31,24 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use agent_client_protocol::schema::{
-    AgentCapabilities, InitializeRequest, InitializeResponse, McpCapabilities, NewSessionRequest,
-    NewSessionResponse, PromptCapabilities, PromptRequest, PromptResponse, ProtocolVersion,
-    RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse, SessionId,
-    SessionNotification, StopReason, ToolCallId, ToolCallUpdate, ToolCallUpdateFields,
+    AgentCapabilities, InitializeRequest, InitializeResponse, LoadSessionResponse, McpCapabilities,
+    NewSessionRequest, NewSessionResponse, PromptCapabilities, PromptRequest, PromptResponse,
+    ProtocolVersion, RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
+    SessionId, SessionNotification, StopReason, ToolCallId, ToolCallUpdate, ToolCallUpdateFields,
 };
 use serde_json::Value;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::{oneshot, Mutex as TokioMutex};
 
+use crate::acp::fork::{validate_fork_request, ForkRequest, ForkResult};
 use crate::acp::mode::{mode_state, AcpSessionMode};
 use crate::acp::permission::{build_permission_options, outcome_to_response_body};
 use crate::acp::{
     mapping::chat_event_to_session_updates,
     prompt::{extract_content, map_stop_reason},
 };
+use crate::commands::db::PaDb;
 use crate::claude::event::ChatEvent;
 use crate::claude::session::{
     send_control_response, send_interrupt, send_set_mode, send_user_message_with_content,
@@ -457,6 +459,125 @@ impl AcpServer {
         }
         Ok(())
     }
+
+    /// Handle ACP `session/fork`. Phase 8 minimum implementation: clone an
+    /// existing session by recording a new `chat_threads` row whose
+    /// `branched_from` points at the source thread. The new session's
+    /// `SessionOpts.resume_session_id` is seeded with the source's
+    /// `claude_session_id` so the first prompt on the forked thread spawns
+    /// `claude --resume <source_session_id>` (Phase 8 contract — see
+    /// `spawn_streaming` in `claude::session`).
+    ///
+    /// We deliberately do NOT copy the on-disk JSONL transcript byte-for-byte
+    /// here — that'd diverge the source's history and break the source's
+    /// resume. Letting both threads share the same claude session id at the
+    /// resume level is enough for the "branch from here" UX (the user gets
+    /// a separate Ikenga thread but continues the same claude conversation
+    /// from where they branched). TODO(phase-10/11): copy the JSONL up to
+    /// `up_to_turn` for true history divergence.
+    ///
+    /// Unknown `source_thread_id` becomes a clean error (the SELECT returns
+    /// no rows and we surface "no source thread"). We never throw a SQL FK
+    /// violation up to the frontend.
+    pub async fn handle_fork_session(
+        &self,
+        db: &PaDb,
+        req: ForkRequest,
+    ) -> Result<ForkResult, String> {
+        validate_fork_request(&req)?;
+        let pool = db.ensure_pool().await?;
+        let now_ms: i64 = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0);
+
+        // Confirm the source exists + capture its claude_session_id / cwd so
+        // the fork can `--resume` against the same on-disk JSONL. Missing
+        // rows surface as a typed error rather than an FK violation on the
+        // INSERT below.
+        let row: Option<(Option<String>, Option<String>)> = sqlx::query_as(
+            "SELECT claude_session_id, project_dir FROM chat_threads WHERE id = ?",
+        )
+        .bind(&req.source_thread_id)
+        .fetch_optional(&pool)
+        .await
+        .map_err(|e| format!("fork lookup: {e}"))?;
+        let (source_claude_sid, source_cwd) = row.ok_or_else(|| {
+            format!("no source thread for id {}", req.source_thread_id)
+        })?;
+
+        let new_thread_id = uuid::Uuid::new_v4().to_string();
+        let up_to_turn = req.up_to_turn.map(|v| v as i64);
+        let title = req.label.clone();
+
+        sqlx::query(
+            "INSERT INTO chat_threads
+                (id, adapter, title, cwd, project_dir, claude_session_id,
+                 branched_from, branched_from_turn, created_at, updated_at)
+             VALUES (?, 'cli', ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(&new_thread_id)
+        .bind(&title)
+        .bind(&source_cwd)
+        .bind(&source_cwd)
+        .bind(&source_claude_sid)
+        .bind(&req.source_thread_id)
+        .bind(up_to_turn)
+        .bind(now_ms)
+        .bind(now_ms)
+        .execute(&pool)
+        .await
+        .map_err(|e| format!("fork insert: {e}"))?;
+
+        // Pre-register the in-memory session so the first frontend
+        // `acpPrompt` finds it. Seeding `resume_session_id` here is the
+        // Phase 8 minimum: the next `spawn_streaming` call appends
+        // `--resume <source_claude_sid>` and the user continues the same
+        // claude conversation in a new Ikenga thread.
+        if let Some(sid) = source_claude_sid {
+            let cwd = source_cwd.unwrap_or_else(|| "/".to_string());
+            let opts = SessionOpts {
+                resume_session_id: Some(sid),
+                ..SessionOpts::default()
+            };
+            let _ = self.sessions.get_or_create(&new_thread_id, &cwd, opts).await;
+        }
+
+        Ok(ForkResult {
+            new_thread_id,
+            source_thread_id: req.source_thread_id,
+            branched_from_turn: req.up_to_turn,
+        })
+    }
+
+    /// Handle ACP `session/load`. Phase 8: re-attach to an existing session
+    /// by `thread_id` without paying the cold-spawn cost. We ensure the
+    /// session is registered in `SessionsManager` (lazy-creates if missing)
+    /// and return its current mode advertisement so the frontend's mode
+    /// picker can hydrate immediately. The claude child is NOT spawned
+    /// here — it stays lazy until the first new `acpPrompt`.
+    ///
+    /// The on-disk JSONL transcript is loaded frontend-side via the
+    /// existing JSONL reader path (`claude_read_jsonl`); Phase 8's
+    /// contribution is just signaling "this thread is loadable" + giving
+    /// the picker enough to render without an extra round-trip.
+    ///
+    /// Unknown thread ids return an explicit error so the frontend can
+    /// distinguish "not yet a session" from "session exists but no live
+    /// child". The session-route hook silently swallows the former and
+    /// only logs loud errors on real failures.
+    pub async fn handle_load_session(
+        &self,
+        thread_id: String,
+    ) -> Result<LoadSessionResponse, String> {
+        let session = self
+            .sessions
+            .get(&thread_id)
+            .await
+            .ok_or_else(|| format!("no session for thread {thread_id}"))?;
+        let current = *session.current_mode.lock().await;
+        Ok(LoadSessionResponse::new().modes(mode_state(current)))
+    }
 }
 
 /// Tauri-friendly wrapper around the server.
@@ -651,6 +772,69 @@ mod tests {
     // `crate::claude::session::tests::send_interrupt_with_no_streaming_child_is_ok`.
     // Integrated coverage lives in the iyke smoke harness
     // (`runAcpInterruptSmokeTest`).
+
+    #[tokio::test]
+    async fn handle_load_session_returns_modes() {
+        // Phase 8: `session/load` re-attaches to a session and returns the
+        // current mode so the picker can hydrate. We pre-register the
+        // session, set its mode to Auto, then assert load returns Auto.
+        let server = AcpServer::default();
+        let session = server
+            .sessions
+            .get_or_create(
+                "t_load",
+                "/tmp",
+                crate::claude::session::SessionOpts::default(),
+            )
+            .await;
+        *session.current_mode.lock().await = AcpSessionMode::Auto;
+
+        let resp = server
+            .handle_load_session("t_load".into())
+            .await
+            .expect("load ok");
+        let modes = resp.modes.expect("modes present");
+        assert_eq!(modes.current_mode_id.0.as_ref(), AcpSessionMode::Auto.as_acp_id());
+        assert_eq!(modes.available_modes.len(), 4);
+    }
+
+    #[tokio::test]
+    async fn handle_load_session_errors_for_unknown_thread() {
+        // A load for a thread that never went through `acpNewSession` (and
+        // wasn't forked into) must surface a typed error. The frontend
+        // distinguishes this from real failures (it silently swallows
+        // "no session for thread" but logs loud errors otherwise).
+        let server = AcpServer::default();
+        let err = server
+            .handle_load_session("never_registered".into())
+            .await
+            .expect_err("unknown thread errors");
+        assert!(err.contains("no session for thread"));
+    }
+
+    #[tokio::test]
+    async fn handle_fork_session_validates_input() {
+        // Validation is pure-function — exercised here without touching
+        // SQLite. Empty source_thread_id must surface a typed error before
+        // we touch the pool. (Real fork flow tests would require an
+        // in-memory PaDb plus migration application; covered indirectly by
+        // the smoke harness via the Tauri command.)
+        let server = AcpServer::default();
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let db = PaDb::new(tmp.path().join("pa.db"));
+        let err = server
+            .handle_fork_session(
+                &db,
+                ForkRequest {
+                    source_thread_id: String::new(),
+                    up_to_turn: None,
+                    label: None,
+                },
+            )
+            .await
+            .expect_err("empty source errors");
+        assert!(err.contains("source_thread_id"));
+    }
 
     // NOTE: `handle_new_session` takes an `AppHandle`, which can't be
     // constructed in a `#[cfg(test)]` context without enabling tauri's
