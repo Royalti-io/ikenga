@@ -19,6 +19,14 @@ import {
   PromptInputTextarea,
   type PromptInputMessage,
 } from '@/components/ai-elements/prompt-input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { acpSetMode, type AcpSessionModeId } from '@/lib/tauri-cmd';
 import { useChatActions, useThreadState } from '../hooks';
 import {
   filterSlashCommands,
@@ -30,9 +38,30 @@ interface ComposerProps {
   threadId: string | null;
   className?: string;
   placeholder?: string;
+  /**
+   * Phase 5: when true, surface the ACP session-mode picker (badge +
+   * dropdown) next to the adapter label. The picker calls `acpSetMode`
+   * which only the ACP-served path consumes — the legacy chat path
+   * (`session_send`) ignores it. Default false because Phase 5 only
+   * enables it on `/sessions/$sessionId` routes; Phase 10 reshapes the
+   * composer around ACP and this flag goes away.
+   *
+   * TODO(phase-10): make this unconditional once the composer is fully ACP.
+   */
+  acpEnabled?: boolean;
 }
 
-export function Composer({ threadId, className, placeholder }: ComposerProps) {
+/** Display labels for the four canonical ACP session modes. Keep in sync
+ *  with `src-tauri/src/acp/mode.rs::available_modes`. */
+const MODE_LABELS: Record<AcpSessionModeId, string> = {
+  plan: 'Plan',
+  default: 'Default',
+  auto: 'Auto',
+  bypassPermissions: 'Bypass',
+};
+const MODE_IDS: AcpSessionModeId[] = ['plan', 'default', 'auto', 'bypassPermissions'];
+
+export function Composer({ threadId, className, placeholder, acpEnabled }: ComposerProps) {
   const [text, setText] = useState('');
   const state = useThreadState(threadId);
   const { send, cancel, isStreaming, canSend, lastError } = useChatActions(threadId);
@@ -110,6 +139,30 @@ export function Composer({ threadId, className, placeholder }: ComposerProps) {
   const adapterLabel = state?.thread.adapterId === 'cli' ? 'Claude CLI' : state?.thread.adapterId;
   const status: ChatStatus = isStreaming ? 'streaming' : 'ready';
 
+  // Phase 5: ACP session-mode picker state. Local-only — the Rust server
+  // is the source of truth (`AcpServer.handle_set_mode`), but we mirror
+  // it here so the dropdown reflects what we last set. Default `default`
+  // matches the spawn-time fallback in `SessionOpts::default`.
+  // TODO(phase-10): hydrate from `acpNewSession().modes.currentModeId`
+  // when the composer takes over the new_session call itself.
+  const [currentMode, setCurrentMode] = useState<AcpSessionModeId>('default');
+  const [modeError, setModeError] = useState<string | null>(null);
+
+  async function handleModeChange(next: AcpSessionModeId) {
+    if (!threadId) return;
+    if (next === currentMode) return;
+    const previous = currentMode;
+    // Optimistic update — flip back if the Rust side rejects.
+    setCurrentMode(next);
+    setModeError(null);
+    try {
+      await acpSetMode(threadId, next);
+    } catch (e) {
+      setCurrentMode(previous);
+      setModeError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
   return (
     <div
       className={cn(
@@ -185,6 +238,35 @@ export function Composer({ threadId, className, placeholder }: ComposerProps) {
             <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
               <span>{adapterLabel}</span>
               {state?.thread.model && <span>· {state.thread.model.replace(/^claude-/, '')}</span>}
+              {acpEnabled && (
+                // Phase 5 mode picker: badge-styled trigger + select dropdown.
+                // Visual polish is intentionally minimal — Phase 10 reshapes
+                // the composer around ACP and the picker gets a proper design pass.
+                <Select
+                  value={currentMode}
+                  onValueChange={(v) => void handleModeChange(v as AcpSessionModeId)}
+                  disabled={!threadId}
+                >
+                  <SelectTrigger
+                    className="h-5 gap-1 rounded border border-border bg-muted/40 px-1.5 py-0 text-[10px] font-medium uppercase tracking-wide text-foreground hover:bg-muted [&>svg]:size-3"
+                    aria-label="Session mode"
+                  >
+                    <SelectValue>{MODE_LABELS[currentMode]}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {MODE_IDS.map((m) => (
+                      <SelectItem key={m} value={m} className="text-xs">
+                        {MODE_LABELS[m]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+              {acpEnabled && modeError && (
+                <span className="text-destructive" title={modeError}>
+                  · mode change failed
+                </span>
+              )}
               {isStreaming && <span>· Esc or Stop to cancel</span>}
             </div>
             <div className="flex items-center gap-2">

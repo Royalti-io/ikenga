@@ -16,7 +16,10 @@ import {
 	acpNewSession,
 	acpPrompt,
 	acpRespondPermission,
+	acpSetMode,
 	type AcpRequestEnvelope,
+	type AcpSessionModeId,
+	type AcpSessionModes,
 	type AcpSessionNotification,
 	type AcpSessionUpdate,
 } from '@/lib/tauri-cmd';
@@ -29,6 +32,13 @@ export interface AcpSmokeResult {
 	 *  turn, in order. The smoke harness auto-responds with the first
 	 *  option of each request (see `acpListenRequests` wire-up below). */
 	permissionRequests: AcpRequestEnvelope[];
+	/** Phase 5: the modes the server advertised on `session/new`. Useful
+	 *  for asserting the four canonical modes are surfaced. */
+	advertisedModes: AcpSessionModes | null;
+	/** Phase 5: the final mode the session was in when the prompt fired
+	 *  (after any optional `acpSetMode` call). When `opts.mode` is not
+	 *  provided this is whatever the server advertised as `currentModeId`. */
+	finalMode: AcpSessionModeId;
 }
 
 /**
@@ -43,7 +53,7 @@ export interface AcpSmokeResult {
  */
 export async function runAcpSmokeTest(
 	prompt: string,
-	opts: { cwd?: string } = {}
+	opts: { cwd?: string; mode?: AcpSessionModeId } = {}
 ): Promise<AcpSmokeResult> {
 	const cwd = opts.cwd ?? '/';
 
@@ -53,6 +63,17 @@ export async function runAcpSmokeTest(
 
 	const session = await acpNewSession({ cwd, mcpServers: [] });
 	const threadId = session.sessionId;
+	const advertisedModes = session.modes ?? null;
+
+	// Phase 5: optional mode switch right after `session/new`. Mirrors what
+	// the composer mode picker does — change the tracked mode before the
+	// first prompt so the spawn picks it up via `--permission-mode`.
+	let finalMode: AcpSessionModeId =
+		(advertisedModes?.currentModeId ?? 'default') as AcpSessionModeId;
+	if (opts.mode && opts.mode !== finalMode) {
+		await acpSetMode(threadId, opts.mode);
+		finalMode = opts.mode;
+	}
 
 	const updates: AcpSessionUpdate[] = [];
 	const unlisten = await acpListen(threadId, (notif: AcpSessionNotification) => {
@@ -102,5 +123,7 @@ export async function runAcpSmokeTest(
 		updates,
 		stopReason: response.stopReason,
 		permissionRequests,
+		advertisedModes,
+		finalMode,
 	};
 }
