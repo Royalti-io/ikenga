@@ -276,9 +276,9 @@ function DensityGlyph({ id }: { id: IkengaDensity }) {
 	const lineHeight = id === 'spacious' ? 3 : id === 'compact' ? 1.5 : 2;
 	return (
 		<div className="flex h-10 w-9 flex-none flex-col justify-around" aria-hidden="true">
-			{Array.from({ length: lines }).map((_, i) => (
+			{Array.from({ length: lines }, (_, i) => `density-line-${id}-${i}`).map((key) => (
 				<span
-					key={i}
+					key={key}
 					className="block rounded-sm"
 					style={{
 						height: `${lineHeight}px`,
