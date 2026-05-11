@@ -23,17 +23,29 @@ import { Route as CronSmokeRouteImport } from './routes/cron-smoke'
 import { Route as ClaudeAssetsSmokeRouteImport } from './routes/claude-assets-smoke'
 import { Route as SettingsRouteRouteImport } from './routes/settings/route'
 import { Route as SessionsRouteRouteImport } from './routes/sessions/route'
+import { Route as OnboardingRouteRouteImport } from './routes/onboarding/route'
 import { Route as ClaudeRouteRouteImport } from './routes/claude/route'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as SettingsIndexRouteImport } from './routes/settings/index'
 import { Route as SessionsIndexRouteImport } from './routes/sessions/index'
+import { Route as OnboardingIndexRouteImport } from './routes/onboarding/index'
 import { Route as ClaudeIndexRouteImport } from './routes/claude/index'
 import { Route as SettingsStorageRouteImport } from './routes/settings/storage'
 import { Route as SettingsPackagesRouteImport } from './routes/settings/packages'
+import { Route as SettingsOnboardingRouteImport } from './routes/settings/onboarding'
 import { Route as SettingsIntegrationsRouteImport } from './routes/settings/integrations'
 import { Route as SettingsBackupRouteImport } from './routes/settings/backup'
 import { Route as SettingsAppearanceRouteImport } from './routes/settings/appearance'
 import { Route as SettingsAboutRouteImport } from './routes/settings/about'
+import { Route as OnboardingWelcomeRouteImport } from './routes/onboarding/welcome'
+import { Route as OnboardingTelemetryRouteImport } from './routes/onboarding/telemetry'
+import { Route as OnboardingSummaryRouteImport } from './routes/onboarding/summary'
+import { Route as OnboardingScaffoldingRouteImport } from './routes/onboarding/scaffolding'
+import { Route as OnboardingRootsRouteImport } from './routes/onboarding/roots'
+import { Route as OnboardingPackagesRouteImport } from './routes/onboarding/packages'
+import { Route as OnboardingConnectorsRouteImport } from './routes/onboarding/connectors'
+import { Route as OnboardingAppearanceRouteImport } from './routes/onboarding/appearance'
+import { Route as OnboardingAgentRouteImport } from './routes/onboarding/agent'
 import { Route as ClaudeSkillsRouteImport } from './routes/claude/skills'
 import { Route as ClaudeMcpsRouteImport } from './routes/claude/mcps'
 import { Route as ClaudeHooksRouteImport } from './routes/claude/hooks'
@@ -116,6 +128,11 @@ const SessionsRouteRoute = SessionsRouteRouteImport.update({
   path: '/sessions',
   getParentRoute: () => rootRouteImport,
 } as any)
+const OnboardingRouteRoute = OnboardingRouteRouteImport.update({
+  id: '/onboarding',
+  path: '/onboarding',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ClaudeRouteRoute = ClaudeRouteRouteImport.update({
   id: '/claude',
   path: '/claude',
@@ -136,6 +153,11 @@ const SessionsIndexRoute = SessionsIndexRouteImport.update({
   path: '/',
   getParentRoute: () => SessionsRouteRoute,
 } as any)
+const OnboardingIndexRoute = OnboardingIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => OnboardingRouteRoute,
+} as any)
 const ClaudeIndexRoute = ClaudeIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -149,6 +171,11 @@ const SettingsStorageRoute = SettingsStorageRouteImport.update({
 const SettingsPackagesRoute = SettingsPackagesRouteImport.update({
   id: '/packages',
   path: '/packages',
+  getParentRoute: () => SettingsRouteRoute,
+} as any)
+const SettingsOnboardingRoute = SettingsOnboardingRouteImport.update({
+  id: '/onboarding',
+  path: '/onboarding',
   getParentRoute: () => SettingsRouteRoute,
 } as any)
 const SettingsIntegrationsRoute = SettingsIntegrationsRouteImport.update({
@@ -170,6 +197,51 @@ const SettingsAboutRoute = SettingsAboutRouteImport.update({
   id: '/about',
   path: '/about',
   getParentRoute: () => SettingsRouteRoute,
+} as any)
+const OnboardingWelcomeRoute = OnboardingWelcomeRouteImport.update({
+  id: '/welcome',
+  path: '/welcome',
+  getParentRoute: () => OnboardingRouteRoute,
+} as any)
+const OnboardingTelemetryRoute = OnboardingTelemetryRouteImport.update({
+  id: '/telemetry',
+  path: '/telemetry',
+  getParentRoute: () => OnboardingRouteRoute,
+} as any)
+const OnboardingSummaryRoute = OnboardingSummaryRouteImport.update({
+  id: '/summary',
+  path: '/summary',
+  getParentRoute: () => OnboardingRouteRoute,
+} as any)
+const OnboardingScaffoldingRoute = OnboardingScaffoldingRouteImport.update({
+  id: '/scaffolding',
+  path: '/scaffolding',
+  getParentRoute: () => OnboardingRouteRoute,
+} as any)
+const OnboardingRootsRoute = OnboardingRootsRouteImport.update({
+  id: '/roots',
+  path: '/roots',
+  getParentRoute: () => OnboardingRouteRoute,
+} as any)
+const OnboardingPackagesRoute = OnboardingPackagesRouteImport.update({
+  id: '/packages',
+  path: '/packages',
+  getParentRoute: () => OnboardingRouteRoute,
+} as any)
+const OnboardingConnectorsRoute = OnboardingConnectorsRouteImport.update({
+  id: '/connectors',
+  path: '/connectors',
+  getParentRoute: () => OnboardingRouteRoute,
+} as any)
+const OnboardingAppearanceRoute = OnboardingAppearanceRouteImport.update({
+  id: '/appearance',
+  path: '/appearance',
+  getParentRoute: () => OnboardingRouteRoute,
+} as any)
+const OnboardingAgentRoute = OnboardingAgentRouteImport.update({
+  id: '/agent',
+  path: '/agent',
+  getParentRoute: () => OnboardingRouteRoute,
 } as any)
 const ClaudeSkillsRoute = ClaudeSkillsRouteImport.update({
   id: '/skills',
@@ -230,6 +302,7 @@ const PkgPkgIdSplatRoute = PkgPkgIdSplatRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/claude': typeof ClaudeRouteRouteWithChildren
+  '/onboarding': typeof OnboardingRouteRouteWithChildren
   '/sessions': typeof SessionsRouteRouteWithChildren
   '/settings': typeof SettingsRouteRouteWithChildren
   '/claude-assets-smoke': typeof ClaudeAssetsSmokeRoute
@@ -249,13 +322,24 @@ export interface FileRoutesByFullPath {
   '/claude/hooks': typeof ClaudeHooksRoute
   '/claude/mcps': typeof ClaudeMcpsRoute
   '/claude/skills': typeof ClaudeSkillsRoute
+  '/onboarding/agent': typeof OnboardingAgentRoute
+  '/onboarding/appearance': typeof OnboardingAppearanceRoute
+  '/onboarding/connectors': typeof OnboardingConnectorsRoute
+  '/onboarding/packages': typeof OnboardingPackagesRoute
+  '/onboarding/roots': typeof OnboardingRootsRoute
+  '/onboarding/scaffolding': typeof OnboardingScaffoldingRoute
+  '/onboarding/summary': typeof OnboardingSummaryRoute
+  '/onboarding/telemetry': typeof OnboardingTelemetryRoute
+  '/onboarding/welcome': typeof OnboardingWelcomeRoute
   '/settings/about': typeof SettingsAboutRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/backup': typeof SettingsBackupRoute
   '/settings/integrations': typeof SettingsIntegrationsRoute
+  '/settings/onboarding': typeof SettingsOnboardingRoute
   '/settings/packages': typeof SettingsPackagesRoute
   '/settings/storage': typeof SettingsStorageRoute
   '/claude/': typeof ClaudeIndexRoute
+  '/onboarding/': typeof OnboardingIndexRoute
   '/sessions/': typeof SessionsIndexRoute
   '/settings/': typeof SettingsIndexRoute
   '/pkg/$pkgId/$': typeof PkgPkgIdSplatRoute
@@ -283,13 +367,24 @@ export interface FileRoutesByTo {
   '/claude/hooks': typeof ClaudeHooksRoute
   '/claude/mcps': typeof ClaudeMcpsRoute
   '/claude/skills': typeof ClaudeSkillsRoute
+  '/onboarding/agent': typeof OnboardingAgentRoute
+  '/onboarding/appearance': typeof OnboardingAppearanceRoute
+  '/onboarding/connectors': typeof OnboardingConnectorsRoute
+  '/onboarding/packages': typeof OnboardingPackagesRoute
+  '/onboarding/roots': typeof OnboardingRootsRoute
+  '/onboarding/scaffolding': typeof OnboardingScaffoldingRoute
+  '/onboarding/summary': typeof OnboardingSummaryRoute
+  '/onboarding/telemetry': typeof OnboardingTelemetryRoute
+  '/onboarding/welcome': typeof OnboardingWelcomeRoute
   '/settings/about': typeof SettingsAboutRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/backup': typeof SettingsBackupRoute
   '/settings/integrations': typeof SettingsIntegrationsRoute
+  '/settings/onboarding': typeof SettingsOnboardingRoute
   '/settings/packages': typeof SettingsPackagesRoute
   '/settings/storage': typeof SettingsStorageRoute
   '/claude': typeof ClaudeIndexRoute
+  '/onboarding': typeof OnboardingIndexRoute
   '/sessions': typeof SessionsIndexRoute
   '/settings': typeof SettingsIndexRoute
   '/pkg/$pkgId/$': typeof PkgPkgIdSplatRoute
@@ -303,6 +398,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/claude': typeof ClaudeRouteRouteWithChildren
+  '/onboarding': typeof OnboardingRouteRouteWithChildren
   '/sessions': typeof SessionsRouteRouteWithChildren
   '/settings': typeof SettingsRouteRouteWithChildren
   '/claude-assets-smoke': typeof ClaudeAssetsSmokeRoute
@@ -322,13 +418,24 @@ export interface FileRoutesById {
   '/claude/hooks': typeof ClaudeHooksRoute
   '/claude/mcps': typeof ClaudeMcpsRoute
   '/claude/skills': typeof ClaudeSkillsRoute
+  '/onboarding/agent': typeof OnboardingAgentRoute
+  '/onboarding/appearance': typeof OnboardingAppearanceRoute
+  '/onboarding/connectors': typeof OnboardingConnectorsRoute
+  '/onboarding/packages': typeof OnboardingPackagesRoute
+  '/onboarding/roots': typeof OnboardingRootsRoute
+  '/onboarding/scaffolding': typeof OnboardingScaffoldingRoute
+  '/onboarding/summary': typeof OnboardingSummaryRoute
+  '/onboarding/telemetry': typeof OnboardingTelemetryRoute
+  '/onboarding/welcome': typeof OnboardingWelcomeRoute
   '/settings/about': typeof SettingsAboutRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/backup': typeof SettingsBackupRoute
   '/settings/integrations': typeof SettingsIntegrationsRoute
+  '/settings/onboarding': typeof SettingsOnboardingRoute
   '/settings/packages': typeof SettingsPackagesRoute
   '/settings/storage': typeof SettingsStorageRoute
   '/claude/': typeof ClaudeIndexRoute
+  '/onboarding/': typeof OnboardingIndexRoute
   '/sessions/': typeof SessionsIndexRoute
   '/settings/': typeof SettingsIndexRoute
   '/pkg/$pkgId/$': typeof PkgPkgIdSplatRoute
@@ -343,6 +450,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/claude'
+    | '/onboarding'
     | '/sessions'
     | '/settings'
     | '/claude-assets-smoke'
@@ -362,13 +470,24 @@ export interface FileRouteTypes {
     | '/claude/hooks'
     | '/claude/mcps'
     | '/claude/skills'
+    | '/onboarding/agent'
+    | '/onboarding/appearance'
+    | '/onboarding/connectors'
+    | '/onboarding/packages'
+    | '/onboarding/roots'
+    | '/onboarding/scaffolding'
+    | '/onboarding/summary'
+    | '/onboarding/telemetry'
+    | '/onboarding/welcome'
     | '/settings/about'
     | '/settings/appearance'
     | '/settings/backup'
     | '/settings/integrations'
+    | '/settings/onboarding'
     | '/settings/packages'
     | '/settings/storage'
     | '/claude/'
+    | '/onboarding/'
     | '/sessions/'
     | '/settings/'
     | '/pkg/$pkgId/$'
@@ -396,13 +515,24 @@ export interface FileRouteTypes {
     | '/claude/hooks'
     | '/claude/mcps'
     | '/claude/skills'
+    | '/onboarding/agent'
+    | '/onboarding/appearance'
+    | '/onboarding/connectors'
+    | '/onboarding/packages'
+    | '/onboarding/roots'
+    | '/onboarding/scaffolding'
+    | '/onboarding/summary'
+    | '/onboarding/telemetry'
+    | '/onboarding/welcome'
     | '/settings/about'
     | '/settings/appearance'
     | '/settings/backup'
     | '/settings/integrations'
+    | '/settings/onboarding'
     | '/settings/packages'
     | '/settings/storage'
     | '/claude'
+    | '/onboarding'
     | '/sessions'
     | '/settings'
     | '/pkg/$pkgId/$'
@@ -415,6 +545,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/claude'
+    | '/onboarding'
     | '/sessions'
     | '/settings'
     | '/claude-assets-smoke'
@@ -434,13 +565,24 @@ export interface FileRouteTypes {
     | '/claude/hooks'
     | '/claude/mcps'
     | '/claude/skills'
+    | '/onboarding/agent'
+    | '/onboarding/appearance'
+    | '/onboarding/connectors'
+    | '/onboarding/packages'
+    | '/onboarding/roots'
+    | '/onboarding/scaffolding'
+    | '/onboarding/summary'
+    | '/onboarding/telemetry'
+    | '/onboarding/welcome'
     | '/settings/about'
     | '/settings/appearance'
     | '/settings/backup'
     | '/settings/integrations'
+    | '/settings/onboarding'
     | '/settings/packages'
     | '/settings/storage'
     | '/claude/'
+    | '/onboarding/'
     | '/sessions/'
     | '/settings/'
     | '/pkg/$pkgId/$'
@@ -454,6 +596,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ClaudeRouteRoute: typeof ClaudeRouteRouteWithChildren
+  OnboardingRouteRoute: typeof OnboardingRouteRouteWithChildren
   SessionsRouteRoute: typeof SessionsRouteRouteWithChildren
   SettingsRouteRoute: typeof SettingsRouteRouteWithChildren
   ClaudeAssetsSmokeRoute: typeof ClaudeAssetsSmokeRoute
@@ -571,6 +714,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SessionsRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/onboarding': {
+      id: '/onboarding'
+      path: '/onboarding'
+      fullPath: '/onboarding'
+      preLoaderRoute: typeof OnboardingRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/claude': {
       id: '/claude'
       path: '/claude'
@@ -599,6 +749,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SessionsIndexRouteImport
       parentRoute: typeof SessionsRouteRoute
     }
+    '/onboarding/': {
+      id: '/onboarding/'
+      path: '/'
+      fullPath: '/onboarding/'
+      preLoaderRoute: typeof OnboardingIndexRouteImport
+      parentRoute: typeof OnboardingRouteRoute
+    }
     '/claude/': {
       id: '/claude/'
       path: '/'
@@ -618,6 +775,13 @@ declare module '@tanstack/react-router' {
       path: '/packages'
       fullPath: '/settings/packages'
       preLoaderRoute: typeof SettingsPackagesRouteImport
+      parentRoute: typeof SettingsRouteRoute
+    }
+    '/settings/onboarding': {
+      id: '/settings/onboarding'
+      path: '/onboarding'
+      fullPath: '/settings/onboarding'
+      preLoaderRoute: typeof SettingsOnboardingRouteImport
       parentRoute: typeof SettingsRouteRoute
     }
     '/settings/integrations': {
@@ -647,6 +811,69 @@ declare module '@tanstack/react-router' {
       fullPath: '/settings/about'
       preLoaderRoute: typeof SettingsAboutRouteImport
       parentRoute: typeof SettingsRouteRoute
+    }
+    '/onboarding/welcome': {
+      id: '/onboarding/welcome'
+      path: '/welcome'
+      fullPath: '/onboarding/welcome'
+      preLoaderRoute: typeof OnboardingWelcomeRouteImport
+      parentRoute: typeof OnboardingRouteRoute
+    }
+    '/onboarding/telemetry': {
+      id: '/onboarding/telemetry'
+      path: '/telemetry'
+      fullPath: '/onboarding/telemetry'
+      preLoaderRoute: typeof OnboardingTelemetryRouteImport
+      parentRoute: typeof OnboardingRouteRoute
+    }
+    '/onboarding/summary': {
+      id: '/onboarding/summary'
+      path: '/summary'
+      fullPath: '/onboarding/summary'
+      preLoaderRoute: typeof OnboardingSummaryRouteImport
+      parentRoute: typeof OnboardingRouteRoute
+    }
+    '/onboarding/scaffolding': {
+      id: '/onboarding/scaffolding'
+      path: '/scaffolding'
+      fullPath: '/onboarding/scaffolding'
+      preLoaderRoute: typeof OnboardingScaffoldingRouteImport
+      parentRoute: typeof OnboardingRouteRoute
+    }
+    '/onboarding/roots': {
+      id: '/onboarding/roots'
+      path: '/roots'
+      fullPath: '/onboarding/roots'
+      preLoaderRoute: typeof OnboardingRootsRouteImport
+      parentRoute: typeof OnboardingRouteRoute
+    }
+    '/onboarding/packages': {
+      id: '/onboarding/packages'
+      path: '/packages'
+      fullPath: '/onboarding/packages'
+      preLoaderRoute: typeof OnboardingPackagesRouteImport
+      parentRoute: typeof OnboardingRouteRoute
+    }
+    '/onboarding/connectors': {
+      id: '/onboarding/connectors'
+      path: '/connectors'
+      fullPath: '/onboarding/connectors'
+      preLoaderRoute: typeof OnboardingConnectorsRouteImport
+      parentRoute: typeof OnboardingRouteRoute
+    }
+    '/onboarding/appearance': {
+      id: '/onboarding/appearance'
+      path: '/appearance'
+      fullPath: '/onboarding/appearance'
+      preLoaderRoute: typeof OnboardingAppearanceRouteImport
+      parentRoute: typeof OnboardingRouteRoute
+    }
+    '/onboarding/agent': {
+      id: '/onboarding/agent'
+      path: '/agent'
+      fullPath: '/onboarding/agent'
+      preLoaderRoute: typeof OnboardingAgentRouteImport
+      parentRoute: typeof OnboardingRouteRoute
     }
     '/claude/skills': {
       id: '/claude/skills'
@@ -748,6 +975,36 @@ const ClaudeRouteRouteWithChildren = ClaudeRouteRoute._addFileChildren(
   ClaudeRouteRouteChildren,
 )
 
+interface OnboardingRouteRouteChildren {
+  OnboardingAgentRoute: typeof OnboardingAgentRoute
+  OnboardingAppearanceRoute: typeof OnboardingAppearanceRoute
+  OnboardingConnectorsRoute: typeof OnboardingConnectorsRoute
+  OnboardingPackagesRoute: typeof OnboardingPackagesRoute
+  OnboardingRootsRoute: typeof OnboardingRootsRoute
+  OnboardingScaffoldingRoute: typeof OnboardingScaffoldingRoute
+  OnboardingSummaryRoute: typeof OnboardingSummaryRoute
+  OnboardingTelemetryRoute: typeof OnboardingTelemetryRoute
+  OnboardingWelcomeRoute: typeof OnboardingWelcomeRoute
+  OnboardingIndexRoute: typeof OnboardingIndexRoute
+}
+
+const OnboardingRouteRouteChildren: OnboardingRouteRouteChildren = {
+  OnboardingAgentRoute: OnboardingAgentRoute,
+  OnboardingAppearanceRoute: OnboardingAppearanceRoute,
+  OnboardingConnectorsRoute: OnboardingConnectorsRoute,
+  OnboardingPackagesRoute: OnboardingPackagesRoute,
+  OnboardingRootsRoute: OnboardingRootsRoute,
+  OnboardingScaffoldingRoute: OnboardingScaffoldingRoute,
+  OnboardingSummaryRoute: OnboardingSummaryRoute,
+  OnboardingTelemetryRoute: OnboardingTelemetryRoute,
+  OnboardingWelcomeRoute: OnboardingWelcomeRoute,
+  OnboardingIndexRoute: OnboardingIndexRoute,
+}
+
+const OnboardingRouteRouteWithChildren = OnboardingRouteRoute._addFileChildren(
+  OnboardingRouteRouteChildren,
+)
+
 interface SessionsRouteRouteChildren {
   SessionsIndexRoute: typeof SessionsIndexRoute
   SessionsByAgentAgentRoute: typeof SessionsByAgentAgentRoute
@@ -773,6 +1030,7 @@ interface SettingsRouteRouteChildren {
   SettingsAppearanceRoute: typeof SettingsAppearanceRoute
   SettingsBackupRoute: typeof SettingsBackupRoute
   SettingsIntegrationsRoute: typeof SettingsIntegrationsRoute
+  SettingsOnboardingRoute: typeof SettingsOnboardingRoute
   SettingsPackagesRoute: typeof SettingsPackagesRoute
   SettingsStorageRoute: typeof SettingsStorageRoute
   SettingsIndexRoute: typeof SettingsIndexRoute
@@ -783,6 +1041,7 @@ const SettingsRouteRouteChildren: SettingsRouteRouteChildren = {
   SettingsAppearanceRoute: SettingsAppearanceRoute,
   SettingsBackupRoute: SettingsBackupRoute,
   SettingsIntegrationsRoute: SettingsIntegrationsRoute,
+  SettingsOnboardingRoute: SettingsOnboardingRoute,
   SettingsPackagesRoute: SettingsPackagesRoute,
   SettingsStorageRoute: SettingsStorageRoute,
   SettingsIndexRoute: SettingsIndexRoute,
@@ -809,6 +1068,7 @@ const PkgPkgIdRouteRouteWithChildren = PkgPkgIdRouteRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ClaudeRouteRoute: ClaudeRouteRouteWithChildren,
+  OnboardingRouteRoute: OnboardingRouteRouteWithChildren,
   SessionsRouteRoute: SessionsRouteRouteWithChildren,
   SettingsRouteRoute: SettingsRouteRouteWithChildren,
   ClaudeAssetsSmokeRoute: ClaudeAssetsSmokeRoute,
