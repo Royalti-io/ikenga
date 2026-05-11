@@ -1,3 +1,4 @@
+mod agent_detect;
 pub mod claude;
 mod commands;
 mod fs_watch;
@@ -465,6 +466,10 @@ pub fn run() {
             pkg_supervisor_restart,
             dev_bind_port,
             dev_release_port,
+            // first-run wizard detection
+            agent_detect::detect_system,
+            agent_detect::detect_agents,
+            agent_detect::detect_agent_config,
             // activity bar pinning
             activity_pins_list,
             activity_pins_add,
