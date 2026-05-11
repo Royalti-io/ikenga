@@ -26,10 +26,12 @@
  */
 
 import { useState } from 'react';
-import { Loader2, Send } from 'lucide-react';
+import { AlertTriangle, Loader2, Send } from 'lucide-react';
 import { Markdown } from '@/components/markdown';
 import { cn } from '@/components/ui/utils';
-import { sessionToolResult } from '@/lib/tauri-cmd';
+import { sessionSend, sessionToolResult } from '@/lib/tauri-cmd';
+import { appendUserTurn } from '../../persist';
+import { useChatStore } from '../../store';
 import type { PairedToolCall } from '../../store';
 
 interface AskUserQuestionInput {
@@ -59,7 +61,14 @@ interface AskUserQuestionRendererProps {
 export function AskUserQuestionRenderer({ pair, threadId }: AskUserQuestionRendererProps) {
   const input = (pair.use.input ?? {}) as Partial<AskUserQuestionInput>;
   const questions = input.questions ?? [];
-  const alreadyAnswered = pair.result !== null;
+  // A tool_result with isError=true means Claude's CLI auto-errored the
+  // AskUserQuestion call (its built-in implementation requires the TUI,
+  // not the --print streaming mode we use). Treat that as "not yet
+  // answered" so the user can still respond — we'll send the answer back
+  // as both a tool_result (in case the loop is still listening) and a
+  // follow-up user message (which is what actually gets through).
+  const errored = pair.result !== null && pair.result.isError === true;
+  const alreadyAnswered = pair.result !== null && !errored;
 
   // Per-question state. Single-select: { kind: 'single', value: string | null,
   // otherText: string }. Multi-select: { kind: 'multi', values: Set<string>,
@@ -137,19 +146,48 @@ export function AskUserQuestionRenderer({ pair, threadId }: AskUserQuestionRende
     setSubmitError(null);
     try {
       const out: Record<string, unknown> = {};
+      const lines: string[] = [];
       questions.forEach((q, i) => {
         const a = answers[i];
+        let v: unknown;
         if (a.kind === 'single' && a.value) {
-          out[q.question] =
-            a.value === OTHER_LABEL ? `Other: ${a.otherText.trim()}` : a.value;
+          v = a.value === OTHER_LABEL ? `Other: ${a.otherText.trim()}` : a.value;
         } else if (a.kind === 'multi') {
-          const list = Array.from(a.values).map((v) =>
-            v === OTHER_LABEL ? `Other: ${a.otherText.trim()}` : v,
+          v = Array.from(a.values).map((x) =>
+            x === OTHER_LABEL ? `Other: ${a.otherText.trim()}` : x,
           );
-          out[q.question] = list;
         }
+        out[q.question] = v;
+        const fmt = Array.isArray(v) ? v.join(', ') : String(v);
+        lines.push(`- **${q.question}**: ${fmt}`);
       });
-      await sessionToolResult(threadId, pair.use.id, { answers: out });
+
+      // First: try the tool_result envelope. If the tool was auto-errored
+      // by Claude's CLI in --print mode (the common case), this won't
+      // reach the model — but if for any reason the loop is still waiting
+      // for an answer, it lands cleanly. Best-effort, swallow failures.
+      try {
+        await sessionToolResult(threadId, pair.use.id, { answers: out });
+      } catch (e) {
+        console.debug('sessionToolResult (AskUserQuestion):', e);
+      }
+
+      // Then: send a follow-up user message so Claude actually sees the
+      // answer in its next turn, regardless of whether the tool_result
+      // landed. Persisted as a user_turn so it renders in the thread.
+      const followup = `Answers to your AskUserQuestion:\n${lines.join('\n')}`;
+      if (errored) {
+        const turn = await appendUserTurn(threadId, followup);
+        useChatStore.getState().appendEvents(threadId, [
+          {
+            kind: 'user_turn',
+            text: turn.text,
+            sequence: turn.sequence,
+            createdAt: turn.createdAt,
+          },
+        ]);
+        await sessionSend(threadId, followup);
+      }
     } catch (e) {
       setSubmitError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -159,6 +197,17 @@ export function AskUserQuestionRenderer({ pair, threadId }: AskUserQuestionRende
 
   return (
     <div className="space-y-4">
+      {errored && (
+        <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs text-amber-700 dark:text-amber-300">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <div>
+            Claude's CLI auto-errored this question because{' '}
+            <code className="font-mono">--print</code> streaming mode has no
+            interactive terminal. Answer below — we'll relay your answer as a
+            follow-up message so it lands in Claude's next turn.
+          </div>
+        </div>
+      )}
       {questions.map((q, i) => (
         <QuestionBlock
           key={`q-${i}`}
