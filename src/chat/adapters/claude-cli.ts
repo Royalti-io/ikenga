@@ -2,37 +2,33 @@
  * ClaudeCliAdapter — chat backend over Claude Code's streaming-input mode.
  *
  * Transport: ONE long-lived `claude --print --input-format stream-json
- * --output-format stream-json --verbose [--resume <id>]` child per thread,
- * connected via piped stdin/stdout (NOT a PTY — claude rejects stream-json
- * over a TTY). Anthropic-recommended pattern:
- * https://code.claude.com/docs/en/agent-sdk/streaming-vs-single-mode
+ * --output-format stream-json --verbose [--resume <id>]` child per chat
+ * thread, connected via piped stdin/stdout (NOT a PTY — claude rejects
+ * stream-json over a TTY). The Rust side owns spawn / send / cancel; this
+ * adapter is a thin wrapper around `sessionEnsure` / `sessionSend` /
+ * `sessionCancel` plus a `sessionListen` subscription that writes parsed
+ * events directly into the store.
  *
- * Each `send()` call:
- *   1. If a streaming child is already alive for this thread, write the
- *      user-message envelope to its stdin via `claudeChatSend`.
- *   2. Otherwise spawn one with `claudeChatSpawn({ prompt, resumeSessionId })`
- *      — the prompt becomes the first stdin envelope inside the backend so
- *      the spawn is single-RPC.
- *   3. Subscribe to `claude://session/{placeholder}` and (once known)
- *      `claude://session/{realId}`, yielding events until `done` (which
- *      mirrors claude's `result` envelope, marking end-of-turn). The child
- *      stays alive — do NOT kill it on `done`.
- *
- * Lifecycle: the child is killed on `cancel()`, on app cold-start sweeps
- * (`clearLivePtys`), or when a follow-up call fails to find it (e.g. claude
- * crashed). On miss, the next `send` re-spawns with `--resume` to recover.
+ * v2 design notes (vs the bug-laden v1):
+ *   - `threadId` is the only id the adapter handles. Claude's session id is
+ *     metadata captured from `session_init` events; the URL never moves.
+ *   - Live events flow `Rust → session://{threadId} → store.appendEvents`.
+ *     No queue/store split, no placeholder→real alias dance.
+ *   - One subscription per thread, attached the first time `send` is called
+ *     and kept alive until `destroy()` (or `sessionCancel` from outside).
  */
 
 import { Zap } from 'lucide-react';
+import type { UnlistenFn } from '@tauri-apps/api/event';
 import {
-  claudeChatKill,
-  claudeChatSend,
-  claudeChatSpawn,
+  sessionCancel,
+  sessionDestroy,
+  sessionEnsure,
+  sessionListen,
+  sessionSend,
   claudeListSessions,
-  claudeListenSession,
   type ChatEvent,
 } from '@/lib/tauri-cmd';
-import { useLiveSessions } from '@/lib/queries/live-sessions';
 import { useChatStore } from '../store';
 import { updateThreadMeta } from '../persist';
 import type {
@@ -56,51 +52,9 @@ const CAPABILITIES: AdapterCapabilities = {
   agenticTools: true,
 };
 
-/** Lightweight async queue for turning event-listener callbacks into an
- *  AsyncIterable. Pushed events accumulate; consumers `await next()`. */
-class EventQueue<T> {
-  private items: T[] = [];
-  private resolvers: ((value: IteratorResult<T>) => void)[] = [];
-  private closed = false;
-
-  push(item: T) {
-    if (this.closed) return;
-    const r = this.resolvers.shift();
-    if (r) r({ value: item, done: false });
-    else this.items.push(item);
-  }
-
-  close() {
-    if (this.closed) return;
-    this.closed = true;
-    while (this.resolvers.length > 0) {
-      this.resolvers.shift()!({ value: undefined as unknown as T, done: true });
-    }
-  }
-
-  [Symbol.asyncIterator](): AsyncIterator<T> {
-    return {
-      next: () => {
-        if (this.items.length > 0) {
-          return Promise.resolve({ value: this.items.shift()!, done: false });
-        }
-        if (this.closed) {
-          return Promise.resolve({ value: undefined as unknown as T, done: true });
-        }
-        return new Promise<IteratorResult<T>>((resolve) => this.resolvers.push(resolve));
-      },
-    };
-  }
-}
-
-interface InflightStream {
-  streamId: string;
+interface ActiveStream {
   threadId: string;
-  /** Streaming child session id (placeholder, then real once known). */
-  sessionId: string | null;
-  unlistenPlaceholder: (() => void) | null;
-  unlistenReal: (() => void) | null;
-  queue: EventQueue<ChatEvent>;
+  unlisten: UnlistenFn | null;
 }
 
 class ClaudeCliAdapterImpl implements ChatAdapter {
@@ -110,145 +64,159 @@ class ClaudeCliAdapterImpl implements ChatAdapter {
   readonly models: ModelOption[] | null = null;
   readonly capabilities = CAPABILITIES;
 
-  private inflight = new Map<string, InflightStream>();
+  /** One subscription per thread. Keyed by threadId so re-mounts don't
+   *  double-subscribe (and so `destroy()` can tear them all down). */
+  private streams = new Map<string, ActiveStream>();
 
   async init(_ctx: AdapterContext): Promise<void> {
     // No API key needed — claude CLI authenticates itself.
   }
 
+  /** Ensure the Rust-side Session exists and a subscription is attached.
+   *  Idempotent; safe to call from a hook on every mount. */
+  async attach(threadId: string, cwd: string): Promise<void> {
+    if (this.streams.has(threadId)) return;
+    await sessionEnsure(threadId, cwd, {});
+    const placeholder: ActiveStream = { threadId, unlisten: null };
+    this.streams.set(threadId, placeholder);
+    try {
+      const unlisten = await sessionListen(threadId, (event) =>
+        this.onEvent(threadId, event),
+      );
+      placeholder.unlisten = unlisten;
+    } catch (e) {
+      this.streams.delete(threadId);
+      throw e;
+    }
+  }
+
+  private onEvent(threadId: string, event: ChatEvent) {
+    const store = useChatStore.getState();
+    const existing = store.threads[threadId];
+    if (!existing) return; // store row not hydrated yet — drop on the floor
+
+    // Capture the real Claude session id once so the on-disk JSONL is
+    // reachable for replays. Doesn't change the route — threadId is stable.
+    if (event.kind === 'session_init' && event.sessionId) {
+      const stored = existing.thread.claudeSessionId;
+      if (event.sessionId !== stored) {
+        store.setThread(threadId, { claudeSessionId: event.sessionId });
+        void updateThreadMeta(threadId, { claudeSessionId: event.sessionId });
+      }
+    }
+    if (event.kind === 'text' || event.kind === 'thinking' || event.kind === 'tool_use') {
+      if (existing.status !== 'streaming') store.setStatus(threadId, 'streaming');
+    }
+    store.appendEvents(threadId, [event]);
+    if (event.kind === 'done') {
+      store.setStatus(threadId, 'idle');
+    }
+  }
+
+  /** v1's `send()` returned a streamId + AsyncIterable. v2 returns the same
+   *  shape for API compatibility, but the iterable is purely a lifecycle /
+   *  cancellation channel — all store writes happen in `onEvent` above. */
   send(input: ChatInput): { streamId: string; iterable: AsyncIterable<ChatEvent> } {
     const streamId = `stream-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const queue = new EventQueue<ChatEvent>();
-    const stream: InflightStream = {
-      streamId,
-      threadId: input.threadId,
-      sessionId: null,
-      unlistenPlaceholder: null,
-      unlistenReal: null,
-      queue,
-    };
-    this.inflight.set(streamId, stream);
+    const queue: ChatEvent[] = [];
+    let resolveNext: ((v: IteratorResult<ChatEvent>) => void) | null = null;
+    let closed = false;
 
-    void this.runSend(input, stream).catch((err) => {
-      queue.push({
-        kind: 'parse_error',
-        message: err instanceof Error ? err.message : String(err),
-        line: '',
-      });
-      queue.close();
-      this.cleanupStream(streamId);
+    const close = () => {
+      closed = true;
+      resolveNext?.({ value: undefined as unknown as ChatEvent, done: true });
+      resolveNext = null;
+    };
+
+    // Bridge the per-turn lifecycle through the existing store subscription.
+    // We watch for a `done` event on this thread and close the iterable when
+    // it lands. (The store-level subscription wrote the same event, so the
+    // UI doesn't depend on this iterable at all.)
+    let lifecycleUnlisten: UnlistenFn | null = null;
+    const lifecyclePromise = sessionListen(input.threadId, (event) => {
+      if (closed) return;
+      const r = resolveNext;
+      if (r) {
+        resolveNext = null;
+        r({ value: event, done: false });
+      } else {
+        queue.push(event);
+      }
+      if (event.kind === 'done') {
+        setTimeout(close, 0);
+        lifecycleUnlisten?.();
+      }
     });
 
-    return { streamId, iterable: queue };
-  }
+    lifecyclePromise
+      .then((u) => {
+        if (closed) {
+          u();
+        } else {
+          lifecycleUnlisten = u;
+        }
+      })
+      .catch((err) => {
+        useChatStore
+          .getState()
+          .setStatus(input.threadId, 'error', err instanceof Error ? err.message : String(err));
+        close();
+      });
 
-  private async runSend(input: ChatInput, stream: InflightStream): Promise<void> {
-    const state = useChatStore.getState();
-    const thread = state.threads[input.threadId]?.thread;
-    if (!thread) throw new Error(`no thread state for ${input.threadId}`);
-
-    // Existing streaming child for this thread? Reuse it.
-    const liveChildId = thread.ptyId; // we re-use this column to track the streaming child sessionId
-    let sessionId: string | null = null;
-
-    if (liveChildId) {
+    void (async () => {
       try {
-        await claudeChatSend(liveChildId, input.text);
-        sessionId = liveChildId;
+        // Make sure the session row + main subscription exist.
+        const cwd = useChatStore.getState().threads[input.threadId]?.thread.cwd ?? '';
+        await this.attach(input.threadId, cwd || '/home/nedjamez/royalti-co');
+        // Mark streaming up-front; onEvent will keep it set, and 'done' will clear it.
+        useChatStore.getState().setStatus(input.threadId, 'streaming');
+        await sessionSend(input.threadId, input.text);
       } catch (e) {
-        // Child gone (crashed, killed, HMR, or app restart) — fall through to
-        // spawn with --resume so the conversation continues. Expected after
-        // dev hot-reloads; debug-level on purpose.
-        console.debug('claudeChatSend recovery: spawning new child for', input.threadId, e);
-        useChatStore.getState().setThread(input.threadId, { ptyId: null });
-        useChatStore.getState().setLiveAttached(input.threadId, false);
+        useChatStore
+          .getState()
+          .setStatus(input.threadId, 'error', e instanceof Error ? e.message : String(e));
+        close();
       }
-    }
+    })();
 
-    if (!sessionId) {
-      const cwd = thread.cwd || '/home/nedjamez/royalti-co';
-      const resumeId = thread.claudeSessionId ?? undefined;
-      const spawn = await claudeChatSpawn(cwd, {
-        prompt: input.text,
-        resumeSessionId: resumeId,
-      });
-      sessionId = spawn.sessionId;
-      useChatStore.getState().setThread(input.threadId, { ptyId: sessionId });
-      useChatStore.getState().setLiveAttached(input.threadId, true);
-      // Surface the live process to the sessions store so the existing UI
-      // (Live badge, useEnsureThreadForSession's listener wiring) keeps
-      // working. `kind: 'streaming'` tells the session detail page there's no
-      // PTY to attach a Terminal tab to.
-      useLiveSessions.getState().register({
-        sessionId,
-        ptyId: '',
-        cwd,
-        startedAt: Date.now(),
-        kind: 'streaming',
-      });
-    }
-
-    stream.sessionId = sessionId;
-    let realId: string | null = thread.claudeSessionId ?? null;
-
-    const onEvent = (e: ChatEvent) => {
-      stream.queue.push(e);
-      if (e.kind === 'session_init' && e.sessionId && e.sessionId !== realId) {
-        realId = e.sessionId;
-        useChatStore.getState().setThread(input.threadId, { claudeSessionId: e.sessionId });
-        void updateThreadMeta(input.threadId, { claudeSessionId: e.sessionId });
-        // Alias the live-session entry under the real id so route listeners
-        // keyed on the real session id (e.g. after URL promotion) attach.
-        if (sessionId) {
-          useLiveSessions.getState().alias(sessionId, e.sessionId);
-        }
-        if (!stream.unlistenReal) {
-          claudeListenSession(e.sessionId, onEvent)
-            .then((u) => {
-              if (this.inflight.has(stream.streamId)) stream.unlistenReal = u;
-              else u();
-            })
-            .catch((err) => console.warn('listen real:', err));
-        }
-      }
-      if (e.kind === 'done') {
-        // End-of-turn: close the per-turn iterable but DO NOT kill the child.
-        // The next send() will write to the same stdin.
-        setTimeout(() => {
-          stream.queue.close();
-          this.cleanupStream(stream.streamId);
-        }, 50);
-      }
+    const iterable: AsyncIterable<ChatEvent> = {
+      [Symbol.asyncIterator]() {
+        return {
+          next() {
+            if (queue.length > 0) {
+              return Promise.resolve({ value: queue.shift()!, done: false });
+            }
+            if (closed) {
+              return Promise.resolve({ value: undefined as unknown as ChatEvent, done: true });
+            }
+            return new Promise<IteratorResult<ChatEvent>>((resolve) => {
+              resolveNext = resolve;
+            });
+          },
+        };
+      },
     };
 
-    stream.unlistenPlaceholder = await claudeListenSession(sessionId, onEvent);
+    return { streamId, iterable };
   }
 
-  async cancel(streamId: string): Promise<void> {
-    const stream = this.inflight.get(streamId);
-    if (!stream) return;
-    if (stream.sessionId) {
-      try {
-        await claudeChatKill(stream.sessionId);
-      } catch (e) {
-        console.warn('claudeChatKill cancel:', e);
-      }
+  async cancel(_streamId: string): Promise<void> {
+    // v2: streamId is opaque per-turn; cancellation is per-thread. The
+    // composer's cancel button passes the active streamId, but we map it
+    // back to the focused thread via the store.
+    const state = useChatStore.getState();
+    const active = Object.values(state.threads).find((t) => t.streamId === _streamId);
+    const tid = active?.thread.id;
+    if (!tid) return;
+    try {
+      await sessionCancel(tid);
+    } catch (e) {
+      console.warn('sessionCancel:', e);
     }
-    stream.queue.push({ kind: 'system_hook', hookEvent: 'cancel', name: 'user_cancel' });
-    stream.queue.close();
-    this.cleanupStream(streamId);
-    const tid = stream.threadId;
-    useChatStore.getState().setThread(tid, { ptyId: null });
-    useChatStore.getState().setLiveAttached(tid, false);
-    useChatStore.getState().setStatus(tid, 'interrupted');
-  }
-
-  private cleanupStream(streamId: string) {
-    const s = this.inflight.get(streamId);
-    if (!s) return;
-    s.unlistenPlaceholder?.();
-    s.unlistenReal?.();
-    this.inflight.delete(streamId);
+    state.appendEvents(tid, [
+      { kind: 'system_hook', hookEvent: 'cancel', name: 'user_cancel' } as ChatEvent,
+    ]);
+    state.setStatus(tid, 'interrupted');
   }
 
   async suspend(): Promise<void> {
@@ -256,8 +224,7 @@ class ClaudeCliAdapterImpl implements ChatAdapter {
   }
 
   async migrate(_thread: ChatThread): Promise<void> {
-    // Only one adapter exists in v1; never invoked. Throw loudly if called.
-    throw new Error('ClaudeCliAdapter.migrate: not implemented (no second adapter in v1)');
+    throw new Error('ClaudeCliAdapter.migrate: not implemented (no second adapter)');
   }
 
   async listSessions() {
@@ -265,13 +232,22 @@ class ClaudeCliAdapterImpl implements ChatAdapter {
   }
 
   async destroy(): Promise<void> {
-    for (const s of this.inflight.values()) {
-      s.unlistenPlaceholder?.();
-      s.unlistenReal?.();
-      s.queue.close();
+    const entries = [...this.streams.values()];
+    this.streams.clear();
+    for (const s of entries) {
+      s.unlisten?.();
+      try {
+        await sessionDestroy(s.threadId);
+      } catch (e) {
+        console.warn('sessionDestroy:', e);
+      }
     }
-    this.inflight.clear();
   }
 }
 
 export const ClaudeCliAdapter: ChatAdapter = new ClaudeCliAdapterImpl();
+
+/** Test/maintenance helper. Exposed only on the concrete instance. */
+export function getClaudeCliAdapterInstance(): ClaudeCliAdapterImpl {
+  return ClaudeCliAdapter as unknown as ClaudeCliAdapterImpl;
+}

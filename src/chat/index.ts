@@ -16,10 +16,19 @@ export { Thread } from './ui/thread';
 export { Composer } from './ui/composer';
 export { AdapterSwitcher } from './ui/adapter-switcher';
 export {
+  useThread,
   useEnsureThreadForSession,
   useChatActions,
   useThreadState,
   useChatColdStart,
+  mintThreadId,
 } from './hooks';
 export { useChatStore } from './store';
+export {
+  findThreadByClaudeSessionId,
+  findThreadById,
+  createThread,
+  appendUserTurn,
+  loadUserTurns,
+} from './persist';
 export type { ChatThread, ChatAdapter, ChatInput } from './adapter';

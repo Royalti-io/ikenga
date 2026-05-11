@@ -4,31 +4,23 @@
 // implements the `Engine` interface from `@ikenga/contract/engine`. It does
 // not call `invoke()` directly — it talks to the host shell through this
 // `HostBridge`, which adapts each engine-level operation onto the shell's
-// existing `claude_chat_*` Tauri commands.
+// session_* Tauri commands.
 //
-// Two concerns this file handles:
+// v2: the engine's `Session.id` (a uuid minted by the engine via
+// `crypto.randomUUID()`) is used as the shell's `threadId` directly. The
+// shell maintains a stable Session keyed on that id; Claude's internal
+// session id is metadata. No placeholder→real translation needed.
 //
-//   1. Session id translation. The engine generates its own UUID for each
-//      session (`crypto.randomUUID()` inside `ClaudeCodeEngine.startSession`)
-//      and uses it as the stable `Session.id`. The shell's
-//      `claudeChatSpawn` returns a *placeholder* uuid that is later replaced
-//      by the real Claude Code session id (arriving on the first
-//      `session_init` event). Both ids fan-in to the same backend channel
-//      because Rust re-emits events on `claude://session/{placeholderId}`
-//      AND `claude://session/{realId}`. We map engine-id → placeholder id
-//      and use the placeholder for `send` / `kill` / `listen`.
-//
-//   2. Event shape translation. The shell emits a richer `ChatEvent` union
-//      tagged by `kind`. The engine contract's `EngineEvent` is tagged by
-//      `type` and is a strict subset (text/tool/thinking/usage/done). The
-//      mapper below converts the overlap and treats unmapped variants as
-//      best-effort `done` or pass-through silence (see comments inline).
+// `chatEventToEngineEvent` adapts the shell's richer `ChatEvent` union to
+// the engine contract's `EngineEvent` (a strict subset). Unmapped variants
+// are silently dropped — the engine doesn't model artifacts / hooks /
+// user-turn echoes.
 
 import {
-  claudeChatKill,
-  claudeChatSend,
-  claudeChatSpawn,
-  claudeListenSession,
+  sessionDestroy,
+  sessionEnsure,
+  sessionListen,
+  sessionSend,
   type ChatEvent,
   type ClaudeOpts,
 } from "@/lib/tauri-cmd";
@@ -39,18 +31,12 @@ import type {
 import type { HostBridge } from "@ikenga/pkg-engine-claude-code";
 
 interface SessionRecord {
-  /** Placeholder id returned by `claudeChatSpawn`. Used for all subsequent
-   *  Tauri calls because the backend re-emits events on this id. */
-  placeholderId: string;
   /** Working directory used at spawn time. */
   cwd: string;
 }
 
-/**
- * Map an engine-supplied uuid to the placeholder id returned by
- * `claudeChatSpawn`. Module-level because `HostBridge` is a singleton and
- * the kernel constructs exactly one engine instance.
- */
+/** Sessions known to this bridge. `sessionId` is the engine's uuid which is
+ *  also the shell's threadId — no translation. */
 const sessions = new Map<string, SessionRecord>();
 
 /**
@@ -102,10 +88,13 @@ export function chatEventToEngineEvent(event: ChatEvent): EngineEvent | null {
         reason: "error",
         error: `parse_error: ${event.message}`,
       };
-    // session_init, artifact, system_hook, unknown: no engine equivalent.
+    // session_init, artifact, system_hook, user_turn, unknown: no engine
+    // equivalent. user_turn is a frontend-only echo of what the user typed;
+    // the engine sees it via its own `send` call so we don't replay it.
     case "session_init":
     case "artifact":
     case "system_hook":
+    case "user_turn":
     case "unknown":
       return null;
     default: {
@@ -123,7 +112,7 @@ export function chatEventToEngineEvent(event: ChatEvent): EngineEvent | null {
  * slow.
  */
 function listenAsAsyncIterable(
-  placeholderId: string,
+  threadId: string,
 ): AsyncIterable<EngineEvent> {
   return {
     [Symbol.asyncIterator]() {
@@ -150,7 +139,7 @@ function listenAsAsyncIterable(
         }
       };
 
-      unlistenPromise = claudeListenSession(placeholderId, (chatEvent) => {
+      unlistenPromise = sessionListen(threadId, (chatEvent) => {
         const mapped = chatEventToEngineEvent(chatEvent);
         if (mapped) push(mapped);
       });
@@ -186,47 +175,40 @@ function listenAsAsyncIterable(
 export function createShellHostBridge(): HostBridge {
   return {
     async spawn(opts) {
+      // The engine's sessionId IS the shell's threadId — no translation.
+      // `claude` honors a system prompt via the initial prompt arg, and the
+      // shell's `sessionEnsure` is lazy (no actual process until first send),
+      // so we kick the system prompt as the first send when present.
+      const cwd = opts.cwd ?? ".";
       const claudeOpts: ClaudeOpts = {
-        // The contract's `systemPrompt` doesn't have a direct ClaudeOpts
-        // analogue — `claude` honors a system prompt via the `prompt` arg
-        // at spawn time. Passing as the initial prompt mirrors how the
-        // shell's existing chat code primes a session.
-        prompt: opts.systemPrompt,
         resumeSessionId: opts.resumeSessionId,
         model: opts.model,
       };
-      // `claudeChatSpawn` requires a cwd. Default to '.' (resolved by the
-      // Rust side relative to app cwd) when the engine caller didn't supply
-      // one. Real callers always pass cwd from the pkg manifest.
-      const cwd = opts.cwd ?? ".";
-      const result = await claudeChatSpawn(cwd, claudeOpts);
-      sessions.set(opts.sessionId, {
-        placeholderId: result.sessionId,
-        cwd,
-      });
+      await sessionEnsure(opts.sessionId, cwd, claudeOpts);
+      sessions.set(opts.sessionId, { cwd });
+      if (opts.systemPrompt) {
+        await sessionSend(opts.sessionId, opts.systemPrompt);
+      }
     },
 
     async send(sessionId, message) {
-      const rec = sessions.get(sessionId);
-      if (!rec) {
+      if (!sessions.has(sessionId)) {
         throw new Error(`engine bridge: unknown session ${sessionId}`);
       }
-      await claudeChatSend(rec.placeholderId, message);
+      await sessionSend(sessionId, message);
     },
 
     async kill(sessionId) {
-      const rec = sessions.get(sessionId);
-      if (!rec) return; // idempotent
+      if (!sessions.has(sessionId)) return; // idempotent
       try {
-        await claudeChatKill(rec.placeholderId);
+        await sessionDestroy(sessionId);
       } finally {
         sessions.delete(sessionId);
       }
     },
 
     listen(sessionId) {
-      const rec = sessions.get(sessionId);
-      if (!rec) {
+      if (!sessions.has(sessionId)) {
         // Return an iterable that immediately yields a done/error so callers
         // don't hang waiting for events on an un-spawned session.
         return {
@@ -249,7 +231,7 @@ export function createShellHostBridge(): HostBridge {
           },
         };
       }
-      return listenAsAsyncIterable(rec.placeholderId);
+      return listenAsAsyncIterable(sessionId);
     },
 
     async registerMcp(_spec: McpServerSpec) {

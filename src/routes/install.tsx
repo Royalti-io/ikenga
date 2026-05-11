@@ -14,13 +14,15 @@ import { useEffect, useMemo, useState } from 'react';
 
 import { buildInstallPrompt, type InstallSource } from '@/lib/install/prompt';
 import {
-  claudeChatSpawn,
   iykeEndpoint,
   pkgInstallFromPath,
   pkgPreviewManifest,
+  sessionEnsure,
+  sessionSend,
   type PkgManifestPreview,
   type PkgSettingsField,
 } from '@/lib/tauri-cmd';
+import { mintThreadId } from '@/chat';
 import './install.css';
 
 export const Route = createFileRoute('/install')({
@@ -181,8 +183,12 @@ function InstallPanel() {
     if (!prompt) return;
     setBusy('spawn');
     try {
-      const r = await claudeChatSpawn(PROJECT_DIR, { prompt, permissionMode: 'auto' });
-      navigate({ to: '/sessions/$sessionId', params: { sessionId: r.sessionId } });
+      const threadId = mintThreadId();
+      await sessionEnsure(threadId, PROJECT_DIR, { permissionMode: 'auto' });
+      // Kick the install prompt as the first user message. The session
+      // detail page will pick it up as the chat hydrates.
+      await sessionSend(threadId, prompt);
+      navigate({ to: '/sessions/$sessionId', params: { sessionId: threadId } });
     } catch (e) {
       setFlash({ kind: 'error', msg: `Spawn failed: ${(e as Error).message ?? String(e)}` });
       setBusy(null);

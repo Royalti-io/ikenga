@@ -162,10 +162,12 @@ fn dispatch_assistant(value: &Value, out: &mut Vec<ChatEvent>) {
         .get("parent_tool_use_id")
         .and_then(Value::as_str)
         .map(str::to_string);
-    let content = value
-        .get("message")
-        .and_then(|m| m.get("content"))
-        .and_then(Value::as_array);
+    let message = value.get("message");
+    let message_id = message
+        .and_then(|m| m.get("id"))
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let content = message.and_then(|m| m.get("content")).and_then(Value::as_array);
     let blocks = match content {
         Some(b) => b,
         None => {
@@ -182,6 +184,7 @@ fn dispatch_assistant(value: &Value, out: &mut Vec<ChatEvent>) {
                 if let Some(t) = block.get("text").and_then(Value::as_str) {
                     out.push(ChatEvent::Text {
                         delta: t.to_string(),
+                        message_id: message_id.clone(),
                     });
                 }
             }
@@ -189,6 +192,7 @@ fn dispatch_assistant(value: &Value, out: &mut Vec<ChatEvent>) {
                 if let Some(t) = block.get("thinking").and_then(Value::as_str) {
                     out.push(ChatEvent::Thinking {
                         delta: t.to_string(),
+                        message_id: message_id.clone(),
                     });
                 }
             }
@@ -354,7 +358,7 @@ mod tests {
         events = p.feed(part2);
         assert_eq!(events.len(), 1);
         match &events[0] {
-            ChatEvent::Text { delta } => assert_eq!(delta, "hello"),
+            ChatEvent::Text { delta, .. } => assert_eq!(delta, "hello"),
             _ => unreachable!(),
         }
     }

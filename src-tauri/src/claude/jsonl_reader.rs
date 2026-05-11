@@ -341,7 +341,7 @@ mod tests {
         let texts: Vec<&str> = events
             .iter()
             .filter_map(|e| match e {
-                ChatEvent::Text { delta } => Some(delta.as_str()),
+                ChatEvent::Text { delta, .. } => Some(delta.as_str()),
                 _ => None,
             })
             .collect();

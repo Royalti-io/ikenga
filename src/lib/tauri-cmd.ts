@@ -347,8 +347,8 @@ export type ChatEvent =
 			cwd: string | null;
 			permissionMode: string | null;
 	  }
-	| { kind: 'text'; delta: string }
-	| { kind: 'thinking'; delta: string }
+	| { kind: 'text'; delta: string; messageId?: string }
+	| { kind: 'thinking'; delta: string; messageId?: string }
 	| {
 			kind: 'tool_use';
 			id: string;
@@ -384,7 +384,11 @@ export type ChatEvent =
 			durationMs?: number;
 	  }
 	| { kind: 'unknown'; raw: unknown }
-	| { kind: 'parse_error'; message: string; line: string };
+	| { kind: 'parse_error'; message: string; line: string }
+	/** Frontend-synthesized: a user message we wrote to the streaming child's
+	 *  stdin. Persisted to `chat_user_turns` in SQLite (Claude's JSONL doesn't
+	 *  record plain-string user messages). Never emitted by Rust. */
+	| { kind: 'user_turn'; text: string; sequence: number; createdAt: number };
 
 export async function claudeSpawnSession(
 	cwd: string,
@@ -393,29 +397,63 @@ export async function claudeSpawnSession(
 	return invoke('claude_spawn_session', { cwd, opts });
 }
 
-/**
- * Spawn a streaming-input claude child (one long-lived process per chat
- * thread). Uses pipes, NOT a PTY — claude rejects stream-json over a TTY.
- * Returns a placeholder session id; the real id arrives via the first
- * `system:init` event on `claude://session/{placeholder}` and
- * `claude://session/{realId}`. `pty_id` in the result is empty for streaming
- * sessions — use `sessionId` for `claudeChatSend` / `claudeChatKill`.
- *
- * Multi-turn pattern: first call `claudeChatSpawn(cwd, { prompt, ... })`,
- * then `claudeChatSend(sessionId, text)` for each subsequent message.
- */
-export async function claudeChatSpawn(cwd: string, opts: ClaudeOpts): Promise<ClaudeSpawnResult> {
-	return invoke('claude_chat_spawn', { cwd, opts });
+// ─── Session-as-object (thread_id-keyed) ──────────────────────────────────────
+//
+// `threadId` is a stable, frontend-minted uuid. Claude's session id and any
+// PTY id are attributes of the Session. Events emit on `session://{threadId}`.
+// The full implementation lives in `src-tauri/src/claude/session.rs`.
+
+export interface SessionHandle {
+	threadId: string;
+	/** Populated once the parser has seen the first `system:init` event. */
+	claudeSessionId: string | null;
 }
 
-/** Send a follow-up user message to a live streaming child via stdin. */
-export async function claudeChatSend(sessionId: string, text: string): Promise<void> {
-	return invoke('claude_chat_send', { sessionId, text });
+/** Idempotently create / fetch a session. Does NOT spawn a process. The
+ *  streaming child is lazy; first call to `sessionSend` spawns it (or
+ *  `--resume`s an existing Claude session if `opts.resumeSessionId` is set). */
+export async function sessionEnsure(
+	threadId: string,
+	cwd: string,
+	opts: ClaudeOpts = {}
+): Promise<SessionHandle> {
+	return invoke('session_ensure', { threadId, cwd, opts });
 }
 
-/** Kill a streaming child. Idempotent. */
-export async function claudeChatKill(sessionId: string): Promise<void> {
-	return invoke('claude_chat_kill', { sessionId });
+/** Write a user message to the session's streaming child. Spawns one if
+ *  absent, with `--resume <claudeSessionId>` so the conversation continues. */
+export async function sessionSend(threadId: string, text: string): Promise<void> {
+	return invoke('session_send', { threadId, text });
+}
+
+/** Kill the streaming child but keep the session row so the next send
+ *  re-spawns. Idempotent. */
+export async function sessionCancel(threadId: string): Promise<void> {
+	return invoke('session_cancel', { threadId });
+}
+
+/** Tear down the session entirely (kill child + drop in-memory entry).
+ *  Idempotent. PTYs attached via `sessionAttachPty` are owned by `PtyManager`
+ *  and must be killed via `ptyKill` separately. */
+export async function sessionDestroy(threadId: string): Promise<void> {
+	return invoke('session_destroy', { threadId });
+}
+
+/** HMR / page-reload hygiene: kill every streaming child the app owns. Wire
+ *  this to window 'beforeunload' so dev reloads don't leave zombies. */
+export async function sessionDestroyAll(): Promise<void> {
+	return invoke('session_destroy_all');
+}
+
+/** Attach a Claude PTY to this session — typically `claude --resume <id>`
+ *  for "open this conversation in a terminal." Returns the PTY id you can
+ *  pass to the existing terminal view. PTY events do NOT feed into the chat
+ *  event stream; subscribe to them via `ptyListen`. */
+export async function sessionAttachPty(
+	threadId: string,
+	opts: ClaudeOpts = {}
+): Promise<string> {
+	return invoke('session_attach_pty', { threadId, opts });
 }
 
 /** Pass `null` or omit `projectDir` to list sessions across all project
@@ -436,12 +474,25 @@ export async function claudeReadJsonl(sessionId: string): Promise<ChatEvent[]> {
 	return invoke('claude_read_jsonl', { sessionId });
 }
 
-/** Subscribe to parsed events for a live session. Returns the unlisten fn. */
+/** Subscribe to parsed events for a live Claude session (PTY transports +
+ *  legacy mirror for streaming sessions, keyed on the real Claude session
+ *  id). For chat threads, prefer `sessionListen(threadId, ...)` — same id
+ *  before and after `system:init`. */
 export async function claudeListenSession(
 	sessionId: string,
 	onEvent: (event: ChatEvent) => void
 ): Promise<UnlistenFn> {
 	return listen<ChatEvent>(`claude://session/${sessionId}`, (e) => onEvent(e.payload));
+}
+
+/** Subscribe to parsed events for a chat thread, keyed by its stable
+ *  internal `threadId`. The Rust side emits on `session://{threadId}` for
+ *  the full lifetime of the thread — no placeholder/real id swap. */
+export async function sessionListen(
+	threadId: string,
+	onEvent: (event: ChatEvent) => void
+): Promise<UnlistenFn> {
+	return listen<ChatEvent>(`session://${threadId}`, (e) => onEvent(e.payload));
 }
 
 // ─── Claude config browser (/claude route) ────────────────────────────────────

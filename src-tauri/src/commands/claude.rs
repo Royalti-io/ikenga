@@ -1,25 +1,26 @@
 //! Claude Code session integration.
 //!
 //! Two spawn paths, two transports:
-//!  - **Streaming chat** — `claude_chat_spawn` runs `claude --print
-//!    --input-format stream-json --output-format stream-json --verbose
-//!    [--resume <id>]` over **piped stdin/stdout** (NOT a PTY — claude rejects
-//!    stream-json input over a TTY). One long-lived process per chat thread;
-//!    follow-up messages go via `claude_chat_send`. Anthropic-recommended
-//!    pattern: https://code.claude.com/docs/en/agent-sdk/streaming-vs-single-mode
+//!  - **Session-as-object** (`session_ensure` / `session_send` /
+//!    `session_cancel` / `session_destroy` / `session_attach_pty`) — chat
+//!    threads keyed by a stable, frontend-minted `thread_id`. Each session
+//!    owns an optional streaming-input claude child (piped stdin/stdout —
+//!    claude rejects stream-json over a TTY) and an optional PTY (e.g.
+//!    `claude --resume`). Events emit on `session://{thread_id}`. The full
+//!    implementation lives in `crate::claude::session`.
 //!  - **PTY one-shot / interactive** — `claude_spawn_session` runs `claude
 //!    [-p <prompt>] [--resume <id>]` in a PTY. With `prompt` it's headless
 //!    one-shot; without, it boots claude's interactive TUI. Used by the new-
-//!    session dialog.
+//!    session dialog's "Open in terminal" branch.
 //!
 //! Wires:
+//!  - `session_ensure` / `session_send` / `session_cancel` / `session_destroy`
+//!    / `session_destroy_all` / `session_attach_pty` — chat lifecycle.
+//!  - `claude_spawn_session` — PTY spawn (one-shot or interactive).
 //!  - `claude_list_sessions` — scans `~/.claude/projects/**` and summarizes
 //!    every `.jsonl` it finds.
-//!  - `claude_spawn_session` — PTY spawn (one-shot or interactive).
-//!  - `claude_chat_spawn` / `claude_chat_send` / `claude_chat_kill` — pipe-
-//!    backed streaming child lifecycle.
 //!  - `claude_read_jsonl` — reads a finished session log from disk into
-//!    `ChatEvent`s for the chat-view escape hatch.
+//!    `ChatEvent`s for the chat-view replay path.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -35,6 +36,7 @@ use crate::claude::{
     is_session_jsonl,
     jsonl_reader::{read_jsonl, summarize, SessionSummary as JsonlSessionSummary},
     projects_root,
+    session::{cancel_streaming, send_user_message, SessionOpts, SessionsState},
     stream_parser::StreamParser,
 };
 use crate::pty::{PtyManager, SpawnOpts};
@@ -106,18 +108,6 @@ struct LiveSession {
     real_session_id: Option<String>,
 }
 
-/// A long-lived, streaming-input claude child process. Distinct from
-/// `LiveSession` (PTY-based, one-shot or interactive) because streaming-input
-/// mode requires piped stdin — claude rejects stream-json over a TTY.
-struct StreamingChild {
-    /// Held so we can kill the child on cancel/destroy.
-    child: tokio::sync::Mutex<tokio::process::Child>,
-    /// Held so we can write user-message envelopes from `claude_chat_send`.
-    stdin: tokio::sync::Mutex<tokio::process::ChildStdin>,
-    /// Set once the parser sees the first `system:init` event.
-    real_session_id: tokio::sync::Mutex<Option<String>>,
-}
-
 #[derive(Default)]
 pub struct ClaudeManager {
     /// PTY-backed sessions (one-shot `-p` and interactive TUI). Keyed by the
@@ -126,10 +116,6 @@ pub struct ClaudeManager {
     /// the placeholder key (so frontend handles still resolve while events
     /// are also re-emitted under the real id).
     by_placeholder: Mutex<HashMap<String, LiveSession>>,
-    /// Streaming-input children (one per chat thread). Keyed by placeholder
-    /// id; lookups by real session id walk the values. Lives in a separate
-    /// map from `by_placeholder` because the storage shape differs.
-    streaming_children: Mutex<HashMap<String, Arc<StreamingChild>>>,
 }
 
 impl ClaudeManager {
@@ -246,117 +232,147 @@ pub async fn claude_read_jsonl(
     read_jsonl(&path).map_err(|e| format!("read_jsonl: {e}"))
 }
 
-/// Spawn a long-lived claude child in streaming-input mode. Subsequent user
-/// messages are sent via `claude_chat_send`. Returns a placeholder session id
-/// (the real one arrives via the first `system:init` event on
-/// `claude://session/{placeholder}` and `claude://session/{realId}`).
-///
-/// Recommended pattern per Anthropic docs:
-/// https://code.claude.com/docs/en/agent-sdk/streaming-vs-single-mode
+// ─── Session-as-object commands ──────────────────────────────────────────────
+//
+// `thread_id` is a stable, frontend-minted uuid that identifies a chat thread
+// for its entire lifetime. Claude's session id and any PTY id are attributes
+// of the `Session`. Events emit on `session://{thread_id}` (single channel).
+
+/// Idempotently create / fetch a session. No process is spawned; the
+/// streaming child is lazy and lifts on the first `session_send`. Use this
+/// when the UI wants to register a thread (e.g. open an empty chat tab)
+/// before any prompt has been typed.
 #[tauri::command]
-pub async fn claude_chat_spawn(
-    app: AppHandle,
-    claude: State<'_, ClaudeManagerState>,
+pub async fn session_ensure(
+    sessions: State<'_, SessionsState>,
+    #[allow(non_snake_case)] threadId: String,
     cwd: String,
     opts: ClaudeOpts,
-) -> Result<ClaudeSpawnResult, String> {
-    spawn_streaming_chat(app, claude.inner().clone(), cwd, opts).await
+) -> Result<SessionHandle, String> {
+    let opts = SessionOpts {
+        resume_session_id: opts.resume_session_id,
+        permission_mode: opts.permission_mode,
+        model: opts.model,
+    };
+    let session = sessions.get_or_create(&threadId, &cwd, opts).await;
+    let claude_session_id = session.claude_session_id.lock().await.clone();
+    Ok(SessionHandle {
+        thread_id: threadId,
+        claude_session_id,
+    })
 }
 
-/// Send a user message to a live streaming-input child by writing one JSON
-/// envelope to its stdin. The session id may be either the placeholder
-/// returned by `claude_chat_spawn` or the real session id reported by the
-/// first `system:init` event. Returns an error if no live child matches.
+/// Send a user message to the thread's streaming child. If no streaming
+/// child is live, one is spawned (with `--resume <claude_session_id>` when
+/// we already know it, so the conversation continues). The initial prompt
+/// is the first stdin envelope of the spawn — single round-trip, no race.
 #[tauri::command]
-pub async fn claude_chat_send(
-    claude: State<'_, ClaudeManagerState>,
-    #[allow(non_snake_case)] sessionId: String,
+pub async fn session_send(
+    app: AppHandle,
+    sessions: State<'_, SessionsState>,
+    #[allow(non_snake_case)] threadId: String,
     text: String,
 ) -> Result<(), String> {
-    let child = find_streaming_child(claude.inner(), &sessionId)
+    let session = sessions
+        .get(&threadId)
         .await
-        .ok_or_else(|| format!("no streaming session for {sessionId}"))?;
-    let envelope = user_envelope(&text);
-    let mut stdin = child.stdin.lock().await;
-    use tokio::io::AsyncWriteExt;
-    stdin
-        .write_all(envelope.as_bytes())
-        .await
-        .map_err(|e| format!("stdin write: {e}"))?;
-    stdin
-        .flush()
-        .await
-        .map_err(|e| format!("stdin flush: {e}"))?;
-    Ok(())
+        .ok_or_else(|| format!("no session for thread {threadId}"))?;
+    send_user_message(app, session, text).await
 }
 
-/// Kill a streaming-input child. Idempotent — returns Ok if the session is
-/// already gone.
+/// Kill the streaming child but leave the in-memory session row so the next
+/// `session_send` can re-spawn (with `--resume`). Idempotent.
 #[tauri::command]
-pub async fn claude_chat_kill(
-    claude: State<'_, ClaudeManagerState>,
-    #[allow(non_snake_case)] sessionId: String,
+pub async fn session_cancel(
+    sessions: State<'_, SessionsState>,
+    #[allow(non_snake_case)] threadId: String,
 ) -> Result<(), String> {
-    let entry_key = {
-        let guard = claude.streaming_children.lock().await;
-        if guard.contains_key(&sessionId) {
-            Some(sessionId.clone())
-        } else {
-            // Walk values to find by real_session_id.
-            let mut hit = None;
-            for (k, v) in guard.iter() {
-                let real = v.real_session_id.lock().await;
-                if real.as_deref() == Some(sessionId.as_str()) {
-                    hit = Some(k.clone());
-                    break;
-                }
-            }
-            hit
-        }
-    };
-    let Some(key) = entry_key else {
+    let Some(session) = sessions.get(&threadId).await else {
         return Ok(());
     };
-    let removed = {
-        let mut guard = claude.streaming_children.lock().await;
-        guard.remove(&key)
-    };
-    if let Some(child) = removed {
-        let mut c = child.child.lock().await;
-        let _ = c.start_kill();
+    cancel_streaming(session).await
+}
+
+/// Tear down the session entirely. Kills any streaming child + removes the
+/// in-memory entry. PTYs are owned by `PtyManager` and must be killed via
+/// `pty_kill` separately. Idempotent.
+#[tauri::command]
+pub async fn session_destroy(
+    sessions: State<'_, SessionsState>,
+    #[allow(non_snake_case)] threadId: String,
+) -> Result<(), String> {
+    if let Some(session) = sessions.remove(&threadId).await {
+        cancel_streaming(session).await?;
     }
     Ok(())
 }
 
-/// Build the line-delimited user envelope that streaming-input mode expects:
-/// `{"type":"user","message":{"role":"user","content":"<text>"}}\n`. Uses
-/// `serde_json` to escape the text correctly (newlines, quotes, etc.).
-fn user_envelope(text: &str) -> String {
-    let value = serde_json::json!({
-        "type": "user",
-        "message": { "role": "user", "content": text },
-    });
-    let mut s = serde_json::to_string(&value).unwrap_or_else(|_| String::from("{}"));
-    s.push('\n');
-    s
+/// HMR / page-reload hygiene: kill every streaming child this app owns.
+/// Called by the frontend on window 'beforeunload' so dev reloads don't
+/// orphan claude processes. PTYs are handled by `PtyManager` separately.
+#[tauri::command]
+pub async fn session_destroy_all(
+    sessions: State<'_, SessionsState>,
+) -> Result<(), String> {
+    sessions.kill_all_streaming().await;
+    Ok(())
 }
 
-/// Look up a streaming child by placeholder id, falling back to real session id.
-async fn find_streaming_child(
-    claude: &ClaudeManagerState,
-    session_id: &str,
-) -> Option<Arc<StreamingChild>> {
-    let guard = claude.streaming_children.lock().await;
-    if let Some(c) = guard.get(session_id) {
-        return Some(c.clone());
+/// Attach a PTY to this session — typically `claude --resume
+/// <claude_session_id>` so the user can "open this conversation in a
+/// terminal." The PTY events do NOT feed back into the chat event stream;
+/// the terminal view subscribes to them separately via the existing PTY
+/// listener. Returns the new pty id.
+#[tauri::command]
+pub async fn session_attach_pty(
+    app: AppHandle,
+    pty: State<'_, Arc<PtyManager>>,
+    sessions: State<'_, SessionsState>,
+    #[allow(non_snake_case)] threadId: String,
+    opts: ClaudeOpts,
+) -> Result<String, String> {
+    let session = sessions
+        .get(&threadId)
+        .await
+        .ok_or_else(|| format!("no session for thread {threadId}"))?;
+    let claude_session_id = session.claude_session_id.lock().await.clone();
+    let resume = opts.resume_session_id.clone().or(claude_session_id);
+
+    let mut cmd: Vec<String> = vec!["claude".into(), "--dangerously-skip-permissions".into()];
+    if let Some(ref id) = resume {
+        cmd.push("--resume".into());
+        cmd.push(id.clone());
     }
-    for c in guard.values() {
-        let real = c.real_session_id.lock().await;
-        if real.as_deref() == Some(session_id) {
-            return Some(c.clone());
-        }
+    if let Some(ref pm) = opts.permission_mode {
+        cmd.push("--permission-mode".into());
+        cmd.push(pm.clone());
     }
-    None
+    if let Some(ref m) = opts.model {
+        cmd.push("--model".into());
+        cmd.push(m.clone());
+    }
+
+    let spawn_opts = SpawnOpts {
+        cwd: session.cwd.clone(),
+        cmd,
+        env: HashMap::new(),
+        rows: opts.rows.unwrap_or(24),
+        cols: opts.cols.unwrap_or(100),
+    };
+    let pty_id = pty
+        .spawn(app, spawn_opts)
+        .await
+        .map_err(|e| format!("spawn claude pty: {e}"))?;
+    *session.pty_id.lock().await = Some(pty_id.clone());
+    Ok(pty_id)
+}
+
+#[derive(Serialize)]
+pub struct SessionHandle {
+    #[serde(rename = "threadId")]
+    pub thread_id: String,
+    #[serde(rename = "claudeSessionId")]
+    pub claude_session_id: Option<String>,
 }
 
 // ─── internals ────────────────────────────────────────────────────────────────
@@ -524,186 +540,6 @@ async fn spawn_session(
     })
 }
 
-/// Spawn a streaming-input claude child. Pipes stdin/stdout (no PTY — claude
-/// rejects stream-json over a TTY). Wires the same `StreamParser` /
-/// `ArtifactWatcher` pipeline as `spawn_session`, emitting parsed events on
-/// `claude://session/{placeholder}` and (once known) `claude://session/{realId}`.
-async fn spawn_streaming_chat(
-    app: AppHandle,
-    claude: ClaudeManagerState,
-    cwd: String,
-    opts: ClaudeOpts,
-) -> Result<ClaudeSpawnResult, String> {
-    use std::process::Stdio;
-    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-    use tokio::process::Command;
-
-    let placeholder_id = format!("pending-{}", uuid::Uuid::new_v4());
-    let resolved_cwd = shellexpand::full(&cwd)
-        .map(|c| c.into_owned())
-        .unwrap_or_else(|_| cwd.clone());
-
-    let mut command = Command::new("claude");
-    command
-        .arg("--dangerously-skip-permissions")
-        .arg("--print")
-        .arg("--input-format")
-        .arg("stream-json")
-        .arg("--output-format")
-        .arg("stream-json")
-        .arg("--verbose")
-        .current_dir(&resolved_cwd)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        // Don't leave behind orphaned children if the parent dies.
-        .kill_on_drop(true);
-    if let Some(ref id) = opts.resume_session_id {
-        command.arg("--resume").arg(id);
-    }
-    if let Some(ref pm) = opts.permission_mode {
-        command.arg("--permission-mode").arg(pm);
-    }
-    if let Some(ref m) = opts.model {
-        command.arg("--model").arg(m);
-    }
-
-    let mut child = command
-        .spawn()
-        .map_err(|e| format!("spawn streaming claude: {e}"))?;
-    let mut stdin = child
-        .stdin
-        .take()
-        .ok_or_else(|| "stdin pipe missing".to_string())?;
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| "stdout pipe missing".to_string())?;
-    let stderr = child.stderr.take();
-
-    // Initial prompt as the first stdin envelope, before the reader task is
-    // even up — claude buffers stdin until it's ready to read.
-    if let Some(ref p) = opts.prompt {
-        let envelope = user_envelope(p);
-        if let Err(e) = stdin.write_all(envelope.as_bytes()).await {
-            return Err(format!("initial prompt write: {e}"));
-        }
-        let _ = stdin.flush().await;
-    }
-
-    let real_session_id = tokio::sync::Mutex::new(None::<String>);
-    let session = Arc::new(StreamingChild {
-        child: tokio::sync::Mutex::new(child),
-        stdin: tokio::sync::Mutex::new(stdin),
-        real_session_id,
-    });
-
-    {
-        let mut guard = claude.streaming_children.lock().await;
-        guard.insert(placeholder_id.clone(), session.clone());
-    }
-
-    // ── Reader task: stdout → StreamParser → emit ChatEvents ────────────────
-    let parser = std::sync::Mutex::new(StreamParser::new());
-    let watcher = std::sync::Mutex::new(ArtifactWatcher::new());
-    let app_for_reader = app.clone();
-    let claude_for_reader = claude.clone();
-    let placeholder_for_reader = placeholder_id.clone();
-    tauri::async_runtime::spawn(async move {
-        let mut reader = BufReader::new(stdout);
-        let mut buf = vec![0u8; 8 * 1024];
-        loop {
-            use tokio::io::AsyncReadExt;
-            match reader.read(&mut buf).await {
-                Ok(0) => break,
-                Ok(n) => {
-                    let chunk = &buf[..n];
-                    let mut events = match parser.lock() {
-                        Ok(mut p) => p.feed(chunk),
-                        Err(_) => break,
-                    };
-                    let extras = match watcher.lock() {
-                        Ok(mut w) => w.observe(&events),
-                        Err(_) => Vec::new(),
-                    };
-                    events.extend(extras);
-                    if events.is_empty() {
-                        continue;
-                    }
-                    let real_id_now = events.iter().find_map(|e| match e {
-                        ChatEvent::SessionInit { session_id, .. } if !session_id.is_empty() => {
-                            Some(session_id.clone())
-                        }
-                        _ => None,
-                    });
-                    if let Some(real) = real_id_now {
-                        let mut g = session.real_session_id.lock().await;
-                        if g.is_none() {
-                            *g = Some(real.clone());
-                        }
-                        drop(g);
-                        let real_event = format!("claude://session/{real}");
-                        for e in &events {
-                            let _ = app_for_reader.emit(&real_event, e);
-                        }
-                    }
-                    let placeholder_event =
-                        format!("claude://session/{placeholder_for_reader}");
-                    for e in &events {
-                        let _ = app_for_reader.emit(&placeholder_event, e);
-                    }
-                }
-                Err(e) => {
-                    log::debug!("streaming claude reader closed: {e}");
-                    break;
-                }
-            }
-        }
-        // Stdout EOF → child has exited (or is about to). Drop from manager.
-        let mut guard = claude_for_reader.streaming_children.lock().await;
-        guard.remove(&placeholder_for_reader);
-    });
-
-    // ── Stderr drain: log it (but don't pollute the parser) ──────────────────
-    if let Some(stderr) = stderr {
-        tauri::async_runtime::spawn(async move {
-            let mut lines = BufReader::new(stderr).lines();
-            while let Ok(Some(line)) = lines.next_line().await {
-                log::debug!("claude stderr: {line}");
-            }
-        });
-    }
-
-    // Persist a thread row so chat-list views can find this session.
-    if let Some(db) = app.try_state::<Arc<crate::commands::db::PaDb>>() {
-        let cwd_clone = resolved_cwd.clone();
-        let placeholder = placeholder_id.clone();
-        let model = opts.model.clone();
-        let resume_id = opts.resume_session_id.clone();
-        let db = db.inner().clone();
-        tauri::async_runtime::spawn(async move {
-            if let Err(e) = upsert_thread(
-                &db,
-                &placeholder,
-                resume_id.as_deref(),
-                &cwd_clone,
-                "",
-                model.as_deref(),
-            )
-            .await
-            {
-                log::debug!("thread upsert (streaming): {e}");
-            }
-        });
-    }
-
-    Ok(ClaudeSpawnResult {
-        session_id: placeholder_id,
-        // Streaming children don't have a PTY id; frontend should ignore it
-        // for streaming sessions and use sessionId for `claude_chat_send`.
-        pty_id: String::new(),
-    })
-}
 
 async fn upsert_thread(
     db: &Arc<crate::commands::db::PaDb>,

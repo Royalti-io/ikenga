@@ -1,19 +1,26 @@
 /**
  * Chat hooks — the only API surface the route page / pane chat-view should
  * use. Coordinates registry + store + persist.
+ *
+ * v2: threadId is stable across the placeholder→real transition; the route
+ * does not remount. The adapter is the canonical writer to the store; the
+ * hook only hydrates from SQLite + JSONL and runs a periodic reconciler so
+ * disk-flushed events aren't lost if a live subscription is dropped.
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { claudeListenSession, claudeReadJsonl, type ChatEvent } from '@/lib/tauri-cmd';
-import { useLiveSessions } from '@/lib/queries/live-sessions';
+import { claudeReadJsonl, type ChatEvent } from '@/lib/tauri-cmd';
 import {
+  appendUserTurn,
+  clearLivePtys,
   createThread,
   findThreadById,
-  findThreadByClaudeSessionId,
+  loadUserTurns,
   updateThreadMeta,
 } from './persist';
 import { getAdapter } from './registry';
 import { useChatStore, type ThreadState } from './store';
+import { ClaudeCliAdapter } from './adapters/claude-cli';
 
 const DEFAULT_ADAPTER = 'cli';
 
@@ -27,9 +34,7 @@ function deriveTitle(events: ChatEvent[]): string | null {
   return null;
 }
 
-function deriveSessionMeta(
-  events: ChatEvent[],
-): { cwd: string | null; model: string | null } {
+function deriveSessionMeta(events: ChatEvent[]): { cwd: string | null; model: string | null } {
   for (const e of events) {
     if (e.kind === 'session_init') {
       return { cwd: e.cwd, model: e.model };
@@ -38,75 +43,121 @@ function deriveSessionMeta(
   return { cwd: null, model: null };
 }
 
+/** Merge user-turn rows and JSONL events into a single render list ordered
+ *  by best-known timestamp. User turns are tagged with `createdAt` from
+ *  SQLite. JSONL events have no top-level timestamp but arrive in send
+ *  order; we splice user turns into the timeline by sequence — each user
+ *  turn precedes the assistant content it triggered. */
+function mergeUserTurnsWithEvents(
+  jsonlEvents: ChatEvent[],
+  userTurns: Awaited<ReturnType<typeof loadUserTurns>>,
+): ChatEvent[] {
+  if (userTurns.length === 0) return jsonlEvents;
+
+  // JSONL groups assistant turns into runs separated by `done` events.
+  // We splice one user_turn before each run (up to the count of user turns
+  // we have). Anything left over goes at the end (e.g. the user just sent
+  // a prompt and Claude hasn't responded yet).
+  const merged: ChatEvent[] = [];
+  let ut = 0;
+  let inRun = false;
+  for (const e of jsonlEvents) {
+    if (!inRun && (e.kind === 'text' || e.kind === 'thinking' || e.kind === 'tool_use')) {
+      if (ut < userTurns.length) {
+        const t = userTurns[ut++];
+        merged.push({
+          kind: 'user_turn',
+          text: t.text,
+          sequence: t.sequence,
+          createdAt: t.createdAt,
+        });
+      }
+      inRun = true;
+    }
+    if (e.kind === 'done') inRun = false;
+    merged.push(e);
+  }
+  while (ut < userTurns.length) {
+    const t = userTurns[ut++];
+    merged.push({
+      kind: 'user_turn',
+      text: t.text,
+      sequence: t.sequence,
+      createdAt: t.createdAt,
+    });
+  }
+  return merged;
+}
+
 /**
- * Bind the current route's claudeSessionId to a chat thread:
+ * Bind a route param (the stable `threadId`) to a chat thread:
  *   1. Find or create the thread row in SQLite.
- *   2. Hydrate the store from the on-disk JSONL (canonical replay).
- *   3. Subscribe to live events if a PTY is currently running for it.
+ *   2. Hydrate the store from JSONL (if a Claude session is associated) +
+ *      persisted user turns.
+ *   3. Ask the adapter to attach a live subscription. The adapter writes
+ *      events directly into the store via appendEvents.
+ *
+ * `threadId` is a stable uuid (frontend-minted on chat creation). For
+ * back-compat with legacy `/sessions/<claudeUUID>` URLs, the route's
+ * beforeLoad resolves Claude UUIDs to their thread id before this hook
+ * runs — we only ever see internal ids here.
  */
-export function useEnsureThreadForSession(claudeSessionId: string | null): {
+export function useThread(threadId: string | null): {
   threadId: string | null;
   loading: boolean;
   error: string | null;
 } {
-  const [threadId, setThreadId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const upsertThread = useChatStore((s) => s.upsertThread);
-  const setLiveAttached = useChatStore((s) => s.setLiveAttached);
-  const appendEvents = useChatStore((s) => s.appendEvents);
-  const setStatus = useChatStore((s) => s.setStatus);
-  const live = useLiveSessions((s) =>
-    claudeSessionId ? s.sessions[claudeSessionId] : undefined,
-  );
 
   useEffect(() => {
-    if (!claudeSessionId) {
-      setThreadId(null);
+    if (!threadId) {
       setLoading(false);
       return;
     }
     let cancelled = false;
     setLoading(true);
     setError(null);
+
     (async () => {
       try {
-        // We use `claudeSessionId` directly as the chat thread id so there's
-        // exactly one row per conversation. Rust's `upsert_thread` (in
-        // commands/claude.rs) writes its own rows keyed on placeholder uuids;
-        // those are independent and harmless.
-        const threadIdValue = claudeSessionId;
-        let thread =
-          (await findThreadById(threadIdValue)) ??
-          (await findThreadByClaudeSessionId(claudeSessionId));
-        let events: ChatEvent[] = [];
-        try {
-          events = await claudeReadJsonl(claudeSessionId);
-        } catch (e) {
-          // Brand-new session may not have a JSONL on disk yet.
-          if (e instanceof Error && !e.message.includes('not found')) {
-            console.warn('claudeReadJsonl:', e);
+        let thread = await findThreadById(threadId);
+
+        // Load JSONL events if we already know a Claude session id (i.e.
+        // this thread has talked to claude before). Brand-new threads
+        // start with an empty event list.
+        let jsonlEvents: ChatEvent[] = [];
+        const claudeId = thread?.claudeSessionId ?? null;
+        if (claudeId) {
+          try {
+            jsonlEvents = await claudeReadJsonl(claudeId);
+          } catch (e) {
+            if (e instanceof Error && !e.message.includes('not found')) {
+              console.warn('claudeReadJsonl:', e);
+            }
           }
         }
-        const meta = deriveSessionMeta(events);
-        const title = deriveTitle(events);
+        const userTurns = await loadUserTurns(threadId);
+        const meta = deriveSessionMeta(jsonlEvents);
+        const title = deriveTitle(jsonlEvents);
 
         if (!thread) {
           await createThread({
-            id: threadIdValue,
+            id: threadId,
             adapterId: DEFAULT_ADAPTER,
             cwd: meta.cwd ?? '',
-            claudeSessionId,
+            claudeSessionId: null,
             model: meta.model,
             title,
           });
-          thread = (await findThreadById(threadIdValue)) ?? {
-            id: threadIdValue,
+          thread = (await findThreadById(threadId)) ?? {
+            id: threadId,
             adapterId: DEFAULT_ADAPTER,
             title,
             cwd: meta.cwd ?? '',
             model: meta.model,
-            claudeSessionId,
+            claudeSessionId: null,
             ptyId: null,
             createdAt: Date.now(),
             updatedAt: Date.now(),
@@ -130,102 +181,45 @@ export function useEnsureThreadForSession(claudeSessionId: string | null): {
         }
 
         if (cancelled) return;
-        upsertThread(thread, events);
-        setThreadId(thread.id);
-        setLiveAttached(thread.id, !!live);
+        const merged = mergeUserTurnsWithEvents(jsonlEvents, userTurns);
+        upsertThread(thread, merged);
+
+        // Attach the live subscription. Idempotent.
+        try {
+          await ClaudeCliAdapter.attach?.(threadId, thread.cwd || '/home/nedjamez/royalti-co');
+        } catch (e) {
+          console.warn('adapter.attach failed:', e);
+        }
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e));
       } finally {
         if (!cancelled) setLoading(false);
       }
     })();
+
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [claudeSessionId]);
+  }, [threadId, upsertThread]);
 
-  // Subscribe to live deltas while a PTY is registered for this session id.
+  // JSONL reconciler: while the thread is live, poll JSONL every 2s for
+  // canonical events the live subscription may have missed (e.g. during
+  // adapter restart). Identity is approximate (kind + payload hash) since
+  // events don't carry stable ids on the wire.
   useEffect(() => {
-    if (!claudeSessionId || !threadId || !live) return;
-    let unlisten: (() => void) | null = null;
-    let cancelled = false;
-    // Don't unconditionally set 'streaming' on every mount. The route
-    // remounts when the URL transitions from placeholder→real session id;
-    // if the assistant 'done' event fired during that gap we'd be stuck on
-    // 'streaming' forever. Only flip to streaming if a turn is actually in
-    // flight (pendingTurn is non-empty); otherwise leave whatever the
-    // previous status was.
-    const current = useChatStore.getState().threads[threadId];
-    if (current && current.pendingTurn.length > 0 && current.status !== 'streaming') {
-      setStatus(threadId, 'streaming');
-    }
-    setLiveAttached(threadId, true);
-    const setThread = useChatStore.getState().setThread;
-    claudeListenSession(claudeSessionId, (event) => {
-      appendEvents(threadId, [event]);
-      // Any incoming event implicitly means the turn is live — sync the
-      // status so the UI reflects reality even if the second-mount path
-      // didn't set it above.
-      if (event.kind === 'text' || event.kind === 'thinking' || event.kind === 'tool_use') {
-        const s = useChatStore.getState().threads[threadId]?.status;
-        if (s !== 'streaming') setStatus(threadId, 'streaming');
-      }
-      // Promote the placeholder session id to the real one as soon as the
-      // parser sees system:init. The route reads this to update its URL.
-      if (event.kind === 'session_init' && event.sessionId) {
-        const stored = useChatStore.getState().threads[threadId]?.thread.claudeSessionId;
-        if (event.sessionId !== stored) {
-          setThread(threadId, { claudeSessionId: event.sessionId });
-          void updateThreadMeta(threadId, { claudeSessionId: event.sessionId });
-        }
-      }
-      if (event.kind === 'done') {
-        setStatus(threadId, 'idle');
-      }
-    })
-      .then((u) => {
-        if (cancelled) {
-          u();
-          return;
-        }
-        unlisten = u;
-      })
-      .catch((err) => console.error('listen session:', err));
-    return () => {
-      cancelled = true;
-      unlisten?.();
-      setLiveAttached(threadId, false);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [claudeSessionId, threadId, !!live]);
+    if (!threadId) return;
+    const state = useChatStore.getState().threads[threadId];
+    const claudeId = state?.thread.claudeSessionId;
+    if (!claudeId) return;
 
-  // JSONL reconciliation. The route remounts on placeholder→real session
-  // id navigation; any events Rust emitted during that gap have no live
-  // listener attached, so they're lost from the in-memory store. While
-  // the session is live, poll the JSONL every 2s and adopt it whenever
-  // it's longer than the in-memory event list. Stops on unmount or once
-  // the live listener has reported 'done' (status flips to idle).
-  useEffect(() => {
-    if (!claudeSessionId || !threadId) return;
-    if (claudeSessionId.startsWith('pending-')) return;
     let cancelled = false;
     const reconcile = async () => {
       if (cancelled) return;
       try {
-        const onDisk = await claudeReadJsonl(claudeSessionId);
+        const onDisk = await claudeReadJsonl(claudeId);
         if (cancelled) return;
         const current = useChatStore.getState().threads[threadId];
         if (!current) return;
-        // The live stream and JSONL have non-overlapping event kinds:
-        // hooks (`hook_started`/`hook_response`/`session_init`) only
-        // appear on the live channel, while `text`, `thinking`,
-        // `tool_use`/`tool_result`, and `done` are the canonical record
-        // on disk. So we can't compare lengths — they're different
-        // populations. Instead, append each JSONL event of a "canonical"
-        // kind that isn't already represented in the store. Identity is
-        // approximate (kind + serialized payload) since events don't
-        // carry stable ids; coalesceTail handles delta merging.
         const canonicalKinds = new Set([
           'text',
           'thinking',
@@ -235,28 +229,27 @@ export function useEnsureThreadForSession(claudeSessionId: string | null): {
           'rate_limit',
           'artifact',
         ]);
-        const sigOf = (e: typeof onDisk[number]) =>
-          `${e.kind}:${JSON.stringify(e)}`;
+        // Identity:
+        //   * text / thinking — keyed by messageId (stable across live + JSONL),
+        //     since the live stream may have coalesced multiple chunks into
+        //     one block whose JSON.stringify won't match JSONL's split blocks.
+        //   * tool_use / tool_result — stable id from the envelope.
+        //   * everything else — fall back to JSON.stringify.
+        const sigOf = (e: typeof onDisk[number]): string => {
+          if ((e.kind === 'text' || e.kind === 'thinking') && e.messageId) {
+            return `${e.kind}:m:${e.messageId}`;
+          }
+          if (e.kind === 'tool_use' || e.kind === 'tool_result') {
+            return `${e.kind}:id:${e.id}`;
+          }
+          return `${e.kind}:${JSON.stringify(e)}`;
+        };
         const existing = new Set(current.events.map(sigOf));
         const missing = onDisk.filter(
           (e) => canonicalKinds.has(e.kind) && !existing.has(sigOf(e)),
         );
         if (missing.length > 0) {
-          appendEvents(threadId, missing);
-        }
-        // The Claude CLI flushes a turn's `assistant` text to JSONL at
-        // turn end (not progressively), so any text that lands on disk
-        // means the turn completed. If status is still 'streaming' here,
-        // the live 'done' event was lost during the placeholder→real
-        // session-id navigation gap — sync from disk.
-        const hasDoneSignal =
-          onDisk.some((e) => e.kind === 'done') ||
-          missing.some((e) => e.kind === 'text' || e.kind === 'done');
-        if (hasDoneSignal) {
-          const s = useChatStore.getState().threads[threadId]?.status;
-          if (s === 'streaming') {
-            useChatStore.getState().setStatus(threadId, 'idle');
-          }
+          useChatStore.getState().appendEvents(threadId, missing);
         }
       } catch (e) {
         if (e instanceof Error && !e.message.includes('not found')) {
@@ -264,20 +257,20 @@ export function useEnsureThreadForSession(claudeSessionId: string | null): {
         }
       }
     };
-    // Initial reconcile after a brief delay so disk has a chance to flush.
     const firstId = setTimeout(reconcile, 1500);
-    // Polling loop while live. 2s is fast enough that missed-event lag is
-    // imperceptible, slow enough that JSONL parses don't dominate CPU.
     const intervalId = setInterval(reconcile, 2000);
     return () => {
       cancelled = true;
       clearTimeout(firstId);
       clearInterval(intervalId);
     };
-  }, [claudeSessionId, threadId]);
+  }, [threadId]);
 
   return { threadId, loading, error };
 }
+
+/** Back-compat alias for the v1 hook name. New code should call useThread. */
+export const useEnsureThreadForSession = useThread;
 
 export function useThreadState(threadId: string | null): ThreadState | null {
   return useChatStore((s) => (threadId ? s.threads[threadId] ?? null : null));
@@ -288,6 +281,9 @@ export interface ChatActions {
   cancel: () => Promise<void>;
   isStreaming: boolean;
   canSend: boolean;
+  /** Non-null when the last `send` threw. UI surfaces this in a banner with
+   *  a Retry affordance (PR2.2 wires retry properly). */
+  lastError: string | null;
 }
 
 export function useChatActions(threadId: string | null): ChatActions {
@@ -296,49 +292,53 @@ export function useChatActions(threadId: string | null): ChatActions {
   const setStream = useChatStore((s) => s.setStream);
   const appendEvents = useChatStore((s) => s.appendEvents);
   const sendingRef = useRef(false);
+  const [lastError, setLastError] = useState<string | null>(null);
 
   const isStreaming = state?.status === 'streaming';
 
   const send = async (text: string) => {
-    if (!threadId || !state || sendingRef.current) return;
+    if (!threadId || sendingRef.current) return;
     if (text.trim().length === 0) return;
     sendingRef.current = true;
+    setLastError(null);
     try {
-      // Locally echo the user message into the event buffer so it's visible
-      // immediately. The on-disk JSONL parser drops plain-string user content
-      // (only tool_result-shaped user envelopes surface via the live stream),
-      // so we synthesize a system_hook the Thread renders as a user bubble.
-      // JSONL remains the canonical record; on next reopen, this echo is
-      // replaced by whatever the JSONL says.
+      // Persist the user turn first so it survives reloads even if the
+      // spawn fails. The store entry below is a render echo; SQLite is
+      // canonical.
+      const turn = await appendUserTurn(threadId, text);
       appendEvents(threadId, [
         {
-          kind: 'system_hook',
-          hookEvent: 'user_message',
-          name: 'user',
-          content: text,
-        } as ChatEvent,
+          kind: 'user_turn',
+          text: turn.text,
+          sequence: turn.sequence,
+          createdAt: turn.createdAt,
+        },
       ]);
 
-      const adapter = getAdapter(state.thread.adapterId);
+      const adapter = getAdapter(state?.thread.adapterId ?? DEFAULT_ADAPTER);
       const { streamId, iterable } = adapter.send({ threadId, text });
       setStream(threadId, streamId);
       setStatus(threadId, 'streaming');
 
-      // Drain the iterable. Store mutations happen in the live listener
-      // (claudeListenSession) attached by useEnsureThreadForSession; the
-      // iterable is the cancellation/lifecycle channel.
       try {
         for await (const _ev of iterable) {
-          // intentionally empty — see comment above
+          // Drain. Store mutations happen in adapter.onEvent now.
         }
       } catch (e) {
-        setStatus(threadId, 'error', e instanceof Error ? e.message : String(e));
+        const msg = e instanceof Error ? e.message : String(e);
+        setStatus(threadId, 'error', msg);
+        setLastError(msg);
       } finally {
         setStream(threadId, null);
         if (useChatStore.getState().threads[threadId]?.status === 'streaming') {
           setStatus(threadId, 'idle');
         }
       }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error('chat send failed:', e);
+      setStatus(threadId, 'error', msg);
+      setLastError(msg);
     } finally {
       sendingRef.current = false;
     }
@@ -351,13 +351,21 @@ export function useChatActions(threadId: string | null): ChatActions {
   };
 
   return useMemo(
-    () => ({ send, cancel, isStreaming, canSend: !!threadId && !isStreaming }),
+    () => ({
+      send,
+      cancel,
+      isStreaming,
+      canSend: !!threadId && !isStreaming,
+      lastError,
+    }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [threadId, isStreaming, state?.streamId, state?.thread.adapterId],
+    [threadId, isStreaming, state?.streamId, state?.thread.adapterId, lastError],
   );
 }
 
-/** One-shot hook: clear stale `pty_id` rows on app cold start. */
+/** One-shot hook: clear stale `pty_id` rows on app cold start, and tear
+ *  down any orphaned Rust streaming children left over from the previous
+ *  process. Mounted once at workspace level. */
 export function useChatColdStart(): void {
   const ran = useRef(false);
   useEffect(() => {
@@ -365,11 +373,39 @@ export function useChatColdStart(): void {
     ran.current = true;
     void (async () => {
       try {
-        const { clearLivePtys } = await import('./persist');
         await clearLivePtys();
       } catch (e) {
         console.warn('clearLivePtys:', e);
       }
+      try {
+        const { sessionDestroyAll } = await import('@/lib/tauri-cmd');
+        await sessionDestroyAll();
+      } catch (e) {
+        console.warn('sessionDestroyAll:', e);
+      }
     })();
+    // Also: kill streaming children on window unload so dev reloads /
+    // window-close don't leave zombies. PR2.3 hardens this further.
+    const onUnload = () => {
+      void (async () => {
+        try {
+          const { sessionDestroyAll } = await import('@/lib/tauri-cmd');
+          await sessionDestroyAll();
+        } catch {
+          // best-effort, page is going away
+        }
+      })();
+    };
+    window.addEventListener('beforeunload', onUnload);
+    return () => window.removeEventListener('beforeunload', onUnload);
   }, []);
+}
+
+/** Mint a fresh, stable thread id. Used by every "New chat" entry point. */
+export function mintThreadId(): string {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return crypto.randomUUID();
+  }
+  // Sufficiently unique fallback for environments without crypto.randomUUID.
+  return `t-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }

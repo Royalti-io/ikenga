@@ -9,7 +9,11 @@ import {
 import type { LeafNode, PaneView } from '@/lib/panes/types';
 import { usePaneStore } from '@/lib/panes/pane-store';
 import { createTerminalSession } from '@/terminal/single-terminal';
+import { mintThreadId } from '@/chat';
+import { sessionEnsure } from '@/lib/tauri-cmd';
 import { NAV_GROUPS } from '@/shell/nav-config';
+
+const DEFAULT_CHAT_CWD = '/home/nedjamez/royalti-co';
 
 interface NewTabMenuProps {
   leaf: LeafNode;
@@ -92,15 +96,15 @@ export function NewTabMenu({ leaf, open, onClose, anchor }: NewTabMenuProps) {
             />
             <MenuItem
               onSelect={() => {
-                // "Chat" doesn't open a blank pane — it routes to the
-                // sessions list with the new-session dialog open. After the
-                // user picks a project + initial prompt, the dialog spawns a
-                // real Claude session and navigates to its detail page.
-                commit({ kind: 'route', path: '/sessions?new=1' });
+                const threadId = mintThreadId();
+                void sessionEnsure(threadId, DEFAULT_CHAT_CWD, {}).catch((e) =>
+                  console.warn('sessionEnsure (new-tab):', e),
+                );
+                commit({ kind: 'chat', sessionId: threadId });
               }}
               Icon={MessageSquare}
               label="New Chat"
-              detail="opens new-session dialog"
+              detail="streaming Claude"
             />
           </Command.Group>
 

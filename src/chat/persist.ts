@@ -150,3 +150,68 @@ export async function clearLivePtys(): Promise<void> {
     [],
   );
 }
+
+// ─── User turns ───────────────────────────────────────────────────────────────
+//
+// Claude's JSONL records assistant turns + tool-result-shaped user envelopes,
+// but NOT plain-string user messages — Claude treats them as transient input.
+// We persist them ourselves in `chat_user_turns` (migration 0011) so the user
+// side of the conversation survives reloads.
+
+export interface UserTurnRow {
+  id: string;
+  thread_id: string;
+  text: string;
+  sequence: number;
+  created_at: number;
+}
+
+export interface UserTurn {
+  id: string;
+  threadId: string;
+  text: string;
+  sequence: number;
+  createdAt: number;
+}
+
+function rowToUserTurn(r: UserTurnRow): UserTurn {
+  return {
+    id: r.id,
+    threadId: r.thread_id,
+    text: r.text,
+    sequence: r.sequence,
+    createdAt: r.created_at,
+  };
+}
+
+/** Append a user turn for this thread. Sequence increments monotonically per
+ *  thread; we read max(sequence)+1 in the same call. Cheap on small threads;
+ *  if this becomes hot we can cache in-memory off the store. */
+export async function appendUserTurn(threadId: string, text: string): Promise<UserTurn> {
+  const seqRows = await dbQuery<{ next_seq: number }>(
+    `SELECT COALESCE(MAX(sequence), -1) + 1 AS next_seq
+       FROM chat_user_turns WHERE thread_id = ?`,
+    [threadId],
+  );
+  const sequence = seqRows[0]?.next_seq ?? 0;
+  const id = `ut:${threadId}:${sequence}:${Math.random().toString(36).slice(2, 8)}`;
+  const createdAt = Date.now();
+  await dbExec(
+    `INSERT INTO chat_user_turns (id, thread_id, text, sequence, created_at)
+     VALUES (?, ?, ?, ?, ?)`,
+    [id, threadId, text, sequence, createdAt],
+  );
+  return { id, threadId, text, sequence, createdAt };
+}
+
+/** Load all user turns for a thread in send order. */
+export async function loadUserTurns(threadId: string): Promise<UserTurn[]> {
+  const rows = await dbQuery<UserTurnRow>(
+    `SELECT id, thread_id, text, sequence, created_at
+       FROM chat_user_turns
+      WHERE thread_id = ?
+      ORDER BY sequence ASC`,
+    [threadId],
+  );
+  return rows.map(rowToUserTurn);
+}

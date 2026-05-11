@@ -1,5 +1,5 @@
-import { useEffect, useMemo } from 'react';
-import { Link, createFileRoute, useNavigate } from '@tanstack/react-router';
+import { useMemo } from 'react';
+import { Link, createFileRoute, redirect } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import {
   AlertCircle,
@@ -24,13 +24,14 @@ import {
 
 import '../sessions.css';
 import { useLiveSessions } from '@/lib/queries/live-sessions';
-import { claudeChatKill } from '@/lib/tauri-cmd';
+import { sessionAttachPty, sessionCancel } from '@/lib/tauri-cmd';
 import {
   AdapterSwitcher,
   Composer,
   Thread,
   useChatStore,
-  useEnsureThreadForSession,
+  useThread,
+  findThreadByClaudeSessionId,
 } from '@/chat';
 import { LiveTerminal } from '@/shell/sessions/live-terminal';
 
@@ -40,67 +41,56 @@ function shortPath(p: string): string {
   return p.startsWith(home) ? `~${p.slice(home.length)}` : p;
 }
 
+// Claude session ids are uuid v4: 8-4-4-4-12 hex with hyphens.
+const CLAUDE_SESSION_ID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 function SessionDetailPage() {
-  const { sessionId } = Route.useParams();
-  const navigate = useNavigate();
-  const live = useLiveSessions((s) => s.get(sessionId));
+  const { sessionId: threadId } = Route.useParams();
+  const live = useLiveSessions((s) => s.get(threadId));
   const removeLive = useLiveSessions((s) => s.remove);
-  const aliasLive = useLiveSessions((s) => s.alias);
 
-  // Phase 5: bind this route's claudeSessionId to a chat thread. The hook
-  // hydrates the store from JSONL + subscribes to live events while the
-  // route is mounted.
-  const { threadId, loading, error } = useEnsureThreadForSession(sessionId);
+  // Bind this route's threadId to a chat thread. The hook hydrates the
+  // store from SQLite + JSONL and asks the adapter to attach a live
+  // subscription. threadId is stable for the thread's lifetime — no
+  // placeholder→real navigate dance.
+  const { loading, error } = useThread(threadId);
   const eventsLen = useChatStore(
-    (s) => (threadId ? s.threads[threadId]?.events.length ?? 0 : 0),
+    (s) => s.threads[threadId]?.events.length ?? 0,
+  );
+  const claudeSessionId = useChatStore(
+    (s) => s.threads[threadId]?.thread.claudeSessionId ?? null,
   );
 
-  // Resolve placeholder URLs (`/sessions/pending-<uuid>`) once the parser
-  // sees the first `system:init` event and reports the real session id.
-  // Without this, the header heading and the URL stay stuck on the
-  // placeholder even after Claude responds.
-  const resolvedSessionId = useChatStore(
-    (s) => (threadId ? s.threads[threadId]?.thread.claudeSessionId ?? null : null),
-  );
-  useEffect(() => {
-    if (
-      sessionId.startsWith('pending-') &&
-      resolvedSessionId &&
-      resolvedSessionId !== sessionId
-    ) {
-      // Promote the live-session entry under the real id so the new route's
-      // detail page can pick it up immediately.
-      aliasLive(sessionId, resolvedSessionId);
-      navigate({
-        to: '/sessions/$sessionId',
-        params: { sessionId: resolvedSessionId },
-        replace: true,
-      });
-    }
-  }, [sessionId, resolvedSessionId, aliasLive, navigate]);
-
-  // Cheap header info pulled from the list query (already cached if user came
-  // from /sessions). Falls back gracefully when accessed via deep-link.
   const { data: list } = useQuery(sessionsListQueryOptions(null));
   const summary = useMemo(
-    () => list?.find((s) => s.sessionId === sessionId),
-    [list, sessionId],
+    () => (claudeSessionId ? list?.find((s) => s.sessionId === claudeSessionId) : undefined),
+    [list, claudeSessionId],
   );
+
+  async function handleAttachTerminal() {
+    try {
+      const ptyId = await sessionAttachPty(threadId, {});
+      useLiveSessions.getState().register({
+        sessionId: threadId,
+        ptyId,
+        cwd: summary?.projectDir ?? '',
+        startedAt: Date.now(),
+        kind: 'pty',
+      });
+    } catch (e) {
+      console.warn('sessionAttachPty:', e);
+    }
+  }
 
   function handleKillLive() {
     if (!live) return;
-    // Streaming children are real OS processes — kill the backend before we
-    // drop the UI handle, otherwise they leak.
-    if (live.kind === 'streaming') {
-      void claudeChatKill(sessionId).catch((e) =>
-        console.warn('claudeChatKill detach:', e),
-      );
-    }
-    removeLive(sessionId);
+    void sessionCancel(threadId).catch((e) => console.warn('sessionCancel:', e));
+    removeLive(threadId);
   }
 
   const agent = summary ? detectAgentSlug(summary) : null;
-  const title = summary?.title ?? sessionId;
+  const title = summary?.title ?? threadId;
 
   return (
     <div className="flex h-full flex-col">
@@ -145,18 +135,35 @@ function SessionDetailPage() {
                 </>
               )}
               <span className="sep">·</span>
-              <span className="id">{sessionId.slice(0, 8)}…{sessionId.slice(-4)}</span>
+              <span className="id">{threadId.slice(0, 8)}…{threadId.slice(-4)}</span>
+              {claudeSessionId && (
+                <>
+                  <span className="sep">·</span>
+                  <span className="id" title="Claude session id">
+                    claude {claudeSessionId.slice(0, 8)}…
+                  </span>
+                </>
+              )}
             </div>
           </div>
           <div className="ses-det-actions">
             <AdapterSwitcher />
-            {live && (
+            {live ? (
               <button
                 type="button"
                 onClick={handleKillLive}
                 className="inline-flex items-center gap-1 rounded-md border border-input bg-background px-3 py-1.5 text-xs hover:bg-accent"
               >
                 Detach
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleAttachTerminal}
+                className="inline-flex items-center gap-1 rounded-md border border-input bg-background px-3 py-1.5 text-xs hover:bg-accent"
+                title="Open this conversation in a claude PTY"
+              >
+                Open terminal
               </button>
             )}
           </div>
@@ -169,7 +176,7 @@ function SessionDetailPage() {
             <TabsTrigger value="chat" className="gap-1.5">
               <MessageSquare className="h-3 w-3" />
               Chat
-              {live && eventsLen > 0 && (
+              {eventsLen > 0 && (
                 <Badge
                   variant="outline"
                   className="ml-1 border-emerald-200 bg-emerald-50 px-1 text-[9px] tabular-nums"
@@ -180,15 +187,9 @@ function SessionDetailPage() {
             </TabsTrigger>
             <TabsTrigger
               value="terminal"
-              disabled={!live || !live.ptyId}
+              disabled={!live?.ptyId}
               className="gap-1.5"
-              title={
-                live?.ptyId
-                  ? 'PTY view'
-                  : live
-                  ? 'Streaming session has no terminal'
-                  : 'Resume the session to attach a terminal'
-              }
+              title={live?.ptyId ? 'PTY view' : 'Open terminal to attach a PTY'}
             >
               <Terminal className="h-3 w-3" />
               Terminal
@@ -239,13 +240,9 @@ function SessionDetailPage() {
           <TabsContent value="terminal" className="mt-2 flex-1 overflow-hidden">
             {live?.ptyId ? (
               <LiveTerminal ptyId={live.ptyId} />
-            ) : live ? (
-              <div className="flex h-full items-center justify-center p-6 text-sm text-muted-foreground">
-                This is a streaming chat session — no terminal available.
-              </div>
             ) : (
               <div className="flex h-full items-center justify-center p-6 text-sm text-muted-foreground">
-                Resume the session to open a terminal view.
+                Click "Open terminal" above to attach a Claude PTY to this conversation.
               </div>
             )}
           </TabsContent>
@@ -256,5 +253,28 @@ function SessionDetailPage() {
 }
 
 export const Route = createFileRoute('/sessions/$sessionId/')({
+  // Back-compat: when the param looks like a Claude UUID and we have a
+  // thread row that owns it, redirect to /sessions/<threadId>. Old deep
+  // links keep working. Else accept the param as a threadId.
+  beforeLoad: async ({ params }) => {
+    const id = params.sessionId;
+    if (!CLAUDE_SESSION_ID_RE.test(id)) return;
+    try {
+      const thread = await findThreadByClaudeSessionId(id);
+      if (thread && thread.id !== id) {
+        throw redirect({
+          to: '/sessions/$sessionId',
+          params: { sessionId: thread.id },
+          replace: true,
+        });
+      }
+    } catch (e) {
+      // Surface redirects; swallow lookup failures (we'll just render with
+      // the Claude id as the threadId, which still works because the hook
+      // mints a thread row for it).
+      if (e && typeof e === 'object' && 'to' in e) throw e;
+      console.debug('threadId redirect lookup failed:', e);
+    }
+  },
   component: SessionDetailPage,
 });

@@ -157,18 +157,13 @@ function RenderRow({
           <ArtifactPill path={event.path} mime={event.mime} producedBy={event.producedBy} />
         </Row>
       );
+    case 'user_turn':
+      return (
+        <Row icon={User} tone="user" label="you">
+          <Markdown content={event.text} cwd={cwd} density="compact" className="text-sm leading-relaxed" />
+        </Row>
+      );
     case 'system_hook':
-      if (event.hookEvent === 'user_message') {
-        const userText =
-          typeof event.content === 'string'
-            ? event.content
-            : JSON.stringify(event.content);
-        return (
-          <Row icon={User} tone="user" label="you">
-            <Markdown content={userText} cwd={cwd} density="compact" className="text-sm leading-relaxed" />
-          </Row>
-        );
-      }
       if (event.hookEvent === 'cancel') {
         return (
           <li className="flex items-center gap-2 bg-amber-50/30 px-4 py-2 text-xs text-amber-700 dark:bg-amber-950/10 dark:text-amber-300">
