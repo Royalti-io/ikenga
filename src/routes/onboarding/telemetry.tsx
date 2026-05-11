@@ -1,11 +1,12 @@
-// Phase 3 stub. Phase 4 wires the telemetry opt-in.
+// Step 8 — Telemetry consent.
 //
-// APPROVAL.md locks: telemetry ship-default is OFF. The store exposes
-// `DEFAULT_TELEMETRY_PAYLOAD` which Phase 4 should seed when the user
-// first lands here.
+// APPROVAL.md locks: ship-default is OFF. The store seeds the payload
+// with `DEFAULT_TELEMETRY_PAYLOAD = { enabled: false }` (Phase 3
+// scaffolded the constant); the body just renders the toggle.
+
 import { createFileRoute } from '@tanstack/react-router';
 
-import { DEFAULT_TELEMETRY_PAYLOAD } from '@/lib/shell/shell-store';
+import { TelemetryBody } from '@/shell/onboarding/telemetry-body';
 import { WizardStepper } from '@/shell/onboarding/wizard-stepper';
 
 export const Route = createFileRoute('/onboarding/telemetry')({
@@ -15,16 +16,7 @@ export const Route = createFileRoute('/onboarding/telemetry')({
 function TelemetryStep() {
 	return (
 		<WizardStepper stepId="telemetry">
-			{() => (
-				<div className="mx-auto max-w-2xl">
-					<h1 className="mb-4 text-3xl font-bold tracking-tight">Telemetry</h1>
-					<p className="text-sm" style={{ color: 'var(--fg-muted)' }}>
-						TODO step body — Phase 4 wires the opt-in toggle. Default payload is{' '}
-						<code className="font-mono text-xs">{JSON.stringify(DEFAULT_TELEMETRY_PAYLOAD)}</code>{' '}
-						(OFF, per APPROVAL.md).
-					</p>
-				</div>
-			)}
+			{({ goNext }) => <TelemetryBody onContinue={goNext} />}
 		</WizardStepper>
 	);
 }
