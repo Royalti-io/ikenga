@@ -190,10 +190,9 @@ export function FileRootsSectionBody() {
   return (
     <div className="space-y-3 px-4 py-3">
       <p className="text-xs text-muted-foreground">
-        Directories the file browser and editor are allowed to open. The Tauri capability allowlist
-        still restricts reads to <code>~/royalti-co</code>, <code>~/.claude</code>, and{' '}
-        <code>~/.company</code> — paths added here outside those will surface a warning. Click any
-        path to edit it; press <kbd>Enter</kbd> to commit, <kbd>Esc</kbd> to revert.
+        Directories the file browser and editor are allowed to open. Changes take effect
+        immediately — the Rust resolver reads from the same list. Click any path to edit it;
+        press <kbd>Enter</kbd> to commit, <kbd>Esc</kbd> to revert.
       </p>
       <ul className="space-y-1 rounded-md border border-border bg-background">
         {fileRoots.map((root) => {

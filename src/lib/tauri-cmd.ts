@@ -131,6 +131,29 @@ export async function fsWatch(path: string): Promise<string> {
 	return invoke('fs_watch', { path });
 }
 
+// ─── FS allowlist (user-configurable) ────────────────────────────────────────
+//
+// The allowlist is owned by Rust (`src-tauri/src/fs_roots.rs`, persisted to
+// `app_data_dir/fs_roots.json`). Every mutation returns the canonical list so
+// the frontend can sync from the response rather than maintaining a parallel
+// store. Default roots: `~/royalti-co`, `~/.claude/projects`, `~/.company`.
+
+export async function fsRootsList(): Promise<string[]> {
+	return invoke('fs_roots_list');
+}
+
+export async function fsRootsAdd(path: string): Promise<string[]> {
+	return invoke('fs_roots_add', { path });
+}
+
+export async function fsRootsRemove(path: string): Promise<string[]> {
+	return invoke('fs_roots_remove', { path });
+}
+
+export async function fsRootsReset(): Promise<string[]> {
+	return invoke('fs_roots_reset');
+}
+
 export async function fsUnwatch(watcherId: string): Promise<void> {
 	return invoke('fs_unwatch', { watcherId });
 }

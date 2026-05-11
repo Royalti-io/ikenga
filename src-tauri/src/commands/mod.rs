@@ -10,6 +10,7 @@ pub mod claude_config;
 pub mod db;
 pub mod desktop;
 pub mod fs;
+pub mod fs_roots;
 pub mod iyke;
 pub mod pkg;
 pub mod pkg_content;
@@ -40,6 +41,7 @@ pub use desktop::{iyke_mcp_info, set_dock_badge, IykeMcpInfo};
 pub use fs::{
     fs_exists, fs_list, fs_mime, fs_read, fs_rename, fs_trash, fs_unwatch, fs_watch, fs_write,
 };
+pub use fs_roots::{fs_roots_add, fs_roots_list, fs_roots_remove, fs_roots_reset};
 pub use iyke::{
     iyke_dom_done, iyke_endpoint, iyke_log_push, iyke_network_push, iyke_query_cache_done,
     iyke_set_shell, iyke_wait_done, IykeRuntimeState,
@@ -74,13 +76,12 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, Result};
 
-/// Resolve `~/...` and env vars, then enforce allowlist. Returns the canonical
-/// absolute path.
+/// Resolve `~/...` and env vars, then enforce the user-configurable allowlist
+/// (see `crate::fs_roots`). Returns the canonical absolute path.
 ///
-/// Allowlist (resolved at call time so dev/prod home dirs both work):
-///   - `~/royalti-co/**`
-///   - `~/.claude/projects/**`
-///   - `~/.company/**`
+/// The active root set lives in a process-global `OnceLock` set by
+/// `lib.rs::run` during `.setup()`, so this function does not need to thread
+/// `tauri::State` through every fs command + the viewer.
 pub fn resolve_allowlisted(input: &str) -> Result<PathBuf> {
     let expanded = shellexpand::full(input)
         .map(|c| c.into_owned())
@@ -121,26 +122,7 @@ pub fn resolve_allowlisted(input: &str) -> Result<PathBuf> {
 }
 
 fn is_allowed(path: &Path) -> Result<bool> {
-    let home = match dirs_home() {
-        Some(h) => h,
-        None => return Err(anyhow!("could not resolve $HOME")),
-    };
-    let roots = [
-        home.join("royalti-co"),
-        home.join(".claude").join("projects"),
-        home.join(".company"),
-    ];
-    for root in &roots {
-        // Best-effort canonicalize the root; if it doesn't exist, fall back to
-        // the lexical root.
-        let canon_root = root.canonicalize().unwrap_or_else(|_| root.clone());
-        if path.starts_with(&canon_root) {
-            return Ok(true);
-        }
-    }
-    Ok(false)
-}
-
-fn dirs_home() -> Option<PathBuf> {
-    std::env::var_os("HOME").map(PathBuf::from)
+    let roots = crate::fs_roots::current()
+        .ok_or_else(|| anyhow!("fs_roots not initialized"))?;
+    Ok(roots.is_allowed(path))
 }

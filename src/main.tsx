@@ -11,6 +11,7 @@ import { routeTree } from './routeTree.gen';
 import { queryClient } from '@/lib/query-client';
 import { installIkengaDomSync } from '@/lib/ikenga/theme-store';
 import { installNativeMenu } from '@/shell/native-menu';
+import { useShellStore } from '@/lib/shell/shell-store';
 
 import './styles.css';
 import '@xterm/xterm/css/xterm.css';
@@ -33,6 +34,11 @@ declare module '@tanstack/react-router' {
 
 // Install native menu best-effort (Mac-only; silently no-ops elsewhere).
 void installNativeMenu();
+
+// Pull the authoritative FS allowlist from Rust so the Files panel reflects
+// what the Rust resolver will actually permit. Fire-and-forget; failures
+// (test env, pre-setup boot) leave the persisted snapshot in place.
+void useShellStore.getState().hydrateFileRootsFromRust();
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
