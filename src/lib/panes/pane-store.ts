@@ -16,6 +16,7 @@ import {
   makeLeaf,
   moveTab,
   navigateFocused,
+  replaceActiveTab,
   reorderTab,
   setSplitSizes,
   setTabPinned,
@@ -26,6 +27,15 @@ import {
 } from './pane-reducer';
 import { MAX_CLOSED_HISTORY, type PaneTreeSnapshot } from './pane-persistence';
 
+/** Per-pane navigation history. Used by the URL bar in pane-toolbar to
+ * provide back/forward across path-bearing view kinds (route, artifact).
+ * `entries` is an ordered list of views the user has been on; `index`
+ * points at the current one. Not persisted — restarts on reload. */
+export interface PaneHistory {
+  entries: PaneView[];
+  index: number;
+}
+
 interface PaneStoreState {
   root: PaneNode;
   focusedId: PaneId;
@@ -34,6 +44,8 @@ interface PaneStoreState {
   /** Per-pane refresh counter. Bumping it forces the pane's content to
    * re-mount via React `key`. Not persisted — restarts from 0 on reload. */
   refreshTicks: Record<PaneId, number>;
+  /** Per-pane navigation history (for the URL bar's back/forward). */
+  history: Record<PaneId, PaneHistory>;
 
   splitFocused: (direction: PaneDirection) => void;
   splitPane: (id: PaneId, direction: PaneDirection) => void;
@@ -73,6 +85,20 @@ interface PaneStoreState {
   refreshPane: (paneId?: PaneId) => void;
   /** Replace the entire store from a persisted snapshot. Workspace mount only. */
   hydrate: (snapshot: PaneTreeSnapshot) => void;
+
+  /** Record a forward navigation in the pane's history (truncates any
+   * forward stack and appends `view`). Idempotent: repeated identical
+   * pushes don't grow the history. */
+  pushHistory: (paneId: PaneId, view: PaneView) => void;
+  /** Replace the active view of a pane and append a history entry. Used
+   * by the URL bar: typing a new address swaps the leaf's active tab. */
+  replaceActiveViewAndPushHistory: (paneId: PaneId, view: PaneView) => void;
+  /** Move history index back. Returns the new current view, or null if
+   * already at the oldest entry. */
+  historyBack: (paneId: PaneId) => PaneView | null;
+  /** Move history index forward. Returns the new current view, or null
+   * if already at the newest entry. */
+  historyForward: (paneId: PaneId) => PaneView | null;
 
   // Derived helpers — fine to expose, callers use them in render.
   leafCount: () => number;
@@ -142,6 +168,7 @@ export const usePaneStore = create<PaneStoreState>((set, get) => ({
   ...initialState(),
   closedHistory: [],
   refreshTicks: {},
+  history: {},
 
   splitFocused: (direction) => {
     const { root, focusedId } = get();
@@ -352,6 +379,85 @@ export const usePaneStore = create<PaneStoreState>((set, get) => ({
     if (!id) return;
     const ticks = get().refreshTicks;
     set({ refreshTicks: { ...ticks, [id]: (ticks[id] ?? 0) + 1 } });
+  },
+
+  pushHistory: (paneId, view) => {
+    const history = get().history;
+    const cur = history[paneId];
+    if (cur) {
+      const top = cur.entries[cur.index];
+      // Idempotent: don't grow history if nothing changed.
+      if (top && viewsMatch(top, view)) return;
+      const truncated = cur.entries.slice(0, cur.index + 1);
+      const entries = [...truncated, view];
+      set({
+        history: {
+          ...history,
+          [paneId]: { entries, index: entries.length - 1 },
+        },
+      });
+      return;
+    }
+    set({
+      history: { ...history, [paneId]: { entries: [view], index: 0 } },
+    });
+  },
+
+  replaceActiveViewAndPushHistory: (paneId, view) => {
+    const { root, history } = get();
+    if (!findLeaf(root, paneId)) return;
+    const nextRoot = replaceActiveTab(root, paneId, view);
+    const cur = history[paneId];
+    let nextHist: PaneHistory;
+    if (cur) {
+      const top = cur.entries[cur.index];
+      if (top && viewsMatch(top, view)) {
+        nextHist = cur;
+      } else {
+        const truncated = cur.entries.slice(0, cur.index + 1);
+        const entries = [...truncated, view];
+        nextHist = { entries, index: entries.length - 1 };
+      }
+    } else {
+      nextHist = { entries: [view], index: 0 };
+    }
+    set({ root: nextRoot, history: { ...history, [paneId]: nextHist } });
+  },
+
+  historyBack: (paneId) => {
+    const { root, history } = get();
+    const cur = history[paneId];
+    if (!cur || cur.index <= 0) return null;
+    const nextIdx = cur.index - 1;
+    const view = cur.entries[nextIdx];
+    if (!view || !findLeaf(root, paneId)) return null;
+    const nextRoot = replaceActiveTab(root, paneId, view);
+    set({
+      root: nextRoot,
+      history: {
+        ...history,
+        [paneId]: { entries: cur.entries, index: nextIdx },
+      },
+    });
+    return view;
+  },
+
+  historyForward: (paneId) => {
+    const { root, history } = get();
+    const cur = history[paneId];
+    if (!cur || cur.index >= cur.entries.length - 1) return null;
+    const nextIdx = cur.index + 1;
+    const view = cur.entries[nextIdx];
+    if (!view || !findLeaf(root, paneId)) return null;
+    const nextRoot = replaceActiveTab(root, paneId, view);
+    set({
+      root: nextRoot,
+      history: {
+        ...history,
+        [paneId]: { entries: cur.entries, index: nextIdx },
+      },
+    });
+    return view;
   },
 
   leafCount: () => leafCount(get().root),
