@@ -2,10 +2,7 @@
 
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import {
-	createDefaultOnboardingState,
-	useShellStore,
-} from '@/lib/shell/shell-store';
+import { createDefaultOnboardingState, useShellStore } from '@/lib/shell/shell-store';
 
 import type { AgentStepPayload } from './agent-body';
 import type { AppearancePayload } from './appearance-body';

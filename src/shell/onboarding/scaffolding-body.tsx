@@ -23,11 +23,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/components/ui/utils';
 import { useShellStore } from '@/lib/shell/shell-store';
-import {
-	type AgentConfigInventory,
-	detectAgentConfig,
-	scaffoldAgentConfig,
-} from '@/lib/tauri-cmd';
+import { type AgentConfigInventory, detectAgentConfig, scaffoldAgentConfig } from '@/lib/tauri-cmd';
 
 import { useOnboardingStep } from './use-onboarding-step';
 
@@ -69,13 +65,12 @@ export function ScaffoldingBody({ onContinue, onSkip }: ScaffoldingBodyProps) {
 
 	const isClaudeAgent = selectedAgentId === 'claude-code';
 
-	const { data: inventory, isLoading: inventoryLoading } =
-		useQuery<AgentConfigInventory>({
-			enabled: isClaudeAgent && !!primaryRoot,
-			queryKey: ['onboarding', 'agent-config', 'claude-code', primaryRoot],
-			queryFn: () => detectAgentConfig('claude-code', primaryRoot as string),
-			refetchOnWindowFocus: false,
-		});
+	const { data: inventory, isLoading: inventoryLoading } = useQuery<AgentConfigInventory>({
+		enabled: isClaudeAgent && !!primaryRoot,
+		queryKey: ['onboarding', 'agent-config', 'claude-code', primaryRoot],
+		queryFn: () => detectAgentConfig('claude-code', primaryRoot as string),
+		refetchOnWindowFocus: false,
+	});
 
 	const [choice, setChoice] = useState<ScaffoldingChoice>(() => 'scaffold');
 	const [busy, setBusy] = useState(false);
@@ -107,8 +102,8 @@ export function ScaffoldingBody({ onContinue, onSkip }: ScaffoldingBodyProps) {
 				</h1>
 				<p className="mt-3 text-sm" style={{ color: 'var(--fg-muted)' }}>
 					Scaffolding currently only ships for Claude Code (the{' '}
-					<span className="font-mono text-xs">.claude/</span> layout). When we add starter packs
-					for other agents we'll surface them here automatically.
+					<span className="font-mono text-xs">.claude/</span> layout). When we add starter packs for
+					other agents we'll surface them here automatically.
 				</p>
 
 				<div className="mt-6 flex items-center justify-end gap-3">
@@ -216,14 +211,11 @@ export function ScaffoldingBody({ onContinue, onSkip }: ScaffoldingBodyProps) {
 					Scaffolding
 				</p>
 				<h1 className="text-3xl font-bold leading-tight tracking-tight">
-					{hasExisting
-						? 'This root already has a .claude/ directory.'
-						: 'Scaffold a starter set?'}
+					{hasExisting ? 'This root already has a .claude/ directory.' : 'Scaffold a starter set?'}
 				</h1>
 				<p className="mt-2 max-w-[60ch] text-sm" style={{ color: 'var(--fg-muted)' }}>
-					Writes into{' '}
-					<span className="font-mono text-xs">{primaryRoot}/.claude/</span>. Skip if you'd rather
-					configure by hand — you can always run{' '}
+					Writes into <span className="font-mono text-xs">{primaryRoot}/.claude/</span>. Skip if
+					you'd rather configure by hand — you can always run{' '}
 					<span className="font-mono text-xs">ikenga scaffold</span> later.
 				</p>
 			</div>
@@ -335,9 +327,8 @@ export function ScaffoldingBody({ onContinue, onSkip }: ScaffoldingBodyProps) {
 					{errorMsg === 'not_implemented' ? (
 						<>
 							The scaffold action isn't wired yet — Phase 6 fills in this Tauri command. For now,
-							pick "Skip" and run{' '}
-							<span className="font-mono text-xs">ikenga scaffold</span> from the CLI after the
-							wizard finishes.
+							pick "Skip" and run <span className="font-mono text-xs">ikenga scaffold</span> from
+							the CLI after the wizard finishes.
 						</>
 					) : (
 						<>Scaffold failed: {errorMsg}</>

@@ -2,17 +2,10 @@
 
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import {
-	createDefaultOnboardingState,
-	useShellStore,
-} from '@/lib/shell/shell-store';
+import { createDefaultOnboardingState, useShellStore } from '@/lib/shell/shell-store';
 import type { DetectedAgent } from '@/lib/tauri-cmd';
 
-import {
-	OFFLINE_PAYLOAD,
-	agentToPayload,
-	shouldShowAuthWarning,
-} from './agent-body';
+import { OFFLINE_PAYLOAD, agentToPayload, shouldShowAuthWarning } from './agent-body';
 
 beforeEach(() => {
 	useShellStore.setState({ onboarding: createDefaultOnboardingState() });

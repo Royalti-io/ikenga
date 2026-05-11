@@ -38,8 +38,7 @@ const DOC_LINKS: Record<string, string> = {
 	network: 'https://github.com/royalti-io/ikenga/blob/main/docs/troubleshooting.md',
 };
 
-const DEFAULT_DOC =
-	'https://github.com/royalti-io/ikenga/blob/main/docs/onboarding.md';
+const DEFAULT_DOC = 'https://github.com/royalti-io/ikenga/blob/main/docs/onboarding.md';
 
 export function WelcomeBody({ onContinue }: WelcomeBodyProps) {
 	const { data, isLoading, isError, error, refetch } = useQuery<SystemReport>({
@@ -71,8 +70,8 @@ export function WelcomeBody({ onContinue }: WelcomeBodyProps) {
 					style={{ color: 'var(--fg-muted)' }}
 				>
 					Ikenga is a desktop home for an AI-augmented label. In a few minutes we'll detect your
-					coding agent, pick the folders we'll work in, and install the packages you need. You
-					can change everything later from Settings.
+					coding agent, pick the folders we'll work in, and install the packages you need. You can
+					change everything later from Settings.
 				</p>
 
 				<div className="grid gap-3">
@@ -225,10 +224,7 @@ function PreflightRow({ check }: { check: SystemCheck }) {
 					</div>
 				)}
 			</div>
-			<span
-				className="font-mono text-[11.5px] uppercase tracking-wider"
-				style={{ color: tone.fg }}
-			>
+			<span className="font-mono text-[11.5px] uppercase tracking-wider" style={{ color: tone.fg }}>
 				{check.level}
 			</span>
 		</div>
