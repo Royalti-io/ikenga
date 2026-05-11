@@ -238,7 +238,11 @@ function SessionDetailPage() {
             {!loading && !error && (
               <>
                 <Thread threadId={threadId} className="flex-1" />
-                <Composer threadId={threadId} />
+                {/* Phase 5: enable the ACP session-mode picker on the
+                    dedicated session route. Pane chat-view stays on the
+                    legacy path until Phase 10 reshapes the composer.
+                    TODO(phase-10): make `acpEnabled` unconditional. */}
+                <Composer threadId={threadId} acpEnabled />
               </>
             )}
           </TabsContent>

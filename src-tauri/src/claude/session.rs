@@ -34,12 +34,20 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::{broadcast, Mutex};
 
+use crate::acp::mode::AcpSessionMode;
 use crate::claude::{
     artifact_watcher::ArtifactWatcher, event::ChatEvent, stream_parser::StreamParser,
 };
 
 /// Options passed to `session_ensure` / `session_send`. Mirrors the subset of
 /// claude CLI flags we expose; deliberately narrow.
+///
+/// Phase 5: `permission_mode` is now an `AcpSessionMode` (typed enum), used
+/// both as the initial value for `--permission-mode` on spawn and as the
+/// in-memory tracked mode threaded through to `send_set_mode` for runtime
+/// switches. The legacy free-form `permissionMode` string from the
+/// `session_ensure` Tauri command still deserializes via the enum's
+/// camelCase Serde derive (`plan` / `default` / `auto` / `bypassPermissions`).
 #[derive(Deserialize, Default, Clone)]
 #[serde(default)]
 pub struct SessionOpts {
@@ -47,8 +55,11 @@ pub struct SessionOpts {
     /// `--resume <id>` on spawn.
     #[serde(rename = "resumeSessionId")]
     pub resume_session_id: Option<String>,
+    /// Initial permission mode passed via `--permission-mode` on spawn.
+    /// Runtime changes happen via `acp::server::handle_set_mode` →
+    /// `send_set_mode`.
     #[serde(rename = "permissionMode")]
-    pub permission_mode: Option<String>,
+    pub permission_mode: AcpSessionMode,
     pub model: Option<String>,
 }
 
@@ -72,8 +83,11 @@ pub struct Session {
     /// on-disk JSONL when the frontend reopens later.
     pub claude_session_id: Mutex<Option<String>>,
     /// Streaming child for chat turns. Absent until first `session_send` or
-    /// an explicit prompt-on-ensure spawn.
-    streaming: Mutex<Option<Arc<StreamingChild>>>,
+    /// an explicit prompt-on-ensure spawn. `pub(crate)` so the ACP server
+    /// can short-circuit on "no live child" in `handle_set_mode` without
+    /// going through a fresh helper method. The lock itself is held only
+    /// for the read in that path — never held across an await on stdin.
+    pub(crate) streaming: Mutex<Option<Arc<StreamingChild>>>,
     /// PTY id (from `PtyManager`) if the session has an attached terminal.
     pub pty_id: Mutex<Option<String>>,
     /// Broadcast channel for parsed `ChatEvent`s observed on this session.
@@ -85,6 +99,14 @@ pub struct Session {
     /// chunks; lagging subscribers will see `RecvError::Lagged` which
     /// `handle_prompt` treats as fatal for the turn.
     pub events: broadcast::Sender<ChatEvent>,
+    /// Phase 5: tracked current session mode. Initialized from
+    /// `opts.permission_mode`. Updated by `acp::server::handle_set_mode`,
+    /// which also writes a `set_permission_mode` control_request to claude's
+    /// stdin if a streaming child is live. If no child is live, the next
+    /// `spawn_streaming` picks up the new mode via the `--permission-mode`
+    /// flag — `send_user_message` snapshots this into `opts.permission_mode`
+    /// before spawning.
+    pub current_mode: Mutex<AcpSessionMode>,
 }
 
 impl Session {
@@ -93,6 +115,7 @@ impl Session {
         // assistant turns; chosen empirically — `cargo bench` not warranted
         // until we see a real lag complaint.
         let (events, _) = broadcast::channel(1024);
+        let initial_mode = opts.permission_mode;
         Self {
             thread_id,
             cwd,
@@ -101,6 +124,7 @@ impl Session {
             streaming: Mutex::new(None),
             pty_id: Mutex::new(None),
             events,
+            current_mode: Mutex::new(initial_mode),
         }
     }
 }
@@ -216,16 +240,22 @@ pub async fn spawn_streaming(
     command
         // Phase 4: `--permission-prompt-tool stdio` opens the
         // `sdk_control_request` channel on stdout so tool approvals become
-        // a real round-trip (see `acp::server::handle_prompt`). We still
-        // pass `--dangerously-skip-permissions` for now: claude prefers the
-        // explicit prompt tool when its tools need approval, and falls back
-        // to the skip flag otherwise — this keeps the legacy chat working
-        // while we wire the new path. Phase 5 retires the dangerous flag
-        // once session modes (plan/default/auto/bypassPermissions) are
-        // first-class.
-        .arg("--dangerously-skip-permissions")
+        // a real round-trip (see `acp::server::handle_prompt`).
+        //
+        // Phase 5: `--dangerously-skip-permissions` retired. Permission
+        // behavior is now driven entirely by `--permission-mode` (initial
+        // state) plus stdin `sdk_control_request { subtype:
+        // "set_permission_mode" }` envelopes (runtime switches via
+        // `send_set_mode` below). The four ACP modes map as:
+        //   plan              → claude `plan`
+        //   default           → claude `default`
+        //   auto              → claude `acceptEdits`
+        //   bypassPermissions → claude `bypassPermissions`
+        // See `crate::acp::mode` for the canonical mapping.
         .arg("--permission-prompt-tool")
         .arg("stdio")
+        .arg("--permission-mode")
+        .arg(opts.permission_mode.as_claude_flag())
         .arg("--print")
         .arg("--input-format")
         .arg("stream-json")
@@ -239,9 +269,6 @@ pub async fn spawn_streaming(
         .kill_on_drop(true);
     if let Some(ref id) = opts.resume_session_id {
         command.arg("--resume").arg(id);
-    }
-    if let Some(ref pm) = opts.permission_mode {
-        command.arg("--permission-mode").arg(pm);
     }
     if let Some(ref m) = opts.model {
         command.arg("--model").arg(m);
@@ -498,6 +525,41 @@ pub async fn send_control_response(
     Ok(())
 }
 
+/// Phase 5: write a `set_permission_mode` control_request to claude's
+/// stdin so the running session picks up a mode switch without a re-spawn.
+/// Claude does NOT reply to this kind of control_request (unlike
+/// `permission` which expects a `sdk_control_response`), so we don't park
+/// a waiter — fire and forget.
+///
+/// If there's no streaming child alive, returns Ok without doing anything:
+/// the caller is expected to have already updated `session.current_mode`
+/// + `session.opts.permission_mode`, and the next `spawn_streaming` will
+/// pick up the new mode via the `--permission-mode` CLI flag.
+pub async fn send_set_mode(
+    session: Arc<Session>,
+    mode: AcpSessionMode,
+) -> Result<(), String> {
+    let streaming = session.streaming.lock().await.as_ref().cloned();
+    let Some(streaming) = streaming else {
+        // No live child → the mode will be applied on the next spawn via
+        // `--permission-mode`. This is the expected path for the very
+        // first set_mode call before any prompt has spawned a child.
+        return Ok(());
+    };
+    let request_id = format!("{}", uuid::Uuid::new_v4());
+    let envelope = crate::acp::mode::set_mode_envelope(mode, &request_id);
+    let mut stdin = streaming.stdin.lock().await;
+    stdin
+        .write_all(envelope.as_bytes())
+        .await
+        .map_err(|e| format!("stdin write: {e}"))?;
+    stdin
+        .flush()
+        .await
+        .map_err(|e| format!("stdin flush: {e}"))?;
+    Ok(())
+}
+
 /// Kill the streaming child. Leaves the in-memory `Session` so subsequent
 /// `session_send` can re-spawn with `--resume`. Returns Ok if there was no
 /// child to kill (idempotent).
@@ -546,5 +608,43 @@ mod tests {
         assert_eq!(parsed["response"]["behavior"], json!("deny"));
         assert_eq!(parsed["response"]["message"], json!("User declined"));
         assert_eq!(parsed["response"]["request_id"], json!("req_99"));
+    }
+
+    #[tokio::test]
+    async fn send_set_mode_with_no_streaming_child_is_ok() {
+        // Phase 5: until the first prompt spawns a child, `set_mode`
+        // should just update the in-memory tracked mode and let the next
+        // spawn pick it up via `--permission-mode`. The I/O helper itself
+        // must therefore be a no-op when no child exists.
+        let session = Arc::new(Session::new(
+            "thread_test".into(),
+            "/tmp".into(),
+            SessionOpts::default(),
+        ));
+        assert!(session.streaming.lock().await.is_none());
+        send_set_mode(session.clone(), AcpSessionMode::Auto)
+            .await
+            .expect("no-op send_set_mode returns Ok");
+        // Still no child afterwards.
+        assert!(session.streaming.lock().await.is_none());
+    }
+
+    #[test]
+    fn session_opts_permission_mode_defaults_to_default() {
+        // `Default` is the safest starting state — every tool goes
+        // through the permission round-trip.
+        let opts = SessionOpts::default();
+        assert_eq!(opts.permission_mode, AcpSessionMode::Default);
+    }
+
+    #[test]
+    fn session_opts_permission_mode_deserializes_camel_case() {
+        // The frontend wire-format uses camelCase ACP ids; verify the
+        // serde mapping survives a full round-trip.
+        let opts: SessionOpts = serde_json::from_value(serde_json::json!({
+            "permissionMode": "bypassPermissions"
+        }))
+        .expect("deserialize ok");
+        assert_eq!(opts.permission_mode, AcpSessionMode::BypassPermissions);
     }
 }

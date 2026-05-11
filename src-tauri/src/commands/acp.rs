@@ -60,3 +60,18 @@ pub async fn acp_respond_permission(
 ) -> Result<(), String> {
     state.resolve_permission(requestId, response).await
 }
+
+/// Phase 5: switch a session's permission mode. `modeId` is one of the four
+/// canonical ACP ids: `plan` / `default` / `auto` / `bypassPermissions`. The
+/// server updates the tracked mode and — if a streaming child is alive —
+/// writes a `set_permission_mode` control_request to its stdin so the
+/// change is immediate. Errors with a descriptive message for unknown
+/// `modeId` or unknown `threadId`.
+#[tauri::command]
+pub async fn acp_set_mode(
+    state: State<'_, AcpServerState>,
+    #[allow(non_snake_case)] threadId: String,
+    #[allow(non_snake_case)] modeId: String,
+) -> Result<(), String> {
+    state.handle_set_mode(threadId, modeId).await
+}

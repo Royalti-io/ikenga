@@ -251,9 +251,18 @@ pub async fn session_ensure(
     cwd: String,
     opts: ClaudeOpts,
 ) -> Result<SessionHandle, String> {
+    // Phase 5: translate the legacy free-form `permissionMode` string into
+    // the typed `AcpSessionMode`. Unknown / missing values fall back to
+    // `Default` (the safest mode); the legacy chat surface never sets
+    // anything outside the canonical four, so this is a no-op in practice.
+    let permission_mode = opts
+        .permission_mode
+        .as_deref()
+        .and_then(crate::acp::mode::AcpSessionMode::from_acp_id)
+        .unwrap_or_default();
     let opts = SessionOpts {
         resume_session_id: opts.resume_session_id,
-        permission_mode: opts.permission_mode,
+        permission_mode,
         model: opts.model,
     };
     let session = sessions.get_or_create(&threadId, &cwd, opts).await;
@@ -359,6 +368,11 @@ pub async fn session_attach_pty(
     let claude_session_id = session.claude_session_id.lock().await.clone();
     let resume = opts.resume_session_id.clone().or(claude_session_id);
 
+    // TODO(phase-11): retire this legacy PTY spawn alongside the rest of
+    // the legacy chat path. `--dangerously-skip-permissions` is still
+    // needed here because this is the "open in terminal" affordance,
+    // which has no in-process permission round-trip; Phase 5 only retired
+    // the flag from `spawn_streaming` (the ACP-served streaming child).
     let mut cmd: Vec<String> = vec!["claude".into(), "--dangerously-skip-permissions".into()];
     if let Some(ref id) = resume {
         cmd.push("--resume".into());

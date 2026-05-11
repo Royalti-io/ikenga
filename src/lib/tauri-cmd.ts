@@ -589,9 +589,30 @@ export interface AcpNewSessionRequest {
 	_meta?: Record<string, unknown>;
 }
 
+/** Phase 5: the four canonical ACP session modes the Rust ACP server
+ *  advertises. Mapping to claude CLI flags lives in `acp::mode` —
+ *  `auto` translates to claude's `acceptEdits`, everything else passes
+ *  through unchanged. */
+export type AcpSessionModeId = 'plan' | 'default' | 'auto' | 'bypassPermissions';
+
+export interface AcpSessionMode {
+	id: AcpSessionModeId;
+	name: string;
+	description?: string;
+	_meta?: Record<string, unknown>;
+}
+
+/** Mirrors ACP `SessionModeState`. The Rust server populates this on every
+ *  `session/new` response so the frontend can render a mode picker. */
+export interface AcpSessionModes {
+	currentModeId: AcpSessionModeId;
+	availableModes: AcpSessionMode[];
+	_meta?: Record<string, unknown>;
+}
+
 export interface AcpNewSessionResponse {
 	sessionId: string;
-	modes?: unknown;
+	modes?: AcpSessionModes;
 	models?: unknown;
 	configOptions?: unknown[];
 	_meta?: Record<string, unknown>;
@@ -768,6 +789,16 @@ export async function acpRespondPermission(
 	response: AcpRequestPermissionResponse,
 ): Promise<void> {
 	return invoke('acp_respond_permission', { requestId, response });
+}
+
+/** Phase 5: switch a session's permission mode. Pass one of the four
+ *  canonical ACP ids advertised in `AcpNewSessionResponse.modes`. The
+ *  Rust server updates the tracked mode for the session and, if a live
+ *  streaming child exists, writes a `set_permission_mode` control_request
+ *  to its stdin so the change applies mid-turn. Otherwise the next spawn
+ *  picks it up via `--permission-mode`. */
+export async function acpSetMode(threadId: string, modeId: AcpSessionModeId): Promise<void> {
+	return invoke('acp_set_mode', { threadId, modeId });
 }
 
 // ─── Claude config browser (/claude route) ────────────────────────────────────

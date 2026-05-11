@@ -33,6 +33,7 @@ use tauri::{AppHandle, Emitter};
 use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::{oneshot, Mutex as TokioMutex};
 
+use crate::acp::mode::{mode_state, AcpSessionMode};
 use crate::acp::permission::{build_permission_options, outcome_to_response_body};
 use crate::acp::{
     mapping::chat_event_to_session_updates,
@@ -40,7 +41,8 @@ use crate::acp::{
 };
 use crate::claude::event::ChatEvent;
 use crate::claude::session::{
-    cancel_streaming, send_control_response, send_user_message, SessionOpts, SessionsManager,
+    cancel_streaming, send_control_response, send_set_mode, send_user_message, SessionOpts,
+    SessionsManager,
 };
 
 /// How long we wait for the client to answer a `session/request_permission`
@@ -166,11 +168,15 @@ impl AcpServer {
         // Phase 3 ignores `mcp_servers` — claude already wires its own MCP
         // via `--mcp-config`. Phase 9 will translate ACP-declared servers
         // into a generated config file.
-        let _ = self
-            .sessions
-            .get_or_create(&thread_id, &cwd, SessionOpts::default())
-            .await;
-        Ok(NewSessionResponse::new(SessionId::new(thread_id)))
+        let opts = SessionOpts::default();
+        let initial_mode = opts.permission_mode;
+        let _ = self.sessions.get_or_create(&thread_id, &cwd, opts).await;
+        // Phase 5: advertise the four canonical session modes so the
+        // frontend can render a picker, and surface our spawn-time mode
+        // as `currentModeId`. Switching is handled by
+        // `handle_set_mode` → `send_set_mode` / next-spawn flag.
+        Ok(NewSessionResponse::new(SessionId::new(thread_id))
+            .modes(mode_state(initial_mode)))
     }
 
     /// Handle ACP `session/prompt`. Subscribes to the session's in-process
@@ -380,6 +386,47 @@ impl AcpServer {
         };
         cancel_streaming(session).await
     }
+
+    /// Handle ACP `session/set_mode`. Updates the tracked current mode for
+    /// the session and, if a streaming child is alive, writes a
+    /// `set_permission_mode` control_request to its stdin so the change
+    /// takes effect immediately. If no child is alive, the mode is just
+    /// updated in memory and the next `spawn_streaming` picks it up via
+    /// the `--permission-mode` CLI flag.
+    ///
+    /// Errors with a descriptive message for unknown mode ids or unknown
+    /// thread ids — callers should surface these as toast/inline errors
+    /// rather than failing silently.
+    pub async fn handle_set_mode(
+        &self,
+        thread_id: String,
+        mode_id: String,
+    ) -> Result<(), String> {
+        let mode = AcpSessionMode::from_acp_id(&mode_id)
+            .ok_or_else(|| format!("unknown mode id: {mode_id}"))?;
+        let session = self
+            .sessions
+            .get(&thread_id)
+            .await
+            .ok_or_else(|| format!("no session for thread {thread_id}"))?;
+        // Update tracked mode + opts so the next (re-)spawn picks it up
+        // via `--permission-mode`. Holding both locks separately is fine —
+        // there's no ordering invariant between them; we just want the
+        // session struct to reflect the new mode atomically from any
+        // observer's POV.
+        *session.current_mode.lock().await = mode;
+        session.opts.lock().await.permission_mode = mode;
+        // If a live child exists, push the runtime switch to it. The
+        // `send_set_mode` helper short-circuits to Ok when no child is
+        // alive (same condition we'd otherwise check here), so we could
+        // call it unconditionally — but checking first keeps the intent
+        // explicit and avoids a redundant lock acquire on the hot path
+        // where set_mode races a pre-first-prompt session.
+        if session.streaming.lock().await.is_some() {
+            send_set_mode(session.clone(), mode).await?;
+        }
+        Ok(())
+    }
 }
 
 /// Tauri-friendly wrapper around the server.
@@ -461,4 +508,78 @@ mod tests {
         let resp = server.handle_initialize(req);
         assert!(resp.protocol_version <= AcpServer::PROTOCOL_VERSION);
     }
+
+    #[tokio::test]
+    async fn set_mode_with_no_streaming_child_updates_tracked_mode_and_returns_ok() {
+        // Phase 5: the common case for `set_mode` is "user clicked Auto
+        // before sending their first message". No streaming child exists
+        // yet, so the implementation must update `current_mode` and
+        // `opts.permission_mode` in memory and return Ok — the next
+        // `spawn_streaming` will pick the new mode up via the
+        // `--permission-mode` flag.
+        let server = AcpServer::default();
+        let session = server
+            .sessions
+            .get_or_create(
+                "t_setmode",
+                "/tmp",
+                crate::claude::session::SessionOpts::default(),
+            )
+            .await;
+        // Sanity: starting state is Default.
+        assert_eq!(
+            *session.current_mode.lock().await,
+            AcpSessionMode::Default,
+        );
+
+        server
+            .handle_set_mode("t_setmode".into(), "auto".into())
+            .await
+            .expect("set_mode ok");
+
+        // Tracked mode + opts both updated; no streaming child spawned.
+        assert_eq!(*session.current_mode.lock().await, AcpSessionMode::Auto);
+        assert_eq!(
+            session.opts.lock().await.permission_mode,
+            AcpSessionMode::Auto,
+        );
+        assert!(session.streaming.lock().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn set_mode_rejects_unknown_mode_id() {
+        let server = AcpServer::default();
+        let _ = server
+            .sessions
+            .get_or_create(
+                "t_bad",
+                "/tmp",
+                crate::claude::session::SessionOpts::default(),
+            )
+            .await;
+        let err = server
+            .handle_set_mode("t_bad".into(), "supercharged".into())
+            .await
+            .expect_err("unknown mode should error");
+        assert!(err.contains("unknown mode id"));
+    }
+
+    #[tokio::test]
+    async fn set_mode_rejects_unknown_thread_id() {
+        let server = AcpServer::default();
+        let err = server
+            .handle_set_mode("never_registered".into(), "auto".into())
+            .await
+            .expect_err("unknown thread should error");
+        assert!(err.contains("no session for thread"));
+    }
+
+    // NOTE: `handle_new_session` takes an `AppHandle`, which can't be
+    // constructed in a `#[cfg(test)]` context without enabling tauri's
+    // `test` feature. The SessionModeState wiring is exercised by
+    // `mode::tests::mode_state_uses_current_and_full_available_list`
+    // (pure-function) + `mode::tests::available_modes_returns_four`.
+    // Integration coverage of the full request happens via the iyke
+    // smoke harness (`runAcpSmokeTest` in `src/lib/dev/acp-smoke.ts`),
+    // which Phase 5 extends to assert on `response.modes`.
 }

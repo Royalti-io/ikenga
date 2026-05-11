@@ -23,7 +23,7 @@ use tokio::sync::Mutex;
 use commands::db::PaDb;
 use commands::screenshot::new_pending as new_screenshot_pending;
 use commands::{
-    acp_cancel, acp_initialize, acp_new_session, acp_prompt, acp_respond_permission,
+    acp_cancel, acp_initialize, acp_new_session, acp_prompt, acp_respond_permission, acp_set_mode,
     activity_pins_add, activity_pins_list, activity_pins_remove, activity_pins_reorder,
     activity_sections_create, activity_sections_list, activity_sections_remove,
     activity_sections_update,
@@ -394,6 +394,8 @@ pub fn run() {
             acp_cancel,
             // acp permission round-trip (phase 4)
             acp_respond_permission,
+            // acp session modes (phase 5)
+            acp_set_mode,
             // claude config browser
             claude_config_load,
             claude_config_watch,
