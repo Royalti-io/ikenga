@@ -44,7 +44,23 @@ interface PackagesBodyProps {
 
 type Filter = CatalogTrafficLight | 'all';
 
-const FILTER_ORDER: readonly Filter[] = ['all', 'local-only', 'needs-cloud', 'engine'];
+// Engine pkgs are agent-runtime adapters (com.ikenga.engine-*) — they're
+// installed/swapped from Settings → Engine, not from the wizard's
+// app-pkg picker. We hide them from the grid + the bucket filter.
+const FILTER_ORDER: readonly Filter[] = ['all', 'local-only', 'needs-cloud'];
+
+/** Engine adapter pkgs aren't selectable from this picker. */
+function isEnginePkg(id: string): boolean {
+	return id.startsWith('com.ikenga.engine-');
+}
+
+/** Core / required pkgs — always installed, shown but not deselectable.
+ * Files is the only one for now; if more land we add them here. */
+const CORE_PKG_IDS: ReadonlySet<string> = new Set(['com.ikenga.files']);
+
+function isCorePkg(id: string): boolean {
+	return CORE_PKG_IDS.has(id);
+}
 
 const ICON_GLYPH: Record<CatalogIconKey, string> = {
 	studio: '▶',
@@ -71,9 +87,16 @@ const ICON_BG: Record<CatalogIconKey, { bg: string; fg: string }> = {
 export function PackagesBody({ onContinue }: PackagesBodyProps) {
 	const { record, setPayload } = useOnboardingStep<PackagesStepPayload>('packages');
 	const persisted = record.payload?.selected;
-	const [selected, setSelected] = useState<Set<string>>(
-		() => new Set(persisted ?? defaultSelectedIds())
-	);
+	const [selected, setSelected] = useState<Set<string>>(() => {
+		// Engine pkgs aren't surfaced here — strip them out of any persisted
+		// payload so the install queue doesn't try to manage them through
+		// the wizard. Core pkgs are force-included.
+		const seed = new Set(
+			(persisted ?? defaultSelectedIds()).filter((id) => !isEnginePkg(id))
+		);
+		for (const id of CORE_PKG_IDS) seed.add(id);
+		return seed;
+	});
 	const [filter, setFilter] = useState<Filter>('all');
 
 	// Lazily write the default selection into the store the first time we
@@ -88,7 +111,14 @@ export function PackagesBody({ onContinue }: PackagesBodyProps) {
 		}
 	}, [persisted, selected, setPayload]);
 
-	const buckets = useMemo(countByBucket, []);
+	const buckets = useMemo(() => {
+		// Recount excluding engine bucket (it's no longer surfaced).
+		const all = countByBucket();
+		return {
+			...all,
+			all: all.all - all.engine,
+		};
+	}, []);
 
 	const requirements = useMemo(
 		() =>
@@ -110,11 +140,18 @@ export function PackagesBody({ onContinue }: PackagesBodyProps) {
 	}, [selected]);
 
 	const visiblePkgs = useMemo(() => {
-		if (filter === 'all') return ONBOARDING_PKG_CATALOG;
-		return ONBOARDING_PKG_CATALOG.filter((p) => p.bucket === filter);
+		// Always exclude engine pkgs; bucket filter still applies on top.
+		const visible = ONBOARDING_PKG_CATALOG.filter((p) => !isEnginePkg(p.manifest.id));
+		if (filter === 'all') return visible;
+		return visible.filter((p) => p.bucket === filter);
 	}, [filter]);
 
 	const toggle = (id: string) => {
+		// Engine pkgs are never shown so this branch is defensive only.
+		if (isEnginePkg(id)) return;
+		// Core pkgs are locked-on — clicks are a no-op (the card renders
+		// a "core" badge instead of a checkmark toggle).
+		if (isCorePkg(id)) return;
 		setSelected((prev) => {
 			const next = new Set(prev);
 			if (next.has(id)) next.delete(id);
@@ -186,6 +223,7 @@ export function PackagesBody({ onContinue }: PackagesBodyProps) {
 						key={entry.manifest.id}
 						entry={entry}
 						selected={selected.has(entry.manifest.id)}
+						isCore={isCorePkg(entry.manifest.id)}
 						onToggle={() => toggle(entry.manifest.id)}
 					/>
 				))}
@@ -197,7 +235,8 @@ export function PackagesBody({ onContinue }: PackagesBodyProps) {
 			{/* Inline continue */}
 			<div className="mt-8 flex items-center justify-between gap-3">
 				<span className="font-mono text-xs" style={{ color: 'var(--fg-faint)' }}>
-					{selected.size} of {ONBOARDING_PKG_CATALOG.length} selected
+					{Array.from(selected).filter((id) => !isEnginePkg(id)).length} of{' '}
+					{ONBOARDING_PKG_CATALOG.filter((p) => !isEnginePkg(p.manifest.id)).length} selected
 					{sizeTotal > 0 ? ` · ≈${sizeTotal.toFixed(1)} MB to download` : ''}
 				</span>
 				<Button
@@ -215,10 +254,11 @@ export function PackagesBody({ onContinue }: PackagesBodyProps) {
 interface PkgCardProps {
 	entry: OnboardingPkgEntry;
 	selected: boolean;
+	isCore: boolean;
 	onToggle: () => void;
 }
 
-function PkgCard({ entry, selected, onToggle }: PkgCardProps) {
+function PkgCard({ entry, selected, isCore, onToggle }: PkgCardProps) {
 	const colors = ICON_BG[entry.icon];
 	const requiredConnectors = useMemo(
 		() => resolveRequiredConnectors([entry.manifest.id], [entry.manifest]),
@@ -228,12 +268,16 @@ function PkgCard({ entry, selected, onToggle }: PkgCardProps) {
 		<button
 			type="button"
 			onClick={onToggle}
+			disabled={isCore}
 			data-testid="pkg-card"
 			data-pkg-id={entry.manifest.id}
 			data-selected={selected}
+			data-core={isCore || undefined}
+			aria-disabled={isCore}
 			className={cn(
 				'relative flex min-h-[180px] flex-col gap-3 rounded-lg border p-4 text-left transition-colors',
-				selected ? 'shadow-sm' : 'hover:border-[var(--border-strong)]'
+				selected ? 'shadow-sm' : 'hover:border-[var(--border-strong)]',
+				isCore && 'cursor-default'
 			)}
 			style={{
 				borderColor: selected ? 'var(--primary)' : 'var(--border-soft)',
@@ -246,8 +290,9 @@ function PkgCard({ entry, selected, onToggle }: PkgCardProps) {
 					className="absolute right-2.5 top-2.5 flex h-[18px] w-[18px] items-center justify-center rounded-full text-[11px] font-bold"
 					style={{ background: 'var(--primary)', color: 'var(--primary-fg, white)' }}
 					aria-hidden="true"
+					title={isCore ? 'Core pkg — always installed' : undefined}
 				>
-					✓
+					{isCore ? '★' : '✓'}
 				</span>
 			)}
 			<div className="flex items-start gap-3">
@@ -269,6 +314,7 @@ function PkgCard({ entry, selected, onToggle }: PkgCardProps) {
 				{entry.summary}
 			</div>
 			<div className="flex flex-wrap items-center gap-1.5">
+				{isCore && <Pill tone="primary">core · required</Pill>}
 				{entry.bucket === 'local-only' && <Pill tone="success">local-only</Pill>}
 				{entry.bucket === 'engine' && <Pill tone="primary">engine</Pill>}
 				{requiredConnectors.map((req) => {
