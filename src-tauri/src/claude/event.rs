@@ -22,11 +22,22 @@ pub enum ChatEvent {
         permission_mode: Option<String>,
     },
 
-    /// Streaming text chunk from an assistant content block.
-    Text { delta: String },
+    /// Streaming text chunk from an assistant content block. `message_id`
+    /// is the Anthropic `message.id` that produced this block — used by
+    /// the frontend reconciler to dedupe live vs JSONL events without
+    /// resorting to JSON.stringify.
+    Text {
+        delta: String,
+        #[serde(rename = "messageId", skip_serializing_if = "Option::is_none")]
+        message_id: Option<String>,
+    },
 
     /// Extended-thinking chunk (signed; we forward as opaque text).
-    Thinking { delta: String },
+    Thinking {
+        delta: String,
+        #[serde(rename = "messageId", skip_serializing_if = "Option::is_none")]
+        message_id: Option<String>,
+    },
 
     /// Assistant invoked a tool. `parentToolUseId` identifies nested calls
     /// (Task subagents) so the chat UI can render them indented.

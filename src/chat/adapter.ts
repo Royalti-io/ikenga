@@ -71,6 +71,10 @@ export interface ChatAdapter {
   readonly capabilities: AdapterCapabilities;
 
   init(ctx: AdapterContext): Promise<void>;
+  /** Attach the adapter's live subscription for a thread. Idempotent; safe
+   *  to call from a hook on every mount. v1 adapter has this; the interface
+   *  marks it optional so future adapters (SDK, Pencil) can declare it lazy. */
+  attach?(threadId: string, cwd: string): Promise<void>;
   /** Begin a turn. The store drains the iterable and updates UI state.
    *  Returns a `streamId` usable for `cancel()`. */
   send(input: ChatInput): { streamId: string; iterable: AsyncIterable<ChatEvent> };

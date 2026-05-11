@@ -24,7 +24,6 @@ use commands::{
     activity_sections_create, activity_sections_list, activity_sections_remove,
     activity_sections_update,
     backup_delete, backup_export, backup_import, backup_list,
-    claude_chat_kill, claude_chat_send, claude_chat_spawn,
     claude_config_load, claude_config_read_file, claude_config_unwatch, claude_config_watch,
     claude_list_sessions, claude_read_jsonl, claude_spawn_session, db_exec, db_query, fs_exists,
     fs_list, fs_mime, fs_read, fs_rename, fs_roots_add, fs_roots_list, fs_roots_remove,
@@ -43,6 +42,8 @@ use commands::{
     secrets_set, secrets_vault_status, PkgContentState, SidecarsRegistryState, SidecarSupervisorState,
     set_dock_badge, iyke_mcp_info, spike_grant_fs_read, spike_setup_test_file, KernelState, PkgSettingsState,
     SecretsLock,
+    session_attach_pty, session_cancel, session_destroy, session_destroy_all, session_ensure,
+    session_send,
     supabase_config_clear, supabase_config_get, supabase_config_set,
     viewer_port, viewer_serve, viewer_stop, ClaudeManager, ClaudeManagerState, IykeRuntimeState,
     ScreenshotConfigState, ScreenshotConfigStateRef, ScreenshotPending,
@@ -74,6 +75,8 @@ pub fn run() {
     let viewer_manager = Arc::new(ViewerServerManager::new());
     let viewer_manager_for_start = viewer_manager.clone();
     let claude_manager: ClaudeManagerState = Arc::new(ClaudeManager::new());
+    let sessions_manager: claude::session::SessionsState =
+        Arc::new(claude::session::SessionsManager::new());
     let screenshot_pending: ScreenshotPending = new_screenshot_pending();
 
     let migrations = vec![
@@ -137,6 +140,12 @@ pub fn run() {
             sql: include_str!("../migrations/0010_activity_bar_pinning.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 11,
+            description: "chat_sessions",
+            sql: include_str!("../migrations/0011_chat_sessions.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()
@@ -171,6 +180,7 @@ pub fn run() {
         .manage(fs_watch_manager)
         .manage(viewer_manager)
         .manage(claude_manager)
+        .manage(sessions_manager)
         .manage(screenshot_pending.clone())
         .manage(SecretsLock::new())
         .setup(move |app| {
@@ -422,10 +432,14 @@ pub fn run() {
             // claude
             claude_spawn_session,
             claude_list_sessions,
-            claude_chat_spawn,
-            claude_chat_send,
-            claude_chat_kill,
             claude_read_jsonl,
+            // chat sessions (thread_id-keyed)
+            session_ensure,
+            session_send,
+            session_cancel,
+            session_destroy,
+            session_destroy_all,
+            session_attach_pty,
             // claude config browser
             claude_config_load,
             claude_config_watch,
