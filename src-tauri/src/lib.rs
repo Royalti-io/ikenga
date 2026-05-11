@@ -46,6 +46,10 @@ use commands::{
     pkg_uninstall, pkg_set_enabled, dev_bind_port, dev_release_port,
     secrets_set, secrets_vault_status, PkgContentState, SidecarsRegistryState, SidecarSupervisorState,
     set_dock_badge, iyke_mcp_info, spike_grant_fs_read, spike_setup_test_file, KernelState, PkgSettingsState,
+};
+#[cfg(debug_assertions)]
+use commands::{bg_spike_reply, bg_spike_run, new_bg_spike_state};
+use commands::{
     SecretsLock,
     session_attach_pty, session_cancel, session_destroy, session_destroy_all, session_ensure,
     session_send, session_tool_result,
@@ -350,6 +354,11 @@ pub fn run() {
             app.manage(SidecarSupervisorState(sidecar_supervisor));
             app.manage(SidecarsRegistryState(sidecars_reg));
 
+            // Phase 0.5 background-execution spike state. Debug builds only.
+            // See commands/bg_spike.rs.
+            #[cfg(debug_assertions)]
+            app.manage(new_bg_spike_state());
+
             // Phase 14: write the runtime env-vault file so the actions
             // sidecar can read vault values via its existing dotenv loader.
             // Best-effort: a failure here just means sidecars fall through
@@ -455,6 +464,11 @@ pub fn run() {
             // spike: dynamic ACL verification (delete after kernel lands)
             spike_grant_fs_read,
             spike_setup_test_file,
+            // Phase 0.5 bg-execution spike. Debug builds only.
+            #[cfg(debug_assertions)]
+            bg_spike_run,
+            #[cfg(debug_assertions)]
+            bg_spike_reply,
             // pkg kernel
             pkg_install_from_path,
             pkg_uninstall,

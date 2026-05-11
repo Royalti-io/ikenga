@@ -6,6 +6,8 @@
 pub mod acp;
 pub mod activity_bar;
 pub mod backup;
+#[cfg(debug_assertions)]
+pub mod bg_spike;
 pub mod claude;
 pub mod claude_config;
 pub mod db;
@@ -34,6 +36,8 @@ pub use activity_bar::{
     activity_sections_update,
 };
 pub use backup::{backup_delete, backup_export, backup_import, backup_list};
+#[cfg(debug_assertions)]
+pub use bg_spike::{bg_spike_reply, bg_spike_run, new_state as new_bg_spike_state};
 pub use claude::{
     claude_list_sessions, claude_read_jsonl, claude_spawn_session, session_attach_pty,
     session_cancel, session_destroy, session_destroy_all, session_ensure, session_send,

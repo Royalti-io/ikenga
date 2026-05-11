@@ -10,6 +10,8 @@ import {
 	runAcpSmokeTest,
 	watchAcpNotify,
 } from './acp-smoke';
+// Side-effect import: installs window.__bgSpikeReply + window.bgSpikeRun.
+import './bg-spike';
 
 declare global {
 	interface Window {
