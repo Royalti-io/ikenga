@@ -7,6 +7,7 @@
 pub mod agents;
 pub mod config_claude;
 pub mod known;
+pub mod scaffold;
 pub mod system;
 
 use std::path::PathBuf;
@@ -16,6 +17,7 @@ use tauri::Manager;
 
 pub use agents::DetectedAgent;
 pub use config_claude::AgentConfigInventory;
+pub use scaffold::{ScaffoldFileResult, ScaffoldRequest, ScaffoldResponse};
 pub use system::{CheckLevel, SystemCheck, SystemReport};
 
 #[tauri::command]
@@ -146,26 +148,27 @@ fn contract_home(path: &str, home: &std::path::Path) -> String {
     }
 }
 
-#[derive(Debug, Serialize)]
-pub struct ScaffoldResult {
-    pub ok: bool,
-    pub files_written: u32,
-    pub message: String,
-}
-
-/// Phase 4 placeholder. Phase 6 fills in the file-write side. The wizard
-/// already calls this command so the UI surface is exercised end-to-end;
-/// returning `Err("not_implemented")` lets the React layer render the
-/// "Phase 6 owns this" state without bypassing the IPC contract.
+/// Phase 6 — agent-config scaffolder. Lays down the starter set of
+/// agents/skills/commands for `provider` under `<root_path>/.claude/` (or
+/// the provider's equivalent config dir). `mode` selects conflict
+/// behaviour: `augment` (default, only writes missing files), `replace`
+/// (overwrites everything), or `skip_conflicts` (same as augment but the
+/// response records each skipped path so the wizard can show counts).
+///
+/// Backwards-compatible with the Phase 4 wrapper signature — it didn't
+/// pass `mode`, so an absent value falls back to `augment` inside
+/// `scaffold::scaffold`.
 #[tauri::command]
 pub async fn scaffold_agent_config(
     provider: String,
     root_path: String,
     profile: String,
-) -> Result<ScaffoldResult, String> {
-    // Reserved-but-unimplemented. Phase 6 replaces the body. Returning Err
-    // (rather than Ok) keeps the wizard from silently believing scaffolding
-    // succeeded.
-    let _ = (provider, root_path, profile);
-    Err("not_implemented".to_string())
+    mode: Option<String>,
+) -> Result<ScaffoldResponse, String> {
+    scaffold::scaffold(ScaffoldRequest {
+        provider,
+        root_path,
+        profile,
+        mode,
+    })
 }
