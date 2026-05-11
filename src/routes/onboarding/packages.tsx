@@ -1,6 +1,11 @@
-// Phase 3 stub. Phase 4 wires the package picker.
+// Step 4 — App packages picker.
+//
+// Phase 5: replaces the Phase 3 stub. Selection persists into the
+// wizard payload so the Connectors step (5) can derive its substeps via
+// the resolver in `@/lib/onboarding/resolve-connectors`.
 import { createFileRoute } from '@tanstack/react-router';
 
+import { PackagesBody } from '@/shell/onboarding/packages-body';
 import { WizardStepper } from '@/shell/onboarding/wizard-stepper';
 
 export const Route = createFileRoute('/onboarding/packages')({
@@ -10,15 +15,7 @@ export const Route = createFileRoute('/onboarding/packages')({
 function PackagesStep() {
 	return (
 		<WizardStepper stepId="packages">
-			{() => (
-				<div className="mx-auto max-w-2xl">
-					<h1 className="mb-4 text-3xl font-bold tracking-tight">Packages</h1>
-					<p className="text-sm" style={{ color: 'var(--fg-muted)' }}>
-						TODO step body — Phase 4 wires the package picker (Studio, Tasks, Mail, Content, Files,
-						Engine).
-					</p>
-				</div>
-			)}
+			{({ goNext }) => <PackagesBody onContinue={goNext} />}
 		</WizardStepper>
 	);
 }
