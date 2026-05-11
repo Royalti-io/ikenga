@@ -12,6 +12,7 @@ import {
 } from '@/lib/queries/secrets';
 import { iykeMcpInfo } from '@/lib/tauri-cmd';
 
+import { ConnectorCardsSection } from './-components/connector-cards';
 import {
   ApiKeysSectionBody,
   ClaudeConfigSectionBody,
@@ -73,6 +74,9 @@ function IntegrationsPage() {
               every sidecar instead of <code>.env</code> files.
             </p>
           </header>
+
+          {/* ─── Connectors required by installed pkgs (Phase 5) ────── */}
+          <ConnectorCardsSection />
 
           {/* ─── Claude Code ────────────────────────────────────────── */}
           <SettingGroup title="Claude Code">
