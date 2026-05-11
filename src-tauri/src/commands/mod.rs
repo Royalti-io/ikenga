@@ -3,6 +3,7 @@
 //! in `src/lib/tauri-cmd.ts` mirror this, so later phases just fill in the
 //! Rust side.
 
+pub mod acp;
 pub mod activity_bar;
 pub mod backup;
 pub mod claude;
@@ -23,6 +24,7 @@ pub mod spike;
 pub mod supabase_config;
 pub mod viewer;
 
+pub use acp::{acp_cancel, acp_initialize, acp_new_session, acp_prompt};
 pub use activity_bar::{
     activity_pins_add, activity_pins_list, activity_pins_remove, activity_pins_reorder,
     activity_sections_create, activity_sections_list, activity_sections_remove,

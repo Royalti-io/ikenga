@@ -23,6 +23,7 @@ use tokio::sync::Mutex;
 use commands::db::PaDb;
 use commands::screenshot::new_pending as new_screenshot_pending;
 use commands::{
+    acp_cancel, acp_initialize, acp_new_session, acp_prompt,
     activity_pins_add, activity_pins_list, activity_pins_remove, activity_pins_reorder,
     activity_sections_create, activity_sections_list, activity_sections_remove,
     activity_sections_update,
@@ -80,6 +81,11 @@ pub fn run() {
     let claude_manager: ClaudeManagerState = Arc::new(ClaudeManager::new());
     let sessions_manager: claude::session::SessionsState =
         Arc::new(claude::session::SessionsManager::new());
+    // ACP server shares the same `SessionsManager` so the legacy
+    // `session_*` commands and the new ACP path operate on the same in-
+    // memory session table. Phase 11 retires the legacy path.
+    let acp_server: acp::server::AcpServerState =
+        Arc::new(acp::server::AcpServer::new(sessions_manager.clone()));
     let screenshot_pending: ScreenshotPending = new_screenshot_pending();
 
     // Migrations are the responsibility of `commands::db::ensure_schema`
@@ -120,6 +126,7 @@ pub fn run() {
         .manage(viewer_manager)
         .manage(claude_manager)
         .manage(sessions_manager)
+        .manage(acp_server)
         .manage(screenshot_pending.clone())
         .manage(SecretsLock::new())
         .setup(move |app| {
@@ -380,6 +387,11 @@ pub fn run() {
             session_destroy,
             session_destroy_all,
             session_attach_pty,
+            // acp (phase 3 — runs alongside legacy session_* until phase 10)
+            acp_initialize,
+            acp_new_session,
+            acp_prompt,
+            acp_cancel,
             // claude config browser
             claude_config_load,
             claude_config_watch,

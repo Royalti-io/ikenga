@@ -16,6 +16,13 @@ import { useShellStore } from '@/lib/shell/shell-store';
 import './styles.css';
 import '@xterm/xterm/css/xterm.css';
 
+// Dev-only globals (e.g. `window.ikengaAcpSmoke` for the ACP migration
+// Phase 3 smoke test). Lazy-imported so production builds tree-shake the
+// helper entirely.
+if (import.meta.env.DEV) {
+  void import('@/lib/dev');
+}
+
 // Sync Ikenga data-attrs onto <html> before first React render so the very
 // first paint already has the right theme/mode/density/workspace applied.
 installIkengaDomSync();
