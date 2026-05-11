@@ -1067,6 +1067,7 @@ mod tests {
             window: None,
             queries: None,
             capabilities: None,
+            engine: None,
         };
         m.mcp.push(McpServer {
             name: "t".into(),

@@ -110,6 +110,80 @@ pub struct Manifest {
     /// never see the corresponding values.
     #[serde(default)]
     pub capabilities: Option<CapabilitiesBlock>,
+
+    /// Engine-adapter manifest block. Present iff this pkg is an engine-*
+    /// adapter. Declares the agent id, display name, capability snapshot,
+    /// and onboarding hints surfaced by the first-run wizard. Mirrors
+    /// `EngineProvidesSchema` in `@ikenga/contract/engine`.
+    #[serde(default)]
+    pub engine: Option<EngineBlock>,
+}
+
+// ---- Engine adapter manifest block (mirrors @ikenga/contract engine.ts) -----
+
+/// Capability snapshot every engine adapter advertises. The fields are a
+/// *superset* of what any single adapter supports — adapters set
+/// implemented flags to `true` and the rest to `false`. New fields here
+/// must be added to `AgentCapabilitiesSchema` in @ikenga/contract in
+/// lockstep.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentCapabilities {
+    pub streaming: bool,
+    #[serde(rename = "toolUse")]
+    pub tool_use: bool,
+    pub thinking: bool,
+    pub artifacts: bool,
+    #[serde(rename = "fileAttachments")]
+    pub file_attachments: bool,
+    #[serde(rename = "imageInput")]
+    pub image_input: bool,
+    #[serde(rename = "slashCommands")]
+    pub slash_commands: bool,
+    #[serde(rename = "modelSwitching")]
+    pub model_switching: bool,
+    #[serde(rename = "promptCaching")]
+    pub prompt_caching: bool,
+    #[serde(rename = "agenticTools")]
+    pub agentic_tools: bool,
+    pub mcp: bool,
+    #[serde(rename = "sessionResume")]
+    pub session_resume: bool,
+}
+
+/// Per-adapter onboarding requirements surfaced by the wizard.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EngineOnboarding {
+    #[serde(default, rename = "requiredVaultKeys")]
+    pub required_vault_keys: Vec<String>,
+    #[serde(default, rename = "requiredEnvVars")]
+    pub required_env_vars: Vec<String>,
+    /// CLI command the user can run to authenticate. The wizard surfaces
+    /// this as a copy-to-clipboard hint — it never shells out on behalf
+    /// of the user.
+    #[serde(default, rename = "authCommand")]
+    pub auth_command: Option<String>,
+    /// Docs URL for setting up this adapter.
+    #[serde(default, rename = "docsUrl")]
+    pub docs_url: Option<String>,
+}
+
+/// Manifest block declared by engine-* pkgs.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EngineBlock {
+    /// Stable id — matches the detection-side agent id.
+    #[serde(rename = "agentId")]
+    pub agent_id: String,
+    /// Display name; overrides any detection-side display if both present.
+    #[serde(default)]
+    pub display: Option<String>,
+    /// Snapshot of what this adapter implements.
+    pub capabilities: AgentCapabilities,
+    /// Onboarding requirements composed by the wizard.
+    #[serde(default)]
+    pub onboarding: EngineOnboarding,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -450,6 +524,7 @@ mod tests {
             window: None,
             queries: None,
             capabilities: None,
+            engine: None,
         }
     }
 
@@ -536,6 +611,144 @@ mod tests {
         }"#;
         let m: Manifest = serde_json::from_str(json).expect("parse");
         assert!(!m.mcp[0].is_long_lived());
+    }
+
+    #[test]
+    fn engine_block_parses_full_shape() {
+        let json = r#"{
+            "id": "com.ikenga.engine-claude-code",
+            "name": "Claude Code Engine",
+            "version": "0.1.0",
+            "ikenga_api": "1",
+            "kind": "engine",
+            "engine": {
+                "agentId": "claude-code",
+                "display": "Claude Code",
+                "capabilities": {
+                    "streaming": true,
+                    "toolUse": true,
+                    "thinking": true,
+                    "artifacts": true,
+                    "fileAttachments": true,
+                    "imageInput": true,
+                    "slashCommands": true,
+                    "modelSwitching": true,
+                    "promptCaching": true,
+                    "agenticTools": true,
+                    "mcp": true,
+                    "sessionResume": true
+                },
+                "onboarding": {
+                    "requiredVaultKeys": ["ANTHROPIC_API_KEY"],
+                    "requiredEnvVars": [],
+                    "authCommand": "claude login",
+                    "docsUrl": "https://docs.anthropic.com/en/docs/claude-code"
+                }
+            }
+        }"#;
+        let m: Manifest = serde_json::from_str(json).expect("parse");
+        let engine = m.engine.expect("engine block present");
+        assert_eq!(engine.agent_id, "claude-code");
+        assert_eq!(engine.display.as_deref(), Some("Claude Code"));
+        assert!(engine.capabilities.streaming);
+        assert!(engine.capabilities.mcp);
+        assert_eq!(
+            engine.onboarding.required_vault_keys,
+            vec!["ANTHROPIC_API_KEY".to_string()]
+        );
+        assert_eq!(engine.onboarding.auth_command.as_deref(), Some("claude login"));
+        assert!(engine.onboarding.docs_url.is_some());
+    }
+
+    #[test]
+    fn engine_block_is_optional() {
+        let json = r#"{
+            "id": "com.ikenga.studio",
+            "name": "Studio",
+            "version": "0.1.0",
+            "ikenga_api": "1"
+        }"#;
+        let m: Manifest = serde_json::from_str(json).expect("parse");
+        assert!(m.engine.is_none());
+    }
+
+    #[test]
+    fn engine_block_minimal_with_default_onboarding() {
+        // Onboarding omitted entirely — defaults to empty vec lists.
+        let json = r#"{
+            "id": "com.ikenga.engine-noop",
+            "name": "No-op",
+            "version": "0.1.0",
+            "ikenga_api": "1",
+            "engine": {
+                "agentId": "noop",
+                "capabilities": {
+                    "streaming": false,
+                    "toolUse": false,
+                    "thinking": false,
+                    "artifacts": false,
+                    "fileAttachments": false,
+                    "imageInput": false,
+                    "slashCommands": false,
+                    "modelSwitching": false,
+                    "promptCaching": false,
+                    "agenticTools": false,
+                    "mcp": false,
+                    "sessionResume": false
+                }
+            }
+        }"#;
+        let m: Manifest = serde_json::from_str(json).expect("parse");
+        let engine = m.engine.expect("engine block present");
+        assert_eq!(engine.agent_id, "noop");
+        assert!(engine.display.is_none());
+        assert!(engine.onboarding.required_vault_keys.is_empty());
+        assert!(engine.onboarding.required_env_vars.is_empty());
+        assert!(engine.onboarding.auth_command.is_none());
+    }
+
+    #[test]
+    fn engine_block_rejects_missing_capabilities() {
+        let json = r#"{
+            "id": "com.ikenga.engine-broken",
+            "name": "Broken",
+            "version": "0.1.0",
+            "ikenga_api": "1",
+            "engine": {"agentId": "broken"}
+        }"#;
+        let result: Result<Manifest, _> = serde_json::from_str(json);
+        assert!(result.is_err(), "expected error when capabilities missing");
+    }
+
+    #[test]
+    fn engine_block_rejects_unknown_capability_field() {
+        // deny_unknown_fields on AgentCapabilities — guards lockstep with Zod.
+        let json = r#"{
+            "id": "com.ikenga.engine-future",
+            "name": "Future",
+            "version": "0.1.0",
+            "ikenga_api": "1",
+            "engine": {
+                "agentId": "future",
+                "capabilities": {
+                    "streaming": true,
+                    "toolUse": false,
+                    "thinking": false,
+                    "artifacts": false,
+                    "fileAttachments": false,
+                    "imageInput": false,
+                    "slashCommands": false,
+                    "modelSwitching": false,
+                    "promptCaching": false,
+                    "agenticTools": false,
+                    "mcp": false,
+                    "sessionResume": false,
+                    "telepathy": true
+                }
+            }
+        }"#;
+        let result: Result<Manifest, _> = serde_json::from_str(json);
+        assert!(result.is_err(), "expected error on unknown capability field");
     }
 
     #[test]
