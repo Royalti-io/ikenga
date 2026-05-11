@@ -194,7 +194,19 @@ export function AppearanceBody({ onContinue }: AppearanceBodyProps) {
 				>
 					<ModeButton on={mode === 'light'} onClick={() => setMode('light')} label="Light" />
 					<ModeButton on={mode === 'dark'} onClick={() => setMode('dark')} label="Dark" />
+					<ModeButton
+						on={mode === 'system'}
+						onClick={() => setMode('system')}
+						label="System"
+					/>
 				</div>
+				{mode === 'system' && (
+					<p className="mt-2 text-[11.5px]" style={{ color: 'var(--fg-faint)' }}>
+						Following the OS preference (
+						<span className="font-mono">prefers-color-scheme</span>) — flips automatically
+						when you toggle night mode.
+					</p>
+				)}
 			</section>
 
 			{/* ── Density grid ─────────────────────────────────────────────── */}
