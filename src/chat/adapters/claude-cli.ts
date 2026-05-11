@@ -204,6 +204,14 @@ class ClaudeCliAdapterImpl implements ChatAdapter {
     // v2: streamId is opaque per-turn; cancellation is per-thread. The
     // composer's cancel button passes the active streamId, but we map it
     // back to the focused thread via the store.
+    //
+    // TODO(phase-10): when the composer switches to the ACP adapter (per
+    // the acp-migration plan), route this through `acpCancel(threadId)`
+    // instead of `sessionCancel`. The legacy `sessionCancel` Tauri
+    // command kills the streaming child (`cancel_streaming`); `acpCancel`
+    // writes a clean interrupt envelope so the transcript stays intact
+    // and the child stays alive for the next turn. This adapter is the
+    // legacy-cli path, so keeping `sessionCancel` here is correct for now.
     const state = useChatStore.getState();
     const active = Object.values(state.threads).find((t) => t.streamId === _streamId);
     const tid = active?.thread.id;

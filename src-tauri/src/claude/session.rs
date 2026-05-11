@@ -560,9 +560,51 @@ pub async fn send_set_mode(
     Ok(())
 }
 
+/// Phase 6: write an interrupt control_request to claude's stdin. The
+/// streaming child stops mid-turn and emits its normal `Done` envelope
+/// (the prompt loop in `acp::server::handle_prompt` watches for it), so
+/// the transcript stays intact and the child remains alive for the next
+/// turn. Unlike `cancel_streaming`, we do NOT kill the process.
+///
+/// Claude does NOT reply with a `sdk_control_response` for interrupts
+/// (unlike `permission` which expects one), so this is fire-and-forget —
+/// no waiter parking required.
+///
+/// If there's no streaming child alive there's nothing to interrupt —
+/// returns Ok (idempotent). The ACP `session/cancel` semantics are "best
+/// effort"; callers that need a hard guarantee should fall back to
+/// `cancel_streaming` themselves.
+pub async fn send_interrupt(session: Arc<Session>) -> Result<(), String> {
+    let streaming = {
+        let guard = session.streaming.lock().await;
+        match guard.as_ref() {
+            Some(s) => s.clone(),
+            None => return Ok(()),
+        }
+    };
+    let request_id = format!("{}", uuid::Uuid::new_v4());
+    let envelope = crate::acp::interrupt::interrupt_envelope(&request_id);
+    let mut stdin = streaming.stdin.lock().await;
+    stdin
+        .write_all(envelope.as_bytes())
+        .await
+        .map_err(|e| format!("stdin write: {e}"))?;
+    stdin
+        .flush()
+        .await
+        .map_err(|e| format!("stdin flush: {e}"))?;
+    Ok(())
+}
+
 /// Kill the streaming child. Leaves the in-memory `Session` so subsequent
 /// `session_send` can re-spawn with `--resume`. Returns Ok if there was no
 /// child to kill (idempotent).
+///
+/// Phase 6: the ACP `session/cancel` path no longer routes through here —
+/// it uses `send_interrupt` instead so the transcript stays intact. This
+/// function survives because the legacy `session_cancel` /
+/// `session_destroy` Tauri commands (in `commands/claude.rs`) still need
+/// the hard-kill semantics for tear-down / HMR hygiene.
 pub async fn cancel_streaming(session: Arc<Session>) -> Result<(), String> {
     let taken = session.streaming.lock().await.take();
     if let Some(c) = taken {
@@ -608,6 +650,26 @@ mod tests {
         assert_eq!(parsed["response"]["behavior"], json!("deny"));
         assert_eq!(parsed["response"]["message"], json!("User declined"));
         assert_eq!(parsed["response"]["request_id"], json!("req_99"));
+    }
+
+    #[tokio::test]
+    async fn send_interrupt_with_no_streaming_child_is_ok() {
+        // Phase 6: ACP `session/cancel` semantics are best-effort. If
+        // there's no streaming child alive (turn already over, or it was
+        // never spawned), the interrupt is a no-op — not an error. The
+        // outer `handle_cancel` relies on this so stale Stop clicks
+        // don't surface as toast errors.
+        let session = Arc::new(Session::new(
+            "thread_int_test".into(),
+            "/tmp".into(),
+            SessionOpts::default(),
+        ));
+        assert!(session.streaming.lock().await.is_none());
+        send_interrupt(session.clone())
+            .await
+            .expect("no-op send_interrupt returns Ok");
+        // Still no child afterwards — interrupt never spawns.
+        assert!(session.streaming.lock().await.is_none());
     }
 
     #[tokio::test]

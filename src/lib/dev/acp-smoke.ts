@@ -10,6 +10,7 @@
 //   iyke javascript "(await window.ikengaAcpSmoke('Reply with exactly: ACP-OK')).updates.length"
 
 import {
+	acpCancel,
 	acpInitialize,
 	acpListen,
 	acpListenRequests,
@@ -113,6 +114,101 @@ export async function runAcpSmokeTest(
 		// but Tauri events may still flush a tick later. Don't unlisten
 		// synchronously or we lose the tail; let the microtask queue
 		// drain first.
+		await Promise.resolve();
+		unlisten();
+		unlistenRequests();
+	}
+
+	return {
+		threadId,
+		updates,
+		stopReason: response.stopReason,
+		permissionRequests,
+		advertisedModes,
+		finalMode,
+	};
+}
+
+/**
+ * Phase 6: smoke-test the interrupt path. Sends a long-running prompt,
+ * waits `delayMs`, fires `acpCancel`, then returns whatever updates
+ * arrived. Should see partial assistant text followed by a Done with a
+ * cancellation stop_reason.
+ *
+ * Important behavioral asserts the caller can make:
+ *   - `updates.length > 0` — claude got far enough to stream something
+ *     before the interrupt landed.
+ *   - `stopReason === 'cancelled'` — claude acknowledged the interrupt
+ *     via its normal `Done` envelope; we did NOT kill the child.
+ *
+ * Unlike `runAcpSmokeTest` we kick off `acpPrompt` without awaiting it
+ * first, so the interrupt can race in while claude is mid-turn. The
+ * promise is still awaited before we return so the caller observes the
+ * full stop_reason rather than a synthesized one.
+ *
+ * Bound to `globalThis.ikengaAcpInterruptSmoke` from `src/lib/dev/index.ts`.
+ * From iyke:
+ *
+ *   iyke javascript "(await window.ikengaAcpInterruptSmoke('Count from 1 to 100 slowly.')).stopReason"
+ */
+export async function runAcpInterruptSmokeTest(
+	prompt: string,
+	opts: { delayMs?: number; cwd?: string } = {}
+): Promise<AcpSmokeResult> {
+	const cwd = opts.cwd ?? '/';
+	const delayMs = opts.delayMs ?? 500;
+
+	await acpInitialize({ protocolVersion: 1 });
+
+	const session = await acpNewSession({ cwd, mcpServers: [] });
+	const threadId = session.sessionId;
+	const advertisedModes = session.modes ?? null;
+	const finalMode: AcpSessionModeId =
+		(advertisedModes?.currentModeId ?? 'default') as AcpSessionModeId;
+
+	const updates: AcpSessionUpdate[] = [];
+	const unlisten = await acpListen(threadId, (notif: AcpSessionNotification) => {
+		updates.push(notif.update);
+	});
+
+	// Mirror runAcpSmokeTest's auto-respond behavior — if claude happens
+	// to ask for permission before we fire the interrupt, we don't want
+	// the smoke to hang. Pick the first option.
+	const permissionRequests: AcpRequestEnvelope[] = [];
+	const unlistenRequests = await acpListenRequests(threadId, (env: AcpRequestEnvelope) => {
+		permissionRequests.push(env);
+		const firstOption = env.request.options[0];
+		if (!firstOption) {
+			void acpRespondPermission(env.requestId, {
+				outcome: { outcome: 'cancelled' },
+			});
+			return;
+		}
+		void acpRespondPermission(env.requestId, {
+			outcome: { outcome: 'selected', optionId: firstOption.optionId },
+		});
+	});
+
+	// Kick the prompt off WITHOUT awaiting — we want the interrupt to
+	// race in mid-turn. We still capture the eventual response so the
+	// caller can assert on `stopReason`.
+	const promptPromise = acpPrompt({
+		sessionId: threadId,
+		prompt: [{ type: 'text', text: prompt }],
+	});
+
+	// Schedule the interrupt. A real Stop click is similarly racy; the
+	// fixed `delayMs` is just to give claude enough time to start
+	// streaming so we can observe the partial-transcript behavior.
+	await new Promise((resolve) => setTimeout(resolve, delayMs));
+	await acpCancel(threadId);
+
+	let response;
+	try {
+		response = await promptPromise;
+	} finally {
+		// Same tail-flush dance as runAcpSmokeTest: let pending Tauri
+		// event microtasks drain before unlistening.
 		await Promise.resolve();
 		unlisten();
 		unlistenRequests();
