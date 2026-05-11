@@ -57,8 +57,8 @@ Phase 10 reshapes the contract.
 
 | # | Phase | Status | Branch / commit |
 |---|---|---|---|
-| 1 | Rust ACP crate + skeleton Agent impl | ✅ landed | `feat/onboarding-wizard` |
-| 2 | `stream_parser` → `SessionUpdate` mapping | pending | |
+| 1 | Rust ACP crate + skeleton Agent impl | ✅ landed | `c238255` |
+| 2 | `stream_parser` → `SessionUpdate` mapping | ✅ landed | (this commit) |
 | 3 | Prompt handling — first real chat over ACP | pending | |
 | 4 | `--permission-prompt-tool stdio` + AskUserQuestion fix | pending | |
 | 5 | Session modes (plan/default/auto/bypassPermissions) | pending | |
