@@ -22,6 +22,10 @@ tauri-plugin-dialog = "2"
 tauri-plugin-os = "2"
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-clipboard-manager = "2"
+# Used by the onboarding wizard to open install-guide URLs in the user's
+# default browser via `open(url)`. Sidecars still spawn directly through
+# tokio::process — we only enable the `open` API surface here.
+tauri-plugin-shell = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 base64 = "0.22"

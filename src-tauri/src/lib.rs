@@ -137,6 +137,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(global_shortcut_plugin())
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_shell::init())
         .plugin(
             tauri_plugin_sql::Builder::default()
                 .add_migrations("sqlite:pa.db", migrations)
