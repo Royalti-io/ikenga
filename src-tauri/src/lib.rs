@@ -1,8 +1,10 @@
 mod agent_detect;
 pub mod claude;
 mod commands;
+mod fs_roots;
 mod fs_watch;
 mod iyke;
+pub mod path_fix;
 mod pkg;
 mod pkg_content;
 mod pty;
@@ -25,7 +27,8 @@ use commands::{
     claude_chat_kill, claude_chat_send, claude_chat_spawn,
     claude_config_load, claude_config_read_file, claude_config_unwatch, claude_config_watch,
     claude_list_sessions, claude_read_jsonl, claude_spawn_session, db_exec, db_query, fs_exists,
-    fs_list, fs_mime, fs_read, fs_rename, fs_trash,
+    fs_list, fs_mime, fs_read, fs_rename, fs_roots_add, fs_roots_list, fs_roots_remove,
+    fs_roots_reset, fs_trash,
     fs_unwatch, fs_watch, fs_write, iyke_dom_done, iyke_endpoint,
     iyke_log_push, iyke_network_push, iyke_query_cache_done, iyke_set_shell, iyke_wait_done,
     pty_kill, pty_resize, pty_spawn, pty_write,
@@ -60,6 +63,11 @@ pub fn run() {
     }
 
     init_logging();
+
+    // Repair $PATH on macOS GUI launches (Dock/Finder/Spotlight inherit
+    // launchd's minimal env, missing user-installed tools like `claude`).
+    // Must run before any sub-process spawns inherit our env.
+    path_fix::apply();
 
     let pty_manager = Arc::new(PtyManager::new());
     let fs_watch_manager = Arc::new(FsWatchManager::new());
@@ -172,6 +180,19 @@ pub fn run() {
                 .app_data_dir()
                 .map_err(|e| format!("app_data_dir: {e}"))?;
             std::fs::create_dir_all(&data_dir)?;
+
+            // User-configurable FS allowlist. Must be installed before the
+            // first call to `commands::resolve_allowlisted` (which fs_*,
+            // viewer_serve, and a handful of other commands depend on).
+            match fs_roots::FsRoots::load(data_dir.join("fs_roots.json")) {
+                Ok(roots) => {
+                    let arc = Arc::new(roots);
+                    if let Err(e) = fs_roots::install(arc) {
+                        log::error!("[fs_roots] install failed: {e:#}");
+                    }
+                }
+                Err(e) => log::error!("[fs_roots] load failed: {e:#}"),
+            }
 
             // If the user staged a backup restore last session, swap pa.db
             // now — before any pool opens. apply_staged_restore_if_present
@@ -393,6 +414,11 @@ pub fn run() {
             fs_unwatch,
             fs_trash,
             fs_rename,
+            // fs allowlist (user-configurable roots)
+            fs_roots_list,
+            fs_roots_add,
+            fs_roots_remove,
+            fs_roots_reset,
             // claude
             claude_spawn_session,
             claude_list_sessions,

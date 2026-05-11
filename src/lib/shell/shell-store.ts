@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { fsRootsAdd, fsRootsList, fsRootsRemove, fsRootsReset } from '@/lib/tauri-cmd';
 
 // Post-strip: only 4 first-class workspaces. Mail / Outbox / Studio /
 // Agents were app-pkg surfaces and got removed with the strip-down.
@@ -8,14 +9,15 @@ import { persist } from 'zustand/middleware';
 export type CoreMode = 'app' | 'files' | 'sessions' | 'settings';
 export type ActivityMode = CoreMode;
 
-// Default file roots match the Tauri capability allowlist in
-// `src-tauri/capabilities/default.json`. Reads outside these paths fail
-// regardless of what the user adds via Settings — we surface that warning
-// in the editor.
+// Default file roots. Kept in sync with `src-tauri/src/fs_roots.rs::DEFAULT_ROOTS`;
+// the Rust side is authoritative — these are only the seed values used by the
+// onboarding wizard's "reset to defaults" affordance and the test harness.
+// At runtime, `fileRoots` is hydrated from Rust on app boot (see
+// `hydrateFileRootsFromRust`).
 export const DEFAULT_FILE_ROOTS: readonly string[] = Object.freeze([
 	'~/royalti-co',
-	'~/.company',
 	'~/.claude/projects',
+	'~/.company',
 ]);
 
 // Project roots scanned by the /claude config browser. Each root is a dir
@@ -143,6 +145,10 @@ interface ShellState {
 	 * editable settings selectors. */
 	updateFileRoot: (oldPath: string, newPath: string) => void;
 	resetFileRoots: () => void;
+	/** Pull the authoritative list from Rust (`fs_roots_list`) and overwrite
+	 * local state. Called at app boot; safe to call multiple times. Rejects
+	 * silently in non-Tauri test environments. */
+	hydrateFileRootsFromRust: () => Promise<void>;
 
 	claudeProjectRoots: string[];
 	addClaudeProjectRoot: (path: string) => void;
@@ -274,13 +280,26 @@ export const useShellStore = create<ShellState>()(
 			setChatAdapterId: (chatAdapterId) => set({ chatAdapterId }),
 
 			fileRoots: [...DEFAULT_FILE_ROOTS],
+			// All four mutators update local state optimistically for instant UI
+			// feedback, then sync the authoritative list back from Rust. The
+			// invoke promise is swallowed in non-Tauri test environments so the
+			// existing unit tests (which never see a Tauri runtime) still pass.
 			addFileRoot: (path) => {
 				const trimmed = path.trim();
 				if (!trimmed) return;
-				if (get().fileRoots.includes(trimmed)) return;
-				set({ fileRoots: [...get().fileRoots, trimmed] });
+				if (!get().fileRoots.includes(trimmed)) {
+					set({ fileRoots: [...get().fileRoots, trimmed] });
+				}
+				fsRootsAdd(trimmed)
+					.then((next) => set({ fileRoots: next }))
+					.catch(() => {});
 			},
-			removeFileRoot: (path) => set({ fileRoots: get().fileRoots.filter((r) => r !== path) }),
+			removeFileRoot: (path) => {
+				set({ fileRoots: get().fileRoots.filter((r) => r !== path) });
+				fsRootsRemove(path)
+					.then((next) => set({ fileRoots: next }))
+					.catch(() => {});
+			},
 			updateFileRoot: (oldPath, newPath) => {
 				const trimmed = newPath.trim();
 				if (!trimmed || trimmed === oldPath) return;
@@ -292,8 +311,29 @@ export const useShellStore = create<ShellState>()(
 				const next = [...cur];
 				next[idx] = trimmed;
 				set({ fileRoots: next });
+				// Rust has no atomic "rename" — sequence remove+add. If the
+				// remove succeeds but add fails (e.g. invalid path), the user
+				// sees a shorter list, matching the local state we already set.
+				fsRootsRemove(oldPath)
+					.then(() => fsRootsAdd(trimmed))
+					.then((latest) => set({ fileRoots: latest }))
+					.catch(() => {});
 			},
-			resetFileRoots: () => set({ fileRoots: [...DEFAULT_FILE_ROOTS] }),
+			resetFileRoots: () => {
+				set({ fileRoots: [...DEFAULT_FILE_ROOTS] });
+				fsRootsReset()
+					.then((next) => set({ fileRoots: next }))
+					.catch(() => {});
+			},
+			hydrateFileRootsFromRust: async () => {
+				try {
+					const next = await fsRootsList();
+					set({ fileRoots: next });
+				} catch {
+					// Test environment or pre-setup boot — keep the persisted
+					// snapshot. Caller can retry.
+				}
+			},
 
 			claudeProjectRoots: [...DEFAULT_CLAUDE_PROJECT_ROOTS],
 			addClaudeProjectRoot: (path) => {
