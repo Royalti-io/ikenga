@@ -1226,3 +1226,40 @@ export async function detectAgentConfig(
     rootPath,
   });
 }
+
+// Light-weight scan of `~/.claude/projects/` so the roots step can seed
+// suggestions. The slug→path decode is best-effort (Claude Code slugifies
+// `/` → `-`, which is lossy for components with internal hyphens) — the
+// wizard treats results as suggestions, not source-of-truth.
+export interface ClaudeProjectEntry {
+  slug: string;
+  path: string;
+  display_path: string;
+  session_count: number;
+  last_modified_ms: number;
+}
+
+export async function listClaudeProjects(): Promise<ClaudeProjectEntry[]> {
+  return invoke<ClaudeProjectEntry[]>("list_claude_projects");
+}
+
+// Phase 4 placeholder; Phase 6 implements the file-write body. The wizard's
+// scaffolding step calls this so the IPC path is exercised today —
+// expect `Err("not_implemented")` until Phase 6 lands.
+export interface ScaffoldAgentConfigResult {
+  ok: boolean;
+  files_written: number;
+  message: string;
+}
+
+export async function scaffoldAgentConfig(
+  provider: string,
+  rootPath: string,
+  profile: string,
+): Promise<ScaffoldAgentConfigResult> {
+  return invoke<ScaffoldAgentConfigResult>("scaffold_agent_config", {
+    provider,
+    rootPath,
+    profile,
+  });
+}
