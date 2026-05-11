@@ -60,8 +60,7 @@ describe('roots step — store interactions', () => {
 	it('emptying both lists is allowed (continue still possible)', () => {
 		const s = useShellStore.getState();
 		for (const r of [...useShellStore.getState().fileRoots]) s.removeFileRoot(r);
-		for (const r of [...useShellStore.getState().claudeProjectRoots])
-			s.removeClaudeProjectRoot(r);
+		for (const r of [...useShellStore.getState().claudeProjectRoots]) s.removeClaudeProjectRoot(r);
 		expect(useShellStore.getState().fileRoots).toEqual([]);
 		expect(useShellStore.getState().claudeProjectRoots).toEqual([]);
 	});

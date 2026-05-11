@@ -7,10 +7,7 @@
 
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import {
-	createDefaultOnboardingState,
-	useShellStore,
-} from '@/lib/shell/shell-store';
+import { createDefaultOnboardingState, useShellStore } from '@/lib/shell/shell-store';
 
 import type { ScaffoldingPayload } from './scaffolding-body';
 

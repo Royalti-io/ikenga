@@ -66,12 +66,9 @@ export function TelemetryBody({ onContinue }: TelemetryBodyProps) {
 							<div className="text-[14px] font-semibold">
 								Share anonymous detection &amp; crash stats
 							</div>
-							<div
-								className="mt-1 truncate text-[11.5px]"
-								style={{ color: 'var(--fg-muted)' }}
-							>
-								Sent to <span className="font-mono">telemetry.ikenga.ai</span> · scrubbed at
-								edge · 30-day retention
+							<div className="mt-1 truncate text-[11.5px]" style={{ color: 'var(--fg-muted)' }}>
+								Sent to <span className="font-mono">telemetry.ikenga.ai</span> · scrubbed at edge ·
+								30-day retention
 							</div>
 						</div>
 						<Toggle on={current} onClick={toggle} />
@@ -81,10 +78,9 @@ export function TelemetryBody({ onContinue }: TelemetryBodyProps) {
 						style={{ borderColor: 'var(--border-soft)', color: 'var(--fg-muted)' }}
 					>
 						You can flip this any time from{' '}
-						<span className="font-mono text-[11px]">Settings → Privacy</span>. Crashes are
-						logged locally to{' '}
-						<span className="font-mono text-[11px]">~/.ikenga/crash/</span> either way, for your
-						own debugging.
+						<span className="font-mono text-[11px]">Settings → Privacy</span>. Crashes are logged
+						locally to <span className="font-mono text-[11px]">~/.ikenga/crash/</span> either way,
+						for your own debugging.
 					</div>
 				</div>
 
@@ -185,8 +181,7 @@ function DataColumn({
 				<span
 					className="flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-bold"
 					style={{
-						background:
-							tone === 'send' ? 'var(--success)' : 'var(--bg-raised)',
+						background: tone === 'send' ? 'var(--success)' : 'var(--bg-raised)',
 						color: tone === 'send' ? 'var(--success-fg, white)' : 'var(--fg-faint)',
 					}}
 					aria-hidden="true"

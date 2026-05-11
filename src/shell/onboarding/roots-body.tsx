@@ -107,9 +107,9 @@ export function RootsBody({ onContinue }: RootsBodyProps) {
 					Pick the folders Ikenga should know about.
 				</h1>
 				<p className="mt-2 max-w-[60ch] text-sm" style={{ color: 'var(--fg-muted)' }}>
-					File roots are the read/watch allowlist (anything outside is blocked at the Tauri
-					layer). Project roots seed the <span className="font-mono text-xs">/claude</span>{' '}
-					config browser. You can edit both later from Settings.
+					File roots are the read/watch allowlist (anything outside is blocked at the Tauri layer).
+					Project roots seed the <span className="font-mono text-xs">/claude</span> config browser.
+					You can edit both later from Settings.
 				</p>
 			</div>
 
@@ -130,8 +130,8 @@ export function RootsBody({ onContinue }: RootsBodyProps) {
 								color: 'var(--fg-muted)',
 							}}
 						>
-							No file roots — the shell will be read-only on disk until you add one. (You can
-							also continue and add roots later from Settings.)
+							No file roots — the shell will be read-only on disk until you add one. (You can also
+							continue and add roots later from Settings.)
 						</div>
 					)}
 					{fileRoots.map((path) => (
@@ -186,8 +186,8 @@ export function RootsBody({ onContinue }: RootsBodyProps) {
 								color: 'var(--fg-muted)',
 							}}
 						>
-							No project roots yet. Personal <span className="font-mono">~/.claude/</span> is
-							always scanned in addition to whatever you add here.
+							No project roots yet. Personal <span className="font-mono">~/.claude/</span> is always
+							scanned in addition to whatever you add here.
 						</div>
 					)}
 					{claudeProjectRoots.map((path) => (
@@ -243,23 +243,14 @@ export function RootsBody({ onContinue }: RootsBodyProps) {
 									style={{ borderColor: 'var(--border-soft)' }}
 								>
 									<div className="min-w-0 flex-1">
-										<div
-											className="truncate font-mono text-[12px]"
-											title={s.path}
-										>
+										<div className="truncate font-mono text-[12px]" title={s.path}>
 											{s.display_path}
 										</div>
-										<div
-											className="text-[11px]"
-											style={{ color: 'var(--fg-faint)' }}
-										>
+										<div className="text-[11px]" style={{ color: 'var(--fg-faint)' }}>
 											{s.session_count} session{s.session_count === 1 ? '' : 's'} on disk
 										</div>
 									</div>
-									<span
-										className="text-xs"
-										style={{ color: 'var(--primary)' }}
-									>
+									<span className="text-xs" style={{ color: 'var(--primary)' }}>
 										+ Add
 									</span>
 								</button>

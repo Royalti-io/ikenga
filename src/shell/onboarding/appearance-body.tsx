@@ -109,7 +109,9 @@ export function AppearanceBody({ onContinue }: AppearanceBodyProps) {
 							key={t.id}
 							type="button"
 							onClick={() => setTheme(t.id)}
-							className={cn('relative overflow-hidden rounded-lg border text-left transition-colors')}
+							className={cn(
+								'relative overflow-hidden rounded-lg border text-left transition-colors'
+							)}
 							style={{
 								borderColor: theme === t.id ? 'var(--primary)' : 'var(--border-soft)',
 								background: 'var(--bg-surface)',
@@ -137,35 +139,23 @@ export function AppearanceBody({ onContinue }: AppearanceBodyProps) {
 								className="flex h-24 flex-col justify-between gap-2 p-3"
 								style={{ background: t.swatches[0] }}
 							>
-								<div
-									className="h-1.5 w-[60%] rounded-full"
-									style={{ background: t.swatches[1] }}
-								/>
+								<div className="h-1.5 w-[60%] rounded-full" style={{ background: t.swatches[1] }} />
 								<div className="flex items-center gap-1">
-									<span
-										className="h-3 w-6 rounded-sm"
-										style={{ background: t.swatches[1] }}
-									/>
+									<span className="h-3 w-6 rounded-sm" style={{ background: t.swatches[1] }} />
 									<span
 										className="h-3 flex-1 rounded-sm"
 										style={{ background: 'rgba(0,0,0,0.06)' }}
 									/>
 								</div>
 								<div className="flex items-center gap-1">
-									<span
-										className="h-3 w-8 rounded-sm"
-										style={{ background: t.swatches[2] }}
-									/>
+									<span className="h-3 w-8 rounded-sm" style={{ background: t.swatches[2] }} />
 									<span
 										className="h-3 flex-1 rounded-sm"
 										style={{ background: 'rgba(0,0,0,0.06)' }}
 									/>
 								</div>
 							</div>
-							<div
-								className="border-t px-4 py-3"
-								style={{ borderColor: 'var(--border-soft)' }}
-							>
+							<div className="border-t px-4 py-3" style={{ borderColor: 'var(--border-soft)' }}>
 								<div className="text-[13.5px] font-bold">
 									{t.name}
 									{t.id === 'A' && (
@@ -262,15 +252,7 @@ export function AppearanceBody({ onContinue }: AppearanceBodyProps) {
 	);
 }
 
-function ModeButton({
-	on,
-	onClick,
-	label,
-}: {
-	on: boolean;
-	onClick: () => void;
-	label: string;
-}) {
+function ModeButton({ on, onClick, label }: { on: boolean; onClick: () => void; label: string }) {
 	return (
 		<button
 			type="button"
@@ -293,10 +275,7 @@ function DensityGlyph({ id }: { id: IkengaDensity }) {
 	const lines = id === 'compact' ? 5 : id === 'comfortable' ? 4 : 3;
 	const lineHeight = id === 'spacious' ? 3 : id === 'compact' ? 1.5 : 2;
 	return (
-		<div
-			className="flex h-10 w-9 flex-none flex-col justify-around"
-			aria-hidden="true"
-		>
+		<div className="flex h-10 w-9 flex-none flex-col justify-around" aria-hidden="true">
 			{Array.from({ length: lines }).map((_, i) => (
 				<span
 					key={i}

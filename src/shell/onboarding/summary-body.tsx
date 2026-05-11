@@ -103,9 +103,7 @@ export function SummaryBody({ onFinish, goTo }: SummaryBodyProps) {
 					<div>
 						<div className="text-[13px] font-semibold">Setup complete</div>
 						<div className="text-[11.5px]" style={{ color: 'var(--fg-muted)' }}>
-							{startedAt
-								? `Started ${formatRelative(startedAt)}`
-								: 'Reviewed your choices'}
+							{startedAt ? `Started ${formatRelative(startedAt)}` : 'Reviewed your choices'}
 						</div>
 					</div>
 				</div>
@@ -113,11 +111,7 @@ export function SummaryBody({ onFinish, goTo }: SummaryBodyProps) {
 
 			<div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3" data-testid="summary-grid">
 				{cards.map((card) => (
-					<SummaryCard
-						key={card.id}
-						card={card}
-						onEdit={() => goTo(card.id)}
-					/>
+					<SummaryCard key={card.id} card={card} onEdit={() => goTo(card.id)} />
 				))}
 			</div>
 
@@ -280,19 +274,14 @@ function renderCard(
 				...base,
 				value: rec.status === 'completed' ? 'Packages selected' : 'Pending (Phase 5)',
 				detail:
-					rec.status !== 'completed'
-						? 'Packages will land in a follow-up release.'
-						: undefined,
+					rec.status !== 'completed' ? 'Packages will land in a follow-up release.' : undefined,
 			};
 		}
 		case 'connectors': {
 			return {
 				...base,
 				value: rec.status === 'completed' ? 'Connectors configured' : 'Pending (Phase 5)',
-				detail:
-					rec.status !== 'completed'
-						? 'Connector wiring lands in Phase 5.'
-						: undefined,
+				detail: rec.status !== 'completed' ? 'Connector wiring lands in Phase 5.' : undefined,
 			};
 		}
 		case 'scaffolding': {
@@ -335,9 +324,7 @@ function renderCard(
 			return {
 				...base,
 				value: enabled ? 'Anonymous stats ON' : 'Off',
-				detail: enabled
-					? 'Batched daily · scrubbed at edge.'
-					: 'Nothing leaves your machine.',
+				detail: enabled ? 'Batched daily · scrubbed at edge.' : 'Nothing leaves your machine.',
 			};
 		}
 		default:

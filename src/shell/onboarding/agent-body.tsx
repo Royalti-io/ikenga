@@ -200,8 +200,8 @@ export function AgentBody({ onContinue }: AgentBodyProps) {
 				>
 					<h2 className="mb-2 text-base font-semibold">No coding agents detected</h2>
 					<p className="mb-4 text-sm" style={{ color: 'var(--fg-muted)' }}>
-						We scanned <span className="font-mono text-xs">$PATH</span> and the usual install
-						dirs. Install one of these and re-scan, or continue without an engine.
+						We scanned <span className="font-mono text-xs">$PATH</span> and the usual install dirs.
+						Install one of these and re-scan, or continue without an engine.
 					</p>
 					<div className="grid gap-2">
 						{Object.entries(INSTALL_HINTS).map(([id, hint]) => (
@@ -213,10 +213,7 @@ export function AgentBody({ onContinue }: AgentBodyProps) {
 								<div>
 									<div className="text-[13px] font-semibold">{hint.display}</div>
 									{hint.cmd && (
-										<div
-											className="mt-0.5 font-mono text-xs"
-											style={{ color: 'var(--fg-faint)' }}
-										>
+										<div className="mt-0.5 font-mono text-xs" style={{ color: 'var(--fg-faint)' }}>
 											{hint.cmd}
 										</div>
 									)}
@@ -240,11 +237,7 @@ export function AgentBody({ onContinue }: AgentBodyProps) {
 								dormant.
 							</div>
 						</div>
-						<Button
-							variant="secondary"
-							onClick={handleOffline}
-							data-testid="agents-offline-cta"
-						>
+						<Button variant="secondary" onClick={handleOffline} data-testid="agents-offline-cta">
 							{isOffline ? 'Offline selected' : 'Use offline mode'}
 						</Button>
 					</div>
@@ -252,9 +245,7 @@ export function AgentBody({ onContinue }: AgentBodyProps) {
 			)}
 
 			{/* ── Don't see yours? expander ────────────────────────────────── */}
-			{!isLoading && agents.length > 0 && (
-				<DontSeeYours installedIds={agents.map((a) => a.id)} />
-			)}
+			{!isLoading && agents.length > 0 && <DontSeeYours installedIds={agents.map((a) => a.id)} />}
 
 			{/* ── Offline-mode strip when agents *were* found ─────────────── */}
 			{!isLoading && agents.length > 0 && (
@@ -264,7 +255,10 @@ export function AgentBody({ onContinue }: AgentBodyProps) {
 				>
 					<div
 						className="flex h-7 w-7 flex-none items-center justify-center rounded-full text-xs font-bold"
-						style={{ background: 'var(--info, var(--bg-raised))', color: 'var(--info-fg, var(--fg))' }}
+						style={{
+							background: 'var(--info, var(--bg-raised))',
+							color: 'var(--info-fg, var(--fg))',
+						}}
 						aria-hidden="true"
 					>
 						i
@@ -296,9 +290,7 @@ export function AgentBody({ onContinue }: AgentBodyProps) {
 					}}
 					data-testid="agents-auth-warning"
 				>
-					<div className="text-[13px] font-semibold">
-						{selected?.display} isn't signed in yet
-					</div>
+					<div className="text-[13px] font-semibold">{selected?.display} isn't signed in yet</div>
 					<div className="mt-1 text-xs" style={{ color: 'var(--fg-muted)' }}>
 						{selected?.auth_hint ??
 							'Run the agent CLI once to authenticate, or set the relevant API key in your environment. You can finish onboarding now and fix this later from Settings → Engine.'}
@@ -403,10 +395,7 @@ function AgentCard({ agent, selected, onSelect }: AgentCardProps) {
 					<span className="w-20 flex-none" style={{ color: 'var(--fg-faint)' }}>
 						Binary
 					</span>
-					<span
-						className="truncate font-mono text-[11.5px]"
-						title={agent.executable_path}
-					>
+					<span className="truncate font-mono text-[11.5px]" title={agent.executable_path}>
 						{agent.executable_path}
 					</span>
 				</div>
@@ -493,10 +482,7 @@ function DontSeeYours({ installedIds }: { installedIds: string[] }) {
 						<div>
 							<div className="text-[13px] font-semibold">{hint.display}</div>
 							{hint.cmd && (
-								<div
-									className="mt-0.5 font-mono text-xs"
-									style={{ color: 'var(--fg-faint)' }}
-								>
+								<div className="mt-0.5 font-mono text-xs" style={{ color: 'var(--fg-faint)' }}>
 									{hint.cmd}
 								</div>
 							)}
