@@ -162,6 +162,27 @@ fn user_envelope(text: &str) -> String {
     s
 }
 
+/// Build the line-delimited tool_result envelope. The `output` may be a
+/// plain string or a structured value — Anthropic accepts both, the latter
+/// is how we ferry back e.g. AskUserQuestion answers without losing shape.
+fn tool_result_envelope(tool_use_id: &str, output: &serde_json::Value, is_error: bool) -> String {
+    let value = serde_json::json!({
+        "type": "user",
+        "message": {
+            "role": "user",
+            "content": [{
+                "type": "tool_result",
+                "tool_use_id": tool_use_id,
+                "content": output,
+                "is_error": is_error,
+            }]
+        }
+    });
+    let mut s = serde_json::to_string(&value).unwrap_or_else(|_| String::from("{}"));
+    s.push('\n');
+    s
+}
+
 /// Spawn a streaming-input claude child for this session. The first user
 /// envelope is written before the reader task starts (claude buffers stdin
 /// until it begins reading, so the order is fine).
@@ -336,6 +357,37 @@ pub async fn send_user_message(
         .cloned()
         .ok_or_else(|| "streaming child vanished".to_string())?;
     let envelope = user_envelope(&text);
+    let mut stdin = streaming.stdin.lock().await;
+    stdin
+        .write_all(envelope.as_bytes())
+        .await
+        .map_err(|e| format!("stdin write: {e}"))?;
+    stdin
+        .flush()
+        .await
+        .map_err(|e| format!("stdin flush: {e}"))?;
+    Ok(())
+}
+
+/// Send a tool_result envelope to the session's streaming child. Used by
+/// interactive tool renderers (e.g. AskUserQuestion) to ferry the user's
+/// answer back into Claude's agent loop. Fails if the streaming child is
+/// not alive — the caller should have made sure a turn is in flight (a
+/// tool_use can only arrive while one is).
+pub async fn send_tool_result(
+    session: Arc<Session>,
+    tool_use_id: String,
+    output: serde_json::Value,
+    is_error: bool,
+) -> Result<(), String> {
+    let streaming = session
+        .streaming
+        .lock()
+        .await
+        .as_ref()
+        .cloned()
+        .ok_or_else(|| "no streaming child for tool_result".to_string())?;
+    let envelope = tool_result_envelope(&tool_use_id, &output, is_error);
     let mut stdin = streaming.stdin.lock().await;
     stdin
         .write_all(envelope.as_bytes())

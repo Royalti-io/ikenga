@@ -426,6 +426,18 @@ export async function sessionSend(threadId: string, text: string): Promise<void>
 	return invoke('session_send', { threadId, text });
 }
 
+/** Submit a tool result back to Claude — used by interactive tool
+ *  renderers like AskUserQuestion to ferry the user's answer into the
+ *  agent loop. `output` is a JSON value (string or structured). */
+export async function sessionToolResult(
+	threadId: string,
+	toolUseId: string,
+	output: unknown,
+	isError = false,
+): Promise<void> {
+	return invoke('session_tool_result', { threadId, toolUseId, output, isError });
+}
+
 /** Kill the streaming child but keep the session row so the next send
  *  re-spawns. Idempotent. */
 export async function sessionCancel(threadId: string): Promise<void> {

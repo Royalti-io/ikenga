@@ -36,7 +36,9 @@ use crate::claude::{
     is_session_jsonl,
     jsonl_reader::{read_jsonl, summarize, SessionSummary as JsonlSessionSummary},
     projects_root,
-    session::{cancel_streaming, send_user_message, SessionOpts, SessionsState},
+    session::{
+        cancel_streaming, send_tool_result, send_user_message, SessionOpts, SessionsState,
+    },
     stream_parser::StreamParser,
 };
 use crate::pty::{PtyManager, SpawnOpts};
@@ -278,6 +280,25 @@ pub async fn session_send(
         .await
         .ok_or_else(|| format!("no session for thread {threadId}"))?;
     send_user_message(app, session, text).await
+}
+
+/// Submit a tool result back to Claude — used by interactive tool
+/// renderers like `AskUserQuestion` to ferry the user's answer into the
+/// agent loop. `output` is a JSON value (Anthropic accepts plain strings
+/// or structured payloads); set `isError: true` to signal failure.
+#[tauri::command]
+pub async fn session_tool_result(
+    sessions: State<'_, SessionsState>,
+    #[allow(non_snake_case)] threadId: String,
+    #[allow(non_snake_case)] toolUseId: String,
+    output: serde_json::Value,
+    #[allow(non_snake_case)] isError: Option<bool>,
+) -> Result<(), String> {
+    let session = sessions
+        .get(&threadId)
+        .await
+        .ok_or_else(|| format!("no session for thread {threadId}"))?;
+    send_tool_result(session, toolUseId, output, isError.unwrap_or(false)).await
 }
 
 /// Kill the streaming child but leave the in-memory session row so the next
