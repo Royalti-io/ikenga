@@ -26,6 +26,12 @@ import {
 	type ConnectorTestResult,
 	findConnector,
 } from '@/lib/onboarding/connectors';
+import {
+	type PkgInstallResult,
+	prewarmCatalog,
+	summariseBatch,
+	triggerPkgInstalls,
+} from '@/lib/onboarding/install-queue';
 import { findCatalogEntry, ONBOARDING_PKG_CATALOG } from '@/lib/onboarding/pkg-catalog';
 import {
 	type ConnectorRequirement,
@@ -40,6 +46,8 @@ export interface ConnectorsStepPayload {
 	configured: ConnectorId[];
 	/** Connectors the user opted to skip during this run. */
 	skipped: ConnectorId[];
+	/** Outcome of the post-step pkg install batch — surfaced by Summary. */
+	installResults?: PkgInstallResult[];
 }
 
 interface ConnectorsBodyProps {
@@ -128,6 +136,34 @@ export function ConnectorsBody({ onContinue, onSkip }: ConnectorsBodyProps) {
 		setPayload(next);
 	};
 
+	const handleContinue = async () => {
+		// Pkgs whose connectors the user skipped install but stay disabled
+		// (Settings → Integrations card prompts them to come back). Collect
+		// the consumer ids so the install queue can log them.
+		const skippedPkgIds = new Set<string>();
+		for (const req of requirements) {
+			if (skippedSet.has(req.connectorId)) {
+				for (const id of req.requiredBy) skippedPkgIds.add(id);
+			}
+		}
+		// Fire installs in the background — don't block Continue on them.
+		void (async () => {
+			try {
+				await prewarmCatalog();
+				const installResults = await triggerPkgInstalls({
+					selectedPkgIds,
+					skippedConnectorPkgIds: skippedPkgIds,
+				});
+				const summary = summariseBatch(installResults);
+				console.info('[onboarding/install] batch summary', summary);
+				setPayload({ ...persisted, installResults });
+			} catch (e) {
+				console.warn('[onboarding/install] batch failed', e);
+			}
+		})();
+		onContinue();
+	};
+
 	if (requirements.length === 0) {
 		// The effect above is bouncing us out — render nothing to avoid a
 		// frame of "no connectors required" flash.
@@ -195,7 +231,7 @@ export function ConnectorsBody({ onContinue, onSkip }: ConnectorsBodyProps) {
 						{summariseRequirements(requirements, configuredSet, skippedSet, statuses.data ?? {})}
 					</span>
 					<Button
-						onClick={onContinue}
+						onClick={() => void handleContinue()}
 						data-testid="connectors-inline-continue"
 						disabled={!allHandled}
 					>
