@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   ChevronDown,
   ChevronRight,
@@ -8,6 +8,7 @@ import {
   RefreshCw,
   Pencil,
   Trash2,
+  MoreHorizontal,
 } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
@@ -25,16 +26,30 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
-// Folders we never auto-list. The dot-file filter already catches `.git`,
-// `.next`, `.cache`, `.turbo`, etc.; this catches the un-prefixed ones that
-// can each hold tens of thousands of entries.
+// Folders we never auto-list by default. The dot-file filter already catches
+// `.git`, `.next`, `.cache`, `.turbo`, etc.; this catches the un-prefixed ones
+// that can each hold tens of thousands of entries. Toggle off via the
+// "Show ignored folders" view option (still lazy on expand).
 const IGNORED_DIRS = new Set(['node_modules', 'target', 'dist', 'build', 'out']);
 
-function sortEntries(list: FileEntry[]): FileEntry[] {
-  const filtered = list.filter(
-    (e) => !e.name.startsWith('.') && !(e.isDir && IGNORED_DIRS.has(e.name)),
-  );
+interface SortOptions {
+  showHidden: boolean;
+  showIgnored: boolean;
+}
+
+function sortEntries(list: FileEntry[], opts: SortOptions): FileEntry[] {
+  const filtered = list.filter((e) => {
+    if (!opts.showHidden && e.name.startsWith('.')) return false;
+    if (!opts.showIgnored && e.isDir && IGNORED_DIRS.has(e.name)) return false;
+    return true;
+  });
   filtered.sort((a, b) => {
     if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
     return a.name.localeCompare(b.name);
@@ -83,6 +98,8 @@ function TreeNode({ entry, depth }: TreeNodeProps) {
   const collapse = useFilesStore((s) => s.collapse);
   const setSelected = useFilesStore((s) => s.setSelected);
   const prune = useFilesStore((s) => s.prune);
+  const showHidden = useFilesStore((s) => s.showHidden);
+  const showIgnored = useFilesStore((s) => s.showIgnored);
   const qc = useQueryClient();
 
   const [renaming, setRenaming] = useState(false);
@@ -90,12 +107,20 @@ function TreeNode({ entry, depth }: TreeNodeProps) {
   const [actionError, setActionError] = useState<string | null>(null);
   const renameInputRef = useRef<HTMLInputElement | null>(null);
 
+  // Re-create the select fn when flags change so the visible list updates
+  // immediately. TanStack Query memoizes by reference, so we need a new fn
+  // identity here.
+  const selectSorted = useMemo(
+    () => (list: FileEntry[]) => sortEntries(list, { showHidden, showIgnored }),
+    [showHidden, showIgnored]
+  );
+
   const childrenQuery = useQuery({
     queryKey: queryKeys.fs.list(entry.path),
     queryFn: () => fsList(entry.path),
     enabled: entry.isDir && expanded,
     staleTime: 30_000,
-    select: sortEntries,
+    select: selectSorted,
   });
 
   // If the directory disappeared, prune it from expanded so we don't
@@ -170,7 +195,7 @@ function TreeNode({ entry, depth }: TreeNodeProps) {
       }
       void qc.invalidateQueries({ queryKey: queryKeys.fs.list(entry.path) });
     },
-    [entry.isDir, entry.path, expanded, toggle, qc],
+    [entry.isDir, entry.path, expanded, toggle, qc]
   );
 
   const children = childrenQuery.data;
@@ -189,96 +214,96 @@ function TreeNode({ entry, depth }: TreeNodeProps) {
     <div>
       <ContextMenu>
         <ContextMenuTrigger asChild>
-      <div
-        className={cn(
-          'group/row relative flex w-max min-w-full items-center text-xs transition-colors',
-          'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
-          isSelected && 'bg-accent text-accent-foreground font-medium',
-        )}
-      >
-        <button
-          type="button"
-          onClick={handleClick}
-          className="flex flex-1 items-center gap-1 whitespace-nowrap px-2 py-1 text-left"
-          style={{ paddingLeft: `${Math.min(depth, 10) * 12 + 8}px` }}
-          title={entry.path}
-        >
-          {entry.isDir ? (
-            expanded ? (
-              <ChevronDown className="h-3 w-3 shrink-0" />
-            ) : (
-              <ChevronRight className="h-3 w-3 shrink-0" />
-            )
-          ) : (
-            <span className="h-3 w-3 shrink-0" aria-hidden />
-          )}
-          {entry.isDir ? (
-            <Folder className="h-3.5 w-3.5 shrink-0" />
-          ) : (
-            <FileText className="h-3.5 w-3.5 shrink-0" />
-          )}
-          {renaming ? (
-            <input
-              ref={renameInputRef}
-              value={renameValue}
-              onChange={(e) => setRenameValue(e.target.value)}
-              onClick={(e) => e.stopPropagation()}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  void commitRename();
-                } else if (e.key === 'Escape') {
-                  e.preventDefault();
-                  setRenaming(false);
-                }
-              }}
-              onBlur={() => void commitRename()}
-              className="w-full min-w-0 rounded border border-border bg-background px-1 py-0 text-xs text-foreground outline-none focus:border-ring"
-            />
-          ) : (
-            <span className="whitespace-nowrap">{entry.name}</span>
-          )}
-        </button>
-        {!renaming && (
-          <div className="absolute right-1 top-1/2 hidden -translate-y-1/2 items-center gap-0.5 rounded bg-accent pl-1 group-hover/row:flex">
-            {entry.isDir && (
-              <button
-                type="button"
-                onClick={handleRefresh}
-                className="rounded p-0.5 text-muted-foreground hover:bg-background hover:text-foreground"
-                title="Refresh"
-                aria-label="Refresh"
-              >
-                <RefreshCw className="h-3 w-3" />
-              </button>
+          <div
+            className={cn(
+              'group/row relative flex w-max min-w-full items-center text-xs transition-colors',
+              'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+              isSelected && 'bg-accent text-accent-foreground font-medium'
             )}
+          >
             <button
               type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                startRename();
-              }}
-              className="rounded p-0.5 text-muted-foreground hover:bg-background hover:text-foreground"
-              title="Rename"
-              aria-label="Rename"
+              onClick={handleClick}
+              className="flex flex-1 items-center gap-1 whitespace-nowrap px-2 py-1 text-left"
+              style={{ paddingLeft: `${Math.min(depth, 10) * 12 + 8}px` }}
+              title={entry.path}
             >
-              <Pencil className="h-3 w-3" />
+              {entry.isDir ? (
+                expanded ? (
+                  <ChevronDown className="h-3 w-3 shrink-0" />
+                ) : (
+                  <ChevronRight className="h-3 w-3 shrink-0" />
+                )
+              ) : (
+                <span className="h-3 w-3 shrink-0" aria-hidden />
+              )}
+              {entry.isDir ? (
+                <Folder className="h-3.5 w-3.5 shrink-0" />
+              ) : (
+                <FileText className="h-3.5 w-3.5 shrink-0" />
+              )}
+              {renaming ? (
+                <input
+                  ref={renameInputRef}
+                  value={renameValue}
+                  onChange={(e) => setRenameValue(e.target.value)}
+                  onClick={(e) => e.stopPropagation()}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      void commitRename();
+                    } else if (e.key === 'Escape') {
+                      e.preventDefault();
+                      setRenaming(false);
+                    }
+                  }}
+                  onBlur={() => void commitRename()}
+                  className="w-full min-w-0 rounded border border-border bg-background px-1 py-0 text-xs text-foreground outline-none focus:border-ring"
+                />
+              ) : (
+                <span className="whitespace-nowrap">{entry.name}</span>
+              )}
             </button>
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                void handleDelete();
-              }}
-              className="rounded p-0.5 text-muted-foreground hover:bg-background hover:text-destructive"
-              title="Move to trash"
-              aria-label="Move to trash"
-            >
-              <Trash2 className="h-3 w-3" />
-            </button>
+            {!renaming && (
+              <div className="absolute right-1 top-1/2 hidden -translate-y-1/2 items-center gap-0.5 rounded bg-accent pl-1 group-hover/row:flex">
+                {entry.isDir && (
+                  <button
+                    type="button"
+                    onClick={handleRefresh}
+                    className="rounded p-0.5 text-muted-foreground hover:bg-background hover:text-foreground"
+                    title="Refresh"
+                    aria-label="Refresh"
+                  >
+                    <RefreshCw className="h-3 w-3" />
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    startRename();
+                  }}
+                  className="rounded p-0.5 text-muted-foreground hover:bg-background hover:text-foreground"
+                  title="Rename"
+                  aria-label="Rename"
+                >
+                  <Pencil className="h-3 w-3" />
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void handleDelete();
+                  }}
+                  className="rounded p-0.5 text-muted-foreground hover:bg-background hover:text-destructive"
+                  title="Move to trash"
+                  aria-label="Move to trash"
+                >
+                  <Trash2 className="h-3 w-3" />
+                </button>
+              </div>
+            )}
           </div>
-        )}
-      </div>
         </ContextMenuTrigger>
         <ContextMenuContent>
           {!entry.isDir && (
@@ -372,11 +397,17 @@ interface RootSectionProps {
 
 function RootSection({ rootPath }: RootSectionProps) {
   const qc = useQueryClient();
+  const showHidden = useFilesStore((s) => s.showHidden);
+  const showIgnored = useFilesStore((s) => s.showIgnored);
+  const selectSorted = useMemo(
+    () => (list: FileEntry[]) => sortEntries(list, { showHidden, showIgnored }),
+    [showHidden, showIgnored]
+  );
   const rootQuery = useQuery({
     queryKey: queryKeys.fs.list(rootPath),
     queryFn: () => fsList(rootPath),
     staleTime: 30_000,
-    select: sortEntries,
+    select: selectSorted,
   });
 
   const reload = useCallback(() => {
@@ -420,7 +451,9 @@ function RootSection({ rootPath }: RootSectionProps) {
       {!entries && !error && (
         <div className="px-3 py-1 text-xs text-muted-foreground italic">loading…</div>
       )}
-      {entries?.map((entry) => <TreeNode key={entry.path} entry={entry} depth={0} />)}
+      {entries?.map((entry) => (
+        <TreeNode key={entry.path} entry={entry} depth={0} />
+      ))}
     </div>
   );
 }
@@ -431,14 +464,39 @@ export function FilesMode() {
   const hydrate = useFilesStore((s) => s.hydrate);
   const storedScrollTop = useFilesStore((s) => s.scrollTop);
   const setScrollTop = useFilesStore((s) => s.setScrollTop);
+  const showHidden = useFilesStore((s) => s.showHidden);
+  const showIgnored = useFilesStore((s) => s.showIgnored);
+  const setShowHidden = useFilesStore((s) => s.setShowHidden);
+  const setShowIgnored = useFilesStore((s) => s.setShowIgnored);
+  const toggleShowHidden = useFilesStore((s) => s.toggleShowHidden);
   const scrollerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     void hydrate();
   }, [hydrate]);
 
+  // Cmd+. (Mac) / Ctrl+. (Linux/Windows) → toggle hidden files. Matches the
+  // Finder convention. Bare `.` (no modifier) is left alone so users can
+  // still type into rename inputs and search boxes. Scoped to keypresses
+  // outside text inputs, same gating as the activity-bar shortcuts.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const mod = e.metaKey || e.ctrlKey;
+      if (!mod || e.shiftKey || e.altKey) return;
+      if (e.key !== '.') return;
+      const target = e.target as HTMLElement | null;
+      if (target?.matches('input, textarea, [contenteditable="true"]')) return;
+      e.preventDefault();
+      toggleShowHidden();
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [toggleShowHidden]);
+
   // Restore scroll once on hydrate. Re-apply after a beat so late-resolving
-  // queries that grow the tree don't clobber it.
+  // queries that grow the tree don't clobber it. Intentionally only run on the
+  // hydrate transition — not on every scroll.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: storedScrollTop is read fresh from the closure but we deliberately don't re-run on every scroll-save.
   useLayoutEffect(() => {
     if (!hydrated || !scrollerRef.current) return;
     const el = scrollerRef.current;
@@ -447,8 +505,6 @@ export function FilesMode() {
       el.scrollTop = storedScrollTop;
     }, 200);
     return () => window.clearTimeout(t);
-    // Intentionally only run on hydrate transition — not on every scroll.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hydrated]);
 
   const scrollSaveRef = useRef<number | null>(null);
@@ -463,6 +519,38 @@ export function FilesMode() {
 
   return (
     <div className="flex h-full flex-col">
+      <div className="flex items-center justify-between border-b border-border px-3 py-1.5">
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          Files
+        </span>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+              title="View options"
+              aria-label="View options"
+            >
+              <MoreHorizontal className="h-3.5 w-3.5" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuCheckboxItem
+              checked={showHidden}
+              onCheckedChange={(v) => setShowHidden(Boolean(v))}
+            >
+              Show hidden files
+              <span className="ml-auto text-[10px] text-muted-foreground">⌘.</span>
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuCheckboxItem
+              checked={showIgnored}
+              onCheckedChange={(v) => setShowIgnored(Boolean(v))}
+            >
+              Show ignored folders
+            </DropdownMenuCheckboxItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
       <div ref={scrollerRef} onScroll={onScroll} className="flex-1 overflow-auto">
         {fileRoots.length === 0 && (
           <div className="p-4 text-xs text-muted-foreground">

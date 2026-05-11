@@ -22,9 +22,7 @@ export const DEFAULT_FILE_ROOTS: readonly string[] = Object.freeze([
 // that contains a `.claude/` subfolder (agents/skills/commands/settings).
 // Personal `~/.claude/` is always scanned in addition to these — it doesn't
 // need to be listed.
-export const DEFAULT_CLAUDE_PROJECT_ROOTS: readonly string[] = Object.freeze([
-  '~/royalti-co',
-]);
+export const DEFAULT_CLAUDE_PROJECT_ROOTS: readonly string[] = Object.freeze(['~/royalti-co']);
 
 interface ShellState {
   activeMode: ActivityMode;
@@ -33,11 +31,16 @@ interface ShellState {
   fileRoots: string[];
   addFileRoot: (path: string) => void;
   removeFileRoot: (path: string) => void;
+  /** Replace `oldPath` with `newPath` (no-op if oldPath isn't present, or if
+   * the new path is empty / a duplicate of an existing entry). Used by the
+   * editable settings selectors. */
+  updateFileRoot: (oldPath: string, newPath: string) => void;
   resetFileRoots: () => void;
 
   claudeProjectRoots: string[];
   addClaudeProjectRoot: (path: string) => void;
   removeClaudeProjectRoot: (path: string) => void;
+  updateClaudeProjectRoot: (oldPath: string, newPath: string) => void;
   resetClaudeProjectRoots: () => void;
   claudeWatchEnabled: boolean;
   setClaudeWatchEnabled: (enabled: boolean) => void;
@@ -56,8 +59,19 @@ export const useShellStore = create<ShellState>()(
         if (get().fileRoots.includes(trimmed)) return;
         set({ fileRoots: [...get().fileRoots, trimmed] });
       },
-      removeFileRoot: (path) =>
-        set({ fileRoots: get().fileRoots.filter((r) => r !== path) }),
+      removeFileRoot: (path) => set({ fileRoots: get().fileRoots.filter((r) => r !== path) }),
+      updateFileRoot: (oldPath, newPath) => {
+        const trimmed = newPath.trim();
+        if (!trimmed || trimmed === oldPath) return;
+        const cur = get().fileRoots;
+        const idx = cur.indexOf(oldPath);
+        if (idx < 0) return;
+        // Don't allow renaming on top of another existing entry.
+        if (cur.includes(trimmed)) return;
+        const next = [...cur];
+        next[idx] = trimmed;
+        set({ fileRoots: next });
+      },
       resetFileRoots: () => set({ fileRoots: [...DEFAULT_FILE_ROOTS] }),
 
       claudeProjectRoots: [...DEFAULT_CLAUDE_PROJECT_ROOTS],
@@ -69,8 +83,18 @@ export const useShellStore = create<ShellState>()(
       },
       removeClaudeProjectRoot: (path) =>
         set({ claudeProjectRoots: get().claudeProjectRoots.filter((r) => r !== path) }),
-      resetClaudeProjectRoots: () =>
-        set({ claudeProjectRoots: [...DEFAULT_CLAUDE_PROJECT_ROOTS] }),
+      updateClaudeProjectRoot: (oldPath, newPath) => {
+        const trimmed = newPath.trim();
+        if (!trimmed || trimmed === oldPath) return;
+        const cur = get().claudeProjectRoots;
+        const idx = cur.indexOf(oldPath);
+        if (idx < 0) return;
+        if (cur.includes(trimmed)) return;
+        const next = [...cur];
+        next[idx] = trimmed;
+        set({ claudeProjectRoots: next });
+      },
+      resetClaudeProjectRoots: () => set({ claudeProjectRoots: [...DEFAULT_CLAUDE_PROJECT_ROOTS] }),
       claudeWatchEnabled: true,
       setClaudeWatchEnabled: (claudeWatchEnabled) => set({ claudeWatchEnabled }),
     }),
@@ -94,6 +118,6 @@ export const useShellStore = create<ShellState>()(
         }
         return p as ShellState;
       },
-    },
-  ),
+    }
+  )
 );
