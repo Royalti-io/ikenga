@@ -213,6 +213,24 @@ export function addTab(
   );
 }
 
+/** Replace the leaf's active tab with `view` (preserving its `pinned` flag).
+ * Used by the URL bar to swap the current view without spawning a new tab.
+ * No-op if the leaf is not found or has no tabs. */
+export function replaceActiveTab(
+  root: PaneNode,
+  leafId: PaneId,
+  view: PaneView,
+): PaneNode {
+  return mapLeaves(root, (leaf) => {
+    if (leaf.id !== leafId) return leaf;
+    if (leaf.tabs.length === 0) return leaf;
+    const active = leaf.tabs[leaf.activeTabIdx];
+    const next: PaneView = active?.pinned ? { ...view, pinned: true } : view;
+    const tabs = leaf.tabs.map((t, i) => (i === leaf.activeTabIdx ? next : t));
+    return { ...leaf, tabs };
+  });
+}
+
 export function switchTab(
   root: PaneNode,
   leafId: PaneId,
