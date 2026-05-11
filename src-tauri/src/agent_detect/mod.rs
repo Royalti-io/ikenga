@@ -51,6 +51,10 @@ pub struct ClaudeProjectEntry {
     pub display_path: String,
     pub session_count: u32,
     pub last_modified_ms: u64,
+    /// True when `path` was confirmed to exist on disk via `metadata()`.
+    /// When false, the wizard renders it as a best-effort guess so the
+    /// user can verify before adding it as a project root.
+    pub path_verified: bool,
 }
 
 /// Scan `~/.claude/projects/` for project session directories. Each entry
@@ -82,8 +86,11 @@ pub async fn list_claude_projects() -> Result<Vec<ClaudeProjectEntry>, String> {
 
         // Claude Code slugifies `/Users/iyke/royalti-co/ikenga/shell` →
         // `-Users-iyke-royalti-co-ikenga-shell`. Reverse the encoding so the
-        // wizard can present the real path as a suggestion.
-        let decoded = decode_claude_slug(&slug);
+        // wizard can present the real path as a suggestion. Inversion is
+        // ambiguous (path components can themselves contain `-`), so prefer
+        // an existence-checked candidate and fall back to the naive
+        // all-slash replacement when nothing exists.
+        let (decoded, path_verified) = decode_claude_slug_with_fs(&slug);
 
         // Count session files (jsonl entries) and grab newest mtime so the
         // wizard can sort recency-first.
@@ -114,6 +121,7 @@ pub async fn list_claude_projects() -> Result<Vec<ClaudeProjectEntry>, String> {
             display_path: contract_home(&decoded, &home),
             session_count,
             last_modified_ms,
+            path_verified,
         });
     }
 
@@ -121,12 +129,9 @@ pub async fn list_claude_projects() -> Result<Vec<ClaudeProjectEntry>, String> {
     Ok(out)
 }
 
-fn decode_claude_slug(slug: &str) -> String {
-    // Slugs are like `-Users-iyke-royalti-co-ikenga`. We can't perfectly
-    // reverse the encoding (path components with internal hyphens are
-    // lossy), but the canonical case is "leading dash + components joined
-    // by dash", which inverts cleanly enough for the wizard's display
-    // purpose.
+/// Pure-string fallback used when no FS probe matches: prepend `/` and
+/// replace every `-` with `/`. Exposed for unit tests.
+pub fn decode_claude_slug_naive(slug: &str) -> String {
     if slug.starts_with('-') {
         let mut s = String::from("/");
         s.push_str(&slug[1..].replace('-', "/"));
@@ -134,6 +139,61 @@ fn decode_claude_slug(slug: &str) -> String {
     } else {
         slug.to_string()
     }
+}
+
+/// Greedy existence-checked decoder. Returns `(path, verified)` where
+/// `verified` is true iff `metadata(path)` succeeded.
+///
+/// Approach: tokenise on `-` after dropping the leading dash. Walk forward
+/// building up a path; for each token decide whether to join with `/` or
+/// `-` based on which (if any) candidate currently exists on disk. We
+/// always prefer the `/` candidate first — that's the canonical Claude
+/// encoding. When neither candidate exists we fall through to the naive
+/// path so the wizard at least surfaces *something* for the user to
+/// verify by hand.
+pub fn decode_claude_slug_with_fs(slug: &str) -> (String, bool) {
+    decode_claude_slug_with_probe(slug, |p| std::path::Path::new(p).exists())
+}
+
+/// Test-seam over `decode_claude_slug_with_fs`. The probe closure stands
+/// in for the real filesystem so unit tests can assert the greedy walk
+/// against a fixture set without touching `~/`.
+pub fn decode_claude_slug_with_probe<F: Fn(&str) -> bool>(slug: &str, exists: F) -> (String, bool) {
+    if !slug.starts_with('-') {
+        return (slug.to_string(), exists(slug));
+    }
+    let body = &slug[1..];
+    let tokens: Vec<&str> = body.split('-').collect();
+    if tokens.is_empty() {
+        return ("/".to_string(), false);
+    }
+
+    // Seed: leading `/<first-token>`. We don't FS-check this — the user's
+    // FS root almost certainly contains it (`/Users`, `/home`, etc.).
+    let mut acc = format!("/{}", tokens[0]);
+
+    for tok in &tokens[1..] {
+        let with_slash = format!("{}/{}", acc, tok);
+        let with_dash = format!("{}-{}", acc, tok);
+        // Prefer `/` (canonical) when it exists; else `-` (literal) when
+        // it exists; else stick with `/` and let the final `exists()` fail
+        // — the wizard surfaces the unverified flag in that case.
+        acc = if exists(&with_slash) {
+            with_slash
+        } else if exists(&with_dash) {
+            with_dash
+        } else {
+            with_slash
+        };
+    }
+
+    let verified = exists(&acc);
+    if verified {
+        return (acc, true);
+    }
+    // Fall back to the naive form for display when nothing matched —
+    // gives the user something to inspect rather than a half-walked path.
+    (decode_claude_slug_naive(slug), false)
 }
 
 fn contract_home(path: &str, home: &std::path::Path) -> String {
@@ -171,4 +231,78 @@ pub async fn scaffold_agent_config(
         profile,
         mode,
     })
+}
+
+#[cfg(test)]
+mod claude_slug_tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    fn probe(set: &HashSet<&'static str>) -> impl Fn(&str) -> bool + '_ {
+        move |p| set.contains(p)
+    }
+
+    #[test]
+    fn naive_decoder_replaces_all_dashes() {
+        // No FS context — pure transform.
+        assert_eq!(
+            decode_claude_slug_naive("-home-nedjamez-royalti-co-ikenga"),
+            "/home/nedjamez/royalti/co/ikenga"
+        );
+        assert_eq!(decode_claude_slug_naive("plain"), "plain");
+    }
+
+    #[test]
+    fn greedy_decoder_keeps_hyphenated_component_when_disk_says_so() {
+        // The user's actual disk: `/home/nedjamez/royalti-co/ikenga` exists,
+        // but `/home/nedjamez/royalti` does not. The greedy walk should
+        // prefer the dash join at the `royalti` → `co` boundary.
+        let set: HashSet<&'static str> = [
+            "/home/nedjamez",
+            "/home/nedjamez/royalti-co",
+            "/home/nedjamez/royalti-co/ikenga",
+        ]
+        .into_iter()
+        .collect();
+        let (path, verified) =
+            decode_claude_slug_with_probe("-home-nedjamez-royalti-co-ikenga", probe(&set));
+        assert_eq!(path, "/home/nedjamez/royalti-co/ikenga");
+        assert!(verified);
+    }
+
+    #[test]
+    fn greedy_decoder_falls_back_to_naive_when_nothing_exists() {
+        let set: HashSet<&'static str> = HashSet::new();
+        let (path, verified) =
+            decode_claude_slug_with_probe("-home-nedjamez-royalti-co-ikenga", probe(&set));
+        assert_eq!(path, "/home/nedjamez/royalti/co/ikenga");
+        assert!(!verified);
+    }
+
+    #[test]
+    fn greedy_decoder_handles_canonical_slash_path() {
+        // Every prefix exists with slashes — should hand back the
+        // canonical slashed form verbatim.
+        let set: HashSet<&'static str> = [
+            "/Users",
+            "/Users/iyke",
+            "/Users/iyke/projects",
+            "/Users/iyke/projects/foo",
+        ]
+        .into_iter()
+        .collect();
+        let (path, verified) =
+            decode_claude_slug_with_probe("-Users-iyke-projects-foo", probe(&set));
+        assert_eq!(path, "/Users/iyke/projects/foo");
+        assert!(verified);
+    }
+
+    #[test]
+    fn greedy_decoder_prefers_slash_when_both_candidates_exist() {
+        // Edge case: both `/a/b` and `/a-b` exist. Slash wins (canonical
+        // Claude encoding) so the user lands on the more common case.
+        let set: HashSet<&'static str> = ["/a", "/a/b", "/a-b"].into_iter().collect();
+        let (path, _) = decode_claude_slug_with_probe("-a-b", probe(&set));
+        assert_eq!(path, "/a/b");
+    }
 }

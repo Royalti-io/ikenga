@@ -1195,10 +1195,15 @@ export async function detectAgentConfig(
 // wizard treats results as suggestions, not source-of-truth.
 export interface ClaudeProjectEntry {
 	slug: string;
+	/** Best-effort decoded path. When `path_verified` is false this is
+	 *  the naive `s/-/\//g` decode — the wizard should show it as a
+	 *  guess the user can edit before adding. */
 	path: string;
 	display_path: string;
 	session_count: number;
 	last_modified_ms: number;
+	/** True iff the Rust side could `metadata()` the decoded path. */
+	path_verified: boolean;
 }
 
 export async function listClaudeProjects(): Promise<ClaudeProjectEntry[]> {

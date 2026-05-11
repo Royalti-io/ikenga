@@ -243,15 +243,38 @@ export function RootsBody({ onContinue }: RootsBodyProps) {
 									key={s.slug}
 									type="button"
 									onClick={() => addClaudeProjectRoot(s.path)}
+									data-verified={s.path_verified}
 									className="flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-left transition-colors hover:border-[var(--border-strong)]"
 									style={{ borderColor: 'var(--border-soft)' }}
 								>
 									<div className="min-w-0 flex-1">
-										<div className="truncate font-mono text-[12px]" title={s.path}>
-											{s.display_path}
+										<div className="flex items-center gap-2">
+											<span
+												className="truncate font-mono text-[12px]"
+												title={s.path}
+											>
+												{s.display_path}
+											</span>
+											{!s.path_verified && (
+												<span
+													className="rounded-full px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-wider"
+													style={{
+														background: 'var(--warning-soft, var(--bg-raised))',
+														color: 'var(--warning, var(--fg-muted))',
+													}}
+													title="Best-effort guess — verify before adding"
+												>
+													guess
+												</span>
+											)}
 										</div>
-										<div className="text-[11px]" style={{ color: 'var(--fg-faint)' }}>
-											{s.session_count} session{s.session_count === 1 ? '' : 's'} on disk
+										<div
+											className="mt-0.5 truncate font-mono text-[10.5px]"
+											style={{ color: 'var(--fg-faint)' }}
+											title={`Claude session dir: ${s.slug}`}
+										>
+											from <span className="opacity-80">~/.claude/projects/{s.slug}</span> ·{' '}
+											{s.session_count} session{s.session_count === 1 ? '' : 's'}
 										</div>
 									</div>
 									<span className="text-xs" style={{ color: 'var(--primary)' }}>
