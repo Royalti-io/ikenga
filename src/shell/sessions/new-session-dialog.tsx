@@ -256,8 +256,13 @@ async function sendFirstPrompt(threadId: string, prompt: string) {
   // Build a minimal action handle and call send directly. Reusing
   // useChatActions would require a React tree — we just want the side
   // effect.
-  const { ClaudeCliAdapter } = await import('../../chat/adapters/claude-cli');
+  // Phase 10: resolve the adapter via the registry (defaults to ACP) instead
+  // of hardcoding the legacy CLI path. The thread's persisted adapterId is
+  // the source of truth; new threads use whatever `defaultChatAdapterId()`
+  // returns at create time.
+  const { getAdapter } = await import('../../chat/registry');
   const { appendUserTurn } = await import('../../chat/persist');
+  const { defaultChatAdapterId } = await import('../../chat/default-adapter');
   const turn = await appendUserTurn(threadId, prompt);
   useChatStore.getState().appendEvents(threadId, [
     {
@@ -267,13 +272,16 @@ async function sendFirstPrompt(threadId: string, prompt: string) {
       createdAt: turn.createdAt,
     },
   ]);
-  const cwd = useChatStore.getState().threads[threadId]?.thread.cwd ?? '';
+  const threadEntry = useChatStore.getState().threads[threadId];
+  const cwd = threadEntry?.thread.cwd ?? '';
+  const adapterId = threadEntry?.thread.adapterId ?? defaultChatAdapterId();
+  const adapter = getAdapter(adapterId);
   try {
-    await ClaudeCliAdapter.attach?.(threadId, cwd || '/home/nedjamez/royalti-co');
+    await adapter.attach?.(threadId, cwd || '/home/nedjamez/royalti-co');
   } catch (e) {
     console.warn('attach (first prompt):', e);
   }
-  const { streamId, iterable } = ClaudeCliAdapter.send({ threadId, text: prompt });
+  const { streamId, iterable } = adapter.send({ threadId, text: prompt });
   useChatStore.getState().setStream(threadId, streamId);
   useChatStore.getState().setStatus(threadId, 'streaming');
   void (async () => {

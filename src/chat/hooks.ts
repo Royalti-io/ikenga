@@ -20,9 +20,7 @@ import {
 } from './persist';
 import { getAdapter } from './registry';
 import { useChatStore, type ThreadState } from './store';
-import { ClaudeCliAdapter } from './adapters/claude-cli';
-
-const DEFAULT_ADAPTER = 'cli';
+import { defaultChatAdapterId } from './default-adapter';
 
 function deriveTitle(events: ChatEvent[]): string | null {
   for (const e of events) {
@@ -143,9 +141,10 @@ export function useThread(threadId: string | null): {
         const title = deriveTitle(jsonlEvents);
 
         if (!thread) {
+          const adapterId = defaultChatAdapterId();
           await createThread({
             id: threadId,
-            adapterId: DEFAULT_ADAPTER,
+            adapterId,
             cwd: meta.cwd ?? '',
             claudeSessionId: null,
             model: meta.model,
@@ -153,7 +152,7 @@ export function useThread(threadId: string | null): {
           });
           thread = (await findThreadById(threadId)) ?? {
             id: threadId,
-            adapterId: DEFAULT_ADAPTER,
+            adapterId,
             title,
             cwd: meta.cwd ?? '',
             model: meta.model,
@@ -184,9 +183,12 @@ export function useThread(threadId: string | null): {
         const merged = mergeUserTurnsWithEvents(jsonlEvents, userTurns);
         upsertThread(thread, merged);
 
-        // Attach the live subscription. Idempotent.
+        // Attach the live subscription via the thread's resolved adapter.
+        // Phase 10 — `getAdapter` returns the ACP adapter by default; threads
+        // persisted under the legacy 'cli' adapter still resolve to it.
         try {
-          await ClaudeCliAdapter.attach?.(threadId, thread.cwd || '/home/nedjamez/royalti-co');
+          const adapter = getAdapter(thread.adapterId);
+          await adapter.attach?.(threadId, thread.cwd || '/home/nedjamez/royalti-co');
         } catch (e) {
           console.warn('adapter.attach failed:', e);
         }
@@ -315,7 +317,7 @@ export function useChatActions(threadId: string | null): ChatActions {
         },
       ]);
 
-      const adapter = getAdapter(state?.thread.adapterId ?? DEFAULT_ADAPTER);
+      const adapter = getAdapter(state?.thread.adapterId ?? defaultChatAdapterId());
       const { streamId, iterable } = adapter.send({ threadId, text });
       setStream(threadId, streamId);
       setStatus(threadId, 'streaming');

@@ -90,14 +90,13 @@ interface ComposerProps {
   className?: string;
   placeholder?: string;
   /**
-   * Phase 5: when true, surface the ACP session-mode picker (badge +
-   * dropdown) next to the adapter label. The picker calls `acpSetMode`
-   * which only the ACP-served path consumes — the legacy chat path
-   * (`session_send`) ignores it. Default false because Phase 5 only
-   * enables it on `/sessions/$sessionId` routes; Phase 10 reshapes the
-   * composer around ACP and this flag goes away.
+   * Phase 5: surfaces the ACP session-mode picker (badge + dropdown) next
+   * to the adapter label. Phase 10 makes this default-on — the ACP adapter
+   * is the new default chat engine, and the picker pairs with it. Callers
+   * can still set `acpEnabled={false}` to mirror the legacy CLI path (used
+   * by the opt-out feature flag).
    *
-   * TODO(phase-10): make this unconditional once the composer is fully ACP.
+   * TODO(phase-11): retire this flag once the legacy adapter is removed.
    */
   acpEnabled?: boolean;
 }
@@ -112,7 +111,12 @@ const MODE_LABELS: Record<AcpSessionModeId, string> = {
 };
 const MODE_IDS: AcpSessionModeId[] = ['plan', 'default', 'auto', 'bypassPermissions'];
 
-export function Composer({ threadId, className, placeholder, acpEnabled }: ComposerProps) {
+export function Composer({
+  threadId,
+  className,
+  placeholder,
+  acpEnabled = true,
+}: ComposerProps) {
   const [text, setText] = useState('');
   const state = useThreadState(threadId);
   const { send, cancel, isStreaming, canSend, lastError } = useChatActions(threadId);

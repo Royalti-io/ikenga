@@ -40,10 +40,10 @@ interface ThreadProps {
   className?: string;
   /** Kept for API compat; auto-scroll is now handled by Conversation. */
   autoScroll?: boolean;
-  /** Phase 8: when true, assistant turns gain a "Branch from here"
-   *  affordance that forks the thread at that turn. Mirrors the
-   *  Composer's `acpEnabled` gate — only the dedicated session route
-   *  surfaces this until Phase 10. */
+  /** Phase 8/10: when true, assistant turns gain a "Branch from here"
+   *  affordance that forks the thread at that turn. Phase 10 made this
+   *  default-on (the ACP path is now the default chat engine).
+   *  TODO(phase-11): drop this flag entirely once the legacy adapter goes. */
   acpEnabled?: boolean;
   /** Phase 8: invoked when the user clicks "Branch from here" on an
    *  assistant turn. `upToTurn` is the user-turn count up to (and
@@ -53,7 +53,7 @@ interface ThreadProps {
   onBranch?: (upToTurn: number) => void;
 }
 
-export function Thread({ threadId, className, acpEnabled, onBranch }: ThreadProps) {
+export function Thread({ threadId, className, acpEnabled = true, onBranch }: ThreadProps) {
   const state = useChatStore((s) => (threadId ? s.threads[threadId] ?? null : null));
   const cwd = state?.thread.cwd ?? undefined;
   const includeDebug = import.meta.env.DEV;

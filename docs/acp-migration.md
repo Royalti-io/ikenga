@@ -1,6 +1,6 @@
 # ACP migration — chat engine rewrite
 
-**Status:** Phases 1–9 complete (2026-05-11). Phases 10–11 pending. Phase 12 deferred.
+**Status:** Phases 1–10 complete (2026-05-11). Phase 11 pending. Phase 12 deferred.
 
 ## Decision
 
@@ -66,7 +66,7 @@ Phase 10 reshapes the contract.
 | 7 | Image input via ACP content blocks | ✅ landed | (this commit) |
 | 8 | Session `/branch` (ACP `fork`) + faster resume | ✅ landed | (this commit) |
 | 9 | Notification + PermissionRequest hooks → OS | ✅ landed | (this commit) |
-| 10 | Reshape `@ikenga/contract/engine` around ACP | pending | |
+| 10 | Reshape `@ikenga/contract/engine` around ACP | ✅ landed | (this commit) |
 | 11 | Retire band-aids + maybe drop `chat_user_turns` | pending | |
 | 12 | Registry-of-agents plumbing (Codex/Aider/etc.) | deferred | |
 
@@ -207,13 +207,57 @@ is a real round-trip.
 
 ---
 
-## Phase 10 — Reshape `@ikenga/contract/engine` around ACP
+## Phase 10 — Reshape `@ikenga/contract/engine` around ACP ✅
 
-- `@ikenga/contract/engine` TS types mirror ACP method shapes (newSession, prompt, cancel, setMode, requestPermission).
-- `pkgs/engine-claude-code/` becomes a thin pkg exposing the ACP server.
-- `host-bridge.ts` becomes the Tauri-side wire to the Rust ACP server.
-- Existing `useChatActions` + `useThread` adapt to the new shape.
-- Feature flag (Phase 3) flips to default `acp`. Legacy path retained for one release.
+**Delivered:**
+
+- `@ikenga/contract/engine` (TS) — new ACP-shaped surface added alongside the
+  legacy `Engine` interface. Types mirror ACP method shapes verbatim:
+  `AcpInitializeRequest/Response`, `AcpNewSessionRequest/Response`,
+  `AcpPromptRequest/Response`, `AcpSessionUpdate`, `AcpPermissionRequest*`,
+  `AcpForkResult`, `AcpLoadSessionResponse`, `AcpNotifyPayload`, and the
+  `AcpEngine` adapter interface itself (newSession / prompt / cancel /
+  setMode / loadSession / forkSession / onSessionUpdate /
+  onPermissionRequest / respondPermission / onNotify). The legacy
+  `Engine` / `AgentCapabilitiesSchema` / `EngineProvidesSchema` shapes
+  stay intact — Phase 11 retires them.
+- `pkgs/engine-claude-code/` — added `src/acp-engine.ts` exporting
+  `createAcpEngine(host: AcpHost)`. The pkg stays free of `@tauri-apps/*`
+  deps; the shell injects an `AcpHost` from its `tauri-cmd.ts` wrappers
+  (duplicate-vs-share decision: **path (a)** per the Phase 10 brief —
+  host-injection over re-export, so the pkg boundary stays clean).
+- `shell/src/lib/engine/host-bridge.ts` — `createShellAcpHost()` factory
+  binds the engine pkg to the shell's `acp*` wrappers
+  (`acpInitialize`/`acpNewSession`/`acpPrompt`/`acpCancel`/`acpSetMode`/
+  `acpLoadSession`/`acpForkSession`/`acpListen`/`acpListenRequests`/
+  `acpRespondPermission`/`acpListenNotify`).
+- `shell/src/lib/engine/index.ts` — `getAcpEngine()` singleton sits next
+  to the existing `getEngine()`. Tests can swap via
+  `createAcpEngineFromHost(fakeHost)`.
+- `shell/src/chat/adapters/acp.ts` — new `AcpAdapter` implements the
+  existing `ChatAdapter` interface but routes through ACP under the hood.
+  Translates `AcpSessionUpdate` → legacy `ChatEvent` at the adapter
+  boundary so the store / Thread / ToolCallCard renderers stay unchanged.
+- Default flip — `shell/src/chat/default-adapter.ts` exports
+  `defaultChatAdapterId()`. `useThread` + `useChatActions` use it for
+  new-thread defaults; `Composer` + `Thread` flip `acpEnabled = true` by
+  default. The dedicated `/sessions/$sessionId` route + the pane
+  `chat-view.tsx` both inherit the new default automatically.
+- **Feature flag:** `localStorage.ikenga_chat_engine`. Values:
+  - unset / `'acp'` (default) → use the new `AcpAdapter`.
+  - `'legacy'` or `'cli'` → use the legacy `ClaudeCliAdapter`. Retained
+    for one release.
+
+**TODO(phase-11) notes left in the code:**
+
+- `chat/adapters/acp.ts` — collapse the `AcpSessionUpdate → ChatEvent`
+  translation once the legacy adapter is retired; have the store consume
+  `AcpSessionUpdate` directly.
+- `chat/ui/thread.tsx` + `chat/ui/composer.tsx` — drop the `acpEnabled`
+  prop entirely.
+- `pkgs/engine-claude-code` `src/index.ts` — drop the legacy
+  `createEngine` / `HostBridge` / `ClaudeCodeEngine` / `Engine`
+  implementation once the legacy adapter is retired.
 
 ---
 
