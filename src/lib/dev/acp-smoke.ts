@@ -14,6 +14,7 @@ import {
 	acpForkSession,
 	acpInitialize,
 	acpListen,
+	acpListenNotify,
 	acpListenRequests,
 	acpNewSession,
 	acpPrompt,
@@ -21,6 +22,7 @@ import {
 	acpSetMode,
 	type AcpContentBlock,
 	type AcpForkResult,
+	type AcpNotifyPayload,
 	type AcpRequestEnvelope,
 	type AcpSessionModeId,
 	type AcpSessionModes,
@@ -333,4 +335,31 @@ export async function runAcpForkSmokeTest(
 	opts: { upToTurn?: number; label?: string } = {},
 ): Promise<AcpForkResult> {
 	return acpForkSession(sourceThreadId, opts);
+}
+
+/**
+ * Phase 9: passively watch the global `acp://notify` channel for a window
+ * of time and return every payload that arrived. Useful for smoke-testing
+ * the OS-notification + sidebar-badge path without needing to actually
+ * unfocus the app (we just assert the wire shape + that the Rust side
+ * emitted something).
+ *
+ * Bound to `globalThis.ikengaAcpNotifyWatch` from `src/lib/dev/index.ts`.
+ * From iyke (e.g. confirm a tool-permission request also emits a notify):
+ *
+ *   iyke javascript "const r = window.ikengaAcpNotifyWatch(15000); // trigger something; (await r).length"
+ */
+export async function watchAcpNotify(
+	durationMs = 30000,
+): Promise<AcpNotifyPayload[]> {
+	const payloads: AcpNotifyPayload[] = [];
+	const unlisten = await acpListenNotify((p) => {
+		payloads.push(p);
+	});
+	try {
+		await new Promise((resolve) => setTimeout(resolve, durationMs));
+	} finally {
+		unlisten();
+	}
+	return payloads;
 }

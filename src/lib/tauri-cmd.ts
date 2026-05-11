@@ -860,6 +860,38 @@ export async function acpLoadSession(threadId: string): Promise<AcpLoadSessionRe
 	return invoke<AcpLoadSessionResponse>('acp_load_session', { threadId });
 }
 
+// ─── ACP user-attention notify (phase 9) ──────────────────────────────────────
+//
+// Claude emits two event kinds that warrant pulling the user's attention:
+//
+//   - `Notification` hook (agent-initiated "need your input")
+//   - `PermissionRequest` (tool approval round-trip — also surfaced via
+//     `acp://session/{threadId}/request` for the in-UI dialog)
+//
+// The Rust side emits an `acp://notify` Tauri event for both. The frontend
+// dispatcher (`src/lib/notifications/acp-notify-bridge.ts`) decides whether
+// to fire an OS notification (via `tauri-plugin-notification`) AND/OR
+// bump the sidebar badge counter. See the dispatcher for the focus-policy
+// rules — Rust deliberately does NOT know about route/pane state.
+
+export type AcpNotifyKind = 'notification' | 'permissionRequest';
+
+export interface AcpNotifyPayload {
+	threadId: string;
+	title: string;
+	body: string;
+	kind: AcpNotifyKind;
+}
+
+/** Subscribe to `acp://notify` events from the Rust ACP server. Used by
+ *  `acp-notify-bridge.ts` (the singleton dispatcher) and by the
+ *  `ikengaAcpNotifyWatch` smoke helper. */
+export async function acpListenNotify(
+	callback: (payload: AcpNotifyPayload) => void,
+): Promise<UnlistenFn> {
+	return listen<AcpNotifyPayload>('acp://notify', (e) => callback(e.payload));
+}
+
 // ─── Claude config browser (/claude route) ────────────────────────────────────
 //
 // Read-only scan of `.claude/{agents,skills,commands}` and `.claude/settings*.json`

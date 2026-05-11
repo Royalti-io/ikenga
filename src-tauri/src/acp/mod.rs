@@ -27,6 +27,7 @@ pub mod fork;
 pub mod interrupt;
 pub mod mapping;
 pub mod mode;
+pub mod notify;
 pub mod permission;
 pub mod prompt;
 pub mod server;

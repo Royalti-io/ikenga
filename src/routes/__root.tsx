@@ -3,6 +3,7 @@ import { Outlet, createRootRoute, useLocation, useNavigate } from '@tanstack/rea
 
 import { Workspace } from '@/shell/workspace';
 import { usePaneScope } from '@/shell/panes/views/route-view';
+import { startAcpNotifyBridge } from '@/lib/notifications/acp-notify-bridge';
 import { useShellStore } from '@/lib/shell/shell-store';
 
 function RootRoute() {
@@ -15,6 +16,20 @@ function RootRoute() {
 	const navigate = useNavigate();
 	const onboardingMode = useShellStore((s) => s.onboarding.mode);
 	const onboardingCompletedAt = useShellStore((s) => s.onboarding.completedAt);
+
+	// Phase 9 (ACP migration): start the OS notification + sidebar badge
+	// dispatcher exactly once for the top-level shell. The bridge is
+	// idempotent (refcounted) so StrictMode's double-mount and HMR
+	// reloads don't create duplicate listeners. We deliberately gate on
+	// `paneScope === null` because pane-internal RootRoute remounts
+	// would otherwise call this on every focus toggle.
+	useEffect(() => {
+		if (paneScope !== null) return;
+		const stop = startAcpNotifyBridge();
+		return () => {
+			stop();
+		};
+	}, [paneScope]);
 
 	// Phase 3 boot redirect — first-run users whose wizard hasn't completed
 	// get bounced to `/onboarding`. We only do this in the top-level shell

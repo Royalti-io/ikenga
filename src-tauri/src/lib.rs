@@ -104,6 +104,12 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(global_shortcut_plugin())
         .plugin(tauri_plugin_clipboard_manager::init())
+        // Phase 9 (ACP migration): OS notifications for the
+        // user-attention hooks (Notification + PermissionRequest). The
+        // frontend dispatcher (`src/lib/notifications/acp-notify-bridge.ts`)
+        // owns the focus-suppression policy and fires sendNotification
+        // through this plugin's JS surface.
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_sql::Builder::default().build())
         .plugin(
