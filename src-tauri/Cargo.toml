@@ -22,6 +22,12 @@ tauri-plugin-dialog = "2"
 tauri-plugin-os = "2"
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-clipboard-manager = "2"
+# Phase 9 (ACP migration): OS notifications for the Notification +
+# PermissionRequest user-attention hooks. The actual `sendNotification`
+# call is fired from the frontend (which knows about route focus +
+# pane state); the plugin is registered Rust-side so its IPC handlers
+# are available to the webview.
+tauri-plugin-notification = "2"
 # Used by the onboarding wizard to open install-guide URLs in the user's
 # default browser via `open(url)`. Sidecars still spawn directly through
 # tokio::process — we only enable the `open` API surface here.

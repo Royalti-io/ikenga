@@ -1,6 +1,6 @@
 # ACP migration — chat engine rewrite
 
-**Status:** Phases 1–8 complete (2026-05-11). Phases 9–11 pending. Phase 12 deferred.
+**Status:** Phases 1–9 complete (2026-05-11). Phases 10–11 pending. Phase 12 deferred.
 
 ## Decision
 
@@ -65,7 +65,7 @@ Phase 10 reshapes the contract.
 | 6 | Interrupt via control_request | ✅ landed | (this commit) |
 | 7 | Image input via ACP content blocks | ✅ landed | (this commit) |
 | 8 | Session `/branch` (ACP `fork`) + faster resume | ✅ landed | (this commit) |
-| 9 | Notification + PermissionRequest hooks → OS | pending | |
+| 9 | Notification + PermissionRequest hooks → OS | ✅ landed | (this commit) |
 | 10 | Reshape `@ikenga/contract/engine` around ACP | pending | |
 | 11 | Retire band-aids + maybe drop `chat_user_turns` | pending | |
 | 12 | Registry-of-agents plumbing (Codex/Aider/etc.) | deferred | |

@@ -8,6 +8,7 @@ import {
 	runAcpImageSmokeTest,
 	runAcpInterruptSmokeTest,
 	runAcpSmokeTest,
+	watchAcpNotify,
 } from './acp-smoke';
 
 declare global {
@@ -16,6 +17,7 @@ declare global {
 		ikengaAcpInterruptSmoke?: typeof runAcpInterruptSmokeTest;
 		ikengaAcpImageSmoke?: typeof runAcpImageSmokeTest;
 		ikengaAcpForkSmoke?: typeof runAcpForkSmokeTest;
+		ikengaAcpNotifyWatch?: typeof watchAcpNotify;
 	}
 }
 
@@ -24,6 +26,7 @@ if (typeof window !== 'undefined') {
 	window.ikengaAcpInterruptSmoke = runAcpInterruptSmokeTest;
 	window.ikengaAcpImageSmoke = runAcpImageSmokeTest;
 	window.ikengaAcpForkSmoke = runAcpForkSmokeTest;
+	window.ikengaAcpNotifyWatch = watchAcpNotify;
 }
 
 export {};

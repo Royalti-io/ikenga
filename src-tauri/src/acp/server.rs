@@ -43,6 +43,7 @@ use tokio::sync::{oneshot, Mutex as TokioMutex};
 
 use crate::acp::fork::{validate_fork_request, ForkRequest, ForkResult};
 use crate::acp::mode::{mode_state, AcpSessionMode};
+use crate::acp::notify::{payload_from_permission, payload_from_system_hook};
 use crate::acp::permission::{build_permission_options, outcome_to_response_body};
 use crate::acp::{
     mapping::chat_event_to_session_updates,
@@ -239,6 +240,24 @@ impl AcpServer {
                     if let ChatEvent::Done { stop_reason, .. } = &ev {
                         break map_stop_reason(stop_reason.as_deref());
                     }
+                    // Phase 9: surface Notification / PermissionRequest
+                    // hooks as `acp://notify` Tauri events. The frontend
+                    // dispatcher (`acp-notify-bridge.ts`) decides whether
+                    // to fire an OS notification + bump the sidebar
+                    // badge based on window focus + active-pane state.
+                    // PreToolUse / PostToolUse / SessionStart / Stop /
+                    // etc. are filtered out inside `payload_from_system_hook`.
+                    if let ChatEvent::SystemHook { content, .. } = &ev {
+                        if let Some(hook_value) = content {
+                            if let Some(notify) =
+                                payload_from_system_hook(&thread_id, hook_value)
+                            {
+                                let _ = app.emit("acp://notify", &notify);
+                            }
+                        }
+                        // Still fall through to the mapping layer below
+                        // so the SessionUpdate (if any) still emits.
+                    }
                     // Phase 4: claude wants permission for a tool. Spin off
                     // the round-trip so the broadcast reader keeps draining
                     // while we wait on the client. We DO NOT block this
@@ -352,6 +371,16 @@ impl AcpServer {
             "request": req,
         });
         let _ = app.emit(&request_channel, &payload);
+
+        // Phase 9: emit a parallel `acp://notify` so the OS-notification
+        // bridge can decide whether to surface this approval-ask as an
+        // OS notification + sidebar badge. The in-UI `PermissionDialog`
+        // is the primary surface; this is the fallback when the user is
+        // away from the focused thread (or has the app unfocused
+        // entirely). Doing the focus-policy check on the frontend side
+        // means the Rust core stays unaware of route / pane state.
+        let notify = payload_from_permission(&thread_id, &tool_name, tool_input.as_ref());
+        let _ = app.emit("acp://notify", &notify);
 
         // Move the heavy lifting onto its own task so the outer prompt
         // loop keeps draining claude's stdout.
