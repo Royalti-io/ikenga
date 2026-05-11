@@ -83,6 +83,15 @@ sysinfo = { version = "0.36.1", default-features = false, features = ["disk"] }
 # src-tauri/templates/starter/claude-code/.
 include_dir = "0.7"
 
+# Agent Client Protocol — types + traits for our in-process ACP server
+# implementation. The wire-framing/JSON-RPC layer is not used today (we
+# expose the Agent surface through Tauri commands, not stdio); we only
+# pull the schema types so frontend and backend speak the same
+# vocabulary as the wider ACP ecosystem (Zed, claude-agent-acp,
+# codex-acp, etc.). `unstable` enables fork/resume/session_model which
+# we want for /branch + faster resume + per-session model overrides.
+agent-client-protocol = { version = "0.11", features = ["unstable"] }
+
 # Mac-only polish (window vibrancy + dock-tile badge) was removed
 # in the strip-down. The resolved objc2 v0.5 didn't export
 # `MainThreadMarker` at the path the dock-badge code expected, and

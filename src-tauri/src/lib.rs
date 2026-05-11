@@ -1,4 +1,5 @@
 mod agent_detect;
+pub mod acp;
 pub mod claude;
 mod commands;
 mod fs_roots;
