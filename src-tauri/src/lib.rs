@@ -14,7 +14,9 @@ mod viewer_server;
 use std::sync::Arc;
 
 use tauri::{Emitter, Manager};
-use tauri_plugin_sql::{Migration, MigrationKind};
+// tauri-plugin-sql is loaded as a plugin (below) so the frontend's
+// `@tauri-apps/plugin-sql` callers resolve, but it does NOT own the
+// migration list — that lives in `commands::db::ensure_schema`.
 use tokio::sync::Mutex;
 
 use commands::db::PaDb;
@@ -79,74 +81,14 @@ pub fn run() {
         Arc::new(claude::session::SessionsManager::new());
     let screenshot_pending: ScreenshotPending = new_screenshot_pending();
 
-    let migrations = vec![
-        Migration {
-            version: 1,
-            description: "init",
-            sql: include_str!("../migrations/0001_init.sql"),
-            kind: MigrationKind::Up,
-        },
-        Migration {
-            version: 2,
-            description: "viewer_recents",
-            sql: include_str!("../migrations/0002_viewer_recents.sql"),
-            kind: MigrationKind::Up,
-        },
-        Migration {
-            version: 3,
-            description: "claude_sessions",
-            sql: include_str!("../migrations/0003_claude_sessions.sql"),
-            kind: MigrationKind::Up,
-        },
-        Migration {
-            version: 4,
-            description: "render_queue",
-            sql: include_str!("../migrations/0004_render_queue.sql"),
-            kind: MigrationKind::Up,
-        },
-        Migration {
-            version: 5,
-            description: "mbox_sync",
-            sql: include_str!("../migrations/0005_mbox_sync.sql"),
-            kind: MigrationKind::Up,
-        },
-        Migration {
-            version: 6,
-            description: "storyboards",
-            sql: include_str!("../migrations/0006_storyboards.sql"),
-            kind: MigrationKind::Up,
-        },
-        Migration {
-            version: 7,
-            description: "pkg_kernel",
-            sql: include_str!("../migrations/0007_pkg_kernel.sql"),
-            kind: MigrationKind::Up,
-        },
-        Migration {
-            version: 8,
-            description: "pkg_install_source",
-            sql: include_str!("../migrations/0008_pkg_install_source.sql"),
-            kind: MigrationKind::Up,
-        },
-        Migration {
-            version: 9,
-            description: "strip_legacy",
-            sql: include_str!("../migrations/0009_strip_legacy.sql"),
-            kind: MigrationKind::Up,
-        },
-        Migration {
-            version: 10,
-            description: "activity_bar_pinning",
-            sql: include_str!("../migrations/0010_activity_bar_pinning.sql"),
-            kind: MigrationKind::Up,
-        },
-        Migration {
-            version: 11,
-            description: "chat_sessions",
-            sql: include_str!("../migrations/0011_chat_sessions.sql"),
-            kind: MigrationKind::Up,
-        },
-    ];
+    // Migrations are the responsibility of `commands::db::ensure_schema`
+    // (the Rust-side sqlx runner). The tauri-plugin-sql migration path only
+    // fires when JS calls `Database.load()` and that path has been observed
+    // to silently hang (see workspace.tsx::raceTimeout); previously this
+    // file maintained a parallel migration list that ran in zero practical
+    // contexts. The plugin is still registered so frontend callers of
+    // `@tauri-apps/plugin-sql` (Database.load for ad-hoc reads) work; it
+    // just doesn't own the schema.
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -155,11 +97,7 @@ pub fn run() {
         .plugin(global_shortcut_plugin())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_shell::init())
-        .plugin(
-            tauri_plugin_sql::Builder::default()
-                .add_migrations("sqlite:pa.db", migrations)
-                .build(),
-        )
+        .plugin(tauri_plugin_sql::Builder::default().build())
         .plugin(
             tauri_plugin_stronghold::Builder::new(|_password: &str| {
                 // Phase 14: vault key is bootstrapped from the OS keychain.
