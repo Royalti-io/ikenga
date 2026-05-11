@@ -309,9 +309,12 @@ function ConnectorSection({
 	onSkip,
 }: ConnectorSectionProps) {
 	const [values, setValues] = useState<Record<string, string>>({});
-	const [busy, setBusy] = useState(false);
+	const [saving, setSaving] = useState(false);
+	const [testing, setTesting] = useState(false);
 	const [saveError, setSaveError] = useState<string | null>(null);
 	const [testResult, setTestResult] = useState<ConnectorTestResult | null>(null);
+
+	const busy = saving || testing;
 
 	const status: ConnectorStatus | 'skipped' = isSkipped
 		? 'skipped'
@@ -324,27 +327,32 @@ function ConnectorSection({
 		.filter((f) => !(values[f.id] ?? '').trim());
 
 	const handleSave = async () => {
-		setBusy(true);
+		// Guard against double-invocation — finally blocks can race when
+		// the parent re-renders us mid-promise (the save also triggers a
+		// status refetch, which churns the connector section's key path).
+		if (saving) return;
+		setSaving(true);
 		setSaveError(null);
 		try {
 			await connector.write(values);
 			onConfigured();
+			setSaving(false);
 		} catch (e) {
 			setSaveError((e as Error).message ?? 'Save failed.');
-		} finally {
-			setBusy(false);
+			setSaving(false);
 		}
 	};
 
 	const handleTest = async () => {
 		if (!connector.test) return;
-		setBusy(true);
+		if (testing) return;
+		setTesting(true);
 		try {
 			setTestResult(await connector.test(values));
 		} catch (e) {
 			setTestResult({ ok: false, message: (e as Error).message ?? 'Test failed.' });
 		} finally {
-			setBusy(false);
+			setTesting(false);
 		}
 	};
 
@@ -504,7 +512,7 @@ function ConnectorSection({
 					disabled={busy || missing.length > 0}
 					data-testid={`connector-save-${connector.id}`}
 				>
-					{busy ? 'Saving…' : isConfigured ? 'Saved · update' : 'Save'}
+					{saving ? 'Saving…' : isConfigured ? 'Saved · update' : 'Save'}
 				</Button>
 			</footer>
 		</section>
