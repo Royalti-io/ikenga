@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Hello, Artifact</title>
+
+  <!--
+    Smallest valid Ikenga artifact. Tests the format's floor:
+      - manifest tag parsed
+      - mock data tag parsed
+      - bridge resolves source (live fetch in browser, mock if CORS blocks)
+      - JSX-via-Babel compiles
+      - Tailwind via CDN renders
+      - light + dark mode legible
+    Opens in: file:// (any browser), claude.ai's artifact viewer, future Ikenga shell.
+  -->
+
+  <!-- ───── manifest (required) ───── -->
+  <script type="application/json" id="ikenga-manifest">
+  {
+    "format": "ikenga-artifact",
+    "formatVersion": "0.1",
+    "id": "hello-world",
+    "name": "Hello, Artifact",
+    "version": "0.1.0",
+    "description": "Smallest valid Ikenga artifact. Lists users from a public API; falls back to mock when offline.",
+    "license": "BUSL-1.1",
+    "icon": { "lucide": "sparkles" },
+    "dataSources": {
+      "users": {
+        "type": "fetch",
+        "url": "https://jsonplaceholder.typicode.com/users",
+        "refresh": { "mode": "manual" }
+      }
+    },
+    "fallback": {
+      "mode": "mock",
+      "dataTag": "ikenga-mock-data",
+      "banner": "Showing mock data — live source unreachable."
+    },
+    "pin": { "suggested": false },
+    "notes": { "enabled": true },
+    "requires": { "ikenga": ">=0.4", "bridge": "^1.0" }
+  }
+  </script>
+
+  <!-- ───── mock data (required for shareable artifacts) ───── -->
+  <script type="application/json" id="ikenga-mock-data">
+  {
+    "users": [
+      { "id": 1, "name": "Ada Lovelace",      "email": "ada@example.com",      "company": { "name": "Analytical Engines" } },
+      { "id": 2, "name": "Grace Hopper",      "email": "grace@example.com",    "company": { "name": "Compilers Inc"      } },
+      { "id": 3, "name": "Margaret Hamilton", "email": "margaret@example.com", "company": { "name": "Apollo Software"    } }
+    ]
+  }
+  </script>
+
+  <!-- Tailwind CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- React UMD (globals: React, ReactDOM) -->
+  <script crossorigin src="https://cdn.jsdelivr.net/npm/react@18.3.1/umd/react.production.min.js"></script>
+  <script crossorigin src="https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+
+  <!-- Babel-standalone for in-browser JSX -->
+  <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.25.6/babel.min.js"></script>
+
+  <!--
+    Inline bridge polyfill. v0 stand-in for `@ikenga/artifact` until the
+    package is published. Keeps this example self-contained and testable
+    today. Real bridge will mirror this surface; replace this whole block
+    with a CDN import once published.
+  -->
+  <script>
+  window.__ikenga_bridge_polyfill__ = (function () {
+    var manifestEl = document.getElementById('ikenga-manifest');
+    var mockEl = document.getElementById('ikenga-mock-data');
+    var manifest = JSON.parse(manifestEl.textContent);
+    var mock = mockEl ? JSON.parse(mockEl.textContent) : {};
+    var hostKind = window.__ikenga_host__ ? 'ikenga' : 'browser';
+
+    var cache = {};
+    var subs = {};
+    var usedFallback = {};
+
+    function resolve(name) {
+      var def = manifest.dataSources[name];
+      if (def && def.type === 'fetch') {
+        return fetch(def.url, { method: def.method || 'GET', headers: def.headers })
+          .then(function (res) { return res.ok ? res.json() : Promise.reject(new Error('http ' + res.status)); })
+          .then(function (data) { usedFallback[name] = false; return data; })
+          .catch(function () { usedFallback[name] = true; return mock[name]; });
+      }
+      usedFallback[name] = true;
+      return Promise.resolve(mock[name]);
+    }
+
+    function init() {
+      var keys = Object.keys(manifest.dataSources);
+      return Promise.all(keys.map(function (k) {
+        return resolve(k).then(function (v) { cache[k] = v; });
+      })).then(function () {
+        return {
+          host: {
+            kind: hostKind,
+            user: null,
+            usedFallback: function (n) { return !!usedFallback[n]; },
+          },
+          source: function (name) {
+            return {
+              get: function () { return cache[name]; },
+              subscribe: function (fn) {
+                if (!subs[name]) subs[name] = [];
+                subs[name].push(fn);
+                return function () { subs[name] = subs[name].filter(function (f) { return f !== fn; }); };
+              },
+              refresh: function () {
+                return resolve(name).then(function (v) {
+                  cache[name] = v;
+                  (subs[name] || []).forEach(function (fn) { fn(v); });
+                });
+              },
+            };
+          },
+          state: {
+            get: function (k) {
+              try { return JSON.parse(localStorage.getItem('ikenga:' + manifest.id + ':' + k)); }
+              catch (e) { return null; }
+            },
+            set: function (k, v) { localStorage.setItem('ikenga:' + manifest.id + ':' + k, JSON.stringify(v)); },
+            subscribe: function () { return function () {}; },
+          },
+          notes: { send: function (text, opts) { console.log('[ikenga.notes]', text, opts || {}); } },
+          pin: function () { console.log('[ikenga.pin] requested'); },
+        };
+      });
+    }
+
+    return { init: init };
+  })();
+  </script>
+</head>
+
+<body class="bg-neutral-50 text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100 antialiased">
+  <div id="root">
+    <div class="max-w-2xl mx-auto p-6 text-sm text-neutral-500">Initializing…</div>
+  </div>
+
+  <script type="text/babel" data-presets="env,react">
+    (function () {
+      const { useState, useEffect } = React;
+
+      function App({ art }) {
+        const [users, setUsers] = useState(art.source('users').get() || []);
+        const [loading, setLoading] = useState(false);
+        const [usingFallback, setUsingFallback] = useState(art.host.usedFallback('users'));
+
+        useEffect(() => {
+          return art.source('users').subscribe((v) => {
+            setUsers(v || []);
+            setUsingFallback(art.host.usedFallback('users'));
+          });
+        }, []);
+
+        const refresh = async () => {
+          setLoading(true);
+          await art.source('users').refresh();
+          setLoading(false);
+        };
+
+        return (
+          <div className="max-w-2xl mx-auto p-6">
+            {usingFallback && (
+              <div className="mb-4 px-3 py-2 rounded border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-900/20 text-amber-900 dark:text-amber-200 text-sm">
+                Showing mock data — live source unreachable.
+              </div>
+            )}
+
+            <header className="flex items-baseline justify-between mb-6">
+              <div>
+                <h1 className="text-2xl font-semibold">Hello, Artifact</h1>
+                <p className="text-sm text-neutral-500 mt-1">
+                  {users.length} {users.length === 1 ? 'user' : 'users'} loaded · host: <span className="font-mono">{art.host.kind}</span>
+                </p>
+              </div>
+              <button
+                onClick={refresh}
+                disabled={loading}
+                className="px-3 py-1.5 text-sm rounded border border-neutral-300 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 disabled:opacity-50 transition-colors"
+              >
+                {loading ? 'Refreshing…' : 'Refresh'}
+              </button>
+            </header>
+
+            <ul className="divide-y divide-neutral-200 dark:divide-neutral-800 rounded-lg border border-neutral-200 dark:border-neutral-800 overflow-hidden bg-white dark:bg-neutral-900">
+              {users.slice(0, 5).map((u) => (
+                <li key={u.id} className="p-4">
+                  <div className="font-medium">{u.name}</div>
+                  <div className="text-sm text-neutral-500 mt-0.5">
+                    {u.email} · {u.company && u.company.name}
+                  </div>
+                </li>
+              ))}
+            </ul>
+
+            <footer className="mt-6 text-xs text-neutral-400">
+              Ikenga artifact · v0.1 · open in claude.ai or Ikenga shell for live data
+            </footer>
+          </div>
+        );
+      }
+
+      // Async init wrapped — no top-level await (more compatible with Babel-standalone).
+      window.__ikenga_bridge_polyfill__.init().then(function (art) {
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App art={art} />);
+      }).catch(function (err) {
+        document.getElementById('root').innerHTML =
+          '<pre style="padding:2rem;color:#b91c1c;font-family:ui-monospace,monospace;white-space:pre-wrap">'
+          + 'Init failed: ' + (err && err.message ? err.message : String(err))
+          + '</pre>';
+        console.error('[ikenga] init failed', err);
+      });
+    })();
+  </script>
+</body>
+</html>

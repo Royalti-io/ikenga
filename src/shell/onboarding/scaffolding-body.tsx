@@ -53,7 +53,7 @@ interface ScaffoldingBodyProps {
 // templates there — the count is informational, not load-bearing.
 const STARTER_PREVIEW = {
 	profile: 'starter' as const,
-	skills: 5,
+	skills: 6,
 	agents: 3,
 	commands: 3,
 	title: 'Music label starter',

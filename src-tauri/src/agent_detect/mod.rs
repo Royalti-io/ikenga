@@ -238,7 +238,7 @@ mod claude_slug_tests {
     use super::*;
     use std::collections::HashSet;
 
-    fn probe(set: &HashSet<&'static str>) -> impl Fn(&str) -> bool + '_ {
+    fn probe<'a>(set: &'a HashSet<&'static str>) -> impl Fn(&str) -> bool + 'a {
         move |p| set.contains(p)
     }
 

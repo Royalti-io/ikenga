@@ -1,0 +1,564 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CEO Overview</title>
+
+  <!--
+    Range-test artifact — non-numerical, multi-source, cross-linked.
+    Six sources spanning all four types:
+      - kpis           (supabase, interval 1h)         — exec-level numbers
+      - agent_runs     (mcp,      interval 5m)         — recent agent diary entries
+      - notifications  (sql,      manual)              — unread items
+      - recent_docs    (file,     watch)               — .company/ edits
+      - calendar       (mcp,      interval 15m)        — today + upcoming
+      - team_signals   (fetch,    interval 30m)        — channel activity
+    Tests narrative + structured signals + cross-links between artifacts.
+  -->
+
+  <script type="application/json" id="ikenga-manifest">
+  {
+    "format": "ikenga-artifact",
+    "formatVersion": "0.1",
+    "id": "ceo-overview",
+    "name": "CEO Overview",
+    "version": "0.1.0",
+    "description": "Daily exec digest: KPIs, agent activity, notifications, recent docs, calendar, team signals.",
+    "license": "BUSL-1.1",
+    "icon": { "lucide": "compass" },
+    "dataSources": {
+      "kpis": {
+        "type": "supabase",
+        "table": "v_exec_kpis",
+        "select": "*",
+        "refresh": { "mode": "interval", "every": "1h" }
+      },
+      "agent_runs": {
+        "type": "mcp",
+        "server": "mempalace",
+        "tool": "mempalace_diary_read",
+        "args": { "limit": 8 },
+        "refresh": { "mode": "interval", "every": "5m" }
+      },
+      "notifications": {
+        "type": "sql",
+        "db": "ikenga.local",
+        "query": "select * from notifications where read = 0 order by ts desc limit 6",
+        "refresh": { "mode": "manual" }
+      },
+      "recent_docs": {
+        "type": "file",
+        "path": "./data/recent_docs.json",
+        "refresh": { "mode": "watch" }
+      },
+      "calendar": {
+        "type": "mcp",
+        "server": "google-calendar",
+        "tool": "list_events",
+        "args": { "horizon_hours": 48 },
+        "refresh": { "mode": "interval", "every": "15m" }
+      },
+      "team_signals": {
+        "type": "fetch",
+        "url": "https://api.royalti.io/internal/mattermost/digest",
+        "refresh": { "mode": "interval", "every": "30m" }
+      }
+    },
+    "fallback": {
+      "mode": "mock",
+      "dataTag": "ikenga-mock-data",
+      "banner": "Showing mock data — live host (Ikenga shell) not connected."
+    },
+    "pin": { "suggested": true, "section": "leadership", "label": "CEO Overview" },
+    "notes": { "enabled": true },
+    "requires": { "ikenga": ">=0.4", "bridge": "^1.0" }
+  }
+  </script>
+
+  <script type="application/json" id="ikenga-mock-data">
+  {
+    "kpis": {
+      "revenue_mtd": 142800, "revenue_delta_pct": 18.4,
+      "active_artists": 47, "active_artists_delta": 3,
+      "releases_shipped": 12, "releases_target": 15,
+      "open_issues": 8, "open_issues_critical": 2
+    },
+    "agent_runs": [
+      { "id": "r1", "agent": "rex", "cycle": "342", "status": "success",
+        "topic": "weekly-pipeline-review", "action": "analyzed-deals",
+        "result": "3 deals stuck in negotiation > 14 days",
+        "severity": "info", "ts": "2026-05-10T13:42:00Z",
+        "followup": "1:1 with each deal owner this week" },
+      { "id": "r2", "agent": "marketing-ops", "cycle": "128", "status": "warning",
+        "topic": "q2-content-calendar", "action": "audited-pipeline",
+        "result": "2 posts overdue, 1 dependency missing",
+        "severity": "warn", "ts": "2026-05-10T11:15:00Z",
+        "followup": "ping content team" },
+      { "id": "r3", "agent": "cfo-bot", "cycle": "203", "status": "success",
+        "topic": "ar-aging-snapshot", "action": "computed-buckets",
+        "result": "5.9% over 60 days, stable WoW",
+        "severity": "info", "ts": "2026-05-10T08:00:00Z",
+        "followup": null,
+        "artifact": "cfo-daily.html" },
+      { "id": "r4", "agent": "support-triage", "cycle": "517", "status": "error",
+        "topic": "p0-escalation", "action": "scanned-tickets",
+        "result": "1 P0 ticket opened: DDEX delivery 422 errors",
+        "severity": "critical", "ts": "2026-05-10T07:34:00Z",
+        "followup": "@oncall paged" },
+      { "id": "r5", "agent": "rex", "cycle": "341", "status": "success",
+        "topic": "investor-prep", "action": "drafted-update",
+        "result": "May investor letter ready for review",
+        "severity": "info", "ts": "2026-05-09T22:00:00Z",
+        "followup": "review by EOD Tue" }
+    ],
+    "notifications": [
+      { "id": 1, "type": "mention", "from": "Sarah K.",  "subject": "Need your call on Q3 budget assumptions", "ts": "2026-05-10T14:22:00Z" },
+      { "id": 2, "type": "system",  "from": "DDEX",      "subject": "12 releases delivered to Spotify", "ts": "2026-05-10T13:00:00Z" },
+      { "id": 3, "type": "mention", "from": "Tom",       "subject": "Reviewed the migration plan — 2 questions inline", "ts": "2026-05-10T10:18:00Z" },
+      { "id": 4, "type": "system",  "from": "Cron",      "subject": "Nightly accounting refresh: success (3.4s)", "ts": "2026-05-10T08:00:00Z" }
+    ],
+    "recent_docs": [
+      { "path": ".company/strategy/q3-okrs-draft.md",       "title": "Q3 OKRs draft",            "author": "Ned",      "edited_at": "2026-05-10T15:30:00Z" },
+      { "path": ".company/strategy/may-investor-update.md", "title": "May investor update",      "author": "rex",      "edited_at": "2026-05-09T22:05:00Z" },
+      { "path": ".company/research/competitor-analysis.md", "title": "Competitor analysis 2026", "author": "Sarah K.", "edited_at": "2026-05-10T11:45:00Z" },
+      { "path": ".company/technical/plans/2026-05-10-ikenga-artifacts.md", "title": "Ikenga artifacts plan", "author": "Ned", "edited_at": "2026-05-10T16:10:00Z" }
+    ],
+    "calendar": [
+      { "id": "e1", "title": "Board prep — May",       "start": "2026-05-10T16:00:00Z", "duration_min": 60, "attendees": ["Ned", "Sarah K.", "Tom"], "location": "Virtual" },
+      { "id": "e2", "title": "DDEX P0 standup",        "start": "2026-05-10T17:30:00Z", "duration_min": 15, "attendees": ["Ned", "oncall"],          "location": "Virtual" },
+      { "id": "e3", "title": "Investor update call",   "start": "2026-05-11T14:00:00Z", "duration_min": 45, "attendees": ["Ned", "Lisa (Acme VC)"],  "location": "Virtual" },
+      { "id": "e4", "title": "Engineering 1:1 — Tom",  "start": "2026-05-11T16:00:00Z", "duration_min": 30, "attendees": ["Ned", "Tom"] }
+    ],
+    "team_signals": {
+      "active_users": 14, "total_users": 18,
+      "channels": [
+        { "name": "general",        "messages_today":  47, "sentiment": "neutral"   },
+        { "name": "releases",       "messages_today":  89, "sentiment": "positive"  },
+        { "name": "support-fires",  "messages_today":  23, "sentiment": "concerned" },
+        { "name": "engineering",    "messages_today":  61, "sentiment": "positive"  }
+      ]
+    }
+  }
+  </script>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script crossorigin src="https://cdn.jsdelivr.net/npm/react@18.3.1/umd/react.production.min.js"></script>
+  <script crossorigin src="https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.25.6/babel.min.js"></script>
+
+  <!-- Bridge polyfill — same as cfo-daily, copied inline for self-containment. -->
+  <script>
+  window.__ikenga_bridge_polyfill__ = (function () {
+    var manifest = JSON.parse(document.getElementById('ikenga-manifest').textContent);
+    var mock = JSON.parse(document.getElementById('ikenga-mock-data').textContent);
+    var hostKind = window.__ikenga_host__ ? 'ikenga' : 'browser';
+    var cache = {}, subs = {}, usedFallback = {}, intervals = {};
+
+    function resolve(name) {
+      var def = manifest.dataSources[name];
+      if (hostKind === 'browser' && def.type !== 'fetch') {
+        usedFallback[name] = true;
+        return Promise.resolve(mock[name]);
+      }
+      if (def.type === 'fetch') {
+        return fetch(def.url, { method: def.method || 'GET', headers: def.headers })
+          .then(function (r) { return r.ok ? r.json() : Promise.reject(new Error('http ' + r.status)); })
+          .then(function (d) { usedFallback[name] = false; return d; })
+          .catch(function () { usedFallback[name] = true; return mock[name]; });
+      }
+      usedFallback[name] = true;
+      return Promise.resolve(mock[name]);
+    }
+
+    function notify(name, value) { (subs[name] || []).forEach(function (fn) { fn(value); }); }
+
+    function parseDuration(s) {
+      var m = /^(\d+)\s*(s|m|h|d)$/.exec(s || '');
+      if (!m) return 0;
+      return parseInt(m[1], 10) * { s: 1000, m: 60000, h: 3600000, d: 86400000 }[m[2]];
+    }
+
+    function startInterval(name) {
+      var def = manifest.dataSources[name];
+      if (!def.refresh || def.refresh.mode !== 'interval') return;
+      var ms = parseDuration(def.refresh.every);
+      if (!ms) return;
+      intervals[name] = setInterval(function () {
+        resolve(name).then(function (v) { cache[name] = v; notify(name, v); });
+      }, ms);
+    }
+
+    function init() {
+      var keys = Object.keys(manifest.dataSources);
+      return Promise.all(keys.map(function (k) {
+        return resolve(k).then(function (v) { cache[k] = v; });
+      })).then(function () {
+        keys.forEach(startInterval);
+        return {
+          host: {
+            kind: hostKind, user: null,
+            usedFallback: function (n) { return !!usedFallback[n]; },
+            anyFallback: function () { return Object.keys(usedFallback).some(function (k) { return usedFallback[k]; }); },
+          },
+          source: function (name) {
+            return {
+              get: function () { return cache[name]; },
+              subscribe: function (fn) {
+                if (!subs[name]) subs[name] = [];
+                subs[name].push(fn);
+                return function () { subs[name] = subs[name].filter(function (f) { return f !== fn; }); };
+              },
+              refresh: function () {
+                return resolve(name).then(function (v) { cache[name] = v; notify(name, v); });
+              },
+            };
+          },
+          state: {
+            get: function (k) { try { return JSON.parse(localStorage.getItem('ikenga:' + manifest.id + ':' + k)); } catch (e) { return null; } },
+            set: function (k, v) { localStorage.setItem('ikenga:' + manifest.id + ':' + k, JSON.stringify(v)); },
+            subscribe: function () { return function () {}; },
+          },
+          notes: { send: function (t, o) { console.log('[ikenga.notes]', t, o || {}); } },
+          pin: function () { console.log('[ikenga.pin] requested'); },
+        };
+      });
+    }
+    return { init: init };
+  })();
+  </script>
+
+  <style>
+    .tnum { font-variant-numeric: tabular-nums; }
+  </style>
+</head>
+
+<body class="bg-neutral-50 text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100 antialiased min-h-screen">
+  <div id="root">
+    <div class="max-w-6xl mx-auto p-6 text-sm text-neutral-500">Initializing…</div>
+  </div>
+
+  <script type="text/babel" data-presets="env,react">
+    (function () {
+      const { useState, useEffect, useCallback } = React;
+
+      const usd = (n) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n || 0);
+      const num = (n) => new Intl.NumberFormat('en-US').format(n || 0);
+
+      function timeAgo(iso) {
+        const ms = Date.now() - new Date(iso).getTime();
+        if (ms < 0) return 'in ' + relFuture(-ms);
+        const m = Math.floor(ms / 60000);
+        if (m < 1) return 'just now';
+        if (m < 60) return m + 'm ago';
+        const h = Math.floor(m / 60);
+        if (h < 24) return h + 'h ago';
+        return Math.floor(h / 24) + 'd ago';
+      }
+      function relFuture(ms) {
+        const m = Math.floor(ms / 60000);
+        if (m < 60) return m + 'm';
+        const h = Math.floor(m / 60);
+        if (h < 24) return h + 'h';
+        return Math.floor(h / 24) + 'd';
+      }
+      function clockTime(iso) {
+        return new Date(iso).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+      }
+      function dayLabel(iso) {
+        const d = new Date(iso);
+        const now = new Date();
+        const sameDay = d.toDateString() === now.toDateString();
+        if (sameDay) return 'Today';
+        const tomorrow = new Date(now); tomorrow.setDate(tomorrow.getDate() + 1);
+        if (d.toDateString() === tomorrow.toDateString()) return 'Tomorrow';
+        return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+      }
+
+      function useSource(art, name) {
+        const [value, setValue] = useState(() => art.source(name).get());
+        useEffect(() => art.source(name).subscribe(setValue), [art, name]);
+        return [value, () => art.source(name).refresh()];
+      }
+
+      const SEVERITY_STYLE = {
+        info:     { dot: 'bg-neutral-400',                   text: 'text-neutral-500' },
+        warn:     { dot: 'bg-amber-500',                     text: 'text-amber-700 dark:text-amber-400' },
+        error:    { dot: 'bg-rose-500',                      text: 'text-rose-700 dark:text-rose-400' },
+        critical: { dot: 'bg-rose-600 ring-2 ring-rose-300', text: 'text-rose-700 dark:text-rose-300 font-medium' },
+      };
+      const SENTIMENT_TONE = {
+        positive:  'text-emerald-600 dark:text-emerald-400',
+        neutral:   'text-neutral-500',
+        concerned: 'text-amber-600 dark:text-amber-400',
+        negative:  'text-rose-600 dark:text-rose-400',
+      };
+
+      function KpiTile({ label, value, sub, tone }) {
+        const toneClass = tone === 'pos'
+          ? 'text-emerald-600 dark:text-emerald-400'
+          : tone === 'neg'
+          ? 'text-rose-600 dark:text-rose-400'
+          : 'text-neutral-500';
+        return (
+          <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4">
+            <div className="text-xs uppercase tracking-wide text-neutral-500">{label}</div>
+            <div className="mt-2 text-2xl font-semibold tnum">{value}</div>
+            {sub && <div className={'mt-1 text-sm tnum ' + toneClass}>{sub}</div>}
+          </div>
+        );
+      }
+
+      function AgentRunRow({ run }) {
+        const sty = SEVERITY_STYLE[run.severity] || SEVERITY_STYLE.info;
+        return (
+          <li className="px-4 py-3 flex gap-3 text-sm">
+            <span className={'mt-1.5 w-2 h-2 rounded-full shrink-0 ' + sty.dot}></span>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-baseline justify-between gap-2">
+                <div className="truncate">
+                  <span className="font-mono text-xs text-neutral-500">{run.agent}/{run.cycle}</span>
+                  <span className="mx-1.5 text-neutral-400">·</span>
+                  <span className={sty.text}>{run.topic}</span>
+                </div>
+                <span className="text-xs text-neutral-400 shrink-0">{timeAgo(run.ts)}</span>
+              </div>
+              <div className="mt-0.5 text-neutral-700 dark:text-neutral-300 truncate">{run.result}</div>
+              {(run.followup || run.artifact) && (
+                <div className="mt-1 flex items-center gap-3 text-xs">
+                  {run.followup && (
+                    <span className="text-neutral-500">↪ {run.followup}</span>
+                  )}
+                  {run.artifact && (
+                    <a href={run.artifact}
+                       className="text-blue-600 dark:text-blue-400 hover:underline">
+                      Open artifact →
+                    </a>
+                  )}
+                </div>
+              )}
+            </div>
+          </li>
+        );
+      }
+
+      function NotificationRow({ n }) {
+        const isMention = n.type === 'mention';
+        return (
+          <li className="px-4 py-3 flex gap-3 text-sm">
+            <span className={'mt-1 w-1 h-1 rounded-full shrink-0 ' + (isMention ? 'bg-blue-500 ring-2 ring-blue-200 dark:ring-blue-900' : 'bg-neutral-400')}></span>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="font-medium truncate">{n.from}</span>
+                <span className="text-xs text-neutral-400 shrink-0">{timeAgo(n.ts)}</span>
+              </div>
+              <div className="text-neutral-600 dark:text-neutral-400 truncate">{n.subject}</div>
+            </div>
+          </li>
+        );
+      }
+
+      function DocRow({ d }) {
+        return (
+          <li className="px-4 py-2.5 text-sm">
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="font-medium truncate">{d.title}</span>
+              <span className="text-xs text-neutral-400 shrink-0">{timeAgo(d.edited_at)}</span>
+            </div>
+            <div className="text-xs text-neutral-500 truncate font-mono mt-0.5">{d.path} · {d.author}</div>
+          </li>
+        );
+      }
+
+      function CalendarRow({ e, showDay }) {
+        return (
+          <li className="px-4 py-2.5 text-sm flex gap-3">
+            <div className="w-12 shrink-0 text-xs">
+              {showDay && <div className="text-neutral-500 mb-0.5">{dayLabel(e.start)}</div>}
+              <div className="font-mono tnum">{clockTime(e.start)}</div>
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="font-medium truncate">{e.title}</div>
+              <div className="text-xs text-neutral-500 truncate">
+                {e.duration_min}m · {(e.attendees || []).join(', ')}
+                {e.location ? ' · ' + e.location : ''}
+              </div>
+            </div>
+          </li>
+        );
+      }
+
+      function ChannelRow({ c }) {
+        return (
+          <li className="px-4 py-2.5 flex justify-between items-baseline text-sm">
+            <span className="font-mono">#{c.name}</span>
+            <span className="flex items-baseline gap-2">
+              <span className="tnum text-neutral-500">{c.messages_today} msg</span>
+              <span className={'text-xs ' + (SENTIMENT_TONE[c.sentiment] || '')}>{c.sentiment}</span>
+            </span>
+          </li>
+        );
+      }
+
+      function App({ art }) {
+        const [kpis] = useSource(art, 'kpis');
+        const [runs] = useSource(art, 'agent_runs');
+        const [notifs, refreshNotifs] = useSource(art, 'notifications');
+        const [docs] = useSource(art, 'recent_docs');
+        const [cal] = useSource(art, 'calendar');
+        const [team] = useSource(art, 'team_signals');
+        const [refreshing, setRefreshing] = useState(false);
+
+        const refreshAll = useCallback(async () => {
+          setRefreshing(true);
+          await Promise.all([
+            art.source('kpis').refresh(),
+            art.source('agent_runs').refresh(),
+            art.source('notifications').refresh(),
+            art.source('recent_docs').refresh(),
+            art.source('calendar').refresh(),
+            art.source('team_signals').refresh(),
+          ]);
+          setRefreshing(false);
+        }, [art]);
+
+        const releaseProgress = kpis ? Math.min(100, (kpis.releases_shipped / kpis.releases_target) * 100) : 0;
+        const sortedCal = (cal || []).slice().sort((a, b) => new Date(a.start) - new Date(b.start));
+        let lastDay = null;
+
+        return (
+          <div className="max-w-6xl mx-auto p-6">
+            {art.host.anyFallback() && (
+              <div className="mb-4 px-3 py-2 rounded border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-900/20 text-amber-900 dark:text-amber-200 text-sm">
+                Showing mock data for one or more sources — live host (Ikenga shell) not connected.
+              </div>
+            )}
+
+            <header className="flex items-baseline justify-between mb-6">
+              <div>
+                <h1 className="text-2xl font-semibold">CEO Overview</h1>
+                <p className="text-sm text-neutral-500 mt-1">
+                  Daily exec digest · {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })} · host: <span className="font-mono">{art.host.kind}</span>
+                </p>
+              </div>
+              <button
+                onClick={refreshAll}
+                disabled={refreshing}
+                className="px-3 py-1.5 text-sm rounded border border-neutral-300 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 disabled:opacity-50 transition-colors"
+              >
+                {refreshing ? 'Refreshing…' : 'Refresh all'}
+              </button>
+            </header>
+
+            {/* KPI tiles */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+              <KpiTile
+                label="Revenue MTD"
+                value={usd(kpis && kpis.revenue_mtd)}
+                sub={kpis ? (kpis.revenue_delta_pct >= 0 ? '↑ ' : '↓ ') + Math.abs(kpis.revenue_delta_pct).toFixed(1) + '% vs prior' : ''}
+                tone={kpis && kpis.revenue_delta_pct >= 0 ? 'pos' : 'neg'}
+              />
+              <KpiTile
+                label="Active artists"
+                value={num(kpis && kpis.active_artists)}
+                sub={kpis ? (kpis.active_artists_delta >= 0 ? '+' : '') + kpis.active_artists_delta + ' this week' : ''}
+                tone={kpis && kpis.active_artists_delta >= 0 ? 'pos' : 'neg'}
+              />
+              <KpiTile
+                label="Releases shipped"
+                value={kpis ? kpis.releases_shipped + ' / ' + kpis.releases_target : '—'}
+                sub={releaseProgress.toFixed(0) + '% of target'}
+                tone={releaseProgress >= 80 ? 'pos' : null}
+              />
+              <KpiTile
+                label="Open issues"
+                value={num(kpis && kpis.open_issues)}
+                sub={kpis ? kpis.open_issues_critical + ' critical' : ''}
+                tone={kpis && kpis.open_issues_critical > 0 ? 'neg' : 'pos'}
+              />
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 mb-6">
+              {/* Left col: agent activity + recent docs */}
+              <div className="lg:col-span-2 space-y-3">
+                <section className="rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900">
+                  <div className="flex items-baseline justify-between p-4 pb-3 border-b border-neutral-200 dark:border-neutral-800">
+                    <h2 className="font-semibold">Agent activity</h2>
+                    <span className="text-xs text-neutral-500">{(runs || []).length} runs</span>
+                  </div>
+                  <ul className="divide-y divide-neutral-100 dark:divide-neutral-800/60">
+                    {(runs || []).map((r) => <AgentRunRow key={r.id} run={r} />)}
+                  </ul>
+                </section>
+
+                <section className="rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900">
+                  <div className="flex items-baseline justify-between p-4 pb-3 border-b border-neutral-200 dark:border-neutral-800">
+                    <h2 className="font-semibold">Recent docs</h2>
+                    <span className="text-xs text-neutral-500">.company/</span>
+                  </div>
+                  <ul className="divide-y divide-neutral-100 dark:divide-neutral-800/60">
+                    {(docs || []).map((d) => <DocRow key={d.path} d={d} />)}
+                  </ul>
+                </section>
+              </div>
+
+              {/* Right col: notifications + calendar + team signals */}
+              <div className="space-y-3">
+                <section className="rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900">
+                  <div className="flex items-baseline justify-between p-4 pb-3 border-b border-neutral-200 dark:border-neutral-800">
+                    <h2 className="font-semibold">Notifications</h2>
+                    <button onClick={refreshNotifs} className="text-xs text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100">refresh</button>
+                  </div>
+                  <ul className="divide-y divide-neutral-100 dark:divide-neutral-800/60">
+                    {(notifs || []).map((n) => <NotificationRow key={n.id} n={n} />)}
+                  </ul>
+                </section>
+
+                <section className="rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900">
+                  <div className="flex items-baseline justify-between p-4 pb-3 border-b border-neutral-200 dark:border-neutral-800">
+                    <h2 className="font-semibold">Calendar</h2>
+                    <span className="text-xs text-neutral-500">next 48h</span>
+                  </div>
+                  <ul className="divide-y divide-neutral-100 dark:divide-neutral-800/60">
+                    {sortedCal.map((e) => {
+                      const day = dayLabel(e.start);
+                      const showDay = day !== lastDay;
+                      lastDay = day;
+                      return <CalendarRow key={e.id} e={e} showDay={showDay} />;
+                    })}
+                  </ul>
+                </section>
+
+                <section className="rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900">
+                  <div className="flex items-baseline justify-between p-4 pb-3 border-b border-neutral-200 dark:border-neutral-800">
+                    <h2 className="font-semibold">Team signals</h2>
+                    <span className="text-xs text-neutral-500">{team && team.active_users} / {team && team.total_users} active</span>
+                  </div>
+                  <ul className="divide-y divide-neutral-100 dark:divide-neutral-800/60">
+                    {team && team.channels && team.channels.map((c) => <ChannelRow key={c.name} c={c} />)}
+                  </ul>
+                </section>
+              </div>
+            </div>
+
+            <footer className="text-xs text-neutral-400 flex justify-between">
+              <span>Ikenga artifact · v0.1 · ceo-overview</span>
+              <span>6 sources · supabase + sql + fetch + file + 2× mcp</span>
+            </footer>
+          </div>
+        );
+      }
+
+      window.__ikenga_bridge_polyfill__.init().then(function (art) {
+        ReactDOM.createRoot(document.getElementById('root')).render(<App art={art} />);
+      }).catch(function (err) {
+        document.getElementById('root').innerHTML =
+          '<pre style="padding:2rem;color:#b91c1c;font-family:ui-monospace,monospace;white-space:pre-wrap">'
+          + 'Init failed: ' + (err && err.message ? err.message : String(err))
+          + '</pre>';
+        console.error('[ikenga] init failed', err);
+      });
+    })();
+  </script>
+</body>
+</html>

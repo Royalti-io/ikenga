@@ -27,7 +27,7 @@ export const claudeCodeProvider: AgentConfigProvider = {
 				'Release coordination, outbound writing, and content curation — generalised templates with no organisation-specific references.',
 			// Counts mirror the bundled templates (kept manually in sync;
 			// not load-bearing — the preview is informational).
-			counts: { agents: 3, skills: 5, commands: 3 },
+			counts: { agents: 3, skills: 6, commands: 3 },
 		},
 	],
 	async inventory(rootPath) {
