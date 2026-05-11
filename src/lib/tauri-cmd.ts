@@ -383,6 +383,17 @@ export type ChatEvent =
 			stopReason?: string;
 			durationMs?: number;
 	  }
+	| {
+			/** Phase 4: claude emitted an `sdk_control_request` envelope —
+			 *  today only the `permission` subtype is supported. The ACP
+			 *  server forwards this as `session/request_permission`;
+			 *  legacy chat consumers can ignore it. */
+			kind: 'control_request';
+			requestId: string;
+			subtype: string;
+			toolName?: string;
+			toolInput?: unknown;
+	  }
 	| { kind: 'unknown'; raw: unknown }
 	| { kind: 'parse_error'; message: string; line: string }
 	/** Frontend-synthesized: a user message we wrote to the streaming child's
@@ -679,6 +690,84 @@ export async function acpListen(
 	return listen<AcpSessionNotification>(`acp://session/${threadId}`, (e) =>
 		onUpdate(e.payload)
 	);
+}
+
+// ─── ACP permission round-trip (phase 4) ──────────────────────────────────────
+//
+// Subset of the ACP `session/request_permission` request/response shapes we
+// care about today. The Rust side emits the full request payload through
+// `acp://session/{threadId}/request`; the client replies via
+// `acpRespondPermission`. See `src-tauri/src/acp/permission.rs` for the
+// option-id encoding (`ask:{q_idx}:{label}` for AskUserQuestion, the four
+// canonical `allow_once / allow_always / reject_once / reject_always` for
+// generic tools).
+
+export type AcpPermissionOptionKind =
+	| 'allow_once'
+	| 'allow_always'
+	| 'reject_once'
+	| 'reject_always';
+
+export interface AcpPermissionOption {
+	optionId: string;
+	name: string;
+	kind: AcpPermissionOptionKind;
+}
+
+export interface AcpToolCallUpdate {
+	toolCallId: string;
+	title?: string;
+	kind?: string;
+	status?: string;
+	content?: unknown[];
+	rawInput?: unknown;
+	rawOutput?: unknown;
+}
+
+export interface AcpRequestPermissionRequest {
+	sessionId: string;
+	toolCall: AcpToolCallUpdate;
+	options: AcpPermissionOption[];
+	_meta?: Record<string, unknown>;
+}
+
+export type AcpRequestPermissionOutcome =
+	| { outcome: 'cancelled' }
+	| { outcome: 'selected'; optionId: string };
+
+export interface AcpRequestPermissionResponse {
+	outcome: AcpRequestPermissionOutcome;
+	_meta?: Record<string, unknown>;
+}
+
+/** Envelope the Rust side emits on `acp://session/{threadId}/request`.
+ *  Carries the `requestId` (so the reply can match it up) plus the full
+ *  ACP-shaped request payload. */
+export interface AcpRequestEnvelope {
+	requestId: string;
+	request: AcpRequestPermissionRequest;
+}
+
+/** Subscribe to `session/request_permission` requests for a thread. Used by
+ *  the Phase 4 PermissionDialog and the acp-smoke harness. */
+export async function acpListenRequests(
+	threadId: string,
+	onRequest: (envelope: AcpRequestEnvelope) => void
+): Promise<UnlistenFn> {
+	return listen<AcpRequestEnvelope>(
+		`acp://session/${threadId}/request`,
+		(e) => onRequest(e.payload),
+	);
+}
+
+/** Phase 4: reply to a `session/request_permission`. The Rust server
+ *  resolves the parked oneshot, translates the outcome into a
+ *  `sdk_control_response` envelope, and writes it back to claude's stdin. */
+export async function acpRespondPermission(
+	requestId: string,
+	response: AcpRequestPermissionResponse,
+): Promise<void> {
+	return invoke('acp_respond_permission', { requestId, response });
 }
 
 // ─── Claude config browser (/claude route) ────────────────────────────────────

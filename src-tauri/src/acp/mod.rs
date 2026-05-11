@@ -24,6 +24,7 @@
 //!    `SessionUpdate` notifications, and back. (Phase 2.)
 
 pub mod mapping;
+pub mod permission;
 pub mod prompt;
 pub mod server;
 

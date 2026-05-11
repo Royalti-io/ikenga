@@ -121,6 +121,13 @@ pub fn chat_event_to_session_updates(event: &ChatEvent) -> Vec<SessionUpdate> {
         // as the end-of-stream signal, NOT as a `SessionUpdate`.
         ChatEvent::Done { .. } => Vec::new(),
 
+        // Phase 4: `ControlRequest` is NOT a SessionUpdate — it triggers a
+        // distinct ACP `session/request_permission` *request* that the
+        // server emits out-of-band. `handle_prompt` watches for this
+        // variant explicitly; the mapper drops it from the SessionUpdate
+        // stream so we don't accidentally double-route it.
+        ChatEvent::ControlRequest { .. } => Vec::new(),
+
         ChatEvent::Unknown { raw } => {
             log::warn!(target: "ikenga::acp::mapping", "dropping Unknown event: {raw}");
             Vec::new()
@@ -534,6 +541,20 @@ mod tests {
             model: Some("claude-opus".into()),
             cwd: Some("/tmp".into()),
             permission_mode: Some("default".into()),
+        };
+        assert!(chat_event_to_session_updates(&ev).is_empty());
+    }
+
+    #[test]
+    fn control_request_event_emits_no_session_updates() {
+        // Phase 4: ControlRequest is routed separately by the server as a
+        // `session/request_permission` request. It must NOT show up in the
+        // SessionUpdate stream.
+        let ev = ChatEvent::ControlRequest {
+            request_id: "req_1".into(),
+            subtype: "permission".into(),
+            tool_name: Some("Bash".into()),
+            tool_input: Some(json!({"command": "ls"})),
         };
         assert!(chat_event_to_session_updates(&ev).is_empty());
     }

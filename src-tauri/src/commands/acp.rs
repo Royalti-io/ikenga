@@ -7,7 +7,7 @@
 
 use agent_client_protocol::schema::{
     InitializeRequest, InitializeResponse, NewSessionRequest, NewSessionResponse, PromptRequest,
-    PromptResponse,
+    PromptResponse, RequestPermissionResponse,
 };
 use tauri::{AppHandle, State};
 
@@ -45,4 +45,18 @@ pub async fn acp_cancel(
     #[allow(non_snake_case)] threadId: String,
 ) -> Result<(), String> {
     state.handle_cancel(threadId).await
+}
+
+/// Phase 4: client-side reply to a `session/request_permission` we emitted
+/// earlier on `acp://session/{id}/request`. The Tauri layer keeps the
+/// camelCase parameter naming convention used everywhere else; the inner
+/// `RequestPermissionResponse` is the canonical ACP type so the wire shape
+/// matches what a real ACP JSON-RPC peer would send.
+#[tauri::command]
+pub async fn acp_respond_permission(
+    state: State<'_, AcpServerState>,
+    #[allow(non_snake_case)] requestId: String,
+    response: RequestPermissionResponse,
+) -> Result<(), String> {
+    state.resolve_permission(requestId, response).await
 }

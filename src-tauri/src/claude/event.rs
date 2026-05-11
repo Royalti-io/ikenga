@@ -96,6 +96,25 @@ pub enum ChatEvent {
         duration_ms: Option<u64>,
     },
 
+    /// Phase 4: SDK control-request envelope from `claude
+    /// --permission-prompt-tool stdio`. Today the only subtype we expect is
+    /// `permission`, carrying `tool_name + tool_input` so the ACP server can
+    /// route the request out as a `session/request_permission`. Phase 5/6
+    /// introduce `set_permission_mode` + `interrupt` subtypes; they will
+    /// reuse the same variant.
+    ///
+    /// `request_id` is locally generated when claude's envelope omits one
+    /// (older builds) so the bridge always has a stable correlation key.
+    ControlRequest {
+        #[serde(rename = "requestId")]
+        request_id: String,
+        subtype: String,
+        #[serde(rename = "toolName", skip_serializing_if = "Option::is_none")]
+        tool_name: Option<String>,
+        #[serde(rename = "toolInput", skip_serializing_if = "Option::is_none")]
+        tool_input: Option<Value>,
+    },
+
     /// Unrecognized envelope or block. Forwarded so consumers can show raw
     /// JSON instead of dropping bytes.
     Unknown { raw: Value },

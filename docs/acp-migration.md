@@ -1,6 +1,6 @@
 # ACP migration — chat engine rewrite
 
-**Status:** Phase 1 complete (2026-05-11). Phases 2–11 pending. Phase 12 deferred.
+**Status:** Phases 1–4 complete (2026-05-11). Phases 5–11 pending. Phase 12 deferred.
 
 ## Decision
 
@@ -59,8 +59,8 @@ Phase 10 reshapes the contract.
 |---|---|---|---|
 | 1 | Rust ACP crate + skeleton Agent impl | ✅ landed | `c238255` |
 | 2 | `stream_parser` → `SessionUpdate` mapping | ✅ landed | `920bdde` |
-| 3 | Prompt handling — first real chat over ACP | ✅ landed | (this commit) |
-| 4 | `--permission-prompt-tool stdio` + AskUserQuestion fix | pending | |
+| 3 | Prompt handling — first real chat over ACP | ✅ landed | `3d45e65` |
+| 4 | `--permission-prompt-tool stdio` + AskUserQuestion fix | ✅ landed | (this commit) |
 | 5 | Session modes (plan/default/auto/bypassPermissions) | pending | |
 | 6 | Interrupt via control_request | pending | |
 | 7 | Image input via ACP content blocks | pending | |
