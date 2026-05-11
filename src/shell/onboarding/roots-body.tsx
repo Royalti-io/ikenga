@@ -43,10 +43,12 @@ export function RootsBody({ onContinue }: RootsBodyProps) {
 	const fileRoots = useShellStore((s) => s.fileRoots);
 	const addFileRoot = useShellStore((s) => s.addFileRoot);
 	const removeFileRoot = useShellStore((s) => s.removeFileRoot);
+	const updateFileRoot = useShellStore((s) => s.updateFileRoot);
 
 	const claudeProjectRoots = useShellStore((s) => s.claudeProjectRoots);
 	const addClaudeProjectRoot = useShellStore((s) => s.addClaudeProjectRoot);
 	const removeClaudeProjectRoot = useShellStore((s) => s.removeClaudeProjectRoot);
+	const updateClaudeProjectRoot = useShellStore((s) => s.updateClaudeProjectRoot);
 
 	const { setPayload } = useOnboardingStep<RootsStepPayload>('roots');
 
@@ -139,6 +141,7 @@ export function RootsBody({ onContinue }: RootsBodyProps) {
 							key={path}
 							path={path}
 							onRemove={() => removeFileRoot(path)}
+							onCommit={(next) => updateFileRoot(path, next)}
 							isDefault={(DEFAULT_FILE_ROOTS as readonly string[]).includes(path)}
 						/>
 					))}
@@ -195,6 +198,7 @@ export function RootsBody({ onContinue }: RootsBodyProps) {
 							key={path}
 							path={path}
 							onRemove={() => removeClaudeProjectRoot(path)}
+							onCommit={(next) => updateClaudeProjectRoot(path, next)}
 							isDefault={(DEFAULT_CLAUDE_PROJECT_ROOTS as readonly string[]).includes(path)}
 						/>
 					))}
@@ -273,9 +277,27 @@ interface RootRowProps {
 	path: string;
 	isDefault: boolean;
 	onRemove: () => void;
+	onCommit: (next: string) => void;
 }
 
-function RootRow({ path, isDefault, onRemove }: RootRowProps) {
+function RootRow({ path, isDefault, onRemove, onCommit }: RootRowProps) {
+	// Local draft so the user can edit freely; commit on blur / Enter.
+	// We re-sync the draft from `path` when the underlying value changes
+	// (e.g. another path with the same display was removed/renamed).
+	const [draft, setDraft] = useState(path);
+	useEffect(() => {
+		setDraft(path);
+	}, [path]);
+
+	const commit = () => {
+		const trimmed = draft.trim();
+		if (!trimmed || trimmed === path) {
+			setDraft(path);
+			return;
+		}
+		onCommit(trimmed);
+	};
+
 	return (
 		<div
 			className={cn(
@@ -288,11 +310,24 @@ function RootRow({ path, isDefault, onRemove }: RootRowProps) {
 			data-testid="root-row"
 			data-path={path}
 		>
-			<div className="min-w-0">
-				<div className="truncate font-mono text-[12px]" title={path}>
-					{path}
-				</div>
-			</div>
+			<Input
+				value={draft}
+				onChange={(e) => setDraft(e.target.value)}
+				onBlur={commit}
+				onKeyDown={(e) => {
+					if (e.key === 'Enter') {
+						e.preventDefault();
+						(e.target as HTMLInputElement).blur();
+					} else if (e.key === 'Escape') {
+						e.preventDefault();
+						setDraft(path);
+						(e.target as HTMLInputElement).blur();
+					}
+				}}
+				className="h-8 border-transparent bg-transparent px-1 font-mono text-[12px] focus-visible:border-[var(--border-strong)]"
+				data-testid="root-row-input"
+				title={path}
+			/>
 			{isDefault && (
 				<span
 					className="rounded-full px-2 py-0.5 text-[10.5px] font-semibold uppercase tracking-wider"
