@@ -71,6 +71,8 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 # Backup secrets (phase 2): age passphrase encryption for the kv blob inside
 # .ikbak. armor disabled — bundle is binary already.
 age = { version = "0.10", default-features = false }
+which = "7"
+sysinfo = { version = "0.36.1", default-features = false, features = ["disk"] }
 
 # Mac-only polish (window vibrancy + dock-tile badge) was removed
 # in the strip-down. The resolved objc2 v0.5 didn't export

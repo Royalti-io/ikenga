@@ -1150,3 +1150,79 @@ export async function backupList(): Promise<BackupSummary[]> {
 export async function backupDelete(path: string): Promise<void> {
   return invoke("backup_delete", { path });
 }
+
+// ─── First-run wizard: system + agent detection ──────────────────────────────
+//
+// Three commands the onboarding wizard calls once on mount. All return rich
+// JSON so the wizard can render without a second round-trip. Field names
+// stay snake_case to match the Rust serde output verbatim — easier to
+// audit than a hand-mapped camelCase translation.
+
+export type CheckLevel = "pass" | "warn" | "fail";
+
+export interface SystemCheck {
+  id: string;
+  level: CheckLevel;
+  message: string;
+  fix_hint: string | null;
+}
+
+export interface SystemReport {
+  os: string;
+  arch: string;
+  disk_free_gb: number;
+  app_data_dir: string;
+  app_data_writable: boolean;
+  vault_key_present: boolean;
+  claude_projects_dir_present: boolean;
+  checks: SystemCheck[];
+}
+
+export interface AgentCapabilities {
+  streaming: boolean;
+  tool_use: boolean;
+  thinking: boolean;
+  artifacts: boolean;
+  mcp: boolean;
+  session_resume: boolean;
+}
+
+export interface DetectedAgent {
+  id: string;
+  display: string;
+  executable_path: string;
+  version: string | null;
+  /** null = unknown / not probed; true = authed; false = not authed. */
+  authed: boolean | null;
+  /** Human-readable hint when `authed === false` or probe was inconclusive. */
+  auth_hint: string | null;
+  capabilities: AgentCapabilities;
+}
+
+export interface AgentConfigInventory {
+  root_path: string;
+  config_dir_present: boolean;
+  agent_count: number;
+  skill_count: number;
+  command_count: number;
+  mcp_server_count: number;
+  project_count: number;
+}
+
+export async function detectSystem(): Promise<SystemReport> {
+  return invoke<SystemReport>("detect_system");
+}
+
+export async function detectAgents(): Promise<DetectedAgent[]> {
+  return invoke<DetectedAgent[]>("detect_agents");
+}
+
+export async function detectAgentConfig(
+  agentId: string,
+  rootPath: string,
+): Promise<AgentConfigInventory> {
+  return invoke<AgentConfigInventory>("detect_agent_config", {
+    agentId,
+    rootPath,
+  });
+}
