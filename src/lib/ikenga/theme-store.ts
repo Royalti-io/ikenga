@@ -16,8 +16,17 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 /** Palette variants. A=default (Iroko/dusk), B=Kola amber, C=verdigris. */
 export type IkengaTheme = 'A' | 'B' | 'C';
 
-/** Light/dark switch. The shell-default is dark. */
-export type IkengaMode = 'light' | 'dark';
+/** Light/dark switch. The shell-default is dark.
+ *
+ * 'system' tracks the OS preference via `matchMedia` (installed by
+ * `installIkengaDomSync`). The persisted store value stays 'system';
+ * only the resolved `<html data-mode>` attribute flips between
+ * light/dark in response to the media query. */
+export type IkengaMode = 'light' | 'dark' | 'system';
+
+/** The mode actually written to the DOM (i.e. 'system' resolved to
+ * either 'light' or 'dark'). */
+export type ResolvedIkengaMode = 'light' | 'dark';
 
 /** Row height + body font density. */
 export type IkengaDensity = 'compact' | 'comfortable' | 'spacious';
@@ -68,20 +77,57 @@ export const useIkengaStore = create<IkengaState>()(
 
 let installed = false;
 
+/** Resolve a store mode (which may be 'system') to the literal mode
+ *  written into `<html data-mode>`. Exported for unit tests. */
+export function resolveIkengaMode(
+  mode: IkengaMode,
+  prefersDark: boolean,
+): ResolvedIkengaMode {
+  if (mode === 'system') return prefersDark ? 'dark' : 'light';
+  return mode;
+}
+
 /** Subscribe the store to <html> data-attribute writes. Call once at app
- *  bootstrap (from `main.tsx`). Idempotent — second calls are no-ops. */
+ *  bootstrap (from `main.tsx`). Idempotent — second calls are no-ops.
+ *
+ *  When `mode === 'system'` the resolved attribute follows the OS
+ *  `prefers-color-scheme` query and re-applies on `change`. The store
+ *  itself still persists 'system' so the preference survives reload. */
 export function installIkengaDomSync() {
   if (installed) return;
   installed = true;
   if (typeof document === 'undefined') return;
+
+  // Prefer-dark media query. Safari < 14 lacks `addEventListener` on
+  // MediaQueryList — fall back to the deprecated addListener.
+  const mql =
+    typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+      ? window.matchMedia('(prefers-color-scheme: dark)')
+      : null;
+
   const apply = (s: IkengaState) => {
     const html = document.documentElement;
+    const prefersDark = !!mql?.matches;
+    const resolved = resolveIkengaMode(s.mode, prefersDark);
     html.setAttribute('data-theme', s.theme);
-    html.setAttribute('data-mode', s.mode);
+    html.setAttribute('data-mode', resolved);
+    html.setAttribute('data-mode-source', s.mode); // 'light' | 'dark' | 'system'
     html.setAttribute('data-density', s.density);
     html.setAttribute('data-tint-strength', s.tintStrength);
     html.setAttribute('data-workspace', s.workspace);
   };
+
   apply(useIkengaStore.getState());
   useIkengaStore.subscribe(apply);
+
+  if (mql) {
+    const onChange = () => apply(useIkengaStore.getState());
+    if (typeof mql.addEventListener === 'function') {
+      mql.addEventListener('change', onChange);
+    } else if (typeof (mql as MediaQueryList & {
+      addListener?: (l: () => void) => void;
+    }).addListener === 'function') {
+      (mql as MediaQueryList & { addListener: (l: () => void) => void }).addListener(onChange);
+    }
+  }
 }
