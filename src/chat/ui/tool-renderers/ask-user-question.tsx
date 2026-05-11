@@ -1,4 +1,26 @@
 /**
+ * DEPRECATED (2026-05-11, ACP migration Phase 4).
+ *
+ * This renderer is the legacy band-aid for `AskUserQuestion` on chats that
+ * still run through the `session_*` Tauri-command path. With Phase 4 wired,
+ * the real flow is:
+ *
+ *   1. Claude is spawned with `--permission-prompt-tool stdio` (see
+ *      `claude::session::spawn_streaming`).
+ *   2. When the model invokes AskUserQuestion (or any tool that needs
+ *      approval) it emits an `sdk_control_request` envelope on stdout.
+ *   3. The Rust ACP server (`acp::server::handle_prompt`) forwards it as
+ *      `session/request_permission` on the `acp://session/{id}/request`
+ *      Tauri event channel.
+ *   4. The client picks an option; the ACP server writes an
+ *      `sdk_control_response` back to claude's stdin with
+ *      `{ behavior: 'allow', updatedInput: { answers: {...} } }`.
+ *
+ * The production UI for that path is a new `PermissionDialog` component
+ * (planned Phase 4.5 / Phase 10). This renderer stays in place ONLY for
+ * sessions still on the legacy stream — it should be deleted as soon as
+ * Phase 10 retires the legacy `session_*` commands.
+ *
  * Renderer for Anthropic's built-in `AskUserQuestion` tool. The tool input
  * is a list of questions, each with options (label + description) and an
  * optional `multiSelect` flag. The expected output is a JSON object mapping

@@ -12,8 +12,11 @@
 import {
 	acpInitialize,
 	acpListen,
+	acpListenRequests,
 	acpNewSession,
 	acpPrompt,
+	acpRespondPermission,
+	type AcpRequestEnvelope,
 	type AcpSessionNotification,
 	type AcpSessionUpdate,
 } from '@/lib/tauri-cmd';
@@ -22,6 +25,10 @@ export interface AcpSmokeResult {
 	threadId: string;
 	updates: AcpSessionUpdate[];
 	stopReason: string;
+	/** Phase 4: every `session/request_permission` we received during the
+	 *  turn, in order. The smoke harness auto-responds with the first
+	 *  option of each request (see `acpListenRequests` wire-up below). */
+	permissionRequests: AcpRequestEnvelope[];
 }
 
 /**
@@ -52,6 +59,28 @@ export async function runAcpSmokeTest(
 		updates.push(notif.update);
 	});
 
+	// Phase 4: auto-respond to every `session/request_permission` with the
+	// FIRST option in the request. For AskUserQuestion this picks the first
+	// answer for the first question (encoded as `ask:0:<label>`); for
+	// generic tools that's `allow_once`. The harness is for smoke runs —
+	// the real UI lives in `PermissionDialog` (Phase 4.5 / Phase 10).
+	const permissionRequests: AcpRequestEnvelope[] = [];
+	const unlistenRequests = await acpListenRequests(threadId, (env: AcpRequestEnvelope) => {
+		permissionRequests.push(env);
+		const firstOption = env.request.options[0];
+		if (!firstOption) {
+			// Nothing to pick — synthesize a cancellation so claude doesn't
+			// hang. The Rust side translates this to a `deny` envelope.
+			void acpRespondPermission(env.requestId, {
+				outcome: { outcome: 'cancelled' },
+			});
+			return;
+		}
+		void acpRespondPermission(env.requestId, {
+			outcome: { outcome: 'selected', optionId: firstOption.optionId },
+		});
+	});
+
 	let response;
 	try {
 		response = await acpPrompt({
@@ -65,7 +94,13 @@ export async function runAcpSmokeTest(
 		// drain first.
 		await Promise.resolve();
 		unlisten();
+		unlistenRequests();
 	}
 
-	return { threadId, updates, stopReason: response.stopReason };
+	return {
+		threadId,
+		updates,
+		stopReason: response.stopReason,
+		permissionRequests,
+	};
 }

@@ -214,7 +214,18 @@ pub async fn spawn_streaming(
 
     let mut command = Command::new("claude");
     command
+        // Phase 4: `--permission-prompt-tool stdio` opens the
+        // `sdk_control_request` channel on stdout so tool approvals become
+        // a real round-trip (see `acp::server::handle_prompt`). We still
+        // pass `--dangerously-skip-permissions` for now: claude prefers the
+        // explicit prompt tool when its tools need approval, and falls back
+        // to the skip flag otherwise — this keeps the legacy chat working
+        // while we wire the new path. Phase 5 retires the dangerous flag
+        // once session modes (plan/default/auto/bypassPermissions) are
+        // first-class.
         .arg("--dangerously-skip-permissions")
+        .arg("--permission-prompt-tool")
+        .arg("stdio")
         .arg("--print")
         .arg("--input-format")
         .arg("stream-json")
@@ -419,6 +430,74 @@ pub async fn send_tool_result(
     Ok(())
 }
 
+/// Build the line-delimited `sdk_control_response` envelope claude expects
+/// in reply to a `sdk_control_request`. `response_body` should be the inner
+/// object (`{"behavior":"allow","updatedInput":{...}}` or
+/// `{"behavior":"deny","message":"..."}`); we splice in the `request_id` so
+/// both sides agree on the correlation key.
+///
+/// Public for unit tests; the only caller is `send_control_response`.
+pub fn control_response_envelope(
+    request_id: &str,
+    response_body: &serde_json::Value,
+) -> String {
+    let mut inner = match response_body {
+        serde_json::Value::Object(m) => m.clone(),
+        // Defensive: spec says callers pass an object. If they don't,
+        // wrap so the envelope still parses on claude's end.
+        other => {
+            let mut m = serde_json::Map::new();
+            m.insert("response".into(), other.clone());
+            m
+        }
+    };
+    inner.insert(
+        "request_id".into(),
+        serde_json::Value::String(request_id.to_string()),
+    );
+    let value = serde_json::json!({
+        "type": "sdk_control_response",
+        "response": serde_json::Value::Object(inner),
+    });
+    let mut s = serde_json::to_string(&value).unwrap_or_else(|_| String::from("{}"));
+    s.push('\n');
+    s
+}
+
+/// Phase 4: write a `sdk_control_response` to the streaming child's stdin
+/// in reply to a `sdk_control_request` we observed on stdout. `response`
+/// is the response body (sans `request_id`/`type` wrapper) — typically
+/// `{"behavior":"allow", "updatedInput": {...}}` or
+/// `{"behavior":"deny", "message": "..."}`.
+///
+/// Errors if no streaming child is alive — the caller should only invoke
+/// this in the middle of a prompt turn (which is the only time claude
+/// emits a control_request).
+pub async fn send_control_response(
+    session: Arc<Session>,
+    request_id: String,
+    response: serde_json::Value,
+) -> Result<(), String> {
+    let streaming = session
+        .streaming
+        .lock()
+        .await
+        .as_ref()
+        .cloned()
+        .ok_or_else(|| "no streaming child for control_response".to_string())?;
+    let envelope = control_response_envelope(&request_id, &response);
+    let mut stdin = streaming.stdin.lock().await;
+    stdin
+        .write_all(envelope.as_bytes())
+        .await
+        .map_err(|e| format!("stdin write: {e}"))?;
+    stdin
+        .flush()
+        .await
+        .map_err(|e| format!("stdin flush: {e}"))?;
+    Ok(())
+}
+
 /// Kill the streaming child. Leaves the in-memory `Session` so subsequent
 /// `session_send` can re-spawn with `--resume`. Returns Ok if there was no
 /// child to kill (idempotent).
@@ -429,4 +508,43 @@ pub async fn cancel_streaming(session: Arc<Session>) -> Result<(), String> {
         let _ = child.start_kill();
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn control_response_envelope_wraps_allow_body() {
+        // Sanity-check the exact wire shape claude expects in reply to a
+        // permission control_request. Trailing newline is part of the
+        // contract — claude reads stdin line-by-line.
+        let body = json!({
+            "behavior": "allow",
+            "updatedInput": { "answers": { "Which color?": "Red" } },
+        });
+        let env = control_response_envelope("req_42", &body);
+        assert!(env.ends_with('\n'));
+        let parsed: serde_json::Value =
+            serde_json::from_str(env.trim_end()).expect("envelope is JSON");
+        assert_eq!(parsed["type"], json!("sdk_control_response"));
+        assert_eq!(parsed["response"]["request_id"], json!("req_42"));
+        assert_eq!(parsed["response"]["behavior"], json!("allow"));
+        assert_eq!(
+            parsed["response"]["updatedInput"]["answers"]["Which color?"],
+            json!("Red"),
+        );
+    }
+
+    #[test]
+    fn control_response_envelope_wraps_deny_body() {
+        let body = json!({"behavior": "deny", "message": "User declined"});
+        let env = control_response_envelope("req_99", &body);
+        let parsed: serde_json::Value =
+            serde_json::from_str(env.trim_end()).expect("envelope is JSON");
+        assert_eq!(parsed["response"]["behavior"], json!("deny"));
+        assert_eq!(parsed["response"]["message"], json!("User declined"));
+        assert_eq!(parsed["response"]["request_id"], json!("req_99"));
+    }
 }

@@ -88,13 +88,17 @@ export function chatEventToEngineEvent(event: ChatEvent): EngineEvent | null {
         reason: "error",
         error: `parse_error: ${event.message}`,
       };
-    // session_init, artifact, system_hook, user_turn, unknown: no engine
-    // equivalent. user_turn is a frontend-only echo of what the user typed;
-    // the engine sees it via its own `send` call so we don't replay it.
+    // session_init, artifact, system_hook, user_turn, control_request,
+    // unknown: no engine equivalent. user_turn is a frontend-only echo of
+    // what the user typed; the engine sees it via its own `send` call so
+    // we don't replay it. control_request (Phase 4) is handled out-of-band
+    // by the ACP server emitting a `session/request_permission` request;
+    // legacy engine consumers ignore it.
     case "session_init":
     case "artifact":
     case "system_hook":
     case "user_turn":
+    case "control_request":
     case "unknown":
       return null;
     default: {
