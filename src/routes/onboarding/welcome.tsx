@@ -1,6 +1,11 @@
-// Phase 3 stub. Step body is filled in by Phase 4.
+// Step 1 — Welcome / system preflight.
+//
+// Body lives in `src/shell/onboarding/welcome-body.tsx`; this route just
+// wires the body into the wizard chrome.
+
 import { createFileRoute } from '@tanstack/react-router';
 
+import { WelcomeBody } from '@/shell/onboarding/welcome-body';
 import { WizardStepper } from '@/shell/onboarding/wizard-stepper';
 
 export const Route = createFileRoute('/onboarding/welcome')({
@@ -10,20 +15,7 @@ export const Route = createFileRoute('/onboarding/welcome')({
 function WelcomeStep() {
 	return (
 		<WizardStepper stepId="welcome">
-			{() => (
-				<div className="mx-auto max-w-2xl">
-					<p
-						className="mb-3 text-xs font-semibold uppercase tracking-[0.04em]"
-						style={{ color: 'var(--primary)' }}
-					>
-						First-run setup
-					</p>
-					<h1 className="mb-4 text-4xl font-bold leading-tight tracking-tight">Welcome step</h1>
-					<p className="text-sm" style={{ color: 'var(--fg-muted)' }}>
-						TODO step body — Phase 4 fills in welcome + preflight content.
-					</p>
-				</div>
-			)}
+			{({ goNext }) => <WelcomeBody onContinue={goNext} />}
 		</WizardStepper>
 	);
 }
