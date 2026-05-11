@@ -32,7 +32,7 @@ use serde::Deserialize;
 use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, Command};
-use tokio::sync::Mutex;
+use tokio::sync::{broadcast, Mutex};
 
 use crate::claude::{
     artifact_watcher::ArtifactWatcher, event::ChatEvent, stream_parser::StreamParser,
@@ -76,10 +76,23 @@ pub struct Session {
     streaming: Mutex<Option<Arc<StreamingChild>>>,
     /// PTY id (from `PtyManager`) if the session has an attached terminal.
     pub pty_id: Mutex<Option<String>>,
+    /// Broadcast channel for parsed `ChatEvent`s observed on this session.
+    /// The existing reader task (in `spawn_streaming`) sends every event here
+    /// in addition to the `app.emit("session://...")` call so in-process
+    /// subscribers (e.g. the ACP `handle_prompt` end-of-turn waiter) can
+    /// observe the stream without going through the Tauri event bus.
+    /// Capacity is generous because a single prompt can fan out many text
+    /// chunks; lagging subscribers will see `RecvError::Lagged` which
+    /// `handle_prompt` treats as fatal for the turn.
+    pub events: broadcast::Sender<ChatEvent>,
 }
 
 impl Session {
     pub fn new(thread_id: String, cwd: String, opts: SessionOpts) -> Self {
+        // 1024 outstanding events should comfortably absorb the burstiest
+        // assistant turns; chosen empirically — `cargo bench` not warranted
+        // until we see a real lag complaint.
+        let (events, _) = broadcast::channel(1024);
         Self {
             thread_id,
             cwd,
@@ -87,6 +100,7 @@ impl Session {
             claude_session_id: Mutex::new(None),
             streaming: Mutex::new(None),
             pty_id: Mutex::new(None),
+            events,
         }
     }
 }
@@ -314,11 +328,16 @@ pub async fn spawn_streaming(
 }
 
 /// Emit events on `session://{thread_id}` and (once known) mirror to
-/// `claude://session/{real_session_id}` for legacy listeners.
+/// `claude://session/{real_session_id}` for legacy listeners. Also fans out
+/// to the in-process broadcast channel so ACP subscribers (`handle_prompt`'s
+/// end-of-turn waiter) observe the same stream.
 async fn emit_events(app: &AppHandle, session: &Arc<Session>, events: &[ChatEvent]) {
     let thread_channel = format!("session://{}", session.thread_id);
     for e in events {
         let _ = app.emit(&thread_channel, e);
+        // `send` only errors when there are zero active receivers — fine,
+        // that's the common case when nobody is listening in-process.
+        let _ = session.events.send(e.clone());
     }
     if let Some(real) = session.claude_session_id.lock().await.clone() {
         let mirror = format!("claude://session/{real}");

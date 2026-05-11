@@ -507,6 +507,180 @@ export async function sessionListen(
 	return listen<ChatEvent>(`session://${threadId}`, (e) => onEvent(e.payload));
 }
 
+// ─── ACP (phase 3) ────────────────────────────────────────────────────────────
+//
+// Minimal local TS types that mirror the subset of the
+// `@agentclientprotocol/sdk` schema we currently exchange with the Rust ACP
+// server. We do NOT depend on the SDK here — that package is ~1.4 MB and we
+// only need a handful of shapes. If we ever wire up an external ACP peer
+// we'll re-export these from a shared package; phase 10 reshapes things.
+
+/** ACP `ProtocolVersion`. Numeric. V1 = 1. */
+export type AcpProtocolVersion = number;
+
+export interface AcpClientCapabilities {
+	fs?: { readTextFile?: boolean; writeTextFile?: boolean };
+	terminal?: boolean;
+}
+
+export interface AcpInitializeRequest {
+	protocolVersion: AcpProtocolVersion;
+	clientCapabilities?: AcpClientCapabilities;
+	_meta?: Record<string, unknown>;
+}
+
+export interface AcpPromptCapabilities {
+	image: boolean;
+	audio: boolean;
+	embeddedContext: boolean;
+}
+
+export interface AcpMcpCapabilities {
+	http: boolean;
+	sse: boolean;
+}
+
+export interface AcpAgentCapabilities {
+	loadSession: boolean;
+	promptCapabilities: AcpPromptCapabilities;
+	mcpCapabilities: AcpMcpCapabilities;
+}
+
+export interface AcpInitializeResponse {
+	protocolVersion: AcpProtocolVersion;
+	agentCapabilities: AcpAgentCapabilities;
+	authMethods: unknown[];
+	_meta?: Record<string, unknown>;
+}
+
+export interface AcpTextContentBlock {
+	type: 'text';
+	text: string;
+}
+
+export interface AcpImageContentBlock {
+	type: 'image';
+	data: string;
+	mimeType: string;
+	uri?: string;
+}
+
+export type AcpContentBlock =
+	| AcpTextContentBlock
+	| AcpImageContentBlock
+	| { type: 'audio'; data: string; mimeType: string }
+	| { type: 'resource_link'; name: string; uri: string }
+	| { type: 'resource'; resource: unknown };
+
+export interface AcpNewSessionRequest {
+	cwd: string;
+	mcpServers: unknown[];
+	_meta?: Record<string, unknown>;
+}
+
+export interface AcpNewSessionResponse {
+	sessionId: string;
+	modes?: unknown;
+	models?: unknown;
+	configOptions?: unknown[];
+	_meta?: Record<string, unknown>;
+}
+
+export interface AcpPromptRequest {
+	sessionId: string;
+	prompt: AcpContentBlock[];
+	messageId?: string;
+	_meta?: Record<string, unknown>;
+}
+
+export type AcpStopReason =
+	| 'end_turn'
+	| 'max_tokens'
+	| 'max_turn_requests'
+	| 'refusal'
+	| 'cancelled';
+
+export interface AcpPromptResponse {
+	stopReason: AcpStopReason;
+	userMessageId?: string;
+	usage?: unknown;
+	_meta?: Record<string, unknown>;
+}
+
+/** ACP `SessionUpdate` discriminated union. We only enumerate the variants
+ *  the Rust mapper currently emits — extend as later phases land. */
+export type AcpSessionUpdate =
+	| { sessionUpdate: 'agent_message_chunk'; content: AcpContentBlock; messageId?: string }
+	| { sessionUpdate: 'agent_thought_chunk'; content: AcpContentBlock; messageId?: string }
+	| { sessionUpdate: 'user_message_chunk'; content: AcpContentBlock }
+	| {
+			sessionUpdate: 'tool_call';
+			toolCallId: string;
+			title: string;
+			kind?: string;
+			status?: string;
+			content?: unknown[];
+			rawInput?: unknown;
+			_meta?: Record<string, unknown>;
+	  }
+	| {
+			sessionUpdate: 'tool_call_update';
+			toolCallId: string;
+			fields: {
+				status?: string;
+				content?: unknown[];
+				rawOutput?: unknown;
+			};
+			_meta?: Record<string, unknown>;
+	  }
+	| { sessionUpdate: string; [k: string]: unknown };
+
+export interface AcpSessionNotification {
+	sessionId: string;
+	update: AcpSessionUpdate;
+	_meta?: Record<string, unknown>;
+}
+
+/** ACP `initialize` — handshake. Returns the negotiated protocol version
+ *  + the agent's advertised capabilities. */
+export async function acpInitialize(
+	req: AcpInitializeRequest
+): Promise<AcpInitializeResponse> {
+	return invoke<AcpInitializeResponse>('acp_initialize', { req });
+}
+
+/** ACP `session/new` — mints a fresh thread id keyed in Rust as both the
+ *  ACP `sessionId` and the legacy `threadId`. The claude child is lazy —
+ *  it spawns on the first `acpPrompt`. */
+export async function acpNewSession(req: AcpNewSessionRequest): Promise<AcpNewSessionResponse> {
+	return invoke<AcpNewSessionResponse>('acp_new_session', { req });
+}
+
+/** ACP `session/prompt` — synchronous from the caller's POV, but emits
+ *  `AcpSessionNotification`s on `acp://session/{sessionId}` while the
+ *  agent is mid-turn. The promise resolves when the turn ends. */
+export async function acpPrompt(req: AcpPromptRequest): Promise<AcpPromptResponse> {
+	return invoke<AcpPromptResponse>('acp_prompt', { req });
+}
+
+/** ACP `session/cancel` — Phase 3 calls `cancel_streaming` (kills the
+ *  child); Phase 6 swaps in real interrupt control-request. */
+export async function acpCancel(threadId: string): Promise<void> {
+	return invoke('acp_cancel', { threadId });
+}
+
+/** Subscribe to ACP session updates for a given thread. Tauri side emits
+ *  `AcpSessionNotification`s on `acp://session/{threadId}` for every
+ *  `SessionUpdate` derived from the underlying ChatEvent stream. */
+export async function acpListen(
+	threadId: string,
+	onUpdate: (notification: AcpSessionNotification) => void
+): Promise<UnlistenFn> {
+	return listen<AcpSessionNotification>(`acp://session/${threadId}`, (e) =>
+		onUpdate(e.payload)
+	);
+}
+
 // ─── Claude config browser (/claude route) ────────────────────────────────────
 //
 // Read-only scan of `.claude/{agents,skills,commands}` and `.claude/settings*.json`
