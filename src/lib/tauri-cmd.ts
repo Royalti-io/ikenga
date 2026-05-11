@@ -1717,3 +1717,35 @@ export async function scaffoldAgentConfig(
 		mode,
 	});
 }
+
+// ─── Phase 0.5 background-execution spike (debug-only) ────────────────────────
+//
+// Pairs with src-tauri/src/commands/bg_spike.rs. The Rust side is gated on
+// cfg(debug_assertions); the FE side is gated on import.meta.env.DEV by
+// the install helper in src/main.tsx (window.__bgSpikeInstall). Delete both
+// once Phase 0.5 is signed off — these aren't a permanent surface.
+
+export interface BgSpikeReport {
+	intendedCount: number;
+	completedCount: number;
+	timeoutCount: number;
+	durationMs: number;
+	p50Us: number;
+	p95Us: number;
+	p99Us: number;
+	maxUs: number;
+	sampleUs: number[];
+	webviewLabel: string;
+}
+
+export async function bgSpikeRun(
+	durationMs: number,
+	intervalMs: number,
+	perPingTimeoutMs: number,
+): Promise<BgSpikeReport> {
+	return invoke<BgSpikeReport>('bg_spike_run', {
+		durationMs,
+		intervalMs,
+		perPingTimeoutMs,
+	});
+}
