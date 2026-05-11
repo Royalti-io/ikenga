@@ -121,6 +121,20 @@ interface ShellState {
 	activeMode: ActivityMode;
 	setActiveMode: (m: ActivityMode) => void;
 
+	// ─── Telemetry consent ───────────────────────────────────────────────
+	// Canonical home for the telemetry preference. The onboarding wizard's
+	// `telemetry` step writes to this field directly so Settings → Privacy
+	// reads the same source. Default OFF — APPROVAL.md, no dark patterns.
+	telemetryConsent: boolean;
+	setTelemetryConsent: (enabled: boolean) => void;
+
+	// ─── Chat adapter ────────────────────────────────────────────────────
+	// Which engine adapter pkg drives the chat surface. Mirrors the
+	// agent step's `selectedAgentId` after onboarding completes; left
+	// null when the user picks offline mode.
+	chatAdapterId: string | null;
+	setChatAdapterId: (id: string | null) => void;
+
 	fileRoots: string[];
 	addFileRoot: (path: string) => void;
 	removeFileRoot: (path: string) => void;
@@ -225,6 +239,25 @@ export function migrateShellStore(persisted: unknown, _version: number): unknown
 	delete p.agent_onboarded;
 	delete p.selected_agent_id;
 
+	// v9 carry-over: seed canonical telemetry consent + chat adapter from
+	// the onboarding payload when they're missing on disk. Lets the
+	// onboarding step writes flow into settings without losing existing
+	// preferences for users mid-upgrade.
+	const px = p as Partial<ShellState> & {
+		onboarding?: OnboardingState;
+		telemetryConsent?: boolean;
+		chatAdapterId?: string | null;
+	};
+	if (typeof px.telemetryConsent !== 'boolean') {
+		const fromOnboarding = (
+			px.onboarding?.steps?.telemetry?.payload as { enabled?: boolean } | undefined
+		)?.enabled;
+		px.telemetryConsent = typeof fromOnboarding === 'boolean' ? fromOnboarding : false;
+	}
+	if (typeof px.chatAdapterId === 'undefined') {
+		px.chatAdapterId = px.onboarding?.selectedAgentId ?? null;
+	}
+
 	return p;
 }
 
@@ -233,6 +266,12 @@ export const useShellStore = create<ShellState>()(
 		(set, get) => ({
 			activeMode: 'app',
 			setActiveMode: (activeMode) => set({ activeMode }),
+
+			telemetryConsent: false,
+			setTelemetryConsent: (telemetryConsent) => set({ telemetryConsent }),
+
+			chatAdapterId: null,
+			setChatAdapterId: (chatAdapterId) => set({ chatAdapterId }),
 
 			fileRoots: [...DEFAULT_FILE_ROOTS],
 			addFileRoot: (path) => {
@@ -404,9 +443,11 @@ export const useShellStore = create<ShellState>()(
 		// v8: onboarding wizard scaffold — added `onboarding` slice. Migrates
 		//     legacy `agent_onboarded` / `selected_agent_id` keys (from the
 		//     predecessor onboarding plan) into the new OnboardingState.
+		// v9: canonical telemetry consent + chat adapter id. Seeded from any
+		//     existing onboarding payload so user choices survive the bump.
 		{
 			name: 'shell-store',
-			version: 8,
+			version: 9,
 			migrate: (persisted, version) => migrateShellStore(persisted, version) as ShellState,
 		}
 	)
