@@ -1,15 +1,18 @@
 import { useEffect } from 'react';
 import {
-  LayoutGrid,
   Folder,
-  SquareTerminal,
+  LayoutGrid,
+  Pin as PinGlyph,
   Settings,
+  SquareTerminal,
   type LucideIcon,
 } from 'lucide-react';
 import { useShellStore, type ActivityMode, type CoreMode } from '@/lib/shell/shell-store';
 import { usePaneStore } from '@/lib/panes/pane-store';
 import { useIkengaStore, type IkengaWorkspace } from '@/lib/ikenga/theme-store';
 import { cn } from '@/components/ui/utils';
+import { useActivityBarPins, usePinsStore, type Pin } from '@/lib/shell/pins-store';
+import { PinIcon } from './pin-icon';
 
 interface CoreItem {
   mode: CoreMode;
@@ -19,6 +22,8 @@ interface CoreItem {
 }
 
 // Post-strip: 3 top + Settings. App pkgs no longer claim rail icons.
+// These are the **Registered** items, sourced from nav-config / pkg
+// manifests. Pinned items render in their own section below.
 const CORE_TOP: CoreItem[] = [
   { mode: 'app',      label: 'App',      Icon: LayoutGrid,     shortcut: '⌘1' },
   { mode: 'files',    label: 'Files',    Icon: Folder,         shortcut: '⌘2' },
@@ -45,6 +50,15 @@ export function ActivityBar() {
   const activeMode = useShellStore((s) => s.activeMode);
   const setActiveMode = useShellStore((s) => s.setActiveMode);
   const setWorkspace = useIkengaStore((s) => s.setWorkspace);
+  const hydratePins = usePinsStore((s) => s.hydrate);
+  const { sections, pinsBySection, sectionLessPins, hydrated } =
+    useActivityBarPins();
+
+  // Hydrate user pins on first mount. Idempotent — store guards against
+  // re-runs and concurrent hydrate calls.
+  useEffect(() => {
+    void hydratePins();
+  }, [hydratePins]);
 
   // Mirror activeMode → ikenga.workspace so the data-workspace attribute on
   // <html> drives all the workspace-tint variables.
@@ -58,6 +72,15 @@ export function ActivityBar() {
     setActiveMode(mode);
     if (mode === 'settings') {
       usePaneStore.getState().navigateFocused(SETTINGS_LANDING);
+    }
+  }
+
+  function handleSelectPin(pin: Pin) {
+    // v0: route + pkg-route navigate the focused pane; artifact / file /
+    // external are not yet wired through here. The viewer + open-in-pane
+    // flows for those land alongside the pin entry-point work.
+    if (pin.kind === 'route' || pin.kind === 'pkg-route') {
+      usePaneStore.getState().navigateFocused(pin.target);
     }
   }
 
@@ -79,23 +102,75 @@ export function ActivityBar() {
     return () => window.removeEventListener('keydown', onKey);
   }, [setActiveMode]);
 
+  const hasAnyPins =
+    hydrated &&
+    (sectionLessPins.length > 0 ||
+      Array.from(pinsBySection.values()).some((list) => list.length > 0));
+
   return (
     <nav
       aria-label="Activity bar"
       className="flex h-full w-14 shrink-0 flex-col items-center border-r border-border-soft py-3"
       style={{ background: 'var(--bg-base)' }}
     >
-      {CORE_TOP.map((item) => (
-        <RailButton
-          key={item.mode}
-          mode={item.mode}
-          label={item.label}
-          Icon={item.Icon}
-          shortcut={item.shortcut}
-          isActive={activeMode === item.mode}
-          onSelect={handleSelectMode}
-        />
-      ))}
+      {/* Registered: pkg / nav-config items. Pinned items live below the
+          divider so pkg updates and uninstalls don't clobber user pins. */}
+      <div className="flex flex-col items-center">
+        {CORE_TOP.map((item) => (
+          <RailButton
+            key={item.mode}
+            mode={item.mode}
+            label={item.label}
+            Icon={item.Icon}
+            shortcut={item.shortcut}
+            isActive={activeMode === item.mode}
+            onSelect={handleSelectMode}
+          />
+        ))}
+      </div>
+
+      {hasAnyPins && (
+        <>
+          <div
+            className="my-2 h-px w-6 shrink-0"
+            style={{ background: 'var(--border-soft)' }}
+            aria-hidden="true"
+          />
+          <div className="flex flex-col items-center gap-1 overflow-y-auto">
+            {sections.map((section) => {
+              const list = pinsBySection.get(section.id) ?? [];
+              if (list.length === 0) return null;
+              return (
+                <div
+                  key={section.id}
+                  className="flex flex-col items-center"
+                  data-section={section.id}
+                  title={section.label}
+                >
+                  {list.map((pin) => (
+                    <PinButton
+                      key={pin.id}
+                      pin={pin}
+                      onSelect={handleSelectPin}
+                    />
+                  ))}
+                </div>
+              );
+            })}
+            {sectionLessPins.length > 0 && (
+              <div
+                className="flex flex-col items-center"
+                data-section="__none"
+                title="Other"
+              >
+                {sectionLessPins.map((pin) => (
+                  <PinButton key={pin.id} pin={pin} onSelect={handleSelectPin} />
+                ))}
+              </div>
+            )}
+          </div>
+        </>
+      )}
 
       <div className="mt-auto" />
 
@@ -150,6 +225,35 @@ function RailButton({ mode, label, Icon, shortcut, isActive, onSelect }: RailBut
         />
       )}
       <Icon className="h-[18px] w-[18px]" />
+    </button>
+  );
+}
+
+interface PinButtonProps {
+  pin: Pin;
+  onSelect: (p: Pin) => void;
+}
+
+function PinButton({ pin, onSelect }: PinButtonProps) {
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(pin)}
+      title={pin.label}
+      aria-label={pin.label}
+      data-pin-id={pin.id}
+      data-pin-kind={pin.kind}
+      className={cn(
+        'relative my-0.5 grid h-9 w-9 place-items-center rounded-md transition-colors',
+        'hover:bg-card',
+      )}
+      style={{ color: 'var(--fg-faint)' }}
+    >
+      <PinIcon
+        iconLucide={pin.iconLucide}
+        iconEmoji={pin.iconEmoji}
+        Fallback={PinGlyph}
+      />
     </button>
   );
 }

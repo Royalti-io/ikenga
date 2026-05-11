@@ -19,7 +19,13 @@ import {
   Plus,
   Layers,
   Bot,
+  Pin as PinIconGlyph,
 } from 'lucide-react';
+import {
+  fuzzyMatchSection,
+  slugifySectionId,
+  usePinsStore,
+} from '@/lib/shell/pins-store';
 
 export type PaletteMode = 'all' | 'views' | 'switcher';
 
@@ -42,6 +48,85 @@ export function CommandPalette({ open, mode, onOpenChange }: CommandPaletteProps
   function newClaudeSession() {
     onOpenChange(false);
     setTimeout(() => navigateFocused('/sessions?new=1'), 0);
+  }
+
+  /**
+   * v0 entry point for "Pin to activity bar". Pins the route currently
+   * showing in the focused pane. Uses the browser `prompt()` for label +
+   * section name to keep the surface small for this phase — the richer
+   * inline dialog (with fuzzy-match suggestion + icon picker) is a
+   * follow-up. Reserved section names are rejected at the host so a
+   * clobber attempt just shows an error toast.
+   */
+  async function pinFocusedRoute() {
+    const focusedId = usePaneStore.getState().focusedId;
+    const leaf = findLeaf(usePaneStore.getState().root, focusedId);
+    const tab = leaf?.tabs[leaf.activeTabIdx];
+    if (!tab || tab.kind !== 'route') {
+      onOpenChange(false);
+      return;
+    }
+    const target = tab.path;
+    const defaultLabel = target.replace(/^\//, '') || 'Home';
+    const label = window.prompt('Label for the pin', defaultLabel)?.trim();
+    if (!label) {
+      onOpenChange(false);
+      return;
+    }
+    const sectionInput = window
+      .prompt(
+        'Section name (free-form, leave blank for no section). Existing sections will be matched fuzzily.',
+        '',
+      )
+      ?.trim();
+    onOpenChange(false);
+
+    const store = usePinsStore.getState();
+    await store.hydrate();
+
+    let sectionId: string | null = null;
+    if (sectionInput) {
+      const matched = fuzzyMatchSection(sectionInput, store.sections);
+      if (matched) {
+        sectionId = matched.id;
+      } else {
+        const candidate = slugifySectionId(sectionInput);
+        if (!candidate) {
+          window.alert(`'${sectionInput}' is not a valid section name.`);
+          return;
+        }
+        const ok = window.confirm(
+          `Create section "${sectionInput}" (id: ${candidate})?`,
+        );
+        if (!ok) {
+          // User said no — pin without section.
+          sectionId = null;
+        } else {
+          try {
+            const created = await store.createSection({
+              id: candidate,
+              label: sectionInput,
+              iconLucide: 'folder',
+            });
+            sectionId = created.id;
+          } catch (e) {
+            window.alert(`Could not create section: ${String(e)}`);
+            return;
+          }
+        }
+      }
+    }
+
+    try {
+      await store.addPin({
+        kind: 'route',
+        target,
+        label,
+        sectionId,
+      });
+    } catch (e) {
+      window.alert(`Could not pin: ${String(e)}`);
+    }
   }
 
   function addToFocused(make: () => PaneView) {
@@ -132,6 +217,13 @@ export function CommandPalette({ open, mode, onOpenChange }: CommandPaletteProps
                     onSelect={() => onOpenChange(false)}
                     Icon={FolderOpen}
                     label="Open File (use Files mode for now)"
+                  />
+                  <PaletteItem
+                    onSelect={() => {
+                      void pinFocusedRoute();
+                    }}
+                    Icon={PinIconGlyph}
+                    label="Pin focused route to activity bar…"
                   />
                 </Command.Group>
 
