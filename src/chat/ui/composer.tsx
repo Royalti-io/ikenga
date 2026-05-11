@@ -9,7 +9,7 @@
  */
 
 import { useMemo, useRef, useState } from 'react';
-import { AlertCircle, Square, X } from 'lucide-react';
+import { AlertCircle, ImagePlus, Square, X } from 'lucide-react';
 import type { ChatStatus } from 'ai';
 import { cn } from '@/components/ui/utils';
 import {
@@ -110,6 +110,9 @@ export function Composer({
   const state = useThreadState(threadId);
   const { send, cancel, isStreaming, canSend, lastError } = useChatActions(threadId);
   const lastSentRef = useRef<string | null>(null);
+  /** Hidden file input ref. Triggered by the Attach button so users have a
+   *  discoverable affordance alongside paste + drag/drop. */
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const isSlash = text.trimStart().startsWith('/');
 
   const slashCommands = useSlashCommands(state?.thread.cwd);
@@ -158,12 +161,21 @@ export function Composer({
   }
 
   async function handlePaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
-    const files = e.clipboardData?.files;
-    if (!files || files.length === 0) return;
-    // Only consume the event if there's actually an image — otherwise let
-    // text paste flow through to the textarea unimpeded.
-    const hasImage = Array.from(files).some((f) => SUPPORTED_IMAGE_MIME_TYPES.has(f.type));
-    if (!hasImage) return;
+    // System-clipboard images (screenshots, "copy image" from a browser, etc.)
+    // arrive via `items` with `kind === 'file'` on every major platform.
+    // `e.clipboardData.files` is empty for those — it's only populated when
+    // the user pastes a file copied from the OS file manager. Walk items so
+    // both paths work.
+    const items = e.clipboardData?.items;
+    if (!items || items.length === 0) return;
+    const files: File[] = [];
+    for (const item of items) {
+      if (item.kind === 'file') {
+        const f = item.getAsFile();
+        if (f && SUPPORTED_IMAGE_MIME_TYPES.has(f.type)) files.push(f);
+      }
+    }
+    if (files.length === 0) return; // pure-text paste — let the textarea handle it
     e.preventDefault();
     await appendImagesFromFiles(files);
   }
@@ -383,6 +395,31 @@ export function Composer({
           />
           <div className="flex items-center justify-between gap-2 px-2 py-1.5">
             <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+              {/* Phase 7 attach button: opens a native file picker for images.
+                  Paste + drag/drop still work (handlePaste / handleDrop above);
+                  this gives the affordance a discoverable home. */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                hidden
+                onChange={(e) => {
+                  void appendImagesFromFiles(e.target.files);
+                  // Reset so picking the same file twice re-fires onChange.
+                  e.target.value = '';
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="inline-flex h-5 items-center gap-1 rounded border border-border bg-muted/40 px-1.5 text-[10px] font-medium uppercase tracking-wide text-foreground hover:bg-muted"
+                aria-label="Attach image"
+                title="Attach image (or paste / drag-drop)"
+              >
+                <ImagePlus className="h-3 w-3" />
+                <span className="hidden sm:inline">Attach</span>
+              </button>
               <span>{adapterLabel}</span>
               {state?.thread.model && <span>· {state.thread.model.replace(/^claude-/, '')}</span>}
               {/* Phase 5 mode picker: badge-styled trigger + select dropdown. */}
