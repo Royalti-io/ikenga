@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en" data-mode="light" data-theme="A">
+<head>
+<meta charset="UTF-8">
+<title>Ikenga · Agent config scaffolding</title>
+<link rel="stylesheet" href="_shared/base.css">
+<style>
+  .wizard-shell { display: flex; flex-direction: column; height: calc(800px - 32px); }
+  .wizard-progress { height: 4px; background: var(--bg-raised); }
+  .wizard-progress .fill { height: 100%; background: var(--primary); width: 66.66%; }
+  .wizard-header { display: flex; align-items: center; justify-content: space-between; padding: var(--space-5) var(--space-12); border-bottom: 1px solid var(--border-soft); }
+  .wizard-steps-label { font-size: 12px; color: var(--fg-muted); }
+  .wizard-steps-label .current { color: var(--fg); font-weight: 600; }
+
+  .wizard-body { flex: 1; min-height: 0; overflow: auto; padding: var(--space-8) var(--space-12); display: grid; grid-template-columns: 1fr 360px; gap: var(--space-10); }
+
+  .body-header h1 { margin: 0 0 var(--space-2); }
+  .body-header .lede { color: var(--fg-muted); font-size: 14px; line-height: 1.55; margin: 0 0 var(--space-6); }
+
+  .scaffold-target {
+    padding: var(--space-3) var(--space-4); margin-bottom: var(--space-6);
+    background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-md);
+    display: flex; align-items: center; gap: var(--space-3); font-size: 13px;
+  }
+  .scaffold-target .label { color: var(--fg-faint); font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+  .scaffold-target .path { font-family: var(--font-mono); font-size: 12.5px; color: var(--fg); }
+  .scaffold-target .badge { margin-left: auto; }
+
+  .preset-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--space-3); margin-bottom: var(--space-6); }
+  .preset-card {
+    border: 1px solid var(--border-soft); border-radius: var(--radius-lg);
+    padding: var(--space-4) var(--space-5); cursor: pointer;
+    background: var(--bg-surface);
+    position: relative;
+    transition: border-color 120ms, box-shadow 120ms;
+  }
+  .preset-card:hover { border-color: var(--border-strong); }
+  .preset-card.on { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary); }
+  .preset-card.on::after { content: '✓'; position: absolute; top: 12px; right: 12px; width: 18px; height: 18px; border-radius: 999px; background: var(--primary); color: var(--primary-fg); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; }
+  .preset-card .title { font-weight: 700; font-size: 14px; margin-bottom: 4px; }
+  .preset-card .desc { font-size: 12.5px; color: var(--fg-muted); line-height: 1.5; margin-bottom: var(--space-3); }
+  .preset-card .counts { display: flex; gap: var(--space-3); font-size: 11.5px; color: var(--fg-faint); font-variant-numeric: tabular-nums; }
+  .preset-card .counts strong { color: var(--fg); font-weight: 600; }
+
+  .preview-tree {
+    background: var(--bg-sunken); border: 1px solid var(--border-soft); border-radius: var(--radius-md);
+    padding: var(--space-4) var(--space-5); font-family: var(--font-mono); font-size: 12px;
+    color: var(--fg); line-height: 1.7;
+  }
+  .preview-tree .dim { color: var(--fg-faint); }
+  .preview-tree .add { color: var(--success); }
+  .preview-tree .head { color: var(--fg-faint); font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; font-weight: 600; margin-bottom: var(--space-2); font-family: var(--font-sans); }
+
+  aside.side {
+    background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-lg);
+    padding: var(--space-5);
+  }
+  aside.side h3 { margin: 0 0 var(--space-3); font-size: 13px; }
+  aside.side p { font-size: 12.5px; color: var(--fg-muted); line-height: 1.55; margin: 0 0 var(--space-4); }
+
+  .wizard-footer { border-top: 1px solid var(--border-soft); padding: var(--space-4) var(--space-12); display: flex; align-items: center; justify-content: space-between; background: var(--bg-surface); }
+  .footer-meta { font-size: 12px; color: var(--fg-faint); font-family: var(--font-mono); }
+</style>
+</head>
+<body>
+<div class="tauri-window">
+  <div class="title-bar">
+    <div class="traffic-lights"><span class="red"></span><span class="yellow"></span><span class="green"></span></div>
+    <div class="title-bar-label">Ikenga · First-Run Setup</div>
+  </div>
+
+  <div class="wizard-shell">
+    <div class="wizard-progress"><div class="fill"></div></div>
+
+    <header class="wizard-header">
+      <div class="brand-mark">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M4 20L12 4L20 20" stroke="hsl(20,50%,34%)" stroke-width="2.4" stroke-linecap="square"/><path d="M8 14H16" stroke="hsl(20,50%,34%)" stroke-width="2.4" stroke-linecap="square"/></svg>
+        Ikenga
+      </div>
+      <div class="wizard-steps-label">Step <span class="current">6</span> of 9 · Scaffold agent config</div>
+    </header>
+
+    <div class="wizard-body">
+
+      <div>
+
+        <div class="body-header">
+          <p class="caption" style="color: var(--primary); margin: 0 0 var(--space-2);">Optional · Claude Code only</p>
+          <h1 class="h1">Scaffold a starter agent kit?</h1>
+          <p class="lede">
+            We can write a baseline set of skills, agents, and slash-commands into your primary root. Skip if you'd rather configure by hand.
+          </p>
+        </div>
+
+        <div class="scaffold-target">
+          <span class="label">Writes to</span>
+          <span class="path">~/royalti-co/ikenga/.claude/</span>
+          <span class="badge pill pill-success"><span class="dot dot-success"></span>empty — safe to scaffold</span>
+        </div>
+
+        <div class="preset-grid">
+
+          <div class="preset-card on">
+            <div class="title">Music label starter</div>
+            <div class="desc">Outbound, A&amp;R review, release planner, sales digest. Built around <span class="mono" style="font-size:11.5px;">@royalti</span> editorial standards.</div>
+            <div class="counts">
+              <span><strong>14</strong> skills</span>
+              <span><strong>5</strong> agents</span>
+              <span><strong>9</strong> commands</span>
+            </div>
+          </div>
+
+          <div class="preset-card">
+            <div class="title">Generic dev</div>
+            <div class="desc">Init, review, /pa router, security-review. No music-specific assumptions.</div>
+            <div class="counts">
+              <span><strong>4</strong> skills</span>
+              <span><strong>2</strong> agents</span>
+              <span><strong>5</strong> commands</span>
+            </div>
+          </div>
+
+          <div class="preset-card">
+            <div class="title">Solo songwriter</div>
+            <div class="desc">Lighter than the label pack — daily-write, lyric review, demo-pitch.</div>
+            <div class="counts">
+              <span><strong>6</strong> skills</span>
+              <span><strong>2</strong> agents</span>
+              <span><strong>4</strong> commands</span>
+            </div>
+          </div>
+
+          <div class="preset-card">
+            <div class="title">Empty .claude/</div>
+            <div class="desc">Just create the directory structure. You'll add skills yourself.</div>
+            <div class="counts">
+              <span><strong>0</strong> skills</span>
+              <span><strong>0</strong> agents</span>
+              <span><strong>0</strong> commands</span>
+            </div>
+          </div>
+
+        </div>
+
+        <p class="caption" style="margin: 0 0 var(--space-2);">Preview · Music label starter</p>
+        <div class="preview-tree">
+          <div class="head">Files Ikenga will create</div>
+          <span class="dim">~/royalti-co/ikenga/.claude/</span><br>
+          ├── <span class="add">CLAUDE.md</span> <span class="dim">(new · 84 lines)</span><br>
+          ├── <span class="add">settings.json</span> <span class="dim">(new · permissions + MCP)</span><br>
+          ├── <span class="add">skills/</span><br>
+          │   ├── <span class="add">editorial-standards/SKILL.md</span><br>
+          │   ├── <span class="add">brand-voice/SKILL.md</span><br>
+          │   └── <span class="dim">… 12 more</span><br>
+          ├── <span class="add">agents/</span><br>
+          │   ├── <span class="add">cmo/AGENT.md</span><br>
+          │   ├── <span class="add">a-and-r/AGENT.md</span><br>
+          │   └── <span class="dim">… 3 more</span><br>
+          └── <span class="add">commands/</span><br>
+          &nbsp;&nbsp;&nbsp;&nbsp;├── <span class="add">/pa.md</span><br>
+          &nbsp;&nbsp;&nbsp;&nbsp;├── <span class="add">/blog-pipeline.md</span><br>
+          &nbsp;&nbsp;&nbsp;&nbsp;└── <span class="dim">… 7 more</span>
+        </div>
+
+      </div>
+
+      <aside class="side">
+        <h3>What this does</h3>
+        <p>Powered by <span class="mono" style="font-size:12px;">create-music-workspace</span> (in <span class="mono" style="font-size:12px;">ikenga/cc-config</span>) — the same scaffold ships standalone so anyone can use it without the shell.</p>
+
+        <h3>Won't touch</h3>
+        <p>Your code, env vars, dotfiles, or existing <span class="mono" style="font-size:12px;">.claude/</span> in other roots. Only the primary root, only <span class="mono" style="font-size:12px;">.claude/</span>.</p>
+
+        <h3>Reversible</h3>
+        <p>Run <span class="mono" style="font-size:12px;">ikenga scaffold --rollback</span> to remove every file we added (we tag commits).</p>
+      </aside>
+
+    </div>
+
+    <footer class="wizard-footer">
+      <span class="footer-meta">Writes ≈ 28 files into ~/royalti-co/ikenga/.claude/</span>
+      <div style="display: flex; gap: var(--space-3); align-items: center;">
+        <button class="btn btn-ghost" onclick="window.location.href='05-connectors-listmonk.html'">Back</button>
+        <button class="btn btn-secondary" onclick="window.location.href='07-appearance.html'">Skip scaffolding</button>
+        <button class="btn btn-primary btn-lg" onclick="window.location.href='07-appearance.html'">Scaffold &amp; continue →</button>
+      </div>
+    </footer>
+  </div>
+</div>
+</body>
+</html>

@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en" data-mode="light" data-theme="A">
+<head>
+<meta charset="UTF-8">
+<title>Ikenga · Appearance</title>
+<link rel="stylesheet" href="_shared/base.css">
+<style>
+  .wizard-shell { display: flex; flex-direction: column; height: calc(800px - 32px); }
+  .wizard-progress { height: 4px; background: var(--bg-raised); }
+  .wizard-progress .fill { height: 100%; background: var(--primary); width: 77.77%; }
+  .wizard-header { display: flex; align-items: center; justify-content: space-between; padding: var(--space-5) var(--space-12); border-bottom: 1px solid var(--border-soft); }
+  .wizard-steps-label { font-size: 12px; color: var(--fg-muted); }
+  .wizard-steps-label .current { color: var(--fg); font-weight: 600; }
+
+  .wizard-body { flex: 1; min-height: 0; overflow: auto; padding: var(--space-8) var(--space-12); }
+  .body-header { margin-bottom: var(--space-8); }
+  .body-header h1 { margin: 0 0 var(--space-2); }
+  .body-header .lede { color: var(--fg-muted); font-size: 14px; }
+
+  .section { margin-bottom: var(--space-8); }
+  .section-label { font-size: 11.5px; color: var(--fg-faint); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; margin-bottom: var(--space-3); }
+
+  /* Theme cards */
+  .theme-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-4); }
+  .theme-card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-soft); border-radius: var(--radius-lg);
+    overflow: hidden; cursor: pointer;
+    transition: border-color 120ms, box-shadow 120ms;
+    position: relative;
+  }
+  .theme-card:hover { border-color: var(--border-strong); }
+  .theme-card.on { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary); }
+  .theme-card.on::after { content: '✓'; position: absolute; top: 10px; right: 10px; width: 18px; height: 18px; border-radius: 999px; background: var(--primary); color: var(--primary-fg); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; }
+  .theme-preview { height: 120px; padding: var(--space-3); display: flex; flex-direction: column; gap: 6px; }
+  .theme-bar { height: 6px; border-radius: 999px; }
+  .theme-row { display: flex; gap: 4px; align-items: center; }
+  .theme-pill { height: 14px; border-radius: 4px; }
+  .theme-info { padding: var(--space-3) var(--space-4); border-top: 1px solid var(--border-soft); }
+  .theme-info .name { font-weight: 700; font-size: 13.5px; }
+  .theme-info .desc { font-size: 11.5px; color: var(--fg-muted); margin-top: 2px; }
+
+  /* Mode toggle */
+  .mode-row { display: flex; gap: var(--space-2); padding: var(--space-1); background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-md); width: fit-content; }
+  .mode-btn { height: 32px; padding: 0 var(--space-4); font-size: 12px; font-weight: 500; background: transparent; border: none; color: var(--fg-muted); border-radius: var(--radius-sm); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+  .mode-btn.on { background: var(--bg-base); color: var(--fg); font-weight: 600; box-shadow: var(--shadow-1); }
+
+  /* Density */
+  .density-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-3); }
+  .density-card {
+    background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-md);
+    padding: var(--space-4) var(--space-5); cursor: pointer;
+    display: flex; gap: var(--space-3); align-items: center;
+    transition: border-color 120ms;
+  }
+  .density-card:hover { border-color: var(--border-strong); }
+  .density-card.on { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary); }
+  .density-mock { width: 36px; height: 40px; flex: none; display: flex; flex-direction: column; justify-content: space-around; padding: 4px 0; }
+  .density-mock span { display: block; height: 2px; background: var(--fg-muted); border-radius: 1px; }
+  .density-mock.compact span { height: 1.5px; }
+  .density-mock.comfortable { padding: 6px 0; }
+  .density-mock.spacious { padding: 8px 0; }
+  .density-mock.spacious span { height: 3px; }
+  .density-card .label { font-weight: 600; font-size: 13px; }
+  .density-card .meta { font-size: 11.5px; color: var(--fg-muted); margin-top: 2px; }
+
+  .wizard-footer { border-top: 1px solid var(--border-soft); padding: var(--space-4) var(--space-12); display: flex; align-items: center; justify-content: space-between; background: var(--bg-surface); }
+  .footer-meta { font-size: 12px; color: var(--fg-faint); font-family: var(--font-mono); }
+</style>
+</head>
+<body>
+<div class="tauri-window">
+  <div class="title-bar">
+    <div class="traffic-lights"><span class="red"></span><span class="yellow"></span><span class="green"></span></div>
+    <div class="title-bar-label">Ikenga · First-Run Setup</div>
+  </div>
+
+  <div class="wizard-shell">
+    <div class="wizard-progress"><div class="fill"></div></div>
+
+    <header class="wizard-header">
+      <div class="brand-mark">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M4 20L12 4L20 20" stroke="hsl(20,50%,34%)" stroke-width="2.4" stroke-linecap="square"/><path d="M8 14H16" stroke="hsl(20,50%,34%)" stroke-width="2.4" stroke-linecap="square"/></svg>
+        Ikenga
+      </div>
+      <div class="wizard-steps-label">Step <span class="current">7</span> of 9 · Appearance</div>
+    </header>
+
+    <div class="wizard-body">
+
+      <div class="body-header">
+        <p class="caption" style="color: var(--primary); margin: 0 0 var(--space-2);">Make it yours</p>
+        <h1 class="h1">Pick a workspace palette &amp; density.</h1>
+        <p class="lede">Changes apply live. You can keep tweaking from <span class="mono" style="font-size:12px;">Settings → Appearance</span>.</p>
+      </div>
+
+      <div class="section">
+        <div class="section-label">Theme</div>
+        <div class="theme-grid">
+
+          <div class="theme-card on">
+            <div class="theme-preview" style="background: hsl(36,22%,96%);">
+              <div class="theme-bar" style="background: hsl(20,50%,34%); width: 60%;"></div>
+              <div class="theme-row">
+                <div class="theme-pill" style="background: hsl(28,14%,15%); width: 24px;"></div>
+                <div class="theme-pill" style="background: hsl(32,16%,78%); flex: 1;"></div>
+              </div>
+              <div class="theme-row">
+                <div class="theme-pill" style="background: hsl(170,36%,32%); width: 36px;"></div>
+                <div class="theme-pill" style="background: hsl(32,16%,84%); flex: 1;"></div>
+              </div>
+              <div class="theme-row">
+                <div class="theme-pill" style="background: hsl(42,78%,42%); width: 18px;"></div>
+                <div class="theme-pill" style="background: hsl(32,16%,84%); flex: 1;"></div>
+                <div class="theme-pill" style="background: hsl(8,68%,42%); width: 14px;"></div>
+              </div>
+            </div>
+            <div class="theme-info">
+              <div class="name">Dusk Wood <span style="font-weight: 400; color: var(--fg-faint); font-size: 11px; margin-left: 4px;">default</span></div>
+              <div class="desc">Warm cream + oxblood-clay. The canonical Ikenga look.</div>
+            </div>
+          </div>
+
+          <div class="theme-card">
+            <div class="theme-preview" style="background: hsl(36,28%,96%);">
+              <div class="theme-bar" style="background: hsl(42,82%,46%); width: 70%;"></div>
+              <div class="theme-row">
+                <div class="theme-pill" style="background: hsl(28,30%,12%); width: 24px;"></div>
+                <div class="theme-pill" style="background: hsl(32,18%,80%); flex: 1;"></div>
+              </div>
+              <div class="theme-row">
+                <div class="theme-pill" style="background: hsl(14,72%,46%); width: 36px;"></div>
+                <div class="theme-pill" style="background: hsl(32,18%,86%); flex: 1;"></div>
+              </div>
+              <div class="theme-row">
+                <div class="theme-pill" style="background: hsl(170,36%,32%); width: 18px;"></div>
+                <div class="theme-pill" style="background: hsl(32,18%,86%); flex: 1;"></div>
+              </div>
+            </div>
+            <div class="theme-info">
+              <div class="name">Kola Daylight</div>
+              <div class="desc">Brighter cream with amber/terracotta accents.</div>
+            </div>
+          </div>
+
+          <div class="theme-card">
+            <div class="theme-preview" style="background: hsl(180,10%,95%);">
+              <div class="theme-bar" style="background: hsl(170,42%,34%); width: 55%;"></div>
+              <div class="theme-row">
+                <div class="theme-pill" style="background: hsl(200,22%,14%); width: 24px;"></div>
+                <div class="theme-pill" style="background: hsl(180,12%,80%); flex: 1;"></div>
+              </div>
+              <div class="theme-row">
+                <div class="theme-pill" style="background: hsl(40,64%,38%); width: 36px;"></div>
+                <div class="theme-pill" style="background: hsl(180,12%,86%); flex: 1;"></div>
+              </div>
+              <div class="theme-row">
+                <div class="theme-pill" style="background: hsl(220,24%,40%); width: 18px;"></div>
+                <div class="theme-pill" style="background: hsl(180,12%,86%); flex: 1;"></div>
+              </div>
+            </div>
+            <div class="theme-info">
+              <div class="name">Bronze Shrine</div>
+              <div class="desc">Cool verdigris with bronze accent. Quiet, focused.</div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-label">Mode</div>
+        <div class="mode-row">
+          <button class="mode-btn on">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="3.5" stroke="currentColor" stroke-width="1.5"/><path d="M8 1V3M8 13V15M1 8H3M13 8H15M3 3L4.5 4.5M13 13L11.5 11.5M3 13L4.5 11.5M13 3L11.5 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+            Light
+          </button>
+          <button class="mode-btn">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M13 9.5C12 12 9.5 13.5 7 13C4 12.5 2 9.5 2.5 6.5C3 4 5 2.5 7 2.5C5.5 3.5 5 5.5 5.5 7C6 9 8.5 10.5 11 10C12 9.5 12.5 9 13 9.5Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+            Dark
+          </button>
+          <button class="mode-btn">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="2" y="3" width="12" height="9" rx="1" stroke="currentColor" stroke-width="1.5"/><path d="M5 13H11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+            System
+          </button>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-label">Density</div>
+        <div class="density-grid">
+
+          <div class="density-card">
+            <div class="density-mock compact"><span></span><span></span><span></span><span></span><span></span></div>
+            <div>
+              <div class="label">Compact</div>
+              <div class="meta">More information per screen. Best for power users.</div>
+            </div>
+          </div>
+
+          <div class="density-card on">
+            <div class="density-mock comfortable"><span></span><span></span><span></span><span></span></div>
+            <div>
+              <div class="label">Comfortable <span style="font-weight: 400; color: var(--fg-faint); font-size: 11px; margin-left: 4px;">default</span></div>
+              <div class="meta">Balanced spacing. Recommended for most.</div>
+            </div>
+          </div>
+
+          <div class="density-card">
+            <div class="density-mock spacious"><span></span><span></span><span></span></div>
+            <div>
+              <div class="label">Spacious</div>
+              <div class="meta">Generous padding. Good on larger displays.</div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+    </div>
+
+    <footer class="wizard-footer">
+      <span class="footer-meta">Theme A · Light · Comfortable</span>
+      <div style="display: flex; gap: var(--space-3); align-items: center;">
+        <button class="btn btn-ghost" onclick="window.location.href='06-scaffolding.html'">Back</button>
+        <button class="btn btn-primary btn-lg" onclick="window.location.href='08-telemetry.html'">Continue
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M6 4L10 8L6 12" stroke="currentColor" stroke-width="2" stroke-linecap="square"/></svg>
+        </button>
+      </div>
+    </footer>
+  </div>
+</div>
+</body>
+</html>

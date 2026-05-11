@@ -1,0 +1,296 @@
+/* ─────────────────────────────────────────────────────────────────────
+ * Ikenga Onboarding Wizard — shared base styles
+ * Pulled from ikenga/tokens/tokens.css (Theme A "Dusk Wood", light mode)
+ * Plus Jakarta Sans is the canonical typeface.
+ *
+ * These prototypes intentionally target Tauri 1280×800 (also 1440×900).
+ * Nothing here is production — values are kept inline so a designer can
+ * tweak without touching real token files.
+ * ─────────────────────────────────────────────────────────────────── */
+
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+:root {
+  /* spacing */
+  --space-1: 4px;  --space-2: 8px;  --space-3: 12px; --space-4: 16px;
+  --space-5: 20px; --space-6: 24px; --space-8: 32px; --space-10: 40px;
+  --space-12: 48px; --space-16: 64px;
+
+  /* radii */
+  --radius-xs: 3px; --radius-sm: 4px; --radius-md: 6px;
+  --radius-lg: 10px; --radius-xl: 14px; --radius-pill: 999px;
+
+  /* typography */
+  --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  --text-caption: 11.5px;
+  --text-body: 13px;
+  --text-h3: 16px;
+  --text-h2: 20px;
+  --text-h1: 28px;
+  --text-display: 36px;
+
+  /* Theme A · Dusk Wood — light (canonical default) */
+  --bg-base:    hsl(36,22%,96%);
+  --bg-surface: hsl(36,18%,93%);
+  --bg-raised:  hsl(36,14%,89%);
+  --bg-sunken:  hsl(36,26%,98%);
+
+  --fg:        hsl(28,30%,14%);
+  --fg-muted:  hsl(28,14%,38%);
+  --fg-faint:  hsl(28,12%,56%);
+
+  --border:        hsl(32,16%,78%);
+  --border-soft:   hsl(32,16%,84%);
+  --border-strong: hsl(32,16%,68%);
+
+  --primary:      hsl(20,50%,34%);   /* oxblood-clay */
+  --primary-fg:   hsl(36,26%,98%);
+  --primary-soft: hsl(20,50%,90%);
+
+  --achievement:      hsl(42,78%,42%);
+  --achievement-soft: hsl(42,60%,90%);
+
+  --success:      hsl(170,36%,32%);
+  --success-soft: hsl(170,30%,90%);
+
+  --danger:      hsl(8,68%,42%);
+  --danger-soft: hsl(8,60%,92%);
+
+  --warning:      hsl(38,80%,42%);
+  --warning-soft: hsl(38,70%,92%);
+
+  --info:      hsl(220,60%,40%);
+  --info-soft: hsl(220,50%,92%);
+
+  --shadow-1: 0 1px 2px rgba(28,18,8,.08);
+  --shadow-2: 0 4px 12px -2px rgba(28,18,8,.10);
+  --shadow-3: 0 12px 28px -8px rgba(28,18,8,.14);
+  --shadow-4: 0 24px 48px -16px rgba(28,18,8,.18);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0; padding: 0;
+  font-family: var(--font-sans);
+  font-size: var(--text-body);
+  line-height: 1.5;
+  color: var(--fg);
+  background: var(--bg-base);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+code, .mono { font-family: var(--font-mono); font-size: 12px; }
+
+/* ─── Tauri window viewport ──────────────────────────────────────────── */
+.tauri-window {
+  width: 1280px;
+  height: 800px;
+  margin: 0 auto;
+  background: var(--bg-base);
+  position: relative;
+  overflow: hidden;
+  border-radius: 10px;
+  box-shadow: var(--shadow-4);
+}
+
+/* ─── Title bar (Tauri default linux/win/mac — minimal hairline) ─── */
+.title-bar {
+  height: 32px;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-soft);
+  display: flex;
+  align-items: center;
+  padding: 0 var(--space-4);
+  -webkit-app-region: drag;
+  gap: var(--space-3);
+}
+.traffic-lights { display: flex; gap: 8px; }
+.traffic-lights span {
+  width: 12px; height: 12px; border-radius: 999px;
+  display: inline-block;
+}
+.traffic-lights .red    { background: #ff5f57; }
+.traffic-lights .yellow { background: #febc2e; }
+.traffic-lights .green  { background: #28c840; }
+.title-bar-label {
+  font-size: 11.5px;
+  color: var(--fg-faint);
+  letter-spacing: 0.04em;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* ─── Typography helpers ──────────────────────────────────────────── */
+.h-display { font-size: var(--text-display); font-weight: 700; letter-spacing: -0.02em; line-height: 1.1; }
+.h1 { font-size: var(--text-h1); font-weight: 700; letter-spacing: -0.015em; line-height: 1.2; }
+.h2 { font-size: var(--text-h2); font-weight: 600; letter-spacing: -0.01em; line-height: 1.3; }
+.h3 { font-size: var(--text-h3); font-weight: 600; line-height: 1.4; }
+.caption { font-size: var(--text-caption); color: var(--fg-faint); letter-spacing: 0.04em; text-transform: uppercase; font-weight: 600; }
+.muted { color: var(--fg-muted); }
+.faint { color: var(--fg-faint); }
+
+/* ─── Buttons ─────────────────────────────────────────────────────── */
+.btn {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 0 var(--space-4);
+  height: 36px;
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+  background: transparent;
+  color: var(--fg);
+}
+.btn-primary {
+  background: var(--primary);
+  color: var(--primary-fg);
+  border-color: var(--primary);
+}
+.btn-primary:hover { filter: brightness(1.06); }
+.btn-ghost { color: var(--fg-muted); }
+.btn-ghost:hover { background: var(--bg-raised); color: var(--fg); }
+.btn-secondary {
+  background: var(--bg-surface);
+  border-color: var(--border);
+  color: var(--fg);
+}
+.btn-secondary:hover { background: var(--bg-raised); }
+.btn-sm { height: 28px; padding: 0 var(--space-3); font-size: 12px; }
+.btn-lg { height: 44px; padding: 0 var(--space-6); font-size: 14px; }
+.btn[disabled] { opacity: 0.4; cursor: not-allowed; }
+
+/* ─── Cards ─────────────────────────────────────────────────────── */
+.card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+}
+.card-flat {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+}
+
+/* ─── Pills / Badges ──────────────────────────────────────────────── */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 10px;
+  border-radius: var(--radius-pill);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  background: var(--bg-raised);
+  color: var(--fg-muted);
+  border: 1px solid var(--border-soft);
+}
+.pill-success { background: var(--success-soft); color: var(--success); border-color: transparent; }
+.pill-warning { background: var(--warning-soft); color: var(--warning); border-color: transparent; }
+.pill-danger  { background: var(--danger-soft);  color: var(--danger);  border-color: transparent; }
+.pill-info    { background: var(--info-soft);    color: var(--info);    border-color: transparent; }
+.pill-primary { background: var(--primary-soft); color: var(--primary); border-color: transparent; }
+
+.dot { width: 8px; height: 8px; border-radius: 999px; display: inline-block; }
+.dot-success { background: var(--success); }
+.dot-warning { background: var(--warning); }
+.dot-danger  { background: var(--danger); }
+.dot-info    { background: var(--info); }
+
+/* ─── Checkmarks / Status glyphs ─────────────────────────────────── */
+.glyph {
+  width: 20px; height: 20px; flex: none;
+  border-radius: 999px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 700;
+  color: white;
+}
+.glyph-success { background: var(--success); }
+.glyph-warning { background: var(--warning); color: hsl(28,30%,14%); }
+.glyph-danger  { background: var(--danger); }
+.glyph-info    { background: var(--info); }
+.glyph-pending { background: var(--bg-raised); color: var(--fg-faint); }
+
+/* ─── Toggle / Checkbox ─────────────────────────────────────────── */
+.toggle {
+  width: 36px; height: 20px;
+  background: var(--border);
+  border-radius: 999px;
+  position: relative;
+  cursor: pointer;
+  transition: background 160ms ease;
+  flex: none;
+}
+.toggle::after {
+  content: ''; position: absolute; top: 2px; left: 2px;
+  width: 16px; height: 16px; border-radius: 999px;
+  background: white;
+  transition: transform 160ms ease;
+  box-shadow: var(--shadow-1);
+}
+.toggle.on { background: var(--primary); }
+.toggle.on::after { transform: translateX(16px); }
+
+.checkbox {
+  width: 18px; height: 18px; flex: none;
+  border-radius: var(--radius-xs);
+  border: 1.5px solid var(--border-strong);
+  background: var(--bg-surface);
+  display: inline-flex; align-items: center; justify-content: center;
+  cursor: pointer;
+}
+.checkbox.on {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-fg);
+}
+.checkbox.on::after { content: '✓'; font-size: 12px; font-weight: 700; }
+
+/* ─── Form inputs ──────────────────────────────────────────────── */
+.input {
+  height: 36px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--bg-sunken);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  color: var(--fg);
+  width: 100%;
+}
+.input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
+.input-mono { font-family: var(--font-mono); font-size: 12px; }
+
+label.field {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg-muted);
+  margin-bottom: 6px;
+  letter-spacing: 0.01em;
+}
+
+/* ─── Shared chrome elements — used by chrome variants ────────────── */
+.brand-mark {
+  display: inline-flex; align-items: center; gap: 10px;
+  font-weight: 700; letter-spacing: -0.01em;
+  font-size: 15px;
+}
+.brand-mark svg { display: block; }
+
+/* ─── A11Y reset ─────────────────────────────────────────────────── */
+button:focus-visible, [tabindex]:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+  border-radius: var(--radius-md);
+}
