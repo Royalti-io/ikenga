@@ -1,7 +1,15 @@
-// Phase 3 stub. Phase 6 owns the .claude/ scaffolder (Merge / Skip /
-// Overwrite-with-backup, per APPROVAL.md).
+// Step 6 — .claude/ scaffolding UI shell.
+//
+// Phase 4 owns the UI. Phase 6 implements the `scaffold_agent_config`
+// Tauri command body (currently returns `Err("not_implemented")`).
+//
+// APPROVAL.md locks: Merge / Skip / Overwrite-with-backup modes; never
+// silently destroy an existing .claude/ — the dialog always defaults to
+// Merge when the dir is present.
+
 import { createFileRoute } from '@tanstack/react-router';
 
+import { ScaffoldingBody } from '@/shell/onboarding/scaffolding-body';
 import { WizardStepper } from '@/shell/onboarding/wizard-stepper';
 
 export const Route = createFileRoute('/onboarding/scaffolding')({
@@ -11,15 +19,7 @@ export const Route = createFileRoute('/onboarding/scaffolding')({
 function ScaffoldingStep() {
 	return (
 		<WizardStepper stepId="scaffolding">
-			{() => (
-				<div className="mx-auto max-w-2xl">
-					<h1 className="mb-4 text-3xl font-bold tracking-tight">Scaffolding</h1>
-					<p className="text-sm" style={{ color: 'var(--fg-muted)' }}>
-						TODO step body — Phase 6 wires the .claude/ scaffolder with Merge / Skip /
-						Overwrite-with-backup modes.
-					</p>
-				</div>
-			)}
+			{({ goNext, skip }) => <ScaffoldingBody onContinue={goNext} onSkip={skip} />}
 		</WizardStepper>
 	);
 }
