@@ -157,6 +157,20 @@ export async function clearLivePtys(): Promise<void> {
 // but NOT plain-string user messages — Claude treats them as transient input.
 // We persist them ourselves in `chat_user_turns` (migration 0011) so the user
 // side of the conversation survives reloads.
+//
+// Phase 11 audit (2026-05-11): considered dropping this table now that the
+// chat path runs through ACP by default. The audit kept it. Reasons:
+//   1. ACP `user_message_chunk` would carry user input back to us — but our
+//      Rust `AcpServer.handle_prompt` does NOT emit one for our own writes,
+//      it only forwards agent-side events. We accept the user's text via
+//      `acp_prompt` and echo it into the store from the composer (synthetic
+//      `user_turn` event); that echo is in-memory and dies on reload.
+//   2. The on-disk JSONL (`~/.claude/projects/<slug>/<uuid>.jsonl`) drops
+//      plain-string user messages in `stream_parser.rs::dispatch_user` —
+//      only `tool_result`-shaped blocks survive into `ChatEvent`s.
+// So `chat_user_turns` is the *only* durable record of what the user typed.
+// Migration `0013_drop_chat_user_turns.sql` was scoped out. See
+// `shell/docs/acp-migration.md` § Phase 11 for the decision log.
 
 export interface UserTurnRow {
   id: string;

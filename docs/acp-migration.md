@@ -1,6 +1,6 @@
 # ACP migration — chat engine rewrite
 
-**Status:** Phases 1–10 complete (2026-05-11). Phase 11 pending. Phase 12 deferred.
+**Status:** Phases 1–11 complete (2026-05-11). Phase 12 deferred.
 
 ## Decision
 
@@ -67,7 +67,7 @@ Phase 10 reshapes the contract.
 | 8 | Session `/branch` (ACP `fork`) + faster resume | ✅ landed | (this commit) |
 | 9 | Notification + PermissionRequest hooks → OS | ✅ landed | (this commit) |
 | 10 | Reshape `@ikenga/contract/engine` around ACP | ✅ landed | (this commit) |
-| 11 | Retire band-aids + maybe drop `chat_user_turns` | pending | |
+| 11 | Retire band-aids + maybe drop `chat_user_turns` | ✅ landed | (this commit) |
 | 12 | Registry-of-agents plumbing (Codex/Aider/etc.) | deferred | |
 
 ---
@@ -261,12 +261,50 @@ is a real round-trip.
 
 ---
 
-## Phase 11 — Retire band-aids
+## Phase 11 — Retire band-aids ✅
 
-- Drop the `AskUserQuestion` auto-error fallback (Phase 4 fixed the root cause).
-- Drop the follow-up-message workaround.
-- Audit `chat_user_turns`: if ACP `user_message_chunk` carries our writes back to us, drop the table (migration 0013). Otherwise keep as authoritative echo log.
-- Delete the `session_send` Tauri command, the `system_hook(user_message)` event variant, and any related dead code.
+**Delivered (2026-05-11):**
+
+- **AskUserQuestion auto-error fallback dropped** —
+  `shell/src/chat/ui/tool-renderers/ask-user-question.tsx` shrank from
+  ~380 lines to ~115. The renderer is now a read-only view: it shows the
+  question + options without any submit affordance, and flags that the
+  ACP `PermissionDialog` handles this tool on the default engine. The
+  legacy `tool_result` + follow-up `sessionSend` workaround is gone.
+- **Follow-up-message workaround dropped** — same file. The
+  `appendUserTurn + sessionSend` follow-up that piggybacked on the
+  auto-error branch was deleted with the auto-error code.
+- **`chat_user_turns` table KEPT** — audit conclusion: ACP's
+  `user_message_chunk` is not emitted by our `AcpServer` (the prompt
+  handler only forwards agent-side ChatEvents back to the frontend), and
+  the JSONL `dispatch_user` in `stream_parser.rs` drops plain-string
+  user messages (only `tool_result` blocks survive). So
+  `chat_user_turns` remains the source of truth for the user's
+  transcript half. Documented in `shell/src/chat/persist.ts` and the
+  migration file `0011_chat_sessions.sql`. No `0013` migration shipped.
+- **`session_send` (+ siblings) KEPT, with retirement TODO** —
+  intentional Phase-11 scope cut. Non-chat call sites still depend on
+  the legacy `session_*` commands: `routes/install.tsx`,
+  `shell/dock/dock.tsx`, `shell/panes/new-tab-menu.tsx`,
+  `shell/sessions/new-session-dialog.tsx`,
+  `routes/sessions/$sessionId/index.tsx`, and the legacy
+  `lib/engine/host-bridge.ts`. Each would need its own ACP migration
+  (lazy session creation + a non-prompt "ensure thread row" route).
+  Tracked as `TODO(phase-12)` — the chat path itself does not need
+  these, but they're load-bearing for the install + sidebar flows.
+- **`user_turn` ChatEvent variant KEPT (frontend-only)** — no Rust
+  emitter ever produces this variant; it is synthesized in the
+  frontend (`hooks.ts::useChatActions.send`,
+  `persist.ts::loadUserTurns` merge, and the now-shrunken
+  `new-session-dialog.tsx`). Cleanup not warranted — the variant
+  remains because it is the transport for user-turn echoes from
+  `chat_user_turns` into the render store. No
+  `system_hook(user_message)` variant exists in `event.rs`; the doc's
+  reference was speculative.
+- **`acpEnabled` prop dropped entirely** — removed from
+  `shell/src/chat/ui/composer.tsx` and `shell/src/chat/ui/thread.tsx`.
+  All gated branches now execute unconditionally. No external caller
+  was passing the prop — Phase 10 had already made it default-true.
 
 ---
 

@@ -40,11 +40,6 @@ interface ThreadProps {
   className?: string;
   /** Kept for API compat; auto-scroll is now handled by Conversation. */
   autoScroll?: boolean;
-  /** Phase 8/10: when true, assistant turns gain a "Branch from here"
-   *  affordance that forks the thread at that turn. Phase 10 made this
-   *  default-on (the ACP path is now the default chat engine).
-   *  TODO(phase-11): drop this flag entirely once the legacy adapter goes. */
-  acpEnabled?: boolean;
   /** Phase 8: invoked when the user clicks "Branch from here" on an
    *  assistant turn. `upToTurn` is the user-turn count up to (and
    *  including) the message being forked from. The caller is responsible
@@ -53,7 +48,7 @@ interface ThreadProps {
   onBranch?: (upToTurn: number) => void;
 }
 
-export function Thread({ threadId, className, acpEnabled = true, onBranch }: ThreadProps) {
+export function Thread({ threadId, className, onBranch }: ThreadProps) {
   const state = useChatStore((s) => (threadId ? s.threads[threadId] ?? null : null));
   const cwd = state?.thread.cwd ?? undefined;
   const includeDebug = import.meta.env.DEV;
@@ -107,7 +102,6 @@ export function Thread({ threadId, className, acpEnabled = true, onBranch }: Thr
                 item={item}
                 threadId={threadId}
                 cwd={cwd}
-                acpEnabled={acpEnabled}
                 branchTurn={branchTurnByItem.get(item.key)}
                 onBranch={onBranch}
               />
@@ -143,14 +137,12 @@ function RenderRow({
   item,
   threadId,
   cwd,
-  acpEnabled,
   branchTurn,
   onBranch,
 }: {
   item: RenderItem;
   threadId: string;
   cwd: string | undefined;
-  acpEnabled?: boolean;
   /** Phase 8: user-turn count up to this row. Passed as `upToTurn` to
    *  `acpForkSession` when the user clicks "Branch from here". */
   branchTurn?: number;
@@ -178,11 +170,10 @@ function RenderRow({
       );
     case 'text': {
       // Phase 8: "Branch from here" affordance on assistant turns. Hidden
-      // when ACP is off (legacy adapter has no fork concept) or when no
-      // callback is wired. `branchTurn` is the user-turn index threaded
-      // through from Thread's running count — we pass it as `upToTurn`
-      // so the new thread knows where to resume from.
-      const canBranch = acpEnabled && onBranch && branchTurn != null;
+      // when no callback is wired. `branchTurn` is the user-turn index
+      // threaded through from Thread's running count — we pass it as
+      // `upToTurn` so the new thread knows where to resume from.
+      const canBranch = onBranch && branchTurn != null;
       return (
         <Row icon={MessageCircle} tone="assistant" label="assistant">
           <div className="group relative">
