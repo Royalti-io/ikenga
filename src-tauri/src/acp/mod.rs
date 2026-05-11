@@ -23,6 +23,7 @@
 //!  - `mapping` — translates `claude/event::ChatEvent` → ACP
 //!    `SessionUpdate` notifications, and back. (Phase 2.)
 
+pub mod mapping;
 pub mod server;
 
 #[cfg(test)]
