@@ -153,17 +153,20 @@ function SessionDetailPage() {
                 type="button"
                 onClick={handleKillLive}
                 className="inline-flex items-center gap-1 rounded-md border border-input bg-background px-3 py-1.5 text-xs hover:bg-accent"
+                title="Detach this conversation's PTY"
               >
-                Detach
+                <Terminal className="h-3 w-3" />
+                Detach terminal
               </button>
             ) : (
               <button
                 type="button"
                 onClick={handleAttachTerminal}
                 className="inline-flex items-center gap-1 rounded-md border border-input bg-background px-3 py-1.5 text-xs hover:bg-accent"
-                title="Open this conversation in a claude PTY"
+                title="Spawn `claude --resume` in a PTY for this conversation"
               >
-                Open terminal
+                <Terminal className="h-3 w-3" />
+                Open in terminal
               </button>
             )}
           </div>
@@ -187,9 +190,12 @@ function SessionDetailPage() {
             </TabsTrigger>
             <TabsTrigger
               value="terminal"
-              disabled={!live?.ptyId}
               className="gap-1.5"
-              title={live?.ptyId ? 'PTY view' : 'Open terminal to attach a PTY'}
+              title={
+                live?.ptyId
+                  ? 'PTY view of this conversation'
+                  : 'Spawn claude --resume in a PTY when opened'
+              }
             >
               <Terminal className="h-3 w-3" />
               Terminal
@@ -241,8 +247,24 @@ function SessionDetailPage() {
             {live?.ptyId ? (
               <LiveTerminal ptyId={live.ptyId} />
             ) : (
-              <div className="flex h-full items-center justify-center p-6 text-sm text-muted-foreground">
-                Click "Open terminal" above to attach a Claude PTY to this conversation.
+              <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
+                <Terminal className="h-8 w-8 text-muted-foreground" />
+                <div className="max-w-sm space-y-1">
+                  <p className="text-sm font-medium">No PTY attached</p>
+                  <p className="text-xs text-muted-foreground">
+                    Spawn <code className="font-mono">claude --resume</code> in a PTY to
+                    interact with this conversation through Claude's TUI. Chat events
+                    continue streaming in the Chat tab either way.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleAttachTerminal}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-input bg-background px-3 py-1.5 text-xs hover:bg-accent"
+                >
+                  <Terminal className="h-3 w-3" />
+                  Open in terminal
+                </button>
               </div>
             )}
           </TabsContent>

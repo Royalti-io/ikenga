@@ -45,7 +45,7 @@ use commands::{
     set_dock_badge, iyke_mcp_info, spike_grant_fs_read, spike_setup_test_file, KernelState, PkgSettingsState,
     SecretsLock,
     session_attach_pty, session_cancel, session_destroy, session_destroy_all, session_ensure,
-    session_send,
+    session_send, session_tool_result,
     supabase_config_clear, supabase_config_get, supabase_config_set,
     viewer_port, viewer_serve, viewer_stop, ClaudeManager, ClaudeManagerState, IykeRuntimeState,
     ScreenshotConfigState, ScreenshotConfigStateRef, ScreenshotPending,
@@ -374,6 +374,7 @@ pub fn run() {
             // chat sessions (thread_id-keyed)
             session_ensure,
             session_send,
+            session_tool_result,
             session_cancel,
             session_destroy,
             session_destroy_all,
