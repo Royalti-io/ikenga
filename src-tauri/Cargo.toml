@@ -73,6 +73,11 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 age = { version = "0.10", default-features = false }
 which = "7"
 sysinfo = { version = "0.36.1", default-features = false, features = ["disk"] }
+# Embeds the starter `.claude/` templates (agents/skills/commands) directly
+# into the release binary so Phase 6's scaffolder doesn't need to shell out
+# to cc-config or carry loose files on disk. Source tree:
+# src-tauri/templates/starter/claude-code/.
+include_dir = "0.7"
 
 # Mac-only polish (window vibrancy + dock-tile badge) was removed
 # in the strip-down. The resolved objc2 v0.5 didn't export
