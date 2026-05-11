@@ -22,8 +22,14 @@ import { useQuery } from '@tanstack/react-query';
 
 import { Button } from '@/components/ui/button';
 import { cn } from '@/components/ui/utils';
+import { getProvider } from '@/lib/onboarding/agent-config-providers';
 import { useShellStore } from '@/lib/shell/shell-store';
-import { type AgentConfigInventory, detectAgentConfig, scaffoldAgentConfig } from '@/lib/tauri-cmd';
+import {
+	type AgentConfigInventory,
+	type ScaffoldAgentConfigMode,
+	detectAgentConfig,
+	scaffoldAgentConfig,
+} from '@/lib/tauri-cmd';
 
 import { useOnboardingStep } from './use-onboarding-step';
 
@@ -42,14 +48,17 @@ interface ScaffoldingBodyProps {
 	onSkip: () => void;
 }
 
+// Mirrors the bundled starter templates at
+// src-tauri/templates/starter/claude-code/. Keep in sync when adding
+// templates there — the count is informational, not load-bearing.
 const STARTER_PREVIEW = {
 	profile: 'starter' as const,
-	skills: 14,
-	agents: 5,
-	commands: 9,
+	skills: 5,
+	agents: 3,
+	commands: 3,
 	title: 'Music label starter',
 	description:
-		'Outbound, A&R review, release planner, sales digest. Built around @royalti editorial standards.',
+		'Release coordination, outbound writing, and content curation. Generalised templates — no organisation-specific references.',
 };
 
 export function ScaffoldingBody({ onContinue, onSkip }: ScaffoldingBodyProps) {
@@ -166,23 +175,48 @@ export function ScaffoldingBody({ onContinue, onSkip }: ScaffoldingBodyProps) {
 	}
 
 	const hasExisting = inventory?.config_dir_present === true;
+	const provider = getProvider(selectedAgentId);
+
+	// Map the UI choice → Rust ScaffoldMode. APPROVAL.md vocabulary:
+	//   Merge (recommended)    → augment        (additive — skip conflicts)
+	//   Overwrite (back up)    → replace        (clobber existing)
+	//   Skip                   → no call
+	// On a fresh root the UI choice is 'scaffold' which behaves the same
+	// as 'augment' (nothing to conflict with), so we send 'augment' to
+	// keep the Rust side honest about intent.
+	const modeForChoice = (c: ScaffoldingChoice): ScaffoldAgentConfigMode => {
+		if (c === 'merge') return 'augment';
+		if (c === 'scaffold') return hasExisting ? 'replace' : 'augment';
+		return 'augment';
+	};
 
 	const handleScaffoldNow = async () => {
-		if (!primaryRoot) return;
+		if (!primaryRoot || !provider) return;
 		setBusy(true);
 		setErrorMsg(null);
 		try {
-			const result = await scaffoldAgentConfig('claude-code', primaryRoot, STARTER_PREVIEW.profile);
+			const mode = modeForChoice(choice);
+			const result = await scaffoldAgentConfig(
+				provider.agentId,
+				primaryRoot,
+				STARTER_PREVIEW.profile,
+				mode
+			);
+			if (!result.ok && result.errors.length > 0) {
+				// Surface the first error so the user has something
+				// concrete to copy/paste.
+				setErrorMsg(`${result.errors[0]?.path}: ${result.errors[0]?.reason}`);
+				setBusy(false);
+				return;
+			}
 			setPayload({
-				choice: hasExisting ? 'merge' : 'scaffold',
+				choice: hasExisting ? (choice === 'scaffold' ? 'scaffold' : 'merge') : 'scaffold',
 				rootPath: primaryRoot,
 				profile: STARTER_PREVIEW.profile,
 				at: Date.now(),
 			});
 			markCompleted();
 			onContinue();
-			// Surface the result for debugging if Phase 6 returns useful data.
-			void result;
 		} catch (e) {
 			const msg = String((e as Error)?.message ?? e);
 			setErrorMsg(msg);
@@ -324,15 +358,7 @@ export function ScaffoldingBody({ onContinue, onSkip }: ScaffoldingBodyProps) {
 					}}
 					data-testid="scaffolding-error"
 				>
-					{errorMsg === 'not_implemented' ? (
-						<>
-							The scaffold action isn't wired yet — Phase 6 fills in this Tauri command. For now,
-							pick "Skip" and run <span className="font-mono text-xs">ikenga scaffold</span> from
-							the CLI after the wizard finishes.
-						</>
-					) : (
-						<>Scaffold failed: {errorMsg}</>
-					)}
+					<>Scaffold failed: {errorMsg}</>
 				</div>
 			)}
 
