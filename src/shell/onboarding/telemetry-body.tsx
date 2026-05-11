@@ -13,7 +13,7 @@ import { useEffect } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { cn } from '@/components/ui/utils';
-import { DEFAULT_TELEMETRY_PAYLOAD } from '@/lib/shell/shell-store';
+import { DEFAULT_TELEMETRY_PAYLOAD, useShellStore } from '@/lib/shell/shell-store';
 
 import { useOnboardingStep } from './use-onboarding-step';
 
@@ -27,18 +27,25 @@ interface TelemetryBodyProps {
 
 export function TelemetryBody({ onContinue }: TelemetryBodyProps) {
 	const { record, setPayload } = useOnboardingStep<TelemetryPayload>('telemetry');
+	const telemetryConsent = useShellStore((s) => s.telemetryConsent);
+	const setTelemetryConsent = useShellStore((s) => s.setTelemetryConsent);
 
-	// Default to OFF if nothing has been recorded yet — privacy-first,
-	// matches APPROVAL.md.
-	const current = record.payload?.enabled ?? DEFAULT_TELEMETRY_PAYLOAD.enabled;
+	// Wizard payload + canonical store both default OFF (APPROVAL.md).
+	// We mirror the canonical store on read so re-entry from Settings
+	// reflects the live value rather than a stale wizard snapshot.
+	const current = record.payload?.enabled ?? telemetryConsent ?? DEFAULT_TELEMETRY_PAYLOAD.enabled;
 
 	useEffect(() => {
 		if (!record.payload) {
-			setPayload({ enabled: false });
+			setPayload({ enabled: telemetryConsent });
 		}
-	}, [record.payload, setPayload]);
+	}, [record.payload, setPayload, telemetryConsent]);
 
-	const toggle = () => setPayload({ enabled: !current });
+	const toggle = () => {
+		const next = !current;
+		setPayload({ enabled: next });
+		setTelemetryConsent(next);
+	};
 
 	return (
 		<div className="mx-auto grid max-w-5xl gap-12 lg:grid-cols-[1fr_320px]">

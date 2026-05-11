@@ -76,6 +76,7 @@ export function AgentBody({ onContinue }: AgentBodyProps) {
 	const { record, setPayload } = useOnboardingStep<AgentStepPayload>('agent');
 	const selectedAgentId = useShellStore((s) => s.onboarding.selectedAgentId);
 	const setSelectedAgentId = useShellStore((s) => s.setSelectedAgentId);
+	const setChatAdapterId = useShellStore((s) => s.setChatAdapterId);
 
 	const { data, isLoading, isError, error, refetch } = useQuery<DetectedAgent[]>({
 		queryKey: QUERY_KEY,
@@ -97,6 +98,9 @@ export function AgentBody({ onContinue }: AgentBodyProps) {
 		const first = agents[0];
 		if (first) {
 			setSelectedAgentId(first.id);
+			// Mirror onto the canonical chat-adapter id so the chat surface
+			// has a default the moment the wizard hands off.
+			setChatAdapterId(first.id);
 			setPayload({
 				agentId: first.id,
 				display: first.display,
@@ -105,10 +109,11 @@ export function AgentBody({ onContinue }: AgentBodyProps) {
 				authed: first.authed,
 			});
 		}
-	}, [agents, isLoading, selectedAgentId, setPayload, setSelectedAgentId]);
+	}, [agents, isLoading, selectedAgentId, setPayload, setSelectedAgentId, setChatAdapterId]);
 
 	const handleSelect = (a: DetectedAgent) => {
 		setSelectedAgentId(a.id);
+		setChatAdapterId(a.id);
 		setPayload({
 			agentId: a.id,
 			display: a.display,
@@ -120,6 +125,8 @@ export function AgentBody({ onContinue }: AgentBodyProps) {
 
 	const handleOffline = () => {
 		setSelectedAgentId(OFFLINE_AGENT_ID);
+		// Offline mode → no adapter (chat surface stays dormant).
+		setChatAdapterId(null);
 		setPayload({
 			agentId: OFFLINE_AGENT_ID,
 			display: 'Offline (no engine)',
