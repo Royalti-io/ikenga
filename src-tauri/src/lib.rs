@@ -470,6 +470,8 @@ pub fn run() {
             agent_detect::detect_system,
             agent_detect::detect_agents,
             agent_detect::detect_agent_config,
+            agent_detect::list_claude_projects,
+            agent_detect::scaffold_agent_config,
             // activity bar pinning
             activity_pins_list,
             activity_pins_add,
