@@ -164,9 +164,16 @@ impl AcpServer {
             .auth_methods(Vec::new())
     }
 
-    /// Handle ACP `session/new`. Mints a fresh thread id (uuid v4), registers
-    /// the empty session with `SessionsManager` keyed on that id, and returns
-    /// the id back to the caller as the `SessionId`.
+    /// Handle ACP `session/new`. Registers an empty session with
+    /// `SessionsManager`, returning the id back to the caller as the
+    /// `SessionId`.
+    ///
+    /// Thread-id resolution: if `_meta.threadId` is present and non-empty,
+    /// we honor it as the session id. This is an Ikenga extension so the
+    /// frontend's stable UI thread id stays authoritative across UI
+    /// remounts and `--resume` round-trips. The shell adapter always
+    /// passes it; pure ACP peers that don't supply `_meta` get a fresh
+    /// uuid v4 minted server-side.
     ///
     /// The Rust child is NOT spawned here — `claude::session` is lazy and
     /// the first `session/prompt` boots it. That matches the existing
@@ -177,7 +184,7 @@ impl AcpServer {
         _app: AppHandle,
         req: NewSessionRequest,
     ) -> Result<NewSessionResponse, String> {
-        let thread_id = format!("{}", uuid::Uuid::new_v4());
+        let thread_id = resolve_thread_id(req.meta.as_ref());
         let cwd = req.cwd.to_string_lossy().into_owned();
         // Phase 3 ignores `mcp_servers` — claude already wires its own MCP
         // via `--mcp-config`. Phase 9 will translate ACP-declared servers
@@ -609,6 +616,22 @@ impl AcpServer {
     }
 }
 
+/// Resolve the session id to register under, honoring `_meta.threadId` from
+/// the new-session request when present. Pure function so it can be tested
+/// without an `AppHandle`.
+///
+/// Ikenga's frontend adapter passes its stable UI thread id via
+/// `_meta.threadId` so the same id round-trips through `session/prompt`,
+/// `session/set_mode`, etc. Pure-ACP peers that don't supply `_meta` get a
+/// uuid v4 minted server-side.
+fn resolve_thread_id(meta: Option<&serde_json::Map<String, serde_json::Value>>) -> String {
+    meta.and_then(|m| m.get("threadId"))
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("{}", uuid::Uuid::new_v4()))
+}
+
 /// Tauri-friendly wrapper around the server.
 pub type AcpServerState = Arc<AcpServer>;
 
@@ -628,6 +651,35 @@ mod tests {
         assert!(resp.agent_capabilities.mcp_capabilities.sse);
         assert!(resp.agent_capabilities.load_session);
         assert!(resp.auth_methods.is_empty());
+    }
+
+    #[test]
+    fn resolve_thread_id_honors_meta() {
+        // Phase 10 smoke regression: the shell adapter passes its stable UI
+        // thread id via `_meta.threadId`. If the server ignores it and mints
+        // a fresh uuid, the next `session/prompt` (which uses the UI thread
+        // id) misses the session table and errors "no session for thread".
+        // Spotted live via iyke on /sessions/$id after the migration.
+        let mut meta = serde_json::Map::new();
+        meta.insert("threadId".into(), serde_json::Value::String("ui-thread-42".into()));
+        assert_eq!(resolve_thread_id(Some(&meta)), "ui-thread-42");
+    }
+
+    #[test]
+    fn resolve_thread_id_falls_back_to_uuid_when_no_meta() {
+        // Pure-ACP clients that don't send `_meta` get a uuid v4.
+        let id = resolve_thread_id(None);
+        assert_eq!(id.len(), 36);
+        assert!(id.contains('-'));
+    }
+
+    #[test]
+    fn resolve_thread_id_falls_back_when_meta_thread_id_empty() {
+        // Empty string is treated as "not provided" — clamps to a uuid.
+        let mut meta = serde_json::Map::new();
+        meta.insert("threadId".into(), serde_json::Value::String("".into()));
+        let id = resolve_thread_id(Some(&meta));
+        assert_eq!(id.len(), 36);
     }
 
     #[tokio::test]
