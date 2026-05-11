@@ -278,20 +278,16 @@ function SessionDetailPage() {
             )}
             {!loading && !error && (
               <>
-                {/* Phase 8: surface "Branch from here" on assistant
-                    turns. Gated behind `acpEnabled` to mirror the
-                    Composer — legacy adapter has no fork concept. */}
+                {/* Phase 8 + 10: "Branch from here" on assistant turns +
+                    ACP session-mode picker. Both default-on as of Phase 10
+                    — the legacy CLI adapter is opt-in via
+                    `localStorage.ikenga_chat_engine = 'legacy'`. */}
                 <Thread
                   threadId={threadId}
                   className="flex-1"
-                  acpEnabled
                   onBranch={handleBranch}
                 />
-                {/* Phase 5: enable the ACP session-mode picker on the
-                    dedicated session route. Pane chat-view stays on the
-                    legacy path until Phase 10 reshapes the composer.
-                    TODO(phase-10): make `acpEnabled` unconditional. */}
-                <Composer threadId={threadId} acpEnabled />
+                <Composer threadId={threadId} />
               </>
             )}
           </TabsContent>

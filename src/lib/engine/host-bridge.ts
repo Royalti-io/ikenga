@@ -15,8 +15,24 @@
 // the engine contract's `EngineEvent` (a strict subset). Unmapped variants
 // are silently dropped — the engine doesn't model artifacts / hooks /
 // user-turn echoes.
+//
+// Phase 10 — an additional `createShellAcpHost()` factory binds the ACP
+// engine pkg to the shell's `acp*` Tauri-cmd wrappers. The host shape is
+// the ACP-shaped sibling of `HostBridge`; both surfaces exist while the
+// legacy engine path is retained for one release.
 
 import {
+  acpCancel,
+  acpForkSession,
+  acpInitialize,
+  acpListen,
+  acpListenNotify,
+  acpListenRequests,
+  acpLoadSession,
+  acpNewSession,
+  acpPrompt,
+  acpRespondPermission,
+  acpSetMode,
   sessionDestroy,
   sessionEnsure,
   sessionListen,
@@ -28,7 +44,10 @@ import type {
   EngineEvent,
   McpServerSpec,
 } from "@ikenga/contract/engine";
-import type { HostBridge } from "@ikenga/pkg-engine-claude-code";
+import type {
+  AcpHost,
+  HostBridge,
+} from "@ikenga/pkg-engine-claude-code";
 
 interface SessionRecord {
   /** Working directory used at spawn time. */
@@ -250,5 +269,37 @@ export function createShellHostBridge(): HostBridge {
       // TODO(phase-engine): pair with `registerMcp` above.
       return;
     },
+  };
+}
+
+/**
+ * Phase 10 — construct the ACP-shaped host adapter the engine pkg consumes.
+ *
+ * Each method is a direct passthrough to the shell's `acp*` Tauri-cmd
+ * wrapper. The shapes already match the contract (`AcpInitializeRequest`,
+ * `AcpPromptRequest`, etc.), so this layer is mostly a type bridge — its
+ * value is letting `pkgs/engine-claude-code` stay free of `@tauri-apps/*`
+ * deps while the shell still owns the canonical wire layer.
+ *
+ * The two subscription helpers (`listenSession`, `listenPermissionRequests`,
+ * `listenNotify`) hand back the underlying `UnlistenFn` so the engine pkg
+ * can wrap them in a sync unsubscribe.
+ */
+export function createShellAcpHost(): AcpHost {
+  return {
+    initialize: (req) => acpInitialize(req),
+    newSession: (req) => acpNewSession(req),
+    prompt: (req) => acpPrompt(req),
+    cancel: (sessionId) => acpCancel(sessionId),
+    setMode: (sessionId, modeId) => acpSetMode(sessionId, modeId),
+    loadSession: (sessionId) => acpLoadSession(sessionId),
+    forkSession: (sourceSessionId, opts) =>
+      acpForkSession(sourceSessionId, opts),
+    listenSession: (sessionId, onUpdate) => acpListen(sessionId, onUpdate),
+    listenPermissionRequests: (sessionId, onRequest) =>
+      acpListenRequests(sessionId, onRequest),
+    respondPermission: (requestId, response) =>
+      acpRespondPermission(requestId, response),
+    listenNotify: (callback) => acpListenNotify(callback),
   };
 }
