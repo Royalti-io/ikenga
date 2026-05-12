@@ -17,8 +17,7 @@
 		"test": "vitest run",
 		"test:watch": "vitest",
 		"fmt": "biome format --write .",
-		"lint": "biome lint .",
-		"design:bundle": "bun run design/scripts/bundle.ts"
+		"lint": "biome lint ."
 	},
 	"dependencies": {
 		"@ikenga/contract": "workspace:*",
