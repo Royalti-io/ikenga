@@ -1280,6 +1280,76 @@ export async function pkgContentRevoke(token: string): Promise<void> {
 	return invoke('pkg_content_revoke', { token });
 }
 
+// ─── Pkg child-webview panes (Phase 1) ──────────────────────────────────
+//
+// Native webview surfaces owned by the kernel and rendered as a child of
+// the main Tauri window. The React side mounts a placeholder div
+// (`PkgWebviewHost`) that measures its DOM rect and asks the kernel to
+// create / move / destroy a webview at that rect. The webview floats over
+// the React tree natively; navigation, eval, and cookie isolation are
+// driven by the kernel + the pkg's MCP server, not by React.
+//
+// Backed by `src-tauri/src/commands/pkg_webview.rs` and the
+// `WebviewPanesRegistry` (`src-tauri/src/pkg/webview.rs`). The `eval` and
+// `set_visible` paths exist in Rust but are intentionally NOT exposed to
+// the FE — only the kernel and pkg-MCP servers ever drive them.
+
+export interface PkgWebviewRect {
+	x: number;
+	y: number;
+	w: number;
+	h: number;
+}
+
+export interface PkgWebviewCreateResult {
+	/** Internal label assigned by the kernel (e.g. `pkg-com-ikenga-browser-spotify`). Opaque. */
+	webviewLabel: string;
+}
+
+/** Create a child webview for `(pkgId, paneId)` at `rect`, loading `url`.
+ *  `partition` selects a per-pkg cookie jar (must be one of the partitions
+ *  declared in the pkg's `capabilities.webview.partitions`); omit / null
+ *  for the default jar. The returned label is opaque — the React side
+ *  doesn't need it (subsequent ops are keyed on `(pkgId, paneId)`), but
+ *  it's surfaced for logging / debugging. */
+export async function pkgWebviewCreate(
+	pkgId: string,
+	paneId: string,
+	url: string,
+	rect: PkgWebviewRect,
+	partition?: string | null
+): Promise<PkgWebviewCreateResult> {
+	// Rust-side `PkgWebviewCreateResult` carries `#[serde(rename_all = "camelCase")]`
+	// so the wire format is `webviewLabel` already — no normalization needed.
+	return invoke<PkgWebviewCreateResult>('pkg_webview_create', {
+		pkgId,
+		paneId,
+		url,
+		rect,
+		partition: partition ?? null,
+	});
+}
+
+export async function pkgWebviewDestroy(pkgId: string, paneId: string): Promise<void> {
+	return invoke('pkg_webview_destroy', { pkgId, paneId });
+}
+
+export async function pkgWebviewSetRect(
+	pkgId: string,
+	paneId: string,
+	rect: PkgWebviewRect
+): Promise<void> {
+	return invoke('pkg_webview_set_rect', { pkgId, paneId, rect });
+}
+
+export async function pkgWebviewNavigate(
+	pkgId: string,
+	paneId: string,
+	url: string
+): Promise<void> {
+	return invoke('pkg_webview_navigate', { pkgId, paneId, url });
+}
+
 // ─── Pkg MCP tool routing ───────────────────────────────────────────────
 //
 // v1 stub. The host bridge calls this when the iframe fires an MCP
