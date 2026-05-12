@@ -9,6 +9,7 @@
  */
 
 import {
+  ptyConsumeBuffer,
   ptyKill,
   ptyListen,
   ptyResize,
@@ -41,10 +42,41 @@ export class Pty {
   private exitSubs = new Set<PtyExitHandler>();
   private unlisten: (() => void) | null = null;
   private disposed = false;
+  /**
+   * Bytes received before any subscriber registered, plus the initial
+   * scrollback replay from Rust. Held so the first `onData()` consumer can
+   * catch up on everything the PTY has emitted so far — without this, the
+   * spawn-before-mount race leaves xterm blank for healthy sessions and
+   * silent for sessions where `claude` exited fast.
+   */
+  private replayBuffer: Uint8Array = new Uint8Array(0);
 
   private constructor(id: string, label: string) {
     this.id = id;
     this.label = label;
+  }
+
+  /**
+   * Internal fanout used by both spawn() and attach() Tauri listeners. If no
+   * subscriber has registered yet, the bytes are appended to `replayBuffer`
+   * so the eventual `onData()` consumer can catch up; once a subscriber
+   * exists, bytes flow live.
+   */
+  private deliverData(bytes: Uint8Array) {
+    if (this.dataSubs.size === 0) {
+      const next = new Uint8Array(this.replayBuffer.length + bytes.length);
+      next.set(this.replayBuffer, 0);
+      next.set(bytes, this.replayBuffer.length);
+      this.replayBuffer = next;
+      return;
+    }
+    for (const sub of this.dataSubs) {
+      try {
+        sub(bytes);
+      } catch (err) {
+        console.error("[pty] data handler threw", err);
+      }
+    }
   }
 
   /**
@@ -62,15 +94,7 @@ export class Pty {
     try {
       pty.unlisten = await ptyListen(
         id,
-        (bytes) => {
-          for (const sub of pty.dataSubs) {
-            try {
-              sub(bytes);
-            } catch (err) {
-              console.error("[pty] data handler threw", err);
-            }
-          }
-        },
+        (bytes) => pty.deliverData(bytes),
         (code) => {
           pty.exited = true;
           pty.exitCode = code;
@@ -101,15 +125,7 @@ export class Pty {
     const pty = new Pty(id, label ?? id);
     pty.unlisten = await ptyListen(
       id,
-      (bytes) => {
-        for (const sub of pty.dataSubs) {
-          try {
-            sub(bytes);
-          } catch (err) {
-            console.error('[pty] data handler threw', err);
-          }
-        }
-      },
+      (bytes) => pty.deliverData(bytes),
       (code) => {
         pty.exited = true;
         pty.exitCode = code;
@@ -122,11 +138,40 @@ export class Pty {
         }
       },
     );
+    // Replay the scrollback that accumulated between Rust's `pty_spawn` and
+    // our `ptyListen` above. Order matters: subscribe first (so any bytes
+    // emitted *during* this await land in `replayBuffer` via deliverData),
+    // then prepend the snapshot. The duplicate window is the few ms between
+    // listener attach and snapshot return — terminal output is idempotent
+    // enough under redraw that occasional double bytes are invisible.
+    try {
+      const snapshot = await ptyConsumeBuffer(id);
+      if (snapshot.length > 0) {
+        const next = new Uint8Array(snapshot.length + pty.replayBuffer.length);
+        next.set(snapshot, 0);
+        next.set(pty.replayBuffer, snapshot.length);
+        pty.replayBuffer = next;
+      }
+    } catch (err) {
+      console.warn('[pty] scrollback replay failed', err);
+    }
     return pty;
   }
 
-  /** Subscribe to data bytes. Returns an unsubscribe function. */
+  /**
+   * Subscribe to data bytes. Returns an unsubscribe function. If bytes have
+   * already been buffered (scrollback replay + bytes received before any
+   * subscriber attached), the new handler receives them synchronously before
+   * subscribing to the live stream.
+   */
   onData(handler: PtyDataHandler): () => void {
+    if (this.replayBuffer.length > 0) {
+      try {
+        handler(this.replayBuffer);
+      } catch (err) {
+        console.error("[pty] data handler threw on replay", err);
+      }
+    }
     this.dataSubs.add(handler);
     return () => {
       this.dataSubs.delete(handler);

@@ -35,7 +35,7 @@ use commands::{
     fs_roots_reset, fs_trash,
     fs_unwatch, fs_watch, fs_write, iyke_dom_done, iyke_endpoint,
     iyke_log_push, iyke_network_push, iyke_query_cache_done, iyke_set_shell, iyke_wait_done,
-    pty_kill, pty_resize, pty_spawn, pty_write,
+    pty_consume_buffer, pty_kill, pty_resize, pty_spawn, pty_write,
     screenshot_capture_done,
     screenshot_capture_failed, screenshot_get_config, screenshot_pane, screenshot_set_dir,
     screenshot_window, secrets_delete, secrets_get, secrets_import_dotenv, secrets_list_keys,
@@ -376,6 +376,7 @@ pub fn run() {
             pty_write,
             pty_resize,
             pty_kill,
+            pty_consume_buffer,
             // fs
             fs_read,
             fs_write,

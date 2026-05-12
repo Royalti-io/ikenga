@@ -292,7 +292,7 @@ function SessionDetailPage() {
             )}
           </TabsContent>
 
-          <TabsContent value="terminal" className="mt-2 flex-1 overflow-hidden">
+          <TabsContent value="terminal" className="mt-2 flex flex-1 flex-col overflow-hidden">
             {live?.ptyId ? (
               <LiveTerminal ptyId={live.ptyId} />
             ) : (

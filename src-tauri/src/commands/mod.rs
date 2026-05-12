@@ -68,7 +68,7 @@ pub use pkg_mcp::{
     dev_bind_port, dev_release_port, pkg_mcp_call, pkg_supervisor_restart, SidecarSupervisorState,
 };
 pub use pkg_sidecar::{pkg_sidecar_call, SidecarsRegistryState};
-pub use pty::{pty_kill, pty_resize, pty_spawn, pty_write};
+pub use pty::{pty_consume_buffer, pty_kill, pty_resize, pty_spawn, pty_write};
 pub use screenshot::{
     screenshot_capture_done, screenshot_capture_failed, screenshot_get_config, screenshot_pane,
     screenshot_set_dir, screenshot_window, ScreenshotConfigState, ScreenshotConfigStateRef,
