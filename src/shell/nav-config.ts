@@ -11,7 +11,6 @@ import {
   PackagePlus,
   Bot,
   Terminal as TerminalIcon,
-  Settings as SettingsIcon,
 } from 'lucide-react';
 
 export interface NavItem {
@@ -37,12 +36,6 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { to: '/packages', label: 'Installed', Icon: Package },
       { to: '/install', label: 'Install', Icon: PackagePlus },
-    ],
-  },
-  {
-    label: 'Workspace',
-    items: [
-      { to: '/settings/appearance', label: 'Settings', Icon: SettingsIcon },
     ],
   },
 ];
