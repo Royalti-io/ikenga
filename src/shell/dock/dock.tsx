@@ -12,17 +12,16 @@ import { PaneBody, viewLabel } from '@/shell/panes/pane-views';
 import { viewWorkspace } from '@/shell/panes/tab-workspace';
 import { createTerminalSession } from '@/terminal/single-terminal';
 import { mintThreadId } from '@/chat';
+import { defaultCwd } from '@/lib/shell/default-cwd';
 import { sessionEnsure } from '@/lib/tauri-cmd';
 import { cn } from '@/components/ui/utils';
-
-const DEFAULT_CHAT_CWD = '/home/nedjamez/royalti-co';
 
 function newChatTab(): { kind: 'chat'; sessionId: string } {
   const threadId = mintThreadId();
   // Register the session row in Rust ahead of any send so the streaming
   // child can spawn on the first prompt. Fire-and-forget — sessionEnsure
   // is idempotent and the adapter also calls it on attach.
-  void sessionEnsure(threadId, DEFAULT_CHAT_CWD, {}).catch((e) =>
+  void sessionEnsure(threadId, defaultCwd(), {}).catch((e) =>
     console.warn('sessionEnsure (dock):', e),
   );
   return { kind: 'chat', sessionId: threadId };

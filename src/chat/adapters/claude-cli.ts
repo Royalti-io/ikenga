@@ -39,6 +39,8 @@ import {
   claudeListSessions,
   type ChatEvent,
 } from '@/lib/tauri-cmd';
+import { defaultCwd } from '@/lib/shell/default-cwd';
+
 import { useChatStore } from '../store';
 import { updateThreadMeta } from '../persist';
 import type {
@@ -177,7 +179,7 @@ class ClaudeCliAdapterImpl implements ChatAdapter {
       try {
         // Make sure the session row + main subscription exist.
         const cwd = useChatStore.getState().threads[input.threadId]?.thread.cwd ?? '';
-        await this.attach(input.threadId, cwd || '/home/nedjamez/royalti-co');
+        await this.attach(input.threadId, cwd || defaultCwd());
         // Mark streaming up-front; onEvent will keep it set, and 'done' will clear it.
         useChatStore.getState().setStatus(input.threadId, 'streaming');
         await sessionSend(input.threadId, input.text);

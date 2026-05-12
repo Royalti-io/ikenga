@@ -1,6 +1,48 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { fsRootsAdd, fsRootsList, fsRootsRemove, fsRootsReset } from '@/lib/tauri-cmd';
+import {
+	fsRootsAdd,
+	fsRootsList,
+	fsRootsRemove,
+	fsRootsReset,
+	settingsGetAll,
+	settingsSet,
+} from '@/lib/tauri-cmd';
+
+// ─── Tauri-backed settings_kv mirror keys ─────────────────────────────────
+//
+// Zustand's `persist` middleware keeps these in localStorage for instant
+// first-paint hydration; settings_kv (migration 0013) is the durable copy
+// that survives "Clear local data" and can later back cross-device sync.
+// Frontend hydrates from Tauri at boot (hydrateSettingsFromRust) and
+// write-throughs on every relevant setter.
+
+const KV_TELEMETRY = 'telemetry.enabled';
+const KV_CHAT_ADAPTER = 'agent.chatAdapterId';
+const KV_CLAUDE_ROOTS = 'claude.projectRoots';
+const KV_CLAUDE_WATCH = 'claude.watchEnabled';
+const KV_ONBOARDING = 'onboarding.state';
+
+// Set true while pulling values from Rust into the store so the
+// subscribe-based onboarding mirror doesn't push them straight back.
+let suppressKv = false;
+
+function kvSet(key: string, value: unknown): void {
+	if (suppressKv) return;
+	settingsSet(key, JSON.stringify(value)).catch(() => {
+		// Tauri unavailable (test env / pre-setup) — localStorage is still
+		// the in-page cache so the user's edit is not lost.
+	});
+}
+
+function parseKv<T>(raw: string | undefined): T | undefined {
+	if (raw == null) return undefined;
+	try {
+		return JSON.parse(raw) as T;
+	} catch {
+		return undefined;
+	}
+}
 
 // Post-strip: only 4 first-class workspaces. Mail / Outbox / Studio /
 // Agents were app-pkg surfaces and got removed with the strip-down.
@@ -14,17 +56,17 @@ export type ActivityMode = CoreMode;
 // onboarding wizard's "reset to defaults" affordance and the test harness.
 // At runtime, `fileRoots` is hydrated from Rust on app boot (see
 // `hydrateFileRootsFromRust`).
-export const DEFAULT_FILE_ROOTS: readonly string[] = Object.freeze([
-	'~/royalti-co',
-	'~/.claude/projects',
-	'~/.company',
-]);
+//
+// Empty by design: a fresh install has no allowlist until the user adds a
+// root via the onboarding wizard or Settings → Storage.
+export const DEFAULT_FILE_ROOTS: readonly string[] = Object.freeze([]);
 
 // Project roots scanned by the /claude config browser. Each root is a dir
 // that contains a `.claude/` subfolder (agents/skills/commands/settings).
 // Personal `~/.claude/` is always scanned in addition to these — it doesn't
-// need to be listed.
-export const DEFAULT_CLAUDE_PROJECT_ROOTS: readonly string[] = Object.freeze(['~/royalti-co']);
+// need to be listed. Empty by default; the user adds roots via onboarding
+// step "roots" or Settings.
+export const DEFAULT_CLAUDE_PROJECT_ROOTS: readonly string[] = Object.freeze([]);
 
 // ─── Onboarding wizard state (Phase 3 scaffold) ──────────────────────────
 //
@@ -176,6 +218,13 @@ interface ShellState {
 	/** Reset the wizard to a fresh first-run state — used by Settings
 	 * "Start over". */
 	resetOnboarding: () => void;
+
+	/** Pull durable settings from Rust (settings_kv) and overwrite local
+	 * state. If settings_kv is empty, push the currently-persisted Zustand
+	 * snapshot in once so existing users carry over. Called once at app
+	 * boot from `main.tsx`; safe to call multiple times. Rejects silently
+	 * in non-Tauri test environments. */
+	hydrateSettingsFromRust: () => Promise<void>;
 }
 
 function clampActiveIndex(idx: number): number {
@@ -274,10 +323,16 @@ export const useShellStore = create<ShellState>()(
 			setActiveMode: (activeMode) => set({ activeMode }),
 
 			telemetryConsent: false,
-			setTelemetryConsent: (telemetryConsent) => set({ telemetryConsent }),
+			setTelemetryConsent: (telemetryConsent) => {
+				set({ telemetryConsent });
+				kvSet(KV_TELEMETRY, telemetryConsent);
+			},
 
 			chatAdapterId: null,
-			setChatAdapterId: (chatAdapterId) => set({ chatAdapterId }),
+			setChatAdapterId: (chatAdapterId) => {
+				set({ chatAdapterId });
+				kvSet(KV_CHAT_ADAPTER, chatAdapterId);
+			},
 
 			fileRoots: [...DEFAULT_FILE_ROOTS],
 			// All four mutators update local state optimistically for instant UI
@@ -340,10 +395,15 @@ export const useShellStore = create<ShellState>()(
 				const trimmed = path.trim();
 				if (!trimmed) return;
 				if (get().claudeProjectRoots.includes(trimmed)) return;
-				set({ claudeProjectRoots: [...get().claudeProjectRoots, trimmed] });
+				const next = [...get().claudeProjectRoots, trimmed];
+				set({ claudeProjectRoots: next });
+				kvSet(KV_CLAUDE_ROOTS, next);
 			},
-			removeClaudeProjectRoot: (path) =>
-				set({ claudeProjectRoots: get().claudeProjectRoots.filter((r) => r !== path) }),
+			removeClaudeProjectRoot: (path) => {
+				const next = get().claudeProjectRoots.filter((r) => r !== path);
+				set({ claudeProjectRoots: next });
+				kvSet(KV_CLAUDE_ROOTS, next);
+			},
 			updateClaudeProjectRoot: (oldPath, newPath) => {
 				const trimmed = newPath.trim();
 				if (!trimmed || trimmed === oldPath) return;
@@ -354,10 +414,18 @@ export const useShellStore = create<ShellState>()(
 				const next = [...cur];
 				next[idx] = trimmed;
 				set({ claudeProjectRoots: next });
+				kvSet(KV_CLAUDE_ROOTS, next);
 			},
-			resetClaudeProjectRoots: () => set({ claudeProjectRoots: [...DEFAULT_CLAUDE_PROJECT_ROOTS] }),
+			resetClaudeProjectRoots: () => {
+				const next = [...DEFAULT_CLAUDE_PROJECT_ROOTS];
+				set({ claudeProjectRoots: next });
+				kvSet(KV_CLAUDE_ROOTS, next);
+			},
 			claudeWatchEnabled: true,
-			setClaudeWatchEnabled: (claudeWatchEnabled) => set({ claudeWatchEnabled }),
+			setClaudeWatchEnabled: (claudeWatchEnabled) => {
+				set({ claudeWatchEnabled });
+				kvSet(KV_CLAUDE_WATCH, claudeWatchEnabled);
+			},
 
 			// ─── Onboarding actions ────────────────────────────────────────
 			onboarding: createDefaultOnboardingState(),
@@ -472,6 +540,52 @@ export const useShellStore = create<ShellState>()(
 				})),
 
 			resetOnboarding: () => set({ onboarding: createDefaultOnboardingState() }),
+
+			hydrateSettingsFromRust: async () => {
+				let all: Record<string, string> = {};
+				try {
+					all = await settingsGetAll();
+				} catch {
+					// Tauri unavailable (test env or pre-setup boot).
+					return;
+				}
+				if (Object.keys(all).length === 0) {
+					// First boot post-migration: seed settings_kv from whatever
+					// localStorage hydrated us with so existing users carry over.
+					const s = get();
+					suppressKv = true;
+					try {
+						kvSet(KV_TELEMETRY, s.telemetryConsent);
+						kvSet(KV_CHAT_ADAPTER, s.chatAdapterId);
+						kvSet(KV_CLAUDE_ROOTS, s.claudeProjectRoots);
+						kvSet(KV_CLAUDE_WATCH, s.claudeWatchEnabled);
+						kvSet(KV_ONBOARDING, s.onboarding);
+					} finally {
+						suppressKv = false;
+					}
+					return;
+				}
+				// Tauri has values — overwrite the relevant store slices.
+				suppressKv = true;
+				try {
+					const next: Partial<ShellState> = {};
+					const tel = parseKv<boolean>(all[KV_TELEMETRY]);
+					if (typeof tel === 'boolean') next.telemetryConsent = tel;
+					const adapter = parseKv<string | null>(all[KV_CHAT_ADAPTER]);
+					if (adapter === null || typeof adapter === 'string') {
+						next.chatAdapterId = adapter;
+					}
+					const roots = parseKv<string[]>(all[KV_CLAUDE_ROOTS]);
+					if (Array.isArray(roots)) next.claudeProjectRoots = roots;
+					const watch = parseKv<boolean>(all[KV_CLAUDE_WATCH]);
+					if (typeof watch === 'boolean') next.claudeWatchEnabled = watch;
+					const ob = parseKv<OnboardingState>(all[KV_ONBOARDING]);
+					if (ob && typeof ob === 'object') next.onboarding = ob;
+					set(next);
+				} finally {
+					suppressKv = false;
+				}
+			},
 		}),
 		// Bump version when ActivityMode union or persisted shape changes.
 		// v5: mail/outbox/studio promoted to CoreMode (then v7 narrowed).
@@ -492,3 +606,15 @@ export const useShellStore = create<ShellState>()(
 		}
 	)
 );
+
+// Mirror the onboarding slice into settings_kv whenever it changes. Covers
+// every onboarding mutator (startOnboarding, setOnboardingPayload,
+// setSelectedAgentId, mark*StepCompleted/Skipped, setOnboardingActiveIndex,
+// enterOnboardingEdit, finishOnboarding, resetOnboarding) without each
+// mutator having to opt in. Suppressed during `hydrateSettingsFromRust` so
+// we don't push the value we just pulled.
+useShellStore.subscribe((state, prev) => {
+	if (state.onboarding !== prev.onboarding) {
+		kvSet(KV_ONBOARDING, state.onboarding);
+	}
+});

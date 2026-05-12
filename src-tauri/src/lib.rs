@@ -46,6 +46,7 @@ use commands::{
     pkg_uninstall, pkg_set_enabled, dev_bind_port, dev_release_port,
     secrets_set, secrets_vault_status, PkgContentState, SidecarsRegistryState, SidecarSupervisorState,
     set_dock_badge, iyke_mcp_info, spike_grant_fs_read, spike_setup_test_file, KernelState, PkgSettingsState,
+    settings_clear_all, settings_get, settings_get_all, settings_set,
 };
 #[cfg(debug_assertions)]
 use commands::{bg_spike_reply, bg_spike_run, new_bg_spike_state};
@@ -432,6 +433,11 @@ pub fn run() {
             secrets_list_keys,
             secrets_vault_status,
             secrets_import_dotenv,
+            // settings_kv (durable mirror for Zustand-backed prefs)
+            settings_get,
+            settings_set,
+            settings_get_all,
+            settings_clear_all,
             // supabase config (URL + anon key manifest)
             supabase_config_get,
             supabase_config_set,

@@ -1,4 +1,14 @@
-import { HardDrive, Info, Package, Palette, Plug, Sparkles, type LucideIcon } from 'lucide-react';
+import {
+	Bot,
+	HardDrive,
+	Info,
+	Package,
+	Palette,
+	Plug,
+	ShieldCheck,
+	Sparkles,
+	type LucideIcon,
+} from 'lucide-react';
 
 import { usePaneStore } from '@/lib/panes/pane-store';
 import { findLeaf } from '@/lib/panes/pane-reducer';
@@ -20,6 +30,7 @@ const NAV: NavSection[] = [
 		label: 'Workspace',
 		items: [
 			{ to: '/settings/appearance', label: 'Appearance', Icon: Palette },
+			{ to: '/settings/agent', label: 'Agent', Icon: Bot },
 			{ to: '/settings/packages', label: 'Packages', Icon: Package },
 			{ to: '/settings/onboarding', label: 'Onboarding', Icon: Sparkles },
 		],
@@ -31,6 +42,10 @@ const NAV: NavSection[] = [
 	{
 		label: 'Storage',
 		items: [{ to: '/settings/storage', label: 'Storage', Icon: HardDrive }],
+	},
+	{
+		label: 'Privacy',
+		items: [{ to: '/settings/telemetry', label: 'Telemetry', Icon: ShieldCheck }],
 	},
 	{
 		label: 'Other',

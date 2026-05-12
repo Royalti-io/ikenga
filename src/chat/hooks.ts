@@ -9,6 +9,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { defaultCwd } from '@/lib/shell/default-cwd';
 import { claudeReadJsonl, type ChatEvent } from '@/lib/tauri-cmd';
 import {
   appendUserTurn,
@@ -188,7 +189,7 @@ export function useThread(threadId: string | null): {
         // persisted under the legacy 'cli' adapter still resolve to it.
         try {
           const adapter = getAdapter(thread.adapterId);
-          await adapter.attach?.(threadId, thread.cwd || '/home/nedjamez/royalti-co');
+          await adapter.attach?.(threadId, thread.cwd || defaultCwd());
         } catch (e) {
           console.warn('adapter.attach failed:', e);
         }

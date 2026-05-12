@@ -22,6 +22,7 @@ pub mod pkg_sidecar;
 pub mod pty;
 pub mod screenshot;
 pub mod secrets;
+pub mod settings_kv;
 pub mod spike;
 pub mod supabase_config;
 pub mod viewer;
@@ -78,6 +79,7 @@ pub use secrets::{
     secrets_delete, secrets_get, secrets_import_dotenv, secrets_list_keys, secrets_set,
     secrets_vault_status, SecretsLock,
 };
+pub use settings_kv::{settings_clear_all, settings_get, settings_get_all, settings_set};
 pub use spike::{spike_grant_fs_read, spike_setup_test_file};
 pub use supabase_config::{supabase_config_clear, supabase_config_get, supabase_config_set};
 pub use viewer::{viewer_port, viewer_serve, viewer_stop};

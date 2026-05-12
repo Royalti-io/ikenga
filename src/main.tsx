@@ -9,8 +9,9 @@ import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 
 import { routeTree } from './routeTree.gen';
 import { queryClient } from '@/lib/query-client';
-import { installIkengaDomSync } from '@/lib/ikenga/theme-store';
+import { installIkengaDomSync, useIkengaStore } from '@/lib/ikenga/theme-store';
 import { installNativeMenu } from '@/shell/native-menu';
+import { initDefaultCwd } from '@/lib/shell/default-cwd';
 import { useShellStore } from '@/lib/shell/shell-store';
 
 import './styles.css';
@@ -46,6 +47,17 @@ void installNativeMenu();
 // what the Rust resolver will actually permit. Fire-and-forget; failures
 // (test env, pre-setup boot) leave the persisted snapshot in place.
 void useShellStore.getState().hydrateFileRootsFromRust();
+
+// Resolve $HOME once so `defaultCwd()` (used by chat/terminal/session
+// fallbacks) can return it synchronously. Fire-and-forget — failure leaves
+// the helper falling back to '~'.
+void initDefaultCwd();
+
+// Pull the durable settings_kv mirror (migration 0013). Same fire-and-forget
+// semantics — failures leave the localStorage-hydrated snapshot in place,
+// successes overwrite Zustand state with the Tauri-side authoritative copy.
+void useShellStore.getState().hydrateSettingsFromRust();
+void useIkengaStore.getState().hydrateAppearanceFromRust();
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
