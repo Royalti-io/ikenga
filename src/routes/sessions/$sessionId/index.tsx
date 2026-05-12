@@ -1,35 +1,18 @@
 import { useEffect, useMemo } from 'react';
 import { Link, createFileRoute, redirect, useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import {
-  AlertCircle,
-  ArrowLeft,
-  Loader2,
-  MessageSquare,
-  Terminal,
-} from 'lucide-react';
+import { AlertCircle, ArrowLeft, Loader2, Terminal } from 'lucide-react';
 
-import { Badge } from '@/components/ui/badge';
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from '@/components/ui/tabs';
-import { cn } from '@/components/ui/utils';
 import {
   detectAgentSlug,
   sessionsListQueryOptions,
 } from '@/lib/queries/sessions';
 
 import '../sessions.css';
-import { useLiveSessions } from '@/lib/queries/live-sessions';
-import {
-  acpForkSession,
-  acpLoadSession,
-  sessionAttachPty,
-  sessionCancel,
-} from '@/lib/tauri-cmd';
+import { acpForkSession, acpLoadSession } from '@/lib/tauri-cmd';
+import { createTerminalSession } from '@/terminal/single-terminal';
+import { buildClaudeWrappedCmd } from '@/terminal/claude-wrap';
+import { usePaneStore } from '@/lib/panes/pane-store';
 import {
   AdapterSwitcher,
   Composer,
@@ -38,7 +21,6 @@ import {
   useThread,
   findThreadByClaudeSessionId,
 } from '@/chat';
-import { LiveTerminal } from '@/shell/sessions/live-terminal';
 
 function shortPath(p: string): string {
   if (!p) return '—';
@@ -53,8 +35,6 @@ const CLAUDE_SESSION_ID_RE =
 function SessionDetailPage() {
   const { sessionId: threadId } = Route.useParams();
   const navigate = useNavigate();
-  const live = useLiveSessions((s) => s.get(threadId));
-  const removeLive = useLiveSessions((s) => s.remove);
 
   // Phase 8: ACP `session/load` — re-attach to the session by thread id
   // so the mode picker can hydrate without paying cold-spawn cost. The
@@ -96,9 +76,6 @@ function SessionDetailPage() {
   // subscription. threadId is stable for the thread's lifetime — no
   // placeholder→real navigate dance.
   const { loading, error } = useThread(threadId);
-  const eventsLen = useChatStore(
-    (s) => s.threads[threadId]?.events.length ?? 0,
-  );
   const claudeSessionId = useChatStore(
     (s) => s.threads[threadId]?.thread.claudeSessionId ?? null,
   );
@@ -109,25 +86,21 @@ function SessionDetailPage() {
     [list, claudeSessionId],
   );
 
-  async function handleAttachTerminal() {
-    try {
-      const ptyId = await sessionAttachPty(threadId, {});
-      useLiveSessions.getState().register({
-        sessionId: threadId,
-        ptyId,
-        cwd: summary?.projectDir ?? '',
-        startedAt: Date.now(),
-        kind: 'pty',
-      });
-    } catch (e) {
-      console.warn('sessionAttachPty:', e);
-    }
-  }
-
-  function handleKillLive() {
-    if (!live) return;
-    void sessionCancel(threadId).catch((e) => console.warn('sessionCancel:', e));
-    removeLive(threadId);
+  // Open `claude --resume <id>` in a fresh terminal tab in the focused
+  // pane. The shell-wrapper (see claude-wrap.ts) keeps the PTY alive on
+  // any claude failure mode and lets the user edit/retry the command.
+  function handleAttachTerminal() {
+    // Resume id priority: the chat store's claudeSessionId (set when the
+    // streaming child emitted system:init) → threadId (legacy sessions
+    // where threadId IS the claude session id; the JSONL is named after it).
+    const resumeId = claudeSessionId ?? threadId;
+    const sessionId = createTerminalSession({
+      cwd: summary?.projectDir ?? '/home/nedjamez/royalti-co',
+      cmd: buildClaudeWrappedCmd({ resumeSessionId: resumeId }),
+      title: `claude · ${resumeId.slice(0, 8)}`,
+    });
+    const focusedId = usePaneStore.getState().focusedId;
+    usePaneStore.getState().addTab(focusedId, { kind: 'terminal', sessionId });
   }
 
   const agent = summary ? detectAgentSlug(summary) : null;
@@ -147,12 +120,6 @@ function SessionDetailPage() {
               <h3 className="ses-det-title" title={title}>
                 {title}
               </h3>
-              {live && (
-                <span className="live-badge">
-                  <span className="live-dot" />
-                  Live{live.kind ? ` · ${live.kind}` : ''}
-                </span>
-              )}
               {agent && (
                 <span className="agent-badge" style={{ marginTop: 0 }}>
                   <span className="dot" />
@@ -189,135 +156,45 @@ function SessionDetailPage() {
           </div>
           <div className="ses-det-actions">
             <AdapterSwitcher />
-            {live ? (
-              <button
-                type="button"
-                onClick={handleKillLive}
-                className="inline-flex items-center gap-1 rounded-md border border-input bg-background px-3 py-1.5 text-xs hover:bg-accent"
-                title="Detach this conversation's PTY"
-              >
-                <Terminal className="h-3 w-3" />
-                Detach terminal
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={handleAttachTerminal}
-                className="inline-flex items-center gap-1 rounded-md border border-input bg-background px-3 py-1.5 text-xs hover:bg-accent"
-                title="Spawn `claude --resume` in a PTY for this conversation"
-              >
-                <Terminal className="h-3 w-3" />
-                Open in terminal
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={handleAttachTerminal}
+              className="inline-flex items-center gap-1 rounded-md border border-input bg-background px-3 py-1.5 text-xs hover:bg-accent"
+              title="Open `claude --resume` for this conversation in a new terminal pane"
+            >
+              <Terminal className="h-3 w-3" />
+              Open in terminal
+            </button>
           </div>
         </div>
       </div>
 
-      <div className="flex-1 overflow-hidden">
-        <Tabs defaultValue="chat" className="flex h-full flex-col">
-          <TabsList className="mx-4 mt-2 self-start">
-            <TabsTrigger value="chat" className="gap-1.5">
-              <MessageSquare className="h-3 w-3" />
-              Chat
-              {eventsLen > 0 && (
-                <Badge
-                  variant="outline"
-                  className="ml-1 border-emerald-200 bg-emerald-50 px-1 text-[9px] tabular-nums"
-                >
-                  {eventsLen}
-                </Badge>
-              )}
-            </TabsTrigger>
-            <TabsTrigger
-              value="terminal"
-              className="gap-1.5"
-              title={
-                live?.ptyId
-                  ? 'PTY view of this conversation'
-                  : 'Spawn claude --resume in a PTY when opened'
-              }
-            >
-              <Terminal className="h-3 w-3" />
-              Terminal
-              {live?.ptyId && (
-                <span
-                  className="ml-1 inline-flex items-center gap-0.5 rounded-full px-1.5 text-[9px] font-medium uppercase tracking-wide"
-                  style={{
-                    color: 'var(--live, #4ade80)',
-                    background:
-                      'color-mix(in srgb, var(--live, #4ade80) 18%, transparent)',
-                    border:
-                      '1px solid color-mix(in srgb, var(--live, #4ade80) 35%, transparent)',
-                  }}
-                >
-                  live
-                </span>
-              )}
-            </TabsTrigger>
-          </TabsList>
-
-          <TabsContent
-            value="chat"
-            className={cn('mt-2 flex flex-1 flex-col overflow-hidden')}
-          >
-            {loading && (
-              <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Loading session events…
-              </div>
-            )}
-            {error && (
-              <div className="m-4 flex items-start gap-2 rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
-                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                <div>
-                  <p className="font-medium">Failed to load session</p>
-                  <p className="text-xs opacity-80">{error}</p>
-                </div>
-              </div>
-            )}
-            {!loading && !error && (
-              <>
-                {/* Phase 8 + 10: "Branch from here" on assistant turns +
-                    ACP session-mode picker. Both default-on as of Phase 10
-                    — the legacy CLI adapter is opt-in via
-                    `localStorage.ikenga_chat_engine = 'legacy'`. */}
-                <Thread
-                  threadId={threadId}
-                  className="flex-1"
-                  onBranch={handleBranch}
-                />
-                <Composer threadId={threadId} />
-              </>
-            )}
-          </TabsContent>
-
-          <TabsContent value="terminal" className="mt-2 flex flex-1 flex-col overflow-hidden">
-            {live?.ptyId ? (
-              <LiveTerminal ptyId={live.ptyId} />
-            ) : (
-              <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
-                <Terminal className="h-8 w-8 text-muted-foreground" />
-                <div className="max-w-sm space-y-1">
-                  <p className="text-sm font-medium">No PTY attached</p>
-                  <p className="text-xs text-muted-foreground">
-                    Spawn <code className="font-mono">claude --resume</code> in a PTY to
-                    interact with this conversation through Claude's TUI. Chat events
-                    continue streaming in the Chat tab either way.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleAttachTerminal}
-                  className="inline-flex items-center gap-1.5 rounded-md border border-input bg-background px-3 py-1.5 text-xs hover:bg-accent"
-                >
-                  <Terminal className="h-3 w-3" />
-                  Open in terminal
-                </button>
-              </div>
-            )}
-          </TabsContent>
-        </Tabs>
+      <div className="flex flex-1 flex-col overflow-hidden">
+        {loading && (
+          <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            Loading session events…
+          </div>
+        )}
+        {error && (
+          <div className="m-4 flex items-start gap-2 rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+            <div>
+              <p className="font-medium">Failed to load session</p>
+              <p className="text-xs opacity-80">{error}</p>
+            </div>
+          </div>
+        )}
+        {!loading && !error && (
+          <>
+            <Thread
+              threadId={threadId}
+              className="flex-1"
+              onBranch={handleBranch}
+            />
+            <Composer threadId={threadId} />
+          </>
+        )}
       </div>
     </div>
   );

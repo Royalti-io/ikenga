@@ -30,12 +30,12 @@ use commands::{
     activity_sections_update,
     backup_delete, backup_export, backup_import, backup_list,
     claude_config_load, claude_config_read_file, claude_config_unwatch, claude_config_watch,
-    claude_list_sessions, claude_read_jsonl, claude_spawn_session, db_exec, db_query, fs_exists,
+    claude_list_sessions, claude_read_jsonl, db_exec, db_query, fs_exists,
     fs_list, fs_mime, fs_read, fs_rename, fs_roots_add, fs_roots_list, fs_roots_remove,
     fs_roots_reset, fs_trash,
     fs_unwatch, fs_watch, fs_write, iyke_dom_done, iyke_endpoint,
     iyke_log_push, iyke_network_push, iyke_query_cache_done, iyke_set_shell, iyke_wait_done,
-    pty_consume_buffer, pty_kill, pty_resize, pty_spawn, pty_write,
+    pty_kill, pty_resize, pty_spawn, pty_write,
     screenshot_capture_done,
     screenshot_capture_failed, screenshot_get_config, screenshot_pane, screenshot_set_dir,
     screenshot_window, secrets_delete, secrets_get, secrets_import_dotenv, secrets_list_keys,
@@ -52,10 +52,10 @@ use commands::{
 use commands::{bg_spike_reply, bg_spike_run, new_bg_spike_state};
 use commands::{
     SecretsLock,
-    session_attach_pty, session_cancel, session_destroy, session_destroy_all, session_ensure,
+    session_cancel, session_destroy, session_destroy_all, session_ensure,
     session_send, session_tool_result,
     supabase_config_clear, supabase_config_get, supabase_config_set,
-    viewer_port, viewer_serve, viewer_stop, ClaudeManager, ClaudeManagerState, IykeRuntimeState,
+    viewer_port, viewer_serve, viewer_stop, IykeRuntimeState,
     ScreenshotConfigState, ScreenshotConfigStateRef, ScreenshotPending,
 };
 use fs_watch::FsWatchManager;
@@ -84,7 +84,6 @@ pub fn run() {
     let fs_watch_manager = Arc::new(FsWatchManager::new());
     let viewer_manager = Arc::new(ViewerServerManager::new());
     let viewer_manager_for_start = viewer_manager.clone();
-    let claude_manager: ClaudeManagerState = Arc::new(ClaudeManager::new());
     let sessions_manager: claude::session::SessionsState =
         Arc::new(claude::session::SessionsManager::new());
     // ACP server shares the same `SessionsManager` so the legacy
@@ -136,7 +135,6 @@ pub fn run() {
         .manage(pty_manager)
         .manage(fs_watch_manager)
         .manage(viewer_manager)
-        .manage(claude_manager)
         .manage(sessions_manager)
         .manage(acp_server)
         .manage(screenshot_pending.clone())
@@ -377,7 +375,6 @@ pub fn run() {
             pty_write,
             pty_resize,
             pty_kill,
-            pty_consume_buffer,
             // fs
             fs_read,
             fs_write,
@@ -394,7 +391,6 @@ pub fn run() {
             fs_roots_remove,
             fs_roots_reset,
             // claude
-            claude_spawn_session,
             claude_list_sessions,
             claude_read_jsonl,
             // chat sessions (thread_id-keyed)
@@ -404,7 +400,6 @@ pub fn run() {
             session_cancel,
             session_destroy,
             session_destroy_all,
-            session_attach_pty,
             // acp (phase 3 — runs alongside legacy session_* until phase 10)
             acp_initialize,
             acp_new_session,

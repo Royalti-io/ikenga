@@ -1,16 +1,12 @@
-import { queryOptions, useMutation, useQueryClient } from '@tanstack/react-query';
+import { queryOptions } from '@tanstack/react-query';
 
 import {
   claudeListSessions,
   claudeReadJsonl,
-  claudeSpawnSession,
   type ChatEvent,
-  type ClaudeOpts,
-  type ClaudeSpawnResult,
   type SessionSummary,
 } from '@/lib/tauri-cmd';
 import { queryKeys } from '@/lib/query-keys';
-import { useLiveSessions } from '@/lib/queries/live-sessions';
 
 /**
  * TanStack Query factories for Claude Code sessions.
@@ -40,27 +36,6 @@ export function sessionDetailQueryOptions(sessionId: string) {
     queryFn: () => claudeReadJsonl(sessionId),
     staleTime: Infinity,
     enabled: sessionId.length > 0,
-  });
-}
-
-export function useSpawnSession() {
-  const qc = useQueryClient();
-  const register = useLiveSessions((s) => s.register);
-  return useMutation<
-    ClaudeSpawnResult,
-    Error,
-    { cwd: string; opts: ClaudeOpts }
-  >({
-    mutationFn: ({ cwd, opts }) => claudeSpawnSession(cwd, opts),
-    onSuccess: (res, vars) => {
-      register({
-        sessionId: res.sessionId,
-        ptyId: res.ptyId,
-        cwd: vars.cwd,
-        startedAt: Date.now(),
-      });
-      qc.invalidateQueries({ queryKey: queryKeys.sessions.all });
-    },
   });
 }
 

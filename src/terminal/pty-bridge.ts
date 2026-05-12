@@ -9,7 +9,6 @@
  */
 
 import {
-  ptyConsumeBuffer,
   ptyKill,
   ptyListen,
   ptyResize,
@@ -43,11 +42,9 @@ export class Pty {
   private unlisten: (() => void) | null = null;
   private disposed = false;
   /**
-   * Bytes received before any subscriber registered, plus the initial
-   * scrollback replay from Rust. Held so the first `onData()` consumer can
-   * catch up on everything the PTY has emitted so far — without this, the
-   * spawn-before-mount race leaves xterm blank for healthy sessions and
-   * silent for sessions where `claude` exited fast.
+   * Bytes received before any subscriber registered. Held so the first
+   * `onData()` consumer can catch up on everything the PTY has emitted so
+   * far — without this, the spawn-before-mount race leaves xterm blank.
    */
   private replayBuffer: Uint8Array = new Uint8Array(0);
 
@@ -57,10 +54,9 @@ export class Pty {
   }
 
   /**
-   * Internal fanout used by both spawn() and attach() Tauri listeners. If no
-   * subscriber has registered yet, the bytes are appended to `replayBuffer`
-   * so the eventual `onData()` consumer can catch up; once a subscriber
-   * exists, bytes flow live.
+   * Internal fanout. If no subscriber has registered yet, the bytes are
+   * appended to `replayBuffer` so the eventual `onData()` consumer can catch
+   * up; once a subscriber exists, bytes flow live.
    */
   private deliverData(bytes: Uint8Array) {
     if (this.dataSubs.size === 0) {
@@ -116,53 +112,9 @@ export class Pty {
   }
 
   /**
-   * Attach to a PTY that was spawned out-of-band (e.g. `claude_spawn_session`
-   * which spawns through Rust directly). The frontend just subscribes to the
-   * existing event stream — it does not own the lifecycle, so `dispose()` on
-   * an attached Pty unsubscribes but does not kill the child by default.
-   */
-  static async attach(id: string, label?: string): Promise<Pty> {
-    const pty = new Pty(id, label ?? id);
-    pty.unlisten = await ptyListen(
-      id,
-      (bytes) => pty.deliverData(bytes),
-      (code) => {
-        pty.exited = true;
-        pty.exitCode = code;
-        for (const sub of pty.exitSubs) {
-          try {
-            sub(code);
-          } catch (err) {
-            console.error('[pty] exit handler threw', err);
-          }
-        }
-      },
-    );
-    // Replay the scrollback that accumulated between Rust's `pty_spawn` and
-    // our `ptyListen` above. Order matters: subscribe first (so any bytes
-    // emitted *during* this await land in `replayBuffer` via deliverData),
-    // then prepend the snapshot. The duplicate window is the few ms between
-    // listener attach and snapshot return — terminal output is idempotent
-    // enough under redraw that occasional double bytes are invisible.
-    try {
-      const snapshot = await ptyConsumeBuffer(id);
-      if (snapshot.length > 0) {
-        const next = new Uint8Array(snapshot.length + pty.replayBuffer.length);
-        next.set(snapshot, 0);
-        next.set(pty.replayBuffer, snapshot.length);
-        pty.replayBuffer = next;
-      }
-    } catch (err) {
-      console.warn('[pty] scrollback replay failed', err);
-    }
-    return pty;
-  }
-
-  /**
    * Subscribe to data bytes. Returns an unsubscribe function. If bytes have
-   * already been buffered (scrollback replay + bytes received before any
-   * subscriber attached), the new handler receives them synchronously before
-   * subscribing to the live stream.
+   * already been buffered (received before any subscriber attached), the new
+   * handler receives them synchronously before subscribing to the live stream.
    */
   onData(handler: PtyDataHandler): () => void {
     if (this.replayBuffer.length > 0) {

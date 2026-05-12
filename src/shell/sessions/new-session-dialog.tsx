@@ -11,12 +11,14 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { useSpawnSession } from '@/lib/queries/sessions';
 import { mintThreadId, useChatActions, useChatStore } from '@/chat';
 import { createThread } from '@/chat';
 import { defaultCwd } from '@/lib/shell/default-cwd';
 import { useShellStore } from '@/lib/shell/shell-store';
 import { sessionEnsure } from '@/lib/tauri-cmd';
+import { createTerminalSession } from '@/terminal/single-terminal';
+import { buildClaudeWrappedCmd } from '@/terminal/claude-wrap';
+import { usePaneStore } from '@/lib/panes/pane-store';
 
 type Mode = 'chat' | 'terminal';
 
@@ -40,7 +42,6 @@ export function NewSessionDialog({
   defaultMode = 'chat',
 }: NewSessionDialogProps) {
   const navigate = useNavigate();
-  const spawnPty = useSpawnSession();
 
   // When the caller doesn't pass project candidates, fall back to the
   // user's configured file roots (empty on fresh installs — the project
@@ -96,18 +97,15 @@ export function NewSessionDialog({
 
   function handleOpenTerminal() {
     if (!project) return;
-    spawnPty.mutate(
-      { cwd: project, opts: { prompt: prompt.trim() || undefined } },
-      {
-        onSuccess: ({ sessionId }) => {
-          onOpenChange(false);
-          // PTY-spawned sessions still navigate to the Claude session id —
-          // the route's beforeLoad will redirect to a threadId on next
-          // visit once we've persisted one.
-          navigate({ to: '/sessions/$sessionId', params: { sessionId } });
-        },
-      },
-    );
+    const trimmed = prompt.trim();
+    const sessionId = createTerminalSession({
+      cwd: project,
+      cmd: buildClaudeWrappedCmd({ prompt: trimmed || undefined }),
+      title: trimmed ? `claude · ${trimmed.slice(0, 32)}` : 'claude',
+    });
+    const focusedId = usePaneStore.getState().focusedId;
+    usePaneStore.getState().addTab(focusedId, { kind: 'terminal', sessionId });
+    onOpenChange(false);
   }
 
   return (
@@ -173,10 +171,8 @@ export function NewSessionDialog({
             />
           </label>
 
-          {(err || (spawnPty.error instanceof Error)) && (
-            <p className="text-xs text-destructive">
-              {err ?? (spawnPty.error as Error).message}
-            </p>
+          {err && (
+            <p className="text-xs text-destructive">{err}</p>
           )}
         </div>
 
@@ -197,9 +193,8 @@ export function NewSessionDialog({
             <Button
               type="button"
               onClick={handleOpenTerminal}
-              disabled={spawnPty.isPending || !project}
+              disabled={!project}
             >
-              {spawnPty.isPending && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
               Open terminal
             </Button>
           )}

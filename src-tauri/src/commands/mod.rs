@@ -40,9 +40,8 @@ pub use backup::{backup_delete, backup_export, backup_import, backup_list};
 #[cfg(debug_assertions)]
 pub use bg_spike::{bg_spike_reply, bg_spike_run, new_state as new_bg_spike_state};
 pub use claude::{
-    claude_list_sessions, claude_read_jsonl, claude_spawn_session, session_attach_pty,
-    session_cancel, session_destroy, session_destroy_all, session_ensure, session_send,
-    session_tool_result, ClaudeManager, ClaudeManagerState,
+    claude_list_sessions, claude_read_jsonl, session_cancel, session_destroy,
+    session_destroy_all, session_ensure, session_send, session_tool_result,
 };
 pub use claude_config::{
     claude_config_load, claude_config_read_file, claude_config_unwatch, claude_config_watch,
@@ -69,7 +68,7 @@ pub use pkg_mcp::{
     dev_bind_port, dev_release_port, pkg_mcp_call, pkg_supervisor_restart, SidecarSupervisorState,
 };
 pub use pkg_sidecar::{pkg_sidecar_call, SidecarsRegistryState};
-pub use pty::{pty_consume_buffer, pty_kill, pty_resize, pty_spawn, pty_write};
+pub use pty::{pty_kill, pty_resize, pty_spawn, pty_write};
 pub use screenshot::{
     screenshot_capture_done, screenshot_capture_failed, screenshot_get_config, screenshot_pane,
     screenshot_set_dir, screenshot_window, ScreenshotConfigState, ScreenshotConfigStateRef,
