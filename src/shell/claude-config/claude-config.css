@@ -1,5 +1,5 @@
 /* Ikenga ".ld-*" list/detail primitives — ported from
- * design/concepts/03-screens/07-claude-config.html.
+ * `<workspace>/design/shell/concepts/03-screens/07-claude-config.html`.
  *
  * Scoped under `.ccfg` so they don't leak into the rest of the app. All
  * tokens come from `lib/ikenga/tokens.css`.

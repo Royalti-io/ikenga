@@ -30,7 +30,7 @@ interface PkgRow {
 
 type GroupKey = 'builtin' | 'engine' | 'user';
 
-// HSL palette pulled from design/concepts/04-pkgs/03-settings.html (lines 314-323)
+// HSL palette pulled from `<workspace>/design/shell/concepts/04-pkgs/03-settings.html` (lines 314-323)
 const TINTS: Array<{ name: string; hsl: string }> = [
 	{ name: 'amber', hsl: 'hsl(36,84%,56%)' },
 	{ name: 'teal', hsl: 'hsl(170,45%,50%)' },

@@ -10,7 +10,7 @@
 //!
 //! ## Mapping table
 //!
-//! See `docs/acp-migration.md` (Phase 2 section) for the canonical table.
+//! See `<workspace>/plans/shell/docs/acp-migration.md` (Phase 2 section) for the canonical table.
 //! Quick reference:
 //!
 //! | `ChatEvent`        | `SessionUpdate`(s)                                   |

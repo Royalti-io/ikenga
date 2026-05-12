@@ -22,7 +22,7 @@ import { SettingRow } from './-components/setting-row';
 
 // Per-theme preview palettes — driven by the theme value, not the host theme,
 // so each card always renders in its own colors. Values mirror the
-// `data-preview="A|B|C"` blocks in design/concepts/04-pkgs/03-settings.html.
+// `data-preview="A|B|C"` blocks in `<workspace>/design/shell/concepts/04-pkgs/03-settings.html`.
 interface ThemePreviewPalette {
 	bg: string;
 	surface: string; // bar
@@ -274,7 +274,7 @@ function AppearancePage() {
 
 // ─── Theme card ──────────────────────────────────────────────────────────────
 // Mini live preview of each theme, using the theme's own palette regardless of
-// the host theme. Matches design/concepts/04-pkgs/03-settings.html (.theme-card).
+// the host theme. Matches `<workspace>/design/shell/concepts/04-pkgs/03-settings.html` (.theme-card).
 
 function ThemeCard({
 	label,

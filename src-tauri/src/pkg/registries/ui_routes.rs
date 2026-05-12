@@ -79,9 +79,14 @@ impl Registry for UiRoutesRegistry {
                     pkg.manifest.id
                 ));
             }
-            if r.kind != "iframe" && r.kind != "component" {
+            // `webview` is the kind for kernel-owned native child webviews
+            // (pkg-browser). Validation is shared with `iframe`/`component`
+            // here; the FE catch-all branches on kind at mount time and the
+            // capability check happens in `WebviewPanesRegistry::create`.
+            // See `pkg/webview.rs` and Phase 1 notes in `CLAUDE.md`.
+            if r.kind != "iframe" && r.kind != "component" && r.kind != "webview" {
                 return Err(anyhow!(
-                    "ui route `{}` kind must be `iframe` or `component` (got `{}`)",
+                    "ui route `{}` kind must be `iframe`, `component`, or `webview` (got `{}`)",
                     r.path,
                     r.kind
                 ));

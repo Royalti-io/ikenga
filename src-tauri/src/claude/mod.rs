@@ -4,7 +4,7 @@
 //!  - `stream_parser` parses `claude --output-format stream-json --verbose`
 //!    output (live PTY). Envelope shape: `system:init`, `assistant`, `user`,
 //!    `result`, `rate_limit_event`, `system:hook_*`. Captured 2026-04-30
-//!    against Claude Code v2.1.123 — see phase-0-report.md § Test 7-8.
+//!    against Claude Code v2.1.123 — see `<workspace>/plans/shell/phase-0-report.md` § Test 7-8.
 //!  - `jsonl_reader` parses on-disk session logs at
 //!    `~/.claude/projects/<slug>/<uuid>.jsonl`. Envelope shape:
 //!    `user` / `assistant` / `attachment` / `queue-operation` / `last-prompt`.

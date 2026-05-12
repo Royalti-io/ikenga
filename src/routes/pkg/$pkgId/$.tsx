@@ -123,11 +123,7 @@ function PkgRouteCatchAll() {
 		// requiring us to plumb the real pane id all the way down here.
 		const paneId = `${state.entry.pkg_id}:${state.entry.path}`;
 		return (
-			<PkgWebviewHost
-				pkgId={state.entry.pkg_id}
-				paneId={paneId}
-				source={state.entry.source}
-			/>
+			<PkgWebviewHost pkgId={state.entry.pkg_id} paneId={paneId} source={state.entry.source} />
 		);
 	}
 	return <PkgIframeHost pkgId={state.entry.pkg_id} source={state.entry.source} />;

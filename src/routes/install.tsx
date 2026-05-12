@@ -1,4 +1,4 @@
-// Install panel — port of design/concepts/03-screens/12-install.html.
+// Install panel — port of `<workspace>/design/shell/concepts/03-screens/12-install.html`.
 //
 // Three rows always visible (no wizard hiding context):
 //   1. Discover — source tabs (Catalog / Local / Git) + catalog grid

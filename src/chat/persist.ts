@@ -164,7 +164,7 @@ export async function clearLivePtys(): Promise<void> {
 //      only `tool_result`-shaped blocks survive into `ChatEvent`s.
 // So `chat_user_turns` is the *only* durable record of what the user typed.
 // Migration `0013_drop_chat_user_turns.sql` was scoped out. See
-// `shell/docs/acp-migration.md` § Phase 11 for the decision log.
+// `<workspace>/plans/shell/docs/acp-migration.md` § Phase 11 for the decision log.
 
 export interface UserTurnRow {
 	id: string;

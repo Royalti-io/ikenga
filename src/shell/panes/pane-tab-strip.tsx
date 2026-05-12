@@ -54,7 +54,7 @@ export function PaneTabStrip({ leaf, isFocused }: PaneTabStripProps) {
 		scroller.scrollTo({ left: next, behavior: 'smooth' });
 	}, [leaf.activeTabIdx, leaf.tabs.length]);
 
-	// Per design/concepts/_shared/shell.css §"Workspace tint on tabs":
+	// Per `<workspace>/design/shell/concepts/_shared/shell.css` §"Workspace tint on tabs":
 	// single-workspace strips suppress inactive hairlines (the pane focus
 	// accent already announces the workspace). Mixed strips opt in to the
 	// tabstrip-ws-mixed treatment so inactive tabs each show their own

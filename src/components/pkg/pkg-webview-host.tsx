@@ -96,10 +96,7 @@ export function PkgWebviewHost({ pkgId, paneId, source, partition }: PkgWebviewH
 					// Strict-mode double-effect: cleanup ran while create() was
 					// in flight. Clean up the orphan we just created.
 					pkgWebviewDestroy(pkgId, paneId).catch((e) => {
-						console.warn(
-							`[pkg-webview-host] orphan destroy failed for ${pkgId}/${paneId}:`,
-							e
-						);
+						console.warn(`[pkg-webview-host] orphan destroy failed for ${pkgId}/${paneId}:`, e);
 					});
 					return;
 				}

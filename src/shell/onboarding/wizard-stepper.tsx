@@ -1,6 +1,6 @@
 // <WizardStepper> — Variant A (edge-to-edge full-window) chrome.
 //
-// The Phase 1 approved design (`design/concepts/03-screens/
+// The Phase 1 approved design (`<workspace>/design/shell/concepts/03-screens/
 // 2026-05-11-onboarding-wizard/prototypes/variant-A-welcome.html`) maps to
 // this layout:
 //   ┌──────────────────────────────────────────────┐  <- title bar (Tauri)
