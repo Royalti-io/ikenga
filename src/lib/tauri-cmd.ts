@@ -181,6 +181,30 @@ export async function fsListenWatch(
 	return listen<FileChange>(`fs://${watcherId}`, (e) => onChange(e.payload));
 }
 
+// ─── Settings KV (durable mirror for Zustand-persisted prefs) ───────────────
+//
+// Backed by SQLite `settings_kv` table (migration 0013). Zustand stores
+// continue to write to localStorage for instant-paint hydration; this layer
+// is the authoritative copy that survives "Clear local data" and can later
+// feed a cross-device sync. See `useShellStore.hydrateSettingsFromRust`.
+// Values are JSON strings — type discipline is enforced by callers.
+
+export async function settingsGet(key: string): Promise<string | null> {
+	return invoke('settings_get', { key });
+}
+
+export async function settingsSet(key: string, value: string): Promise<void> {
+	return invoke('settings_set', { key, value });
+}
+
+export async function settingsGetAll(): Promise<Record<string, string>> {
+	return invoke('settings_get_all');
+}
+
+export async function settingsClearAll(): Promise<void> {
+	return invoke('settings_clear_all');
+}
+
 // ─── Secrets (Stronghold) ─────────────────────────────────────────────────────
 
 export async function secretsGet(key: string): Promise<string | null> {

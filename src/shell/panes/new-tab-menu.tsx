@@ -10,10 +10,9 @@ import type { LeafNode, PaneView } from '@/lib/panes/types';
 import { usePaneStore } from '@/lib/panes/pane-store';
 import { createTerminalSession } from '@/terminal/single-terminal';
 import { mintThreadId } from '@/chat';
+import { defaultCwd } from '@/lib/shell/default-cwd';
 import { sessionEnsure } from '@/lib/tauri-cmd';
 import { NAV_GROUPS } from '@/shell/nav-config';
-
-const DEFAULT_CHAT_CWD = '/home/nedjamez/royalti-co';
 
 interface NewTabMenuProps {
   leaf: LeafNode;
@@ -97,7 +96,7 @@ export function NewTabMenu({ leaf, open, onClose, anchor }: NewTabMenuProps) {
             <MenuItem
               onSelect={() => {
                 const threadId = mintThreadId();
-                void sessionEnsure(threadId, DEFAULT_CHAT_CWD, {}).catch((e) =>
+                void sessionEnsure(threadId, defaultCwd(), {}).catch((e) =>
                   console.warn('sessionEnsure (new-tab):', e),
                 );
                 commit({ kind: 'chat', sessionId: threadId });

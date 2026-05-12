@@ -30,12 +30,14 @@ import { Route as SettingsIndexRouteImport } from './routes/settings/index'
 import { Route as SessionsIndexRouteImport } from './routes/sessions/index'
 import { Route as OnboardingIndexRouteImport } from './routes/onboarding/index'
 import { Route as ClaudeIndexRouteImport } from './routes/claude/index'
+import { Route as SettingsTelemetryRouteImport } from './routes/settings/telemetry'
 import { Route as SettingsStorageRouteImport } from './routes/settings/storage'
 import { Route as SettingsPackagesRouteImport } from './routes/settings/packages'
 import { Route as SettingsOnboardingRouteImport } from './routes/settings/onboarding'
 import { Route as SettingsIntegrationsRouteImport } from './routes/settings/integrations'
 import { Route as SettingsBackupRouteImport } from './routes/settings/backup'
 import { Route as SettingsAppearanceRouteImport } from './routes/settings/appearance'
+import { Route as SettingsAgentRouteImport } from './routes/settings/agent'
 import { Route as SettingsAboutRouteImport } from './routes/settings/about'
 import { Route as OnboardingWelcomeRouteImport } from './routes/onboarding/welcome'
 import { Route as OnboardingTelemetryRouteImport } from './routes/onboarding/telemetry'
@@ -163,6 +165,11 @@ const ClaudeIndexRoute = ClaudeIndexRouteImport.update({
   path: '/',
   getParentRoute: () => ClaudeRouteRoute,
 } as any)
+const SettingsTelemetryRoute = SettingsTelemetryRouteImport.update({
+  id: '/telemetry',
+  path: '/telemetry',
+  getParentRoute: () => SettingsRouteRoute,
+} as any)
 const SettingsStorageRoute = SettingsStorageRouteImport.update({
   id: '/storage',
   path: '/storage',
@@ -191,6 +198,11 @@ const SettingsBackupRoute = SettingsBackupRouteImport.update({
 const SettingsAppearanceRoute = SettingsAppearanceRouteImport.update({
   id: '/appearance',
   path: '/appearance',
+  getParentRoute: () => SettingsRouteRoute,
+} as any)
+const SettingsAgentRoute = SettingsAgentRouteImport.update({
+  id: '/agent',
+  path: '/agent',
   getParentRoute: () => SettingsRouteRoute,
 } as any)
 const SettingsAboutRoute = SettingsAboutRouteImport.update({
@@ -332,12 +344,14 @@ export interface FileRoutesByFullPath {
   '/onboarding/telemetry': typeof OnboardingTelemetryRoute
   '/onboarding/welcome': typeof OnboardingWelcomeRoute
   '/settings/about': typeof SettingsAboutRoute
+  '/settings/agent': typeof SettingsAgentRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/backup': typeof SettingsBackupRoute
   '/settings/integrations': typeof SettingsIntegrationsRoute
   '/settings/onboarding': typeof SettingsOnboardingRoute
   '/settings/packages': typeof SettingsPackagesRoute
   '/settings/storage': typeof SettingsStorageRoute
+  '/settings/telemetry': typeof SettingsTelemetryRoute
   '/claude/': typeof ClaudeIndexRoute
   '/onboarding/': typeof OnboardingIndexRoute
   '/sessions/': typeof SessionsIndexRoute
@@ -377,12 +391,14 @@ export interface FileRoutesByTo {
   '/onboarding/telemetry': typeof OnboardingTelemetryRoute
   '/onboarding/welcome': typeof OnboardingWelcomeRoute
   '/settings/about': typeof SettingsAboutRoute
+  '/settings/agent': typeof SettingsAgentRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/backup': typeof SettingsBackupRoute
   '/settings/integrations': typeof SettingsIntegrationsRoute
   '/settings/onboarding': typeof SettingsOnboardingRoute
   '/settings/packages': typeof SettingsPackagesRoute
   '/settings/storage': typeof SettingsStorageRoute
+  '/settings/telemetry': typeof SettingsTelemetryRoute
   '/claude': typeof ClaudeIndexRoute
   '/onboarding': typeof OnboardingIndexRoute
   '/sessions': typeof SessionsIndexRoute
@@ -428,12 +444,14 @@ export interface FileRoutesById {
   '/onboarding/telemetry': typeof OnboardingTelemetryRoute
   '/onboarding/welcome': typeof OnboardingWelcomeRoute
   '/settings/about': typeof SettingsAboutRoute
+  '/settings/agent': typeof SettingsAgentRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/backup': typeof SettingsBackupRoute
   '/settings/integrations': typeof SettingsIntegrationsRoute
   '/settings/onboarding': typeof SettingsOnboardingRoute
   '/settings/packages': typeof SettingsPackagesRoute
   '/settings/storage': typeof SettingsStorageRoute
+  '/settings/telemetry': typeof SettingsTelemetryRoute
   '/claude/': typeof ClaudeIndexRoute
   '/onboarding/': typeof OnboardingIndexRoute
   '/sessions/': typeof SessionsIndexRoute
@@ -480,12 +498,14 @@ export interface FileRouteTypes {
     | '/onboarding/telemetry'
     | '/onboarding/welcome'
     | '/settings/about'
+    | '/settings/agent'
     | '/settings/appearance'
     | '/settings/backup'
     | '/settings/integrations'
     | '/settings/onboarding'
     | '/settings/packages'
     | '/settings/storage'
+    | '/settings/telemetry'
     | '/claude/'
     | '/onboarding/'
     | '/sessions/'
@@ -525,12 +545,14 @@ export interface FileRouteTypes {
     | '/onboarding/telemetry'
     | '/onboarding/welcome'
     | '/settings/about'
+    | '/settings/agent'
     | '/settings/appearance'
     | '/settings/backup'
     | '/settings/integrations'
     | '/settings/onboarding'
     | '/settings/packages'
     | '/settings/storage'
+    | '/settings/telemetry'
     | '/claude'
     | '/onboarding'
     | '/sessions'
@@ -575,12 +597,14 @@ export interface FileRouteTypes {
     | '/onboarding/telemetry'
     | '/onboarding/welcome'
     | '/settings/about'
+    | '/settings/agent'
     | '/settings/appearance'
     | '/settings/backup'
     | '/settings/integrations'
     | '/settings/onboarding'
     | '/settings/packages'
     | '/settings/storage'
+    | '/settings/telemetry'
     | '/claude/'
     | '/onboarding/'
     | '/sessions/'
@@ -763,6 +787,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ClaudeIndexRouteImport
       parentRoute: typeof ClaudeRouteRoute
     }
+    '/settings/telemetry': {
+      id: '/settings/telemetry'
+      path: '/telemetry'
+      fullPath: '/settings/telemetry'
+      preLoaderRoute: typeof SettingsTelemetryRouteImport
+      parentRoute: typeof SettingsRouteRoute
+    }
     '/settings/storage': {
       id: '/settings/storage'
       path: '/storage'
@@ -803,6 +834,13 @@ declare module '@tanstack/react-router' {
       path: '/appearance'
       fullPath: '/settings/appearance'
       preLoaderRoute: typeof SettingsAppearanceRouteImport
+      parentRoute: typeof SettingsRouteRoute
+    }
+    '/settings/agent': {
+      id: '/settings/agent'
+      path: '/agent'
+      fullPath: '/settings/agent'
+      preLoaderRoute: typeof SettingsAgentRouteImport
       parentRoute: typeof SettingsRouteRoute
     }
     '/settings/about': {
@@ -1027,23 +1065,27 @@ const SessionsRouteRouteWithChildren = SessionsRouteRoute._addFileChildren(
 
 interface SettingsRouteRouteChildren {
   SettingsAboutRoute: typeof SettingsAboutRoute
+  SettingsAgentRoute: typeof SettingsAgentRoute
   SettingsAppearanceRoute: typeof SettingsAppearanceRoute
   SettingsBackupRoute: typeof SettingsBackupRoute
   SettingsIntegrationsRoute: typeof SettingsIntegrationsRoute
   SettingsOnboardingRoute: typeof SettingsOnboardingRoute
   SettingsPackagesRoute: typeof SettingsPackagesRoute
   SettingsStorageRoute: typeof SettingsStorageRoute
+  SettingsTelemetryRoute: typeof SettingsTelemetryRoute
   SettingsIndexRoute: typeof SettingsIndexRoute
 }
 
 const SettingsRouteRouteChildren: SettingsRouteRouteChildren = {
   SettingsAboutRoute: SettingsAboutRoute,
+  SettingsAgentRoute: SettingsAgentRoute,
   SettingsAppearanceRoute: SettingsAppearanceRoute,
   SettingsBackupRoute: SettingsBackupRoute,
   SettingsIntegrationsRoute: SettingsIntegrationsRoute,
   SettingsOnboardingRoute: SettingsOnboardingRoute,
   SettingsPackagesRoute: SettingsPackagesRoute,
   SettingsStorageRoute: SettingsStorageRoute,
+  SettingsTelemetryRoute: SettingsTelemetryRoute,
   SettingsIndexRoute: SettingsIndexRoute,
 }
 

@@ -16,7 +16,7 @@ import {
   useIkengaStore,
 } from '@/lib/ikenga/theme-store';
 
-import { LAYOUT_LS_PREFIX } from './-components/legacy-sections';
+import { LAYOUT_LS_PREFIX } from './-components/clear-data';
 import { SettingGroup } from './-components/setting-group';
 import { SettingRow } from './-components/setting-row';
 

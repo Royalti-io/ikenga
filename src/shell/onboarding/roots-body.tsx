@@ -205,7 +205,7 @@ export function RootsBody({ onContinue }: RootsBodyProps) {
 				</div>
 				<div className="mt-3 grid grid-cols-[1fr_auto_auto] gap-2">
 					<Input
-						placeholder="~/royalti-co"
+						placeholder="~/Code/my-project"
 						value={customProjectPath}
 						onChange={(e) => setCustomProjectPath(e.target.value)}
 						className="font-mono text-xs"

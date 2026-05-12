@@ -14,7 +14,12 @@ use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 
 /// Defaults seeded into the JSON file on first run.
-pub const DEFAULT_ROOTS: &[&str] = &["~/royalti-co", "~/.claude/projects", "~/.company"];
+///
+/// Empty by design: a fresh install has no FS allowlist until the user
+/// adds a root via the onboarding wizard's "Project & file roots" step or
+/// Settings → Storage → File roots. The empty-state UI in
+/// `routes/onboarding/roots-body.tsx` already explains the consequence.
+pub const DEFAULT_ROOTS: &[&str] = &[];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct PersistedRoots {

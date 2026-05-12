@@ -14,14 +14,9 @@ import { Button } from '@/components/ui/button';
 import { useSpawnSession } from '@/lib/queries/sessions';
 import { mintThreadId, useChatActions, useChatStore } from '@/chat';
 import { createThread } from '@/chat';
+import { defaultCwd } from '@/lib/shell/default-cwd';
+import { useShellStore } from '@/lib/shell/shell-store';
 import { sessionEnsure } from '@/lib/tauri-cmd';
-
-const FALLBACK_PROJECTS = [
-  '/home/nedjamez/royalti-co',
-  '/home/nedjamez/royalti-co/ikenga',
-  '/home/nedjamez/royalti-co/royalti-server-v2.6',
-  '/home/nedjamez/royalti-co/ikenga-desktop',
-];
 
 type Mode = 'chat' | 'terminal';
 
@@ -47,8 +42,11 @@ export function NewSessionDialog({
   const navigate = useNavigate();
   const spawnPty = useSpawnSession();
 
-  const projects =
-    defaultProjects.length > 0 ? defaultProjects : FALLBACK_PROJECTS;
+  // When the caller doesn't pass project candidates, fall back to the
+  // user's configured file roots (empty on fresh installs — the project
+  // input becomes blank and the user types one in).
+  const fileRoots = useShellStore((s) => s.fileRoots);
+  const projects = defaultProjects.length > 0 ? defaultProjects : fileRoots;
   const [project, setProject] = useState<string>(projects[0] ?? '');
   const [prompt, setPrompt] = useState('');
   const [mode, setMode] = useState<Mode>(defaultMode);
@@ -277,7 +275,7 @@ async function sendFirstPrompt(threadId: string, prompt: string) {
   const adapterId = threadEntry?.thread.adapterId ?? defaultChatAdapterId();
   const adapter = getAdapter(adapterId);
   try {
-    await adapter.attach?.(threadId, cwd || '/home/nedjamez/royalti-co');
+    await adapter.attach?.(threadId, cwd || defaultCwd());
   } catch (e) {
     console.warn('attach (first prompt):', e);
   }

@@ -3,11 +3,10 @@ import { Archive } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 
-import {
-  ClearDataSectionBody,
-  FileRootsSectionBody,
-  ScreenshotDirSectionBody,
-} from './-components/legacy-sections';
+import { ClaudeProjectRootsSectionBody } from './-components/claude-project-roots';
+import { ClearDataSectionBody } from './-components/clear-data';
+import { FileRootsSectionBody } from './-components/file-roots';
+import { ScreenshotDirSectionBody } from './-components/screenshot-dir';
 import { SettingGroup } from './-components/setting-group';
 import { SettingRow } from './-components/setting-row';
 
@@ -40,6 +39,11 @@ function StoragePage() {
           {/* ─── File roots ─────────────────────────────────────────── */}
           <SettingGroup title="File roots">
             <FileRootsSectionBody />
+          </SettingGroup>
+
+          {/* ─── Claude project roots ───────────────────────────────── */}
+          <SettingGroup title="Claude project roots">
+            <ClaudeProjectRootsSectionBody />
           </SettingGroup>
 
           {/* ─── Screenshots ────────────────────────────────────────── */}
