@@ -1,0 +1,6 @@
+# Commits to skip when running git blame.
+# Enable for your local repo:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+
+# chore: biome format baseline + exclude vendored worker (PR #5)
+0aeb6cb595c5b3abbc47ee8b0d9015aafb9c87e9
