@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Phase 1 capability set: pty (custom commands), fs (read/list within ~/royalti-co, ~/.claude/projects, ~/.company), sql, stronghold, dialog, os. Sidecar binaries spawn through tokio::process directly (see src-tauri/src/sidecar/), not through tauri-plugin-shell.",
+  "description": "Phase 1 capability set: pty (custom commands), fs (read/list within ~/royalti-co and ~/.claude/projects), sql, stronghold, dialog, os. Sidecar binaries spawn through tokio::process directly (see src-tauri/src/sidecar/), not through tauri-plugin-shell.",
   "windows": ["main"],
   "permissions": [
     "core:default",
@@ -26,24 +26,21 @@
       "identifier": "fs:allow-read-file",
       "allow": [
         { "path": "$HOME/royalti-co/**" },
-        { "path": "$HOME/.claude/projects/**" },
-        { "path": "$HOME/.company/**" }
+        { "path": "$HOME/.claude/projects/**" }
       ]
     },
     {
       "identifier": "fs:allow-write-file",
       "allow": [
         { "path": "$HOME/royalti-co/**" },
-        { "path": "$HOME/.claude/projects/**" },
-        { "path": "$HOME/.company/**" }
+        { "path": "$HOME/.claude/projects/**" }
       ]
     },
     {
       "identifier": "fs:allow-read-dir",
       "allow": [
         { "path": "$HOME/royalti-co/**" },
-        { "path": "$HOME/.claude/projects/**" },
-        { "path": "$HOME/.company/**" }
+        { "path": "$HOME/.claude/projects/**" }
       ]
     }
   ]

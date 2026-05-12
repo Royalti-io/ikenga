@@ -1,21 +1,17 @@
-# iyke-mcp
+# mcp-iyke
 
 MCP server that exposes the Ikenga desktop app's Iyke control bridge to Claude. Tools mirror the `iyke` CLI subcommands so a Claude session in any terminal can drive the app the same way a developer types into `iyke` at a shell.
 
-## Install
+This pkg ships built-in to Ikenga; no install step is needed when used from inside the app.
+
+For use from external Claude clients (Claude Code in another terminal, Cursor, etc.), install the standalone npm package:
 
 ```bash
-cd iyke-mcp
-bun install
+npm install -g @ikenga/mcp-iyke
+claude mcp add iyke -s user -- iyke-mcp
 ```
 
-Then register it with Claude Code at the user (global) scope so it's available from every project:
-
-```bash
-claude mcp add iyke -s user -- bun run /home/nedjamez/royalti-co/iyke-mcp/src/index.ts
-```
-
-After that, any Claude session can call `mcp__iyke__state`, `mcp__iyke__go`, `mcp__iyke__mode`, `mcp__iyke__open`, `mcp__iyke__split`, `mcp__iyke__focus`, `mcp__iyke__close`.
+After registration, any Claude session can call `mcp__iyke__state`, `mcp__iyke__go`, `mcp__iyke__mode`, `mcp__iyke__open`, `mcp__iyke__split`, `mcp__iyke__focus`, `mcp__iyke__close`.
 
 ## Tools
 

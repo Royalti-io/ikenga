@@ -2,7 +2,6 @@
 //!
 //! All three Tauri commands are async (the agent scan runs subprocesses)
 //! and return rich JSON-serializable structs the wizard renders verbatim.
-//! See `.company/technical/plans/2026-05-11-ikenga-onboarding-wizard/`.
 
 pub mod agents;
 pub mod config_claude;
@@ -246,27 +245,27 @@ mod claude_slug_tests {
     fn naive_decoder_replaces_all_dashes() {
         // No FS context — pure transform.
         assert_eq!(
-            decode_claude_slug_naive("-home-nedjamez-royalti-co-ikenga"),
-            "/home/nedjamez/royalti/co/ikenga"
+            decode_claude_slug_naive("-Users-alice-work-stuff-proj"),
+            "/Users/alice/work/stuff/proj"
         );
         assert_eq!(decode_claude_slug_naive("plain"), "plain");
     }
 
     #[test]
     fn greedy_decoder_keeps_hyphenated_component_when_disk_says_so() {
-        // The user's actual disk: `/home/nedjamez/royalti-co/ikenga` exists,
-        // but `/home/nedjamez/royalti` does not. The greedy walk should
-        // prefer the dash join at the `royalti` → `co` boundary.
+        // Hypothetical disk: `/Users/alice/work-stuff/proj` exists, but
+        // `/Users/alice/work` does not. The greedy walk should prefer the
+        // dash join at the `work` → `stuff` boundary.
         let set: HashSet<&'static str> = [
-            "/home/nedjamez",
-            "/home/nedjamez/royalti-co",
-            "/home/nedjamez/royalti-co/ikenga",
+            "/Users/alice",
+            "/Users/alice/work-stuff",
+            "/Users/alice/work-stuff/proj",
         ]
         .into_iter()
         .collect();
         let (path, verified) =
-            decode_claude_slug_with_probe("-home-nedjamez-royalti-co-ikenga", probe(&set));
-        assert_eq!(path, "/home/nedjamez/royalti-co/ikenga");
+            decode_claude_slug_with_probe("-Users-alice-work-stuff-proj", probe(&set));
+        assert_eq!(path, "/Users/alice/work-stuff/proj");
         assert!(verified);
     }
 
@@ -274,8 +273,8 @@ mod claude_slug_tests {
     fn greedy_decoder_falls_back_to_naive_when_nothing_exists() {
         let set: HashSet<&'static str> = HashSet::new();
         let (path, verified) =
-            decode_claude_slug_with_probe("-home-nedjamez-royalti-co-ikenga", probe(&set));
-        assert_eq!(path, "/home/nedjamez/royalti/co/ikenga");
+            decode_claude_slug_with_probe("-Users-alice-work-stuff-proj", probe(&set));
+        assert_eq!(path, "/Users/alice/work/stuff/proj");
         assert!(!verified);
     }
 

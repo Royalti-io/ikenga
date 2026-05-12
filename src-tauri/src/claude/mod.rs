@@ -13,8 +13,8 @@
 //!    `tool_result` — so dispatch into them is shared.
 //!
 //! `slug` translates a project dir to a Claude Code project slug. Claude Code
-//! replaces every `/` with `-`, so `/home/nedjamez/royalti-co` becomes
-//! `-home-nedjamez-royalti-co`. We keep the inverse for display.
+//! replaces every `/` with `-`, so `/Users/jane/work` becomes
+//! `-Users-jane-work`. We keep the inverse for display.
 
 pub mod artifact_watcher;
 pub mod event;
@@ -30,8 +30,8 @@ pub fn project_dir_to_slug(project_dir: &str) -> String {
     project_dir.replace('/', "-")
 }
 
-/// Inverse of `project_dir_to_slug` — `-home-nedjamez-royalti-co` →
-/// `/home/nedjamez/royalti-co`. Best-effort; some legacy slugs may have
+/// Inverse of `project_dir_to_slug` — `-Users-jane-work` →
+/// `/Users/jane/work`. Best-effort; some legacy slugs may have
 /// lost trailing slashes.
 pub fn slug_to_project_dir(slug: &str) -> String {
     slug.replace('-', "/")

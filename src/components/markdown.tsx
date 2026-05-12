@@ -422,19 +422,11 @@ function resolvePath(p: string, cwd?: string): string {
 	return path;
 }
 
-const MONOREPO_SUBPROJECTS = [
-	'ikenga-desktop',
-	'ikenga',
-	'royalti-client-2.5',
-	'royalti-io-website',
-	'royalti-server-v2.6',
-	'royalti-video-engine',
-	'royalti-mcp',
-	'royalti-agents',
-	'syynk-to',
-	'royalti-rex',
-	'.company',
-];
+// Monorepo subproject names used as a disambiguation hint for `preferredSubproject`.
+// Empty by default; the developer ergonomics use-case is to populate this from a
+// user-configurable setting (future work). When empty, `preferredSubproject` is a
+// no-op and path resolution falls back to the cwd/cache heuristics.
+const MONOREPO_SUBPROJECTS: readonly string[] = [];
 
 /** Snapshot the focused pane's active artifact view; if its path is rooted at
  *  the monorepo, return the immediate subproject. Used as a disambiguation

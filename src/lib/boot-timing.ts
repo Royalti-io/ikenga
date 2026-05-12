@@ -9,8 +9,6 @@
 // `dumpBootTimings()` computes deltas, writes them to console.table, and
 // appends to a localStorage ring buffer (`__boot_timings__`) so a series
 // of runs can be averaged without a profiler.
-//
-// Usage protocol — see .company/technical/plans/2026-04-30-pa-desktop-migration/status/07-perf-timing.md
 
 const STORAGE_KEY = '__boot_timings__';
 const RING_SIZE = 20;

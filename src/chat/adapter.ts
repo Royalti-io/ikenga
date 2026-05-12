@@ -3,8 +3,7 @@
  * SDK / Pencil deferred). Renderers (Thread / Composer / etc.) are completely
  * agnostic about which adapter is on the other end.
  *
- * v1 ships only `ClaudeCliAdapter`. Keep this file in sync with
- * `.company/technical/plans/2026-04-30-pa-desktop-migration/chat-adapters.md`.
+ * v1 ships only `ClaudeCliAdapter`.
  */
 
 import type { ChatEvent } from '@/lib/tauri-cmd';

@@ -10,8 +10,6 @@
 //! Day 1 ships the server + auth + read-only `GET /iyke/state`. Write-side
 //! handlers (go, mode, open, split, focus, close) and the CLI/MCP packages
 //! land in Day 2/3.
-//!
-//! See `.company/technical/plans/2026-04-30-pa-desktop-migration/12-phase-11-iyke-control-bridge.md`.
 
 pub mod auth;
 pub mod handlers;
