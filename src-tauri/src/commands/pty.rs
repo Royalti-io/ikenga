@@ -66,17 +66,3 @@ pub async fn pty_kill(
         .map_err(|e| format!("kill failed: {e}"))
 }
 
-/// Return the session's scrollback buffer as base64 and drain it. The
-/// frontend calls this immediately after `pty_listen` to replay bytes that
-/// were emitted on the `pty://{id}` channel before its listener was wired
-/// up. Drain semantics: a second caller (rare — multiple FE tabs on the
-/// same PTY) wins nothing, which prevents double-painting.
-#[tauri::command]
-pub async fn pty_consume_buffer(
-    manager: State<'_, Arc<PtyManager>>,
-    id: String,
-) -> Result<String, String> {
-    use base64::Engine;
-    let bytes = manager.consume_scrollback(&id);
-    Ok(base64::engine::general_purpose::STANDARD.encode(&bytes))
-}

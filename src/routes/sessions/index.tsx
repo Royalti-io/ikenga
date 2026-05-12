@@ -4,13 +4,11 @@ import { useQuery } from '@tanstack/react-query';
 import { AlertCircle, Loader2, MessageSquare, Plus, Search, Terminal } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
-import { cn } from '@/components/ui/utils';
 import {
   detectAgentSlug,
   sessionsListQueryOptions,
   type SessionSummary,
 } from '@/lib/queries/sessions';
-import { useLiveSessions } from '@/lib/queries/live-sessions';
 import { useThreadBadges } from '@/lib/shell/thread-badges-store';
 import { NewSessionDialog } from '@/shell/sessions/new-session-dialog';
 
@@ -42,14 +40,10 @@ const PAGE_SIZE = 20;
 
 function SessionRow({
   session,
-  isLive,
-  liveKind,
   badgeCount,
   onClearBadge,
 }: {
   session: SessionSummary;
-  isLive: boolean;
-  liveKind?: 'pty' | 'streaming';
   /** Phase 9: count of unread ACP user-attention pings (claude
    *  `Notification` hooks + tool-approval requests) accumulated while the
    *  user was elsewhere. Rendered as an orange dot + numeric count next
@@ -70,7 +64,7 @@ function SessionRow({
   }
 
   return (
-    <tr onClick={handleRowClick} className={cn(isLive && 'is-live')}>
+    <tr onClick={handleRowClick}>
       <td>
         <div className="title-cell">
           <Link
@@ -121,12 +115,6 @@ function SessionRow({
               {agent}
             </span>
           )}
-          {isLive && (
-            <span className="live-badge" style={{ marginTop: 4 }}>
-              <span className="live-dot" />
-              Live{liveKind ? ` · ${liveKind}` : ''}
-            </span>
-          )}
         </div>
       </td>
       <td>
@@ -156,7 +144,6 @@ function SessionsPage() {
   const [newDialogOpen, setNewDialogOpen] = useState(false);
   const [limit, setLimit] = useState(PAGE_SIZE);
 
-  const liveSessions = useLiveSessions((s) => s.sessions);
   // Phase 9: per-thread "needs your attention" counts surfaced by the ACP
   // notify bridge. TODO(phase-10): also render this badge in the chat-pane
   // tab strip, the command palette session picker, and the activity-bar
@@ -322,14 +309,11 @@ function SessionsPage() {
                   </thead>
                   <tbody>
                     {filtered.map((s) => {
-                      const live = liveSessions[s.sessionId];
                       const badgeCount = badgeCounts[s.sessionId] ?? 0;
                       return (
                         <SessionRow
                           key={s.sessionId}
                           session={s}
-                          isLive={!!live}
-                          liveKind={live?.kind}
                           badgeCount={badgeCount}
                           onClearBadge={() => clearBadge(s.sessionId)}
                         />

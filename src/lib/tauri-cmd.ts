@@ -44,22 +44,6 @@ export async function ptyKill(id: string): Promise<void> {
 }
 
 /**
- * Return the session's scrollback buffer as bytes. Late-attaching frontends
- * (PTY spawned by Rust, FE subscribed via `ptyListen` only after the React
- * tree mounted) call this immediately after `ptyListen` to replay bytes that
- * were emitted on the `pty://{id}` channel before the listener was wired up.
- * Returns an empty array if the session has already been reaped.
- */
-export async function ptyConsumeBuffer(id: string): Promise<Uint8Array> {
-	const b64 = await invoke<string>('pty_consume_buffer', { id });
-	if (!b64) return new Uint8Array(0);
-	const bin = atob(b64);
-	const arr = new Uint8Array(bin.length);
-	for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
-	return arr;
-}
-
-/**
  * Subscribe to PTY byte stream + exit. Backend emits the data chunk as a
  * base64 string because Tauri's event system serializes payloads as JSON and
  * Uint8Array doesn't survive cleanly.
@@ -359,14 +343,6 @@ export interface ClaudeOpts {
 	cols?: number;
 }
 
-export interface ClaudeSpawnResult {
-	/** Placeholder uuid until the first SessionInit event arrives with the real
-	 *  Claude Code session id. Use `claudeListenSession(sessionId, ...)` to
-	 *  start receiving events under either id — the backend re-emits on both. */
-	sessionId: string;
-	ptyId: string;
-}
-
 export interface SessionSummary {
 	sessionId: string;
 	projectDir: string;
@@ -441,13 +417,6 @@ export type ChatEvent =
 	 *  record plain-string user messages). Never emitted by Rust. */
 	| { kind: 'user_turn'; text: string; sequence: number; createdAt: number };
 
-export async function claudeSpawnSession(
-	cwd: string,
-	opts: ClaudeOpts
-): Promise<ClaudeSpawnResult> {
-	return invoke('claude_spawn_session', { cwd, opts });
-}
-
 // ─── Session-as-object (thread_id-keyed) ──────────────────────────────────────
 //
 // `threadId` is a stable, frontend-minted uuid. Claude's session id and any
@@ -496,8 +465,7 @@ export async function sessionCancel(threadId: string): Promise<void> {
 }
 
 /** Tear down the session entirely (kill child + drop in-memory entry).
- *  Idempotent. PTYs attached via `sessionAttachPty` are owned by `PtyManager`
- *  and must be killed via `ptyKill` separately. */
+ *  Idempotent. */
 export async function sessionDestroy(threadId: string): Promise<void> {
 	return invoke('session_destroy', { threadId });
 }
@@ -506,17 +474,6 @@ export async function sessionDestroy(threadId: string): Promise<void> {
  *  this to window 'beforeunload' so dev reloads don't leave zombies. */
 export async function sessionDestroyAll(): Promise<void> {
 	return invoke('session_destroy_all');
-}
-
-/** Attach a Claude PTY to this session — typically `claude --resume <id>`
- *  for "open this conversation in a terminal." Returns the PTY id you can
- *  pass to the existing terminal view. PTY events do NOT feed into the chat
- *  event stream; subscribe to them via `ptyListen`. */
-export async function sessionAttachPty(
-	threadId: string,
-	opts: ClaudeOpts = {}
-): Promise<string> {
-	return invoke('session_attach_pty', { threadId, opts });
 }
 
 /** Pass `null` or omit `projectDir` to list sessions across all project

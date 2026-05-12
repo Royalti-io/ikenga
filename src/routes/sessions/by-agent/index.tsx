@@ -9,7 +9,6 @@ import {
   detectAgentSlug,
   sessionsListQueryOptions,
 } from '@/lib/queries/sessions';
-import { useLiveSessions } from '@/lib/queries/live-sessions';
 import { cn } from '@/components/ui/utils';
 
 import '../sessions.css';
@@ -22,11 +21,6 @@ function ByAgentIndex() {
   const projectRoots = useShellStore((s) => s.claudeProjectRoots);
   const agentsQuery = useQuery(claudeConfigQueryOptions(projectRoots));
   const sessionsQuery = useQuery(sessionsListQueryOptions(null));
-  const liveSessionsObj = useLiveSessions((s) => s.sessions);
-  const liveIds = useMemo(
-    () => new Set(Object.keys(liveSessionsObj)),
-    [liveSessionsObj],
-  );
 
   const agents = agentsQuery.data?.agents ?? [];
 
@@ -39,17 +33,6 @@ function ByAgentIndex() {
     }
     return m;
   }, [sessionsQuery.data]);
-
-  const liveByAgent = useMemo(() => {
-    const m = new Set<string>();
-    for (const s of sessionsQuery.data ?? []) {
-      if (liveIds.has(s.sessionId)) {
-        const a = detectAgentSlug(s);
-        if (a) m.add(a);
-      }
-    }
-    return m;
-  }, [sessionsQuery.data, liveIds]);
 
   return (
     <div className="ses-agents-split">
@@ -71,7 +54,6 @@ function ByAgentIndex() {
         )}
         {agents.map((a) => {
           const count = sessionsByAgent.get(a.name) ?? 0;
-          const isLive = liveByAgent.has(a.name);
           return (
             <Link
               key={`${a.scope}:${a.name}`}
@@ -86,12 +68,6 @@ function ByAgentIndex() {
                   <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {a.name}
                   </span>
-                  {isLive && (
-                    <span className="live-badge">
-                      <span className="live-dot" />
-                      live
-                    </span>
-                  )}
                 </div>
                 {a.model && <div className="model">{a.model}</div>}
               </div>

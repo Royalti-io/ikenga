@@ -8,7 +8,7 @@
 //!    encodes them, and emits them on the `pty://{id}` Tauri event
 //!  - a child waiter that emits `pty://{id}/exit` with the exit code on death
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -24,12 +24,6 @@ use uuid::Uuid;
 
 const CHUNK_SIZE: usize = 8 * 1024;
 const FLUSH_INTERVAL_MS: u64 = 8; // ≈120 Hz
-/// Per-session scrollback cap. Lets a late-attaching frontend replay output
-/// that was emitted before its Tauri event listener was wired up — the
-/// `pty_spawn` → `setLive` → `<LiveTerminal>` mount → `ptyListen` chain
-/// takes 30–100ms, and `claude --resume` writes its TUI well inside that
-/// window. Without this, the first frame the user sees is blank.
-const SCROLLBACK_CAP: usize = 256 * 1024;
 
 pub struct SpawnOpts {
     pub cwd: String,
@@ -58,13 +52,6 @@ struct PtySession {
     /// kept as a `Mutex<Option<_>>` rather than baked into the spawn opts so
     /// callers without a subscriber don't pay any cost.
     subscriber: Mutex<Option<ByteSubscriber>>,
-    /// Ring buffer of recent output, capped at `SCROLLBACK_CAP`. Drained by
-    /// `consume_scrollback` when a late subscriber attaches; trimmed in the
-    /// reader thread as new bytes arrive. Stores raw bytes (not base64).
-    scrollback: Mutex<VecDeque<u8>>,
-    /// Recorded once the child reaps so late callers of `consume_scrollback`
-    /// can synthesize an exit notice without racing the wait thread.
-    exit_code: Mutex<Option<i32>>,
 }
 
 pub struct PtyManager {
@@ -151,8 +138,6 @@ impl PtyManager {
             killed: killed.clone(),
             child_killer: Mutex::new(child_killer),
             subscriber: Mutex::new(subscriber),
-            scrollback: Mutex::new(VecDeque::with_capacity(SCROLLBACK_CAP)),
-            exit_code: Mutex::new(None),
         });
 
         self.sessions.insert(id.clone(), session.clone());
@@ -175,15 +160,6 @@ impl PtyManager {
                         if let Ok(guard) = session_for_reader.subscriber.lock() {
                             if let Some(sub) = guard.as_ref() {
                                 sub(chunk);
-                            }
-                        }
-                        if let Ok(mut sb) = session_for_reader.scrollback.lock() {
-                            sb.extend(chunk.iter().copied());
-                            // Trim from the front. xterm tolerates a truncated
-                            // prefix; ANSI state will catch up once a full
-                            // redraw cycle lands.
-                            while sb.len() > SCROLLBACK_CAP {
-                                sb.pop_front();
                             }
                         }
                         if tx.blocking_send(chunk.to_vec()).is_err() {
@@ -244,21 +220,14 @@ impl PtyManager {
         let manager_for_wait = self.clone();
         let id_for_wait = id.clone();
         let app_for_exit = app;
-        let session_for_wait = session.clone();
         thread::spawn(move || {
             let exit_code = match child.wait() {
                 Ok(status) => status.exit_code() as i32,
                 Err(_) => -1,
             };
-            if let Ok(mut slot) = session_for_wait.exit_code.lock() {
-                *slot = Some(exit_code);
-            }
             let _ = app_for_exit.emit(&exit_event, exit_code);
             // Drop the session entry. The reader thread will see EOF on the
-            // master side and exit too. A late `consume_scrollback` will hit
-            // the "unknown id" path, which is fine — the FE already has the
-            // bytes from the live stream + the synchronous-microtask exit
-            // replay in pty-bridge.
+            // master side and exit too.
             manager_for_wait.sessions.remove(&id_for_wait);
         });
 
@@ -297,39 +266,6 @@ impl PtyManager {
             pixel_height: 0,
         })?;
         Ok(())
-    }
-
-    /// Drain the scrollback ring into a single `Vec<u8>`. Intended for a
-    /// late-attaching frontend that subscribed to `pty://{id}` *after* bytes
-    /// were already emitted; calling this immediately after `ptyListen`
-    /// recovers anything that was missed. Returns an empty Vec if the
-    /// session no longer exists (child already reaped + entry pruned).
-    ///
-    /// Note: this drains rather than peeks, so a second call returns empty.
-    /// Two frontends attaching to the same PTY at almost the same time would
-    /// race — first one wins. That's intentional; the alternative is double-
-    /// painting the entire scrollback, which is worse.
-    pub fn consume_scrollback(&self, id: &str) -> Vec<u8> {
-        let Some(session) = self.sessions.get(id).map(|s| s.clone()) else {
-            return Vec::new();
-        };
-        let Ok(mut sb) = session.scrollback.lock() else {
-            return Vec::new();
-        };
-        let mut out = Vec::with_capacity(sb.len());
-        while let Some(b) = sb.pop_front() {
-            out.push(b);
-        }
-        out
-    }
-
-    /// Returns the recorded exit code if the child has already reaped,
-    /// otherwise `None`. Used by the frontend's attach path to detect the
-    /// "child died before I could subscribe" case and synthesize a notice
-    /// even when the live exit event already fired and was missed.
-    pub fn exit_code(&self, id: &str) -> Option<i32> {
-        let session = self.sessions.get(id).map(|s| s.clone())?;
-        session.exit_code.lock().ok().and_then(|g| *g)
     }
 
     pub fn kill(&self, id: &str) -> Result<()> {
