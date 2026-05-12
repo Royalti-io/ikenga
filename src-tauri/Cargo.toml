@@ -22,6 +22,16 @@ tauri-plugin-dialog = "2"
 tauri-plugin-os = "2"
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-clipboard-manager = "2"
+# Phase 9 (ACP migration): OS notifications for the Notification +
+# PermissionRequest user-attention hooks. The actual `sendNotification`
+# call is fired from the frontend (which knows about route focus +
+# pane state); the plugin is registered Rust-side so its IPC handlers
+# are available to the webview.
+tauri-plugin-notification = "2"
+# Used by the onboarding wizard to open install-guide URLs in the user's
+# default browser via `open(url)`. Sidecars still spawn directly through
+# tokio::process — we only enable the `open` API surface here.
+tauri-plugin-shell = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 base64 = "0.22"
@@ -71,6 +81,22 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 # Backup secrets (phase 2): age passphrase encryption for the kv blob inside
 # .ikbak. armor disabled — bundle is binary already.
 age = { version = "0.10", default-features = false }
+which = "7"
+sysinfo = { version = "0.36.1", default-features = false, features = ["disk"] }
+# Embeds the starter `.claude/` templates (agents/skills/commands) directly
+# into the release binary so Phase 6's scaffolder doesn't need to shell out
+# to cc-config or carry loose files on disk. Source tree:
+# src-tauri/templates/starter/claude-code/.
+include_dir = "0.7"
+
+# Agent Client Protocol — types + traits for our in-process ACP server
+# implementation. The wire-framing/JSON-RPC layer is not used today (we
+# expose the Agent surface through Tauri commands, not stdio); we only
+# pull the schema types so frontend and backend speak the same
+# vocabulary as the wider ACP ecosystem (Zed, claude-agent-acp,
+# codex-acp, etc.). `unstable` enables fork/resume/session_model which
+# we want for /branch + faster resume + per-session model overrides.
+agent-client-protocol = { version = "0.11", features = ["unstable"] }
 
 # Mac-only polish (window vibrancy + dock-tile badge) was removed
 # in the strip-down. The resolved objc2 v0.5 didn't export

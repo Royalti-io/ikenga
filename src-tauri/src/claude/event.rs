@@ -22,11 +22,22 @@ pub enum ChatEvent {
         permission_mode: Option<String>,
     },
 
-    /// Streaming text chunk from an assistant content block.
-    Text { delta: String },
+    /// Streaming text chunk from an assistant content block. `message_id`
+    /// is the Anthropic `message.id` that produced this block — used by
+    /// the frontend reconciler to dedupe live vs JSONL events without
+    /// resorting to JSON.stringify.
+    Text {
+        delta: String,
+        #[serde(rename = "messageId", skip_serializing_if = "Option::is_none")]
+        message_id: Option<String>,
+    },
 
     /// Extended-thinking chunk (signed; we forward as opaque text).
-    Thinking { delta: String },
+    Thinking {
+        delta: String,
+        #[serde(rename = "messageId", skip_serializing_if = "Option::is_none")]
+        message_id: Option<String>,
+    },
 
     /// Assistant invoked a tool. `parentToolUseId` identifies nested calls
     /// (Task subagents) so the chat UI can render them indented.
@@ -83,6 +94,25 @@ pub enum ChatEvent {
         stop_reason: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none", rename = "durationMs")]
         duration_ms: Option<u64>,
+    },
+
+    /// Phase 4: SDK control-request envelope from `claude
+    /// --permission-prompt-tool stdio`. Today the only subtype we expect is
+    /// `permission`, carrying `tool_name + tool_input` so the ACP server can
+    /// route the request out as a `session/request_permission`. Phase 5/6
+    /// introduce `set_permission_mode` + `interrupt` subtypes; they will
+    /// reuse the same variant.
+    ///
+    /// `request_id` is locally generated when claude's envelope omits one
+    /// (older builds) so the bridge always has a stable correlation key.
+    ControlRequest {
+        #[serde(rename = "requestId")]
+        request_id: String,
+        subtype: String,
+        #[serde(rename = "toolName", skip_serializing_if = "Option::is_none")]
+        tool_name: Option<String>,
+        #[serde(rename = "toolInput", skip_serializing_if = "Option::is_none")]
+        tool_input: Option<Value>,
     },
 
     /// Unrecognized envelope or block. Forwarded so consumers can show raw

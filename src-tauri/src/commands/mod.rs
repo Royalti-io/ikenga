@@ -3,13 +3,17 @@
 //! in `src/lib/tauri-cmd.ts` mirror this, so later phases just fill in the
 //! Rust side.
 
+pub mod acp;
 pub mod activity_bar;
 pub mod backup;
+#[cfg(debug_assertions)]
+pub mod bg_spike;
 pub mod claude;
 pub mod claude_config;
 pub mod db;
 pub mod desktop;
 pub mod fs;
+pub mod fs_roots;
 pub mod iyke;
 pub mod pkg;
 pub mod pkg_content;
@@ -18,19 +22,26 @@ pub mod pkg_sidecar;
 pub mod pty;
 pub mod screenshot;
 pub mod secrets;
+pub mod settings_kv;
 pub mod spike;
 pub mod supabase_config;
 pub mod viewer;
 
+pub use acp::{
+    acp_cancel, acp_fork_session, acp_initialize, acp_load_session, acp_new_session, acp_prompt,
+    acp_respond_permission, acp_set_mode,
+};
 pub use activity_bar::{
     activity_pins_add, activity_pins_list, activity_pins_remove, activity_pins_reorder,
     activity_sections_create, activity_sections_list, activity_sections_remove,
     activity_sections_update,
 };
 pub use backup::{backup_delete, backup_export, backup_import, backup_list};
+#[cfg(debug_assertions)]
+pub use bg_spike::{bg_spike_reply, bg_spike_run, new_state as new_bg_spike_state};
 pub use claude::{
-    claude_chat_kill, claude_chat_send, claude_chat_spawn, claude_list_sessions,
-    claude_read_jsonl, claude_spawn_session, ClaudeManager, ClaudeManagerState,
+    claude_list_sessions, claude_read_jsonl, session_cancel, session_destroy,
+    session_destroy_all, session_ensure, session_send, session_tool_result,
 };
 pub use claude_config::{
     claude_config_load, claude_config_read_file, claude_config_unwatch, claude_config_watch,
@@ -40,6 +51,7 @@ pub use desktop::{iyke_mcp_info, set_dock_badge, IykeMcpInfo};
 pub use fs::{
     fs_exists, fs_list, fs_mime, fs_read, fs_rename, fs_trash, fs_unwatch, fs_watch, fs_write,
 };
+pub use fs_roots::{fs_roots_add, fs_roots_list, fs_roots_remove, fs_roots_reset};
 pub use iyke::{
     iyke_dom_done, iyke_endpoint, iyke_log_push, iyke_network_push, iyke_query_cache_done,
     iyke_set_shell, iyke_wait_done, IykeRuntimeState,
@@ -66,6 +78,7 @@ pub use secrets::{
     secrets_delete, secrets_get, secrets_import_dotenv, secrets_list_keys, secrets_set,
     secrets_vault_status, SecretsLock,
 };
+pub use settings_kv::{settings_clear_all, settings_get, settings_get_all, settings_set};
 pub use spike::{spike_grant_fs_read, spike_setup_test_file};
 pub use supabase_config::{supabase_config_clear, supabase_config_get, supabase_config_set};
 pub use viewer::{viewer_port, viewer_serve, viewer_stop};
@@ -74,13 +87,12 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, Result};
 
-/// Resolve `~/...` and env vars, then enforce allowlist. Returns the canonical
-/// absolute path.
+/// Resolve `~/...` and env vars, then enforce the user-configurable allowlist
+/// (see `crate::fs_roots`). Returns the canonical absolute path.
 ///
-/// Allowlist (resolved at call time so dev/prod home dirs both work):
-///   - `~/royalti-co/**`
-///   - `~/.claude/projects/**`
-///   - `~/.company/**`
+/// The active root set lives in a process-global `OnceLock` set by
+/// `lib.rs::run` during `.setup()`, so this function does not need to thread
+/// `tauri::State` through every fs command + the viewer.
 pub fn resolve_allowlisted(input: &str) -> Result<PathBuf> {
     let expanded = shellexpand::full(input)
         .map(|c| c.into_owned())
@@ -121,26 +133,7 @@ pub fn resolve_allowlisted(input: &str) -> Result<PathBuf> {
 }
 
 fn is_allowed(path: &Path) -> Result<bool> {
-    let home = match dirs_home() {
-        Some(h) => h,
-        None => return Err(anyhow!("could not resolve $HOME")),
-    };
-    let roots = [
-        home.join("royalti-co"),
-        home.join(".claude").join("projects"),
-        home.join(".company"),
-    ];
-    for root in &roots {
-        // Best-effort canonicalize the root; if it doesn't exist, fall back to
-        // the lexical root.
-        let canon_root = root.canonicalize().unwrap_or_else(|_| root.clone());
-        if path.starts_with(&canon_root) {
-            return Ok(true);
-        }
-    }
-    Ok(false)
-}
-
-fn dirs_home() -> Option<PathBuf> {
-    std::env::var_os("HOME").map(PathBuf::from)
+    let roots = crate::fs_roots::current()
+        .ok_or_else(|| anyhow!("fs_roots not initialized"))?;
+    Ok(roots.is_allowed(path))
 }

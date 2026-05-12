@@ -205,17 +205,36 @@ export function XTermHost({ spec, pty, onStatus, onExit, onPtyId }: Props) {
     // execute — both can hit a torn-down terminal otherwise.
     let disposed = false;
     const pendingRafs = new Set<number>();
-    const queueFit = () => {
+    const pendingTimeouts = new Set<ReturnType<typeof setTimeout>>();
+    // We retry fit() with backoff because the WebGL addon's renderer becomes
+    // ready asynchronously *after* open() returns, and FitAddon.fit() throws
+    // until the renderer value is populated. Before this loop the only retry
+    // path was ResizeObserver, which doesn't fire unless the container size
+    // changes — so a first-mount where fit() lost the race left xterm at its
+    // default 80×24 cell grid forever (e.g. 875×432 px) and the canvas
+    // therefore never painted any of the bytes that were already in the
+    // terminal buffer. Manifested as a blank xterm despite a healthy PTY.
+    const queueFit = (attempt = 0) => {
       const id = requestAnimationFrame(() => {
         pendingRafs.delete(id);
         if (disposed) return;
         if (!termRef.current) return;
-        // `term.element` is null until open() and back to null after dispose.
         if (!term.element || !term.element.isConnected) return;
         try {
           fit.fit();
         } catch {
-          /* renderer not ready yet — next resize will retry */
+          // Renderer not ready. Back off and retry: 16ms, 32ms, 64ms,
+          // 128ms, 256ms — covers the WebGL init window on slow machines
+          // without busy-looping. Give up after 5 tries; ResizeObserver
+          // will still catch any later container-size change.
+          if (attempt >= 5) return;
+          const delay = 16 << attempt;
+          const t = setTimeout(() => {
+            pendingTimeouts.delete(t);
+            if (disposed) return;
+            queueFit(attempt + 1);
+          }, delay);
+          pendingTimeouts.add(t);
         }
       });
       pendingRafs.add(id);
@@ -303,6 +322,23 @@ export function XTermHost({ spec, pty, onStatus, onExit, onPtyId }: Props) {
       // PTY → terminal.
       const dataHandler = (bytes: Uint8Array) => term.write(bytes);
       const exitHandler = (code: number | null) => {
+        // VS Code pattern: keep the canvas mounted, write an inline notice
+        // as the last line so anything the process *did* emit stays visible
+        // above. Without this the user sees a black box when claude exits
+        // fast (e.g. stale --resume id) and has no idea why.
+        try {
+          const codeStr = code === null ? "?" : String(code);
+          const hint =
+            code !== null && code !== 0
+              ? "  (check command args or whether the --resume session id is still valid)"
+              : "";
+          term.writeln("");
+          term.writeln(
+            `\x1b[2m[process exited with code ${codeStr}]${hint}\x1b[0m`,
+          );
+        } catch {
+          /* terminal may be mid-dispose */
+        }
         status(`pty exited (code=${code ?? "?"})`);
         exit(code);
       };
@@ -380,9 +416,12 @@ export function XTermHost({ spec, pty, onStatus, onExit, onPtyId }: Props) {
     return () => {
       cancelled = true;
       disposed = true;
-      // Cancel any in-flight rAFs so they can't run safeFit after dispose.
+      // Cancel any in-flight rAFs + retry timeouts so they can't run fit()
+      // after dispose.
       for (const id of pendingRafs) cancelAnimationFrame(id);
       pendingRafs.clear();
+      for (const t of pendingTimeouts) clearTimeout(t);
+      pendingTimeouts.clear();
       themeObserver.disconnect();
       resizeObserver?.disconnect();
       onDataDispose?.dispose();

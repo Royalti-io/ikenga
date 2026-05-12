@@ -150,3 +150,82 @@ export async function clearLivePtys(): Promise<void> {
     [],
   );
 }
+
+// ─── User turns ───────────────────────────────────────────────────────────────
+//
+// Claude's JSONL records assistant turns + tool-result-shaped user envelopes,
+// but NOT plain-string user messages — Claude treats them as transient input.
+// We persist them ourselves in `chat_user_turns` (migration 0011) so the user
+// side of the conversation survives reloads.
+//
+// Phase 11 audit (2026-05-11): considered dropping this table now that the
+// chat path runs through ACP by default. The audit kept it. Reasons:
+//   1. ACP `user_message_chunk` would carry user input back to us — but our
+//      Rust `AcpServer.handle_prompt` does NOT emit one for our own writes,
+//      it only forwards agent-side events. We accept the user's text via
+//      `acp_prompt` and echo it into the store from the composer (synthetic
+//      `user_turn` event); that echo is in-memory and dies on reload.
+//   2. The on-disk JSONL (`~/.claude/projects/<slug>/<uuid>.jsonl`) drops
+//      plain-string user messages in `stream_parser.rs::dispatch_user` —
+//      only `tool_result`-shaped blocks survive into `ChatEvent`s.
+// So `chat_user_turns` is the *only* durable record of what the user typed.
+// Migration `0013_drop_chat_user_turns.sql` was scoped out. See
+// `shell/docs/acp-migration.md` § Phase 11 for the decision log.
+
+export interface UserTurnRow {
+  id: string;
+  thread_id: string;
+  text: string;
+  sequence: number;
+  created_at: number;
+}
+
+export interface UserTurn {
+  id: string;
+  threadId: string;
+  text: string;
+  sequence: number;
+  createdAt: number;
+}
+
+function rowToUserTurn(r: UserTurnRow): UserTurn {
+  return {
+    id: r.id,
+    threadId: r.thread_id,
+    text: r.text,
+    sequence: r.sequence,
+    createdAt: r.created_at,
+  };
+}
+
+/** Append a user turn for this thread. Sequence increments monotonically per
+ *  thread; we read max(sequence)+1 in the same call. Cheap on small threads;
+ *  if this becomes hot we can cache in-memory off the store. */
+export async function appendUserTurn(threadId: string, text: string): Promise<UserTurn> {
+  const seqRows = await dbQuery<{ next_seq: number }>(
+    `SELECT COALESCE(MAX(sequence), -1) + 1 AS next_seq
+       FROM chat_user_turns WHERE thread_id = ?`,
+    [threadId],
+  );
+  const sequence = seqRows[0]?.next_seq ?? 0;
+  const id = `ut:${threadId}:${sequence}:${Math.random().toString(36).slice(2, 8)}`;
+  const createdAt = Date.now();
+  await dbExec(
+    `INSERT INTO chat_user_turns (id, thread_id, text, sequence, created_at)
+     VALUES (?, ?, ?, ?, ?)`,
+    [id, threadId, text, sequence, createdAt],
+  );
+  return { id, threadId, text, sequence, createdAt };
+}
+
+/** Load all user turns for a thread in send order. */
+export async function loadUserTurns(threadId: string): Promise<UserTurn[]> {
+  const rows = await dbQuery<UserTurnRow>(
+    `SELECT id, thread_id, text, sequence, created_at
+       FROM chat_user_turns
+      WHERE thread_id = ?
+      ORDER BY sequence ASC`,
+    [threadId],
+  );
+  return rows.map(rowToUserTurn);
+}

@@ -8,43 +8,39 @@
 // `unimplemented!()` from Rust for phase 1 — the wrappers are typed today so
 // later phases just fill in the Rust side.
 
-import { invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { invoke } from '@tauri-apps/api/core';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
 // ─── PTY ──────────────────────────────────────────────────────────────────────
 
 export interface PtySpawnOpts {
-  cwd: string;
-  cmd: string[];
-  env?: Record<string, string>;
-  rows?: number;
-  cols?: number;
+	cwd: string;
+	cmd: string[];
+	env?: Record<string, string>;
+	rows?: number;
+	cols?: number;
 }
 
 export async function ptySpawn(opts: PtySpawnOpts): Promise<string> {
-  return invoke<string>("pty_spawn", {
-    cwd: opts.cwd,
-    cmd: opts.cmd,
-    env: opts.env ?? null,
-    rows: opts.rows ?? 24,
-    cols: opts.cols ?? 80,
-  });
+	return invoke<string>('pty_spawn', {
+		cwd: opts.cwd,
+		cmd: opts.cmd,
+		env: opts.env ?? null,
+		rows: opts.rows ?? 24,
+		cols: opts.cols ?? 80,
+	});
 }
 
 export async function ptyWrite(id: string, data: string): Promise<void> {
-  return invoke("pty_write", { id, data });
+	return invoke('pty_write', { id, data });
 }
 
-export async function ptyResize(
-  id: string,
-  rows: number,
-  cols: number,
-): Promise<void> {
-  return invoke("pty_resize", { id, rows, cols });
+export async function ptyResize(id: string, rows: number, cols: number): Promise<void> {
+	return invoke('pty_resize', { id, rows, cols });
 }
 
 export async function ptyKill(id: string): Promise<void> {
-  return invoke("pty_kill", { id });
+	return invoke('pty_kill', { id });
 }
 
 /**
@@ -53,23 +49,23 @@ export async function ptyKill(id: string): Promise<void> {
  * Uint8Array doesn't survive cleanly.
  */
 export async function ptyListen(
-  id: string,
-  onData: (bytes: Uint8Array) => void,
-  onExit: (code: number | null) => void,
+	id: string,
+	onData: (bytes: Uint8Array) => void,
+	onExit: (code: number | null) => void
 ): Promise<UnlistenFn> {
-  const dataUnlisten = await listen<string>(`pty://${id}`, (e) => {
-    const bin = atob(e.payload);
-    const arr = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
-    onData(arr);
-  });
-  const exitUnlisten = await listen<number | null>(`pty://${id}/exit`, (e) => {
-    onExit(e.payload);
-  });
-  return () => {
-    dataUnlisten();
-    exitUnlisten();
-  };
+	const dataUnlisten = await listen<string>(`pty://${id}`, (e) => {
+		const bin = atob(e.payload);
+		const arr = new Uint8Array(bin.length);
+		for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+		onData(arr);
+	});
+	const exitUnlisten = await listen<number | null>(`pty://${id}/exit`, (e) => {
+		onExit(e.payload);
+	});
+	return () => {
+		dataUnlisten();
+		exitUnlisten();
+	};
 }
 
 // ─── FS ───────────────────────────────────────────────────────────────────────
@@ -79,167 +75,214 @@ export async function ptyListen(
 // extra permission checks + mime detection.
 
 export interface FileEntry {
-  path: string;
-  name: string;
-  isDir: boolean;
-  size: number;
-  modifiedMs: number;
+	path: string;
+	name: string;
+	isDir: boolean;
+	size: number;
+	modifiedMs: number;
 }
 
 export interface FileChange {
-  kind: "create" | "modify" | "remove" | "rename";
-  path: string;
+	kind: 'create' | 'modify' | 'remove' | 'rename';
+	path: string;
 }
 
 export interface FileReadResult {
-  bytes: number[];
-  mime: string;
+	bytes: number[];
+	mime: string;
 }
 
 export async function fsRead(path: string): Promise<FileReadResult> {
-  return invoke("fs_read", { path });
+	return invoke('fs_read', { path });
 }
 
 /** Cheap MIME lookup that doesn't read file contents. Used by the artifact
  * viewer's auto-router as a fallback when JS extension lookup misses. */
 export async function fsMime(path: string): Promise<string> {
-  return invoke("fs_mime", { path });
+	return invoke('fs_mime', { path });
 }
 
 /** Cheap existence check — returns true if `path` resolves to a regular
  * file (not a directory). Allowlisted same as the other fs commands. */
 export async function fsExists(path: string): Promise<boolean> {
-  return invoke("fs_exists", { path });
+	return invoke('fs_exists', { path });
 }
 
 export async function fsWrite(path: string, bytes: Uint8Array): Promise<void> {
-  return invoke("fs_write", { path, bytes: Array.from(bytes) });
+	return invoke('fs_write', { path, bytes: Array.from(bytes) });
 }
 
 export async function fsList(dir: string, glob?: string): Promise<FileEntry[]> {
-  return invoke("fs_list", { dir, glob: glob ?? null });
+	return invoke('fs_list', { dir, glob: glob ?? null });
 }
 
 /** Move a file or directory to the OS trash (reversible). */
 export async function fsTrash(path: string): Promise<void> {
-  return invoke("fs_trash", { path });
+	return invoke('fs_trash', { path });
 }
 
 /** Rename in place to a new basename. Returns the resolved destination path. */
 export async function fsRename(from: string, toName: string): Promise<string> {
-  return invoke("fs_rename", { from, toName });
+	return invoke('fs_rename', { from, toName });
 }
 
 /** Returns a watcher id; events emit on `fs://{watcherId}`. */
 export async function fsWatch(path: string): Promise<string> {
-  return invoke("fs_watch", { path });
+	return invoke('fs_watch', { path });
+}
+
+// ─── FS allowlist (user-configurable) ────────────────────────────────────────
+//
+// The allowlist is owned by Rust (`src-tauri/src/fs_roots.rs`, persisted to
+// `app_data_dir/fs_roots.json`). Every mutation returns the canonical list so
+// the frontend can sync from the response rather than maintaining a parallel
+// store. Default roots: `~/royalti-co`, `~/.claude/projects`, `~/.company`.
+
+export async function fsRootsList(): Promise<string[]> {
+	return invoke('fs_roots_list');
+}
+
+export async function fsRootsAdd(path: string): Promise<string[]> {
+	return invoke('fs_roots_add', { path });
+}
+
+export async function fsRootsRemove(path: string): Promise<string[]> {
+	return invoke('fs_roots_remove', { path });
+}
+
+export async function fsRootsReset(): Promise<string[]> {
+	return invoke('fs_roots_reset');
 }
 
 export async function fsUnwatch(watcherId: string): Promise<void> {
-  return invoke("fs_unwatch", { watcherId });
+	return invoke('fs_unwatch', { watcherId });
 }
 
 export async function fsListenWatch(
-  watcherId: string,
-  onChange: (change: FileChange) => void,
+	watcherId: string,
+	onChange: (change: FileChange) => void
 ): Promise<UnlistenFn> {
-  return listen<FileChange>(`fs://${watcherId}`, (e) => onChange(e.payload));
+	return listen<FileChange>(`fs://${watcherId}`, (e) => onChange(e.payload));
+}
+
+// ─── Settings KV (durable mirror for Zustand-persisted prefs) ───────────────
+//
+// Backed by SQLite `settings_kv` table (migration 0013). Zustand stores
+// continue to write to localStorage for instant-paint hydration; this layer
+// is the authoritative copy that survives "Clear local data" and can later
+// feed a cross-device sync. See `useShellStore.hydrateSettingsFromRust`.
+// Values are JSON strings — type discipline is enforced by callers.
+
+export async function settingsGet(key: string): Promise<string | null> {
+	return invoke('settings_get', { key });
+}
+
+export async function settingsSet(key: string, value: string): Promise<void> {
+	return invoke('settings_set', { key, value });
+}
+
+export async function settingsGetAll(): Promise<Record<string, string>> {
+	return invoke('settings_get_all');
+}
+
+export async function settingsClearAll(): Promise<void> {
+	return invoke('settings_clear_all');
 }
 
 // ─── Secrets (Stronghold) ─────────────────────────────────────────────────────
 
 export async function secretsGet(key: string): Promise<string | null> {
-  return invoke("secrets_get", { key });
+	return invoke('secrets_get', { key });
 }
 
 export async function secretsSet(key: string, value: string): Promise<void> {
-  return invoke("secrets_set", { key, value });
+	return invoke('secrets_set', { key, value });
 }
 
 export async function secretsDelete(key: string): Promise<void> {
-  return invoke("secrets_delete", { key });
+	return invoke('secrets_delete', { key });
 }
 
 export async function secretsListKeys(): Promise<string[]> {
-  return invoke("secrets_list_keys");
+	return invoke('secrets_list_keys');
 }
 
 export type VaultStatus = {
-  available: boolean;
-  keychainBackend: string;
-  error: string | null;
+	available: boolean;
+	keychainBackend: string;
+	error: string | null;
 };
 
 export async function secretsVaultStatus(): Promise<VaultStatus> {
-  // Rust returns snake_case `keychain_backend`; normalize.
-  const raw = await invoke<{ available: boolean; keychain_backend: string; error: string | null }>(
-    "secrets_vault_status",
-  );
-  return {
-    available: raw.available,
-    keychainBackend: raw.keychain_backend,
-    error: raw.error,
-  };
+	// Rust returns snake_case `keychain_backend`; normalize.
+	const raw = await invoke<{ available: boolean; keychain_backend: string; error: string | null }>(
+		'secrets_vault_status'
+	);
+	return {
+		available: raw.available,
+		keychainBackend: raw.keychain_backend,
+		error: raw.error,
+	};
 }
 
 export type ImportDotenvArgs = {
-  paths: string[];
-  keys: string[];
-  overwrite: boolean;
+	paths: string[];
+	keys: string[];
+	overwrite: boolean;
 };
 
 export type ImportDotenvResult = {
-  imported: number;
-  skipped: number;
-  missingFiles: string[];
+	imported: number;
+	skipped: number;
+	missingFiles: string[];
 };
 
 export async function secretsImportDotenv(args: ImportDotenvArgs): Promise<ImportDotenvResult> {
-  const raw = await invoke<{ imported: number; skipped: number; missing_files: string[] }>(
-    "secrets_import_dotenv",
-    { args },
-  );
-  return {
-    imported: raw.imported,
-    skipped: raw.skipped,
-    missingFiles: raw.missing_files,
-  };
+	const raw = await invoke<{ imported: number; skipped: number; missing_files: string[] }>(
+		'secrets_import_dotenv',
+		{ args }
+	);
+	return {
+		imported: raw.imported,
+		skipped: raw.skipped,
+		missingFiles: raw.missing_files,
+	};
 }
 
 // ─── Supabase project config (URL + anon key, stored as a non-secret JSON
 // manifest at app_data_dir/supabase.json — see commands/supabase_config.rs).
 
 export type SupabaseConfig = {
-  url: string;
-  anonKey: string;
-  serviceRoleKey?: string | null;
+	url: string;
+	anonKey: string;
+	serviceRoleKey?: string | null;
 };
 
 export async function supabaseConfigGet(): Promise<SupabaseConfig | null> {
-  const raw = await invoke<{
-    url: string;
-    anon_key: string;
-    service_role_key?: string | null;
-  } | null>("supabase_config_get");
-  return raw
-    ? { url: raw.url, anonKey: raw.anon_key, serviceRoleKey: raw.service_role_key ?? null }
-    : null;
+	const raw = await invoke<{
+		url: string;
+		anon_key: string;
+		service_role_key?: string | null;
+	} | null>('supabase_config_get');
+	return raw
+		? { url: raw.url, anonKey: raw.anon_key, serviceRoleKey: raw.service_role_key ?? null }
+		: null;
 }
 
 export async function supabaseConfigSet(
-  url: string,
-  anonKey: string,
-  serviceRoleKey?: string | null,
+	url: string,
+	anonKey: string,
+	serviceRoleKey?: string | null
 ): Promise<void> {
-  return invoke("supabase_config_set", {
-    url,
-    anonKey,
-    serviceRoleKey: serviceRoleKey ?? null,
-  });
+	return invoke('supabase_config_set', {
+		url,
+		anonKey,
+		serviceRoleKey: serviceRoleKey ?? null,
+	});
 }
 
 export async function supabaseConfigClear(): Promise<void> {
-  return invoke("supabase_config_clear");
+	return invoke('supabase_config_clear');
 }
 
 // ─── DB (SQLite — chat threads, layout state) ─────────────────────────────────
@@ -250,40 +293,37 @@ export async function supabaseConfigClear(): Promise<void> {
 
 export type SqlValue = string | number | boolean | null | number[];
 
-export async function dbQuery<T = unknown>(
-  sql: string,
-  params: SqlValue[] = [],
-): Promise<T[]> {
-  return invoke("db_query", { sql, params });
+export async function dbQuery<T = unknown>(sql: string, params: SqlValue[] = []): Promise<T[]> {
+	return invoke('db_query', { sql, params });
 }
 
 export async function dbExec(sql: string, params: SqlValue[] = []): Promise<void> {
-  return invoke("db_exec", { sql, params });
+	return invoke('db_exec', { sql, params });
 }
 
 // ─── Viewer (shared axum server, same-origin via Vite proxy / localhost-plugin)
 
 export interface ViewerHandle {
-  /** Shell-origin-relative URL prefix, e.g. `/__viewer/<token>/`. Append the
-   *  file path to get a full iframe `src`. Resolved against
-   *  `window.location.origin` so it works under both Vite (dev) and
-   *  localhost-plugin (prod). */
-  url: string;
-  /** Pass to `viewerStop` to release the mount. */
-  token: string;
+	/** Shell-origin-relative URL prefix, e.g. `/__viewer/<token>/`. Append the
+	 *  file path to get a full iframe `src`. Resolved against
+	 *  `window.location.origin` so it works under both Vite (dev) and
+	 *  localhost-plugin (prod). */
+	url: string;
+	/** Pass to `viewerStop` to release the mount. */
+	token: string;
 }
 
 export async function viewerServe(rootDir: string): Promise<ViewerHandle> {
-  return invoke("viewer_serve", { rootDir });
+	return invoke('viewer_serve', { rootDir });
 }
 
 export async function viewerStop(token: string): Promise<void> {
-  return invoke("viewer_stop", { token });
+	return invoke('viewer_stop', { token });
 }
 
 /** Bound port of the shared viewer server. `null` if start failed. */
 export async function viewerPort(): Promise<number | null> {
-  return invoke("viewer_port");
+	return invoke('viewer_port');
 }
 
 // ─── Claude sessions (phase 3) ────────────────────────────────────────────────
@@ -295,117 +335,145 @@ export async function viewerPort(): Promise<number | null> {
 // `claudeReadJsonl` for replays.
 
 export interface ClaudeOpts {
-  prompt?: string;
-  resumeSessionId?: string;
-  permissionMode?: "default" | "auto" | "plan" | "bypassPermissions";
-  model?: string;
-  rows?: number;
-  cols?: number;
-}
-
-export interface ClaudeSpawnResult {
-  /** Placeholder uuid until the first SessionInit event arrives with the real
-   *  Claude Code session id. Use `claudeListenSession(sessionId, ...)` to
-   *  start receiving events under either id — the backend re-emits on both. */
-  sessionId: string;
-  ptyId: string;
+	prompt?: string;
+	resumeSessionId?: string;
+	permissionMode?: 'default' | 'auto' | 'plan' | 'bypassPermissions';
+	model?: string;
+	rows?: number;
+	cols?: number;
 }
 
 export interface SessionSummary {
-  sessionId: string;
-  projectDir: string;
-  startedAt: string;
-  lastMessageAt: string | null;
-  messageCount: number;
-  title: string | null;
-  model: string | null;
+	sessionId: string;
+	projectDir: string;
+	startedAt: string;
+	lastMessageAt: string | null;
+	messageCount: number;
+	title: string | null;
+	model: string | null;
 }
 
 /** Discriminated union mirroring `crate::claude::event::ChatEvent`. The wire
  *  shape is `{ kind, ... }` — see Rust enum for the canonical contract. */
 export type ChatEvent =
-  | {
-      kind: "session_init";
-      sessionId: string;
-      model: string | null;
-      cwd: string | null;
-      permissionMode: string | null;
-    }
-  | { kind: "text"; delta: string }
-  | { kind: "thinking"; delta: string }
-  | {
-      kind: "tool_use";
-      id: string;
-      name: string;
-      input: unknown;
-      parentToolUseId?: string;
-    }
-  | {
-      kind: "tool_result";
-      id: string;
-      output: unknown;
-      isError?: boolean;
-      parentToolUseId?: string;
-    }
-  | {
-      kind: "artifact";
-      path: string;
-      mime: string;
-      producedBy?: string;
-    }
-  | {
-      kind: "system_hook";
-      hookEvent: string;
-      name?: string;
-      content?: unknown;
-    }
-  | { kind: "rate_limit"; info: unknown }
-  | {
-      kind: "done";
-      usage?: unknown;
-      totalCostUsd?: number;
-      stopReason?: string;
-      durationMs?: number;
-    }
-  | { kind: "unknown"; raw: unknown }
-  | { kind: "parse_error"; message: string; line: string };
+	| {
+			kind: 'session_init';
+			sessionId: string;
+			model: string | null;
+			cwd: string | null;
+			permissionMode: string | null;
+	  }
+	| { kind: 'text'; delta: string; messageId?: string }
+	| { kind: 'thinking'; delta: string; messageId?: string }
+	| {
+			kind: 'tool_use';
+			id: string;
+			name: string;
+			input: unknown;
+			parentToolUseId?: string;
+	  }
+	| {
+			kind: 'tool_result';
+			id: string;
+			output: unknown;
+			isError?: boolean;
+			parentToolUseId?: string;
+	  }
+	| {
+			kind: 'artifact';
+			path: string;
+			mime: string;
+			producedBy?: string;
+	  }
+	| {
+			kind: 'system_hook';
+			hookEvent: string;
+			name?: string;
+			content?: unknown;
+	  }
+	| { kind: 'rate_limit'; info: unknown }
+	| {
+			kind: 'done';
+			usage?: unknown;
+			totalCostUsd?: number;
+			stopReason?: string;
+			durationMs?: number;
+	  }
+	| {
+			/** Phase 4: claude emitted an `sdk_control_request` envelope —
+			 *  today only the `permission` subtype is supported. The ACP
+			 *  server forwards this as `session/request_permission`;
+			 *  legacy chat consumers can ignore it. */
+			kind: 'control_request';
+			requestId: string;
+			subtype: string;
+			toolName?: string;
+			toolInput?: unknown;
+	  }
+	| { kind: 'unknown'; raw: unknown }
+	| { kind: 'parse_error'; message: string; line: string }
+	/** Frontend-synthesized: a user message we wrote to the streaming child's
+	 *  stdin. Persisted to `chat_user_turns` in SQLite (Claude's JSONL doesn't
+	 *  record plain-string user messages). Never emitted by Rust. */
+	| { kind: 'user_turn'; text: string; sequence: number; createdAt: number };
 
-export async function claudeSpawnSession(
-  cwd: string,
-  opts: ClaudeOpts,
-): Promise<ClaudeSpawnResult> {
-  return invoke("claude_spawn_session", { cwd, opts });
+// ─── Session-as-object (thread_id-keyed) ──────────────────────────────────────
+//
+// `threadId` is a stable, frontend-minted uuid. Claude's session id and any
+// PTY id are attributes of the Session. Events emit on `session://{threadId}`.
+// The full implementation lives in `src-tauri/src/claude/session.rs`.
+
+export interface SessionHandle {
+	threadId: string;
+	/** Populated once the parser has seen the first `system:init` event. */
+	claudeSessionId: string | null;
 }
 
-/**
- * Spawn a streaming-input claude child (one long-lived process per chat
- * thread). Uses pipes, NOT a PTY — claude rejects stream-json over a TTY.
- * Returns a placeholder session id; the real id arrives via the first
- * `system:init` event on `claude://session/{placeholder}` and
- * `claude://session/{realId}`. `pty_id` in the result is empty for streaming
- * sessions — use `sessionId` for `claudeChatSend` / `claudeChatKill`.
- *
- * Multi-turn pattern: first call `claudeChatSpawn(cwd, { prompt, ... })`,
- * then `claudeChatSend(sessionId, text)` for each subsequent message.
- */
-export async function claudeChatSpawn(
-  cwd: string,
-  opts: ClaudeOpts,
-): Promise<ClaudeSpawnResult> {
-  return invoke("claude_chat_spawn", { cwd, opts });
+/** Idempotently create / fetch a session. Does NOT spawn a process. The
+ *  streaming child is lazy; first call to `sessionSend` spawns it (or
+ *  `--resume`s an existing Claude session if `opts.resumeSessionId` is set). */
+export async function sessionEnsure(
+	threadId: string,
+	cwd: string,
+	opts: ClaudeOpts = {}
+): Promise<SessionHandle> {
+	return invoke('session_ensure', { threadId, cwd, opts });
 }
 
-/** Send a follow-up user message to a live streaming child via stdin. */
-export async function claudeChatSend(
-  sessionId: string,
-  text: string,
+/** Write a user message to the session's streaming child. Spawns one if
+ *  absent, with `--resume <claudeSessionId>` so the conversation continues. */
+export async function sessionSend(threadId: string, text: string): Promise<void> {
+	return invoke('session_send', { threadId, text });
+}
+
+/** Submit a tool result back to Claude — used by interactive tool
+ *  renderers like AskUserQuestion to ferry the user's answer into the
+ *  agent loop. `output` is a JSON value (string or structured). */
+export async function sessionToolResult(
+	threadId: string,
+	toolUseId: string,
+	output: unknown,
+	isError = false,
 ): Promise<void> {
-  return invoke("claude_chat_send", { sessionId, text });
+	return invoke('session_tool_result', { threadId, toolUseId, output, isError });
 }
 
-/** Kill a streaming child. Idempotent. */
-export async function claudeChatKill(sessionId: string): Promise<void> {
-  return invoke("claude_chat_kill", { sessionId });
+/** Kill the streaming child but keep the session row so the next send
+ *  re-spawns. Idempotent. */
+export async function sessionCancel(threadId: string): Promise<void> {
+	return invoke('session_cancel', { threadId });
+}
+
+/** Tear down the session entirely (kill child + drop in-memory entry).
+ *  Idempotent. */
+export async function sessionDestroy(threadId: string): Promise<void> {
+	return invoke('session_destroy', { threadId });
+}
+
+/** HMR / page-reload hygiene: kill every streaming child the app owns. Wire
+ *  this to window 'beforeunload' so dev reloads don't leave zombies. */
+export async function sessionDestroyAll(): Promise<void> {
+	return invoke('session_destroy_all');
 }
 
 /** Pass `null` or omit `projectDir` to list sessions across all project
@@ -413,27 +481,412 @@ export async function claudeChatKill(sessionId: string): Promise<void> {
  *  returned (sorted newest-first); omit for "all sessions" (slow with 9k+
  *  files on disk — prefer paging the UI instead). */
 export async function claudeListSessions(
-  projectDir?: string | null,
-  limit?: number | null,
+	projectDir?: string | null,
+	limit?: number | null
 ): Promise<SessionSummary[]> {
-  return invoke("claude_list_sessions", {
-    projectDir: projectDir ?? null,
-    limit: limit ?? null,
-  });
+	return invoke('claude_list_sessions', {
+		projectDir: projectDir ?? null,
+		limit: limit ?? null,
+	});
 }
 
 export async function claudeReadJsonl(sessionId: string): Promise<ChatEvent[]> {
-  return invoke("claude_read_jsonl", { sessionId });
+	return invoke('claude_read_jsonl', { sessionId });
 }
 
-/** Subscribe to parsed events for a live session. Returns the unlisten fn. */
+/** Subscribe to parsed events for a live Claude session (PTY transports +
+ *  legacy mirror for streaming sessions, keyed on the real Claude session
+ *  id). For chat threads, prefer `sessionListen(threadId, ...)` — same id
+ *  before and after `system:init`. */
 export async function claudeListenSession(
-  sessionId: string,
-  onEvent: (event: ChatEvent) => void,
+	sessionId: string,
+	onEvent: (event: ChatEvent) => void
 ): Promise<UnlistenFn> {
-  return listen<ChatEvent>(`claude://session/${sessionId}`, (e) =>
-    onEvent(e.payload),
-  );
+	return listen<ChatEvent>(`claude://session/${sessionId}`, (e) => onEvent(e.payload));
+}
+
+/** Subscribe to parsed events for a chat thread, keyed by its stable
+ *  internal `threadId`. The Rust side emits on `session://{threadId}` for
+ *  the full lifetime of the thread — no placeholder/real id swap. */
+export async function sessionListen(
+	threadId: string,
+	onEvent: (event: ChatEvent) => void
+): Promise<UnlistenFn> {
+	return listen<ChatEvent>(`session://${threadId}`, (e) => onEvent(e.payload));
+}
+
+// ─── ACP (phase 3) ────────────────────────────────────────────────────────────
+//
+// Minimal local TS types that mirror the subset of the
+// `@agentclientprotocol/sdk` schema we currently exchange with the Rust ACP
+// server. We do NOT depend on the SDK here — that package is ~1.4 MB and we
+// only need a handful of shapes. If we ever wire up an external ACP peer
+// we'll re-export these from a shared package; phase 10 reshapes things.
+
+/** ACP `ProtocolVersion`. Numeric. V1 = 1. */
+export type AcpProtocolVersion = number;
+
+export interface AcpClientCapabilities {
+	fs?: { readTextFile?: boolean; writeTextFile?: boolean };
+	terminal?: boolean;
+}
+
+export interface AcpInitializeRequest {
+	protocolVersion: AcpProtocolVersion;
+	clientCapabilities?: AcpClientCapabilities;
+	_meta?: Record<string, unknown>;
+}
+
+export interface AcpPromptCapabilities {
+	image: boolean;
+	audio: boolean;
+	embeddedContext: boolean;
+}
+
+export interface AcpMcpCapabilities {
+	http: boolean;
+	sse: boolean;
+}
+
+export interface AcpAgentCapabilities {
+	loadSession: boolean;
+	promptCapabilities: AcpPromptCapabilities;
+	mcpCapabilities: AcpMcpCapabilities;
+}
+
+export interface AcpInitializeResponse {
+	protocolVersion: AcpProtocolVersion;
+	agentCapabilities: AcpAgentCapabilities;
+	authMethods: unknown[];
+	_meta?: Record<string, unknown>;
+}
+
+export interface AcpTextContentBlock {
+	type: 'text';
+	text: string;
+}
+
+/** ACP `ContentBlock::Image`. `data` is base64-encoded image bytes with NO
+ *  `data:` URI prefix (composer paste/drop handlers strip it before
+ *  building the block). `mimeType` deserializes natively on the Rust side
+ *  because `agent_client_protocol::schema::ImageContent` is annotated
+ *  `#[serde(rename_all = "camelCase")]` — no boundary translation needed.
+ *  Phase 7 made this content block end-to-end functional. */
+export interface AcpImageContentBlock {
+	type: 'image';
+	data: string;
+	mimeType: string;
+	uri?: string;
+}
+
+export type AcpContentBlock =
+	| AcpTextContentBlock
+	| AcpImageContentBlock
+	| { type: 'audio'; data: string; mimeType: string }
+	| { type: 'resource_link'; name: string; uri: string }
+	| { type: 'resource'; resource: unknown };
+
+export interface AcpNewSessionRequest {
+	cwd: string;
+	mcpServers: unknown[];
+	_meta?: Record<string, unknown>;
+}
+
+/** Phase 5: the four canonical ACP session modes the Rust ACP server
+ *  advertises. Mapping to claude CLI flags lives in `acp::mode` —
+ *  `auto` translates to claude's `acceptEdits`, everything else passes
+ *  through unchanged. */
+export type AcpSessionModeId = 'plan' | 'default' | 'auto' | 'bypassPermissions';
+
+export interface AcpSessionMode {
+	id: AcpSessionModeId;
+	name: string;
+	description?: string;
+	_meta?: Record<string, unknown>;
+}
+
+/** Mirrors ACP `SessionModeState`. The Rust server populates this on every
+ *  `session/new` response so the frontend can render a mode picker. */
+export interface AcpSessionModes {
+	currentModeId: AcpSessionModeId;
+	availableModes: AcpSessionMode[];
+	_meta?: Record<string, unknown>;
+}
+
+export interface AcpNewSessionResponse {
+	sessionId: string;
+	modes?: AcpSessionModes;
+	models?: unknown;
+	configOptions?: unknown[];
+	_meta?: Record<string, unknown>;
+}
+
+export interface AcpPromptRequest {
+	sessionId: string;
+	prompt: AcpContentBlock[];
+	messageId?: string;
+	_meta?: Record<string, unknown>;
+}
+
+export type AcpStopReason =
+	| 'end_turn'
+	| 'max_tokens'
+	| 'max_turn_requests'
+	| 'refusal'
+	| 'cancelled';
+
+export interface AcpPromptResponse {
+	stopReason: AcpStopReason;
+	userMessageId?: string;
+	usage?: unknown;
+	_meta?: Record<string, unknown>;
+}
+
+/** ACP `SessionUpdate` discriminated union. We only enumerate the variants
+ *  the Rust mapper currently emits — extend as later phases land. */
+export type AcpSessionUpdate =
+	| { sessionUpdate: 'agent_message_chunk'; content: AcpContentBlock; messageId?: string }
+	| { sessionUpdate: 'agent_thought_chunk'; content: AcpContentBlock; messageId?: string }
+	| { sessionUpdate: 'user_message_chunk'; content: AcpContentBlock }
+	| {
+			sessionUpdate: 'tool_call';
+			toolCallId: string;
+			title: string;
+			kind?: string;
+			status?: string;
+			content?: unknown[];
+			rawInput?: unknown;
+			_meta?: Record<string, unknown>;
+	  }
+	| {
+			sessionUpdate: 'tool_call_update';
+			toolCallId: string;
+			fields: {
+				status?: string;
+				content?: unknown[];
+				rawOutput?: unknown;
+			};
+			_meta?: Record<string, unknown>;
+	  }
+	| { sessionUpdate: string; [k: string]: unknown };
+
+export interface AcpSessionNotification {
+	sessionId: string;
+	update: AcpSessionUpdate;
+	_meta?: Record<string, unknown>;
+}
+
+/** ACP `initialize` — handshake. Returns the negotiated protocol version
+ *  + the agent's advertised capabilities. */
+export async function acpInitialize(
+	req: AcpInitializeRequest
+): Promise<AcpInitializeResponse> {
+	return invoke<AcpInitializeResponse>('acp_initialize', { req });
+}
+
+/** ACP `session/new` — mints a fresh thread id keyed in Rust as both the
+ *  ACP `sessionId` and the legacy `threadId`. The claude child is lazy —
+ *  it spawns on the first `acpPrompt`. */
+export async function acpNewSession(req: AcpNewSessionRequest): Promise<AcpNewSessionResponse> {
+	return invoke<AcpNewSessionResponse>('acp_new_session', { req });
+}
+
+/** ACP `session/prompt` — synchronous from the caller's POV, but emits
+ *  `AcpSessionNotification`s on `acp://session/{sessionId}` while the
+ *  agent is mid-turn. The promise resolves when the turn ends. */
+export async function acpPrompt(req: AcpPromptRequest): Promise<AcpPromptResponse> {
+	return invoke<AcpPromptResponse>('acp_prompt', { req });
+}
+
+/** ACP `session/cancel`. Phase 6: now uses a clean interrupt envelope
+ *  instead of killing the child — the Rust side writes
+ *  `sdk_control_request { subtype: "interrupt" }` to claude's stdin and
+ *  claude stops mid-turn while emitting its normal `Done` event. The
+ *  transcript stays intact and the streaming child stays alive, so the
+ *  next prompt re-uses it instead of paying spawn cost. Best-effort: a
+ *  stale or unknown `threadId` resolves cleanly as a no-op. */
+export async function acpCancel(threadId: string): Promise<void> {
+	return invoke('acp_cancel', { threadId });
+}
+
+/** Subscribe to ACP session updates for a given thread. Tauri side emits
+ *  `AcpSessionNotification`s on `acp://session/{threadId}` for every
+ *  `SessionUpdate` derived from the underlying ChatEvent stream. */
+export async function acpListen(
+	threadId: string,
+	onUpdate: (notification: AcpSessionNotification) => void
+): Promise<UnlistenFn> {
+	return listen<AcpSessionNotification>(`acp://session/${threadId}`, (e) =>
+		onUpdate(e.payload)
+	);
+}
+
+// ─── ACP permission round-trip (phase 4) ──────────────────────────────────────
+//
+// Subset of the ACP `session/request_permission` request/response shapes we
+// care about today. The Rust side emits the full request payload through
+// `acp://session/{threadId}/request`; the client replies via
+// `acpRespondPermission`. See `src-tauri/src/acp/permission.rs` for the
+// option-id encoding (`ask:{q_idx}:{label}` for AskUserQuestion, the four
+// canonical `allow_once / allow_always / reject_once / reject_always` for
+// generic tools).
+
+export type AcpPermissionOptionKind =
+	| 'allow_once'
+	| 'allow_always'
+	| 'reject_once'
+	| 'reject_always';
+
+export interface AcpPermissionOption {
+	optionId: string;
+	name: string;
+	kind: AcpPermissionOptionKind;
+}
+
+export interface AcpToolCallUpdate {
+	toolCallId: string;
+	title?: string;
+	kind?: string;
+	status?: string;
+	content?: unknown[];
+	rawInput?: unknown;
+	rawOutput?: unknown;
+}
+
+export interface AcpRequestPermissionRequest {
+	sessionId: string;
+	toolCall: AcpToolCallUpdate;
+	options: AcpPermissionOption[];
+	_meta?: Record<string, unknown>;
+}
+
+export type AcpRequestPermissionOutcome =
+	| { outcome: 'cancelled' }
+	| { outcome: 'selected'; optionId: string };
+
+export interface AcpRequestPermissionResponse {
+	outcome: AcpRequestPermissionOutcome;
+	_meta?: Record<string, unknown>;
+}
+
+/** Envelope the Rust side emits on `acp://session/{threadId}/request`.
+ *  Carries the `requestId` (so the reply can match it up) plus the full
+ *  ACP-shaped request payload. */
+export interface AcpRequestEnvelope {
+	requestId: string;
+	request: AcpRequestPermissionRequest;
+}
+
+/** Subscribe to `session/request_permission` requests for a thread. Used by
+ *  the Phase 4 PermissionDialog and the acp-smoke harness. */
+export async function acpListenRequests(
+	threadId: string,
+	onRequest: (envelope: AcpRequestEnvelope) => void
+): Promise<UnlistenFn> {
+	return listen<AcpRequestEnvelope>(
+		`acp://session/${threadId}/request`,
+		(e) => onRequest(e.payload),
+	);
+}
+
+/** Phase 4: reply to a `session/request_permission`. The Rust server
+ *  resolves the parked oneshot, translates the outcome into a
+ *  `sdk_control_response` envelope, and writes it back to claude's stdin. */
+export async function acpRespondPermission(
+	requestId: string,
+	response: AcpRequestPermissionResponse,
+): Promise<void> {
+	return invoke('acp_respond_permission', { requestId, response });
+}
+
+/** Phase 5: switch a session's permission mode. Pass one of the four
+ *  canonical ACP ids advertised in `AcpNewSessionResponse.modes`. The
+ *  Rust server updates the tracked mode for the session and, if a live
+ *  streaming child exists, writes a `set_permission_mode` control_request
+ *  to its stdin so the change applies mid-turn. Otherwise the next spawn
+ *  picks it up via `--permission-mode`. */
+export async function acpSetMode(threadId: string, modeId: AcpSessionModeId): Promise<void> {
+	return invoke('acp_set_mode', { threadId, modeId });
+}
+
+// ─── ACP session fork + load (phase 8) ────────────────────────────────────────
+//
+// `session/fork` clones an existing session from a chosen turn. The new thread
+// inherits the source's `claude_session_id` so the first prompt resumes
+// against the source's on-disk JSONL transcript (`claude --resume <id>`).
+// `session/load` re-attaches to an existing thread by id and returns its
+// current mode advertisement so the frontend's mode picker can hydrate
+// without paying cold-spawn cost. See `src-tauri/src/acp/server.rs`
+// (`handle_fork_session` / `handle_load_session`) for the Phase 8 contract.
+
+export interface AcpForkResult {
+	newThreadId: string;
+	sourceThreadId: string;
+	branchedFromTurn?: number;
+}
+
+export interface AcpLoadSessionResponse {
+	/** Initial mode state — same shape as `AcpNewSessionResponse.modes`,
+	 *  exists when the server tracks per-session modes. */
+	modes?: AcpSessionModes;
+}
+
+/** Phase 8: ACP `session/fork`. Clones `sourceThreadId` into a new thread
+ *  that inherits the source's claude session id, so the first prompt resumes
+ *  from the source's on-disk JSONL (`--resume <source_session_id>`).
+ *
+ *  `upToTurn` records the cutoff turn index for the relationship but does
+ *  NOT (yet) truncate the JSONL byte-for-byte — Phase 8 is the minimum
+ *  implementation; a future phase can do full transcript divergence. */
+export async function acpForkSession(
+	sourceThreadId: string,
+	opts?: { upToTurn?: number; label?: string },
+): Promise<AcpForkResult> {
+	return invoke<AcpForkResult>('acp_fork_session', {
+		sourceThreadId,
+		upToTurn: opts?.upToTurn,
+		label: opts?.label,
+	});
+}
+
+/** Phase 8: ACP `session/load`. Re-attach to a session by `threadId` and
+ *  return its current mode advertisement so the picker can hydrate. The
+ *  claude child stays lazy — it spawns on the next `acpPrompt`. The
+ *  on-disk transcript is read via the existing JSONL reader path. */
+export async function acpLoadSession(threadId: string): Promise<AcpLoadSessionResponse> {
+	return invoke<AcpLoadSessionResponse>('acp_load_session', { threadId });
+}
+
+// ─── ACP user-attention notify (phase 9) ──────────────────────────────────────
+//
+// Claude emits two event kinds that warrant pulling the user's attention:
+//
+//   - `Notification` hook (agent-initiated "need your input")
+//   - `PermissionRequest` (tool approval round-trip — also surfaced via
+//     `acp://session/{threadId}/request` for the in-UI dialog)
+//
+// The Rust side emits an `acp://notify` Tauri event for both. The frontend
+// dispatcher (`src/lib/notifications/acp-notify-bridge.ts`) decides whether
+// to fire an OS notification (via `tauri-plugin-notification`) AND/OR
+// bump the sidebar badge counter. See the dispatcher for the focus-policy
+// rules — Rust deliberately does NOT know about route/pane state.
+
+export type AcpNotifyKind = 'notification' | 'permissionRequest';
+
+export interface AcpNotifyPayload {
+	threadId: string;
+	title: string;
+	body: string;
+	kind: AcpNotifyKind;
+}
+
+/** Subscribe to `acp://notify` events from the Rust ACP server. Used by
+ *  `acp-notify-bridge.ts` (the singleton dispatcher) and by the
+ *  `ikengaAcpNotifyWatch` smoke helper. */
+export async function acpListenNotify(
+	callback: (payload: AcpNotifyPayload) => void,
+): Promise<UnlistenFn> {
+	return listen<AcpNotifyPayload>('acp://notify', (e) => callback(e.payload));
 }
 
 // ─── Claude config browser (/claude route) ────────────────────────────────────
@@ -443,113 +896,113 @@ export async function claudeListenSession(
 // `commands/claude_config.rs` which uses `serde_yaml` to parse frontmatter and
 // reuses `FsWatchManager` for live updates.
 
-export type ClaudeConfigScope = "project" | "personal";
+export type ClaudeConfigScope = 'project' | 'personal';
 
 export interface ClaudeFrontmatter {
-  [key: string]: unknown;
+	[key: string]: unknown;
 }
 
 export interface ClaudeAgent {
-  name: string;
-  scope: ClaudeConfigScope;
-  projectRoot: string | null;
-  path: string;
-  modifiedMs: number;
-  description: string | null;
-  model: string | null;
-  frontmatter: ClaudeFrontmatter;
-  body: string;
-  overriddenBy: string | null;
+	name: string;
+	scope: ClaudeConfigScope;
+	projectRoot: string | null;
+	path: string;
+	modifiedMs: number;
+	description: string | null;
+	model: string | null;
+	frontmatter: ClaudeFrontmatter;
+	body: string;
+	overriddenBy: string | null;
 }
 
 export interface ClaudeSupportingFile {
-  name: string;
-  path: string;
-  size: number;
+	name: string;
+	path: string;
+	size: number;
 }
 
 export interface ClaudeSkill {
-  name: string;
-  scope: ClaudeConfigScope;
-  projectRoot: string | null;
-  path: string;
-  dirPath: string;
-  modifiedMs: number;
-  description: string | null;
-  frontmatter: ClaudeFrontmatter;
-  body: string;
-  supportingFiles: ClaudeSupportingFile[];
-  overriddenBy: string | null;
+	name: string;
+	scope: ClaudeConfigScope;
+	projectRoot: string | null;
+	path: string;
+	dirPath: string;
+	modifiedMs: number;
+	description: string | null;
+	frontmatter: ClaudeFrontmatter;
+	body: string;
+	supportingFiles: ClaudeSupportingFile[];
+	overriddenBy: string | null;
 }
 
 export interface ClaudeCommand {
-  name: string;
-  scope: ClaudeConfigScope;
-  projectRoot: string | null;
-  path: string;
-  modifiedMs: number;
-  description: string | null;
-  model: string | null;
-  argumentHint: string | null;
-  frontmatter: ClaudeFrontmatter;
-  body: string;
-  overriddenBy: string | null;
+	name: string;
+	scope: ClaudeConfigScope;
+	projectRoot: string | null;
+	path: string;
+	modifiedMs: number;
+	description: string | null;
+	model: string | null;
+	argumentHint: string | null;
+	frontmatter: ClaudeFrontmatter;
+	body: string;
+	overriddenBy: string | null;
 }
 
 export interface ClaudeMcp {
-  name: string;
-  scope: ClaudeConfigScope;
-  projectRoot: string | null;
-  path: string;
-  transport: 'stdio' | 'http' | 'sse' | 'unknown' | string;
-  command: string | null;
-  args: string[];
-  envKeys: string[];
-  url: string | null;
-  headerKeys: string[];
-  raw: unknown;
+	name: string;
+	scope: ClaudeConfigScope;
+	projectRoot: string | null;
+	path: string;
+	transport: 'stdio' | 'http' | 'sse' | 'unknown' | string;
+	command: string | null;
+	args: string[];
+	envKeys: string[];
+	url: string | null;
+	headerKeys: string[];
+	raw: unknown;
 }
 
 export interface ClaudeHook {
-  event: string;
-  type: string;
-  name: string;
-  scope: ClaudeConfigScope;
-  projectRoot: string | null;
-  settingsPath: string;
-  commandPath: string | null;
-  commandRaw: string | null;
-  raw: unknown;
+	event: string;
+	type: string;
+	name: string;
+	scope: ClaudeConfigScope;
+	projectRoot: string | null;
+	settingsPath: string;
+	commandPath: string | null;
+	commandRaw: string | null;
+	raw: unknown;
 }
 
 export interface ClaudeConfigScanError {
-  path: string;
-  message: string;
+	path: string;
+	message: string;
 }
 
 export interface ClaudeConfig {
-  agents: ClaudeAgent[];
-  skills: ClaudeSkill[];
-  commands: ClaudeCommand[];
-  hooks: ClaudeHook[];
-  mcps: ClaudeMcp[];
-  errors: ClaudeConfigScanError[];
+	agents: ClaudeAgent[];
+	skills: ClaudeSkill[];
+	commands: ClaudeCommand[];
+	hooks: ClaudeHook[];
+	mcps: ClaudeMcp[];
+	errors: ClaudeConfigScanError[];
 }
 
 export async function claudeConfigLoad(projectRoots: string[]): Promise<ClaudeConfig> {
-  return invoke<ClaudeConfig>("claude_config_load", { projectRoots });
+	return invoke<ClaudeConfig>('claude_config_load', { projectRoots });
 }
 
 export async function claudeConfigWatch(projectRoots: string[]): Promise<string[]> {
-  return invoke<string[]>("claude_config_watch", { projectRoots });
+	return invoke<string[]>('claude_config_watch', { projectRoots });
 }
 
 export async function claudeConfigUnwatch(watcherIds: string[]): Promise<void> {
-  return invoke("claude_config_unwatch", { watcherIds });
+	return invoke('claude_config_unwatch', { watcherIds });
 }
 
 export async function claudeConfigReadFile(path: string): Promise<string> {
-  return invoke<string>("claude_config_read_file", { path });
+	return invoke<string>('claude_config_read_file', { path });
 }
 
 /** Subscribe to any change under any watched .claude/ dir. The Rust watcher
@@ -558,91 +1011,81 @@ export async function claudeConfigReadFile(path: string): Promise<string> {
  *  `queryClient.invalidateQueries({queryKey:['claude-config']})`.
  */
 export async function claudeConfigListen(
-  watcherIds: string[],
-  onChange: () => void,
+	watcherIds: string[],
+	onChange: () => void
 ): Promise<UnlistenFn> {
-  const unlisteners = await Promise.all(
-    watcherIds.map((id) =>
-      listen<unknown>(`fs://${id}`, () => onChange()),
-    ),
-  );
-  return () => {
-    for (const u of unlisteners) u();
-  };
+	const unlisteners = await Promise.all(
+		watcherIds.map((id) => listen<unknown>(`fs://${id}`, () => onChange()))
+	);
+	return () => {
+		for (const u of unlisteners) u();
+	};
 }
 
 // ─── Iyke (phase 11 — Day 1: read-side state + shell mirror push) ─────────────
 
 export interface IykeEndpoint {
-  url: string;
-  token: string;
-  port: number;
+	url: string;
+	token: string;
+	port: number;
 }
 
 export async function iykeEndpoint(): Promise<IykeEndpoint> {
-  return invoke("iyke_endpoint");
+	return invoke('iyke_endpoint');
 }
 
 export async function iykeSetShell(args: {
-  mode?: string | null;
-  route?: string | null;
+	mode?: string | null;
+	route?: string | null;
 }): Promise<void> {
-  return invoke("iyke_set_shell", {
-    mode: args.mode ?? null,
-    route: args.route ?? null,
-  });
+	return invoke('iyke_set_shell', {
+		mode: args.mode ?? null,
+		route: args.route ?? null,
+	});
 }
 
 // ─── Screenshots ──────────────────────────────────────────────────────────────
 
 export interface ScreenshotResult {
-  path: string;
-  width: number;
-  height: number;
-  bytesLen: number;
+	path: string;
+	width: number;
+	height: number;
+	bytesLen: number;
 }
 
-export async function screenshotWindow(
-  outPath?: string,
-): Promise<ScreenshotResult> {
-  return invoke("screenshot_window", { outPath: outPath ?? null });
+export async function screenshotWindow(outPath?: string): Promise<ScreenshotResult> {
+	return invoke('screenshot_window', { outPath: outPath ?? null });
 }
 
-export async function screenshotPane(
-  paneId: string,
-  outPath?: string,
-): Promise<ScreenshotResult> {
-  return invoke("screenshot_pane", {
-    paneId,
-    outPath: outPath ?? null,
-  });
+export async function screenshotPane(paneId: string, outPath?: string): Promise<ScreenshotResult> {
+	return invoke('screenshot_pane', {
+		paneId,
+		outPath: outPath ?? null,
+	});
 }
 
 export interface ScreenshotConfig {
-  /** User-supplied override (raw, may contain `~`). `null` = use platform default. */
-  overrideDir: string | null;
-  /** Per-platform default, absolute path. */
-  defaultDir: string;
-  /** What `capture()` will actually use right now. Tilde-expanded. */
-  effectiveDir: string;
+	/** User-supplied override (raw, may contain `~`). `null` = use platform default. */
+	overrideDir: string | null;
+	/** Per-platform default, absolute path. */
+	defaultDir: string;
+	/** What `capture()` will actually use right now. Tilde-expanded. */
+	effectiveDir: string;
 }
 
 export async function screenshotGetConfig(): Promise<ScreenshotConfig> {
-  return invoke("screenshot_get_config");
+	return invoke('screenshot_get_config');
 }
 
 /** Pass `null` (or omit) to clear the override and revert to the platform default. */
 export async function screenshotSetDir(dir: string | null): Promise<void> {
-  return invoke("screenshot_set_dir", { dir: dir ?? null });
+	return invoke('screenshot_set_dir', { dir: dir ?? null });
 }
 
 // ─── Spike: dynamic ACL verification (delete after kernel lands) ─────────
 
-export async function spikeGrantFsRead(
-  capabilityId: string,
-  path: string,
-): Promise<string> {
-  return invoke<string>("spike_grant_fs_read", { capabilityId, path });
+export async function spikeGrantFsRead(capabilityId: string, path: string): Promise<string> {
+	return invoke<string>('spike_grant_fs_read', { capabilityId, path });
 }
 
 // ─── Pkg kernel ────────────────────────────────────────────────────────
@@ -656,52 +1099,54 @@ export async function spikeGrantFsRead(
  * `{kind}` plus per-variant fields. Keep in sync with that file.
  */
 export type PkgInstallSource =
-  | { kind: "builtin" }
-  | { kind: "registry"; url: string; publisher_key: string | null }
-  | { kind: "local"; path: string };
+	| { kind: 'builtin' }
+	| { kind: 'registry'; url: string; publisher_key: string | null }
+	| { kind: 'local'; path: string };
 
 export interface PkgInstalledSummary {
-  id: string;
-  version: string;
-  ikenga_api: string;
-  install_path: string;
-  enabled: boolean;
-  installed_at: number;
-  compatible: boolean;
-  source: PkgInstallSource;
+	id: string;
+	version: string;
+	ikenga_api: string;
+	install_path: string;
+	enabled: boolean;
+	installed_at: number;
+	compatible: boolean;
+	source: PkgInstallSource;
 }
 
 export interface PkgKernelStatus {
-  installed: PkgInstalledSummary[];
-  registries: Record<string, unknown>;
-  api_version: number;
+	installed: PkgInstalledSummary[];
+	registries: Record<string, unknown>;
+	api_version: number;
 }
 
-export async function pkgInstallFromPath(installPath: string): Promise<{ installed: PkgInstalledSummary }> {
-  return invoke("pkg_install_from_path", { installPath });
+export async function pkgInstallFromPath(
+	installPath: string
+): Promise<{ installed: PkgInstalledSummary }> {
+	return invoke('pkg_install_from_path', { installPath });
 }
 
 export async function pkgUninstall(pkgId: string): Promise<void> {
-  return invoke("pkg_uninstall", { pkgId });
+	return invoke('pkg_uninstall', { pkgId });
 }
 
 export async function pkgSetEnabled(pkgId: string, enabled: boolean): Promise<void> {
-  return invoke("pkg_set_enabled", { pkgId, enabled });
+	return invoke('pkg_set_enabled', { pkgId, enabled });
 }
 
 export async function pkgKernelStatus(): Promise<PkgKernelStatus> {
-  return invoke<PkgKernelStatus>("pkg_kernel_status");
+	return invoke<PkgKernelStatus>('pkg_kernel_status');
 }
 
 export interface PkgDiscovered {
-  id: string;
-  name: string;
-  version: string;
-  install_path: string;
-  valid: boolean;
-  error: string | null;
-  installed: boolean;
-  compatible: boolean;
+	id: string;
+	name: string;
+	version: string;
+	install_path: string;
+	valid: boolean;
+	error: string | null;
+	installed: boolean;
+	compatible: boolean;
 }
 
 /**
@@ -711,7 +1156,7 @@ export interface PkgDiscovered {
  * list when neither is set.
  */
 export async function pkgDiscoverWorkspace(workspaceDir?: string): Promise<PkgDiscovered[]> {
-  return invoke<PkgDiscovered[]>("pkg_discover_workspace", { workspaceDir });
+	return invoke<PkgDiscovered[]>('pkg_discover_workspace', { workspaceDir });
 }
 
 /**
@@ -721,7 +1166,7 @@ export async function pkgDiscoverWorkspace(workspaceDir?: string): Promise<PkgDi
  * if no supervisor entry exists for that id (per-call lifecycle pkgs).
  */
 export async function pkgSupervisorRestart(pkgId: string): Promise<boolean> {
-  return invoke<boolean>("pkg_supervisor_restart", { pkgId });
+	return invoke<boolean>('pkg_supervisor_restart', { pkgId });
 }
 
 /**
@@ -731,73 +1176,69 @@ export async function pkgSupervisorRestart(pkgId: string): Promise<boolean> {
  * Release builds reject with an error.
  */
 export async function devBindPort(port: number): Promise<number> {
-  return invoke<number>("dev_bind_port", { port });
+	return invoke<number>('dev_bind_port', { port });
 }
 
 export async function devReleasePort(token: number): Promise<boolean> {
-  return invoke<boolean>("dev_release_port", { token });
+	return invoke<boolean>('dev_release_port', { token });
 }
 
 export interface PkgDbDiag {
-  db_path: string;
-  pkg_installed_count: number;
-  ids: string[];
+	db_path: string;
+	pkg_installed_count: number;
+	ids: string[];
 }
 
 export async function pkgDbDiag(): Promise<PkgDbDiag> {
-  return invoke<PkgDbDiag>("pkg_db_diag");
+	return invoke<PkgDbDiag>('pkg_db_diag');
 }
 
 export interface PkgSettingsField {
-  key: string;
-  type: string;
-  label: string;
-  default?: unknown;
-  description?: string | null;
+	key: string;
+	type: string;
+	label: string;
+	default?: unknown;
+	description?: string | null;
 }
 
 export interface PkgSettingsSnapshot {
-  pkg_id: string;
-  /** Array of declared fields, or null if the pkg has no settings block. */
-  schema: PkgSettingsField[] | null;
-  /** Object of `{ key: parsed_value }` pulled from `pkg_settings`. */
-  values: Record<string, unknown>;
+	pkg_id: string;
+	/** Array of declared fields, or null if the pkg has no settings block. */
+	schema: PkgSettingsField[] | null;
+	/** Object of `{ key: parsed_value }` pulled from `pkg_settings`. */
+	values: Record<string, unknown>;
 }
 
 export async function pkgSettingsGet(pkgId: string): Promise<PkgSettingsSnapshot> {
-  return invoke<PkgSettingsSnapshot>("pkg_settings_get", { pkgId });
+	return invoke<PkgSettingsSnapshot>('pkg_settings_get', { pkgId });
 }
 
-export async function pkgSettingsSet(
-  pkgId: string,
-  key: string,
-  value: unknown,
-): Promise<void> {
-  return invoke("pkg_settings_set", { pkgId, key, value });
+export async function pkgSettingsSet(pkgId: string, key: string, value: unknown): Promise<void> {
+	return invoke('pkg_settings_set', { pkgId, key, value });
 }
 
 /** Parsed manifest as raw JSON. Includes whatever optional blocks the
  *  manifest declared: permissions, settings, mcp, sidecars, ui, etc. */
 export interface PkgManifestPreview {
-  id: string;
-  name: string;
-  version: string;
-  ikenga_api: string;
-  kind?: string | null;
-  permissions?: Record<string, unknown>;
-  settings?: { schema?: PkgSettingsField[] };
-  mcp?: Array<{ name: string; command: string; args?: string[] }>;
-  sidecars?: Array<{ name: string; bin: string }>;
-  cron?: Array<{ id: string; expr: string; handler: string }>;
-  ui?: { routes?: Array<{ path: string; kind: string; source: string }> };
-  skills?: string | null;
-  commands?: string | null;
-  agents?: string | null;
-  [key: string]: unknown;
+	id: string;
+	name: string;
+	version: string;
+	ikenga_api: string;
+	kind?: string | null;
+	permissions?: Record<string, unknown>;
+	settings?: { schema?: PkgSettingsField[] };
+	mcp?: Array<{ name: string; command: string; args?: string[] }>;
+	sidecars?: Array<{ name: string; bin: string }>;
+	cron?: Array<{ id: string; expr: string; handler: string }>;
+	ui?: { routes?: Array<{ path: string; kind: string; source: string }> };
+	skills?: string | null;
+	commands?: string | null;
+	agents?: string | null;
+	[key: string]: unknown;
 }
 
 export async function pkgPreviewManifest(installPath: string): Promise<PkgManifestPreview> {
-  return invoke<PkgManifestPreview>("pkg_preview_manifest", { installPath });
+	return invoke<PkgManifestPreview>('pkg_preview_manifest', { installPath });
 }
 
 // ─── Pkg content (iframe mount) ─────────────────────────────────────────
@@ -809,12 +1250,12 @@ export async function pkgPreviewManifest(installPath: string): Promise<PkgManife
 // `pkgContentRevoke` releases the token when the iframe unmounts.
 
 export interface PkgContentHandle {
-  url: string;
-  token: string;
+	url: string;
+	token: string;
 }
 
 export async function pkgContentUrl(pkgId: string): Promise<PkgContentHandle> {
-  return invoke<PkgContentHandle>("pkg_content_url", { pkgId });
+	return invoke<PkgContentHandle>('pkg_content_url', { pkgId });
 }
 
 // `pkgContentHtml` reads the iframe entry HTML from the pkg's dist/, mints
@@ -826,25 +1267,22 @@ export async function pkgContentUrl(pkgId: string): Promise<PkgContentHandle> {
 // though subresource fetches succeed.
 // See https://github.com/tauri-apps/tauri/issues/12767.
 export interface PkgContentHtmlHandle {
-  html: string;
-  baseUrl: string;
-  token: string;
-  /** Resolved Supabase config when the pkg's manifest declared
-   *  `capabilities.supabase`. `null` when the pkg didn't declare it, or
-   *  declared it non-required and the vault has no keys. Pkgs that don't
-   *  declare the capability never see this field populated. */
-  supabase: { url: string; anonKey: string } | null;
+	html: string;
+	baseUrl: string;
+	token: string;
+	/** Resolved Supabase config when the pkg's manifest declared
+	 *  `capabilities.supabase`. `null` when the pkg didn't declare it, or
+	 *  declared it non-required and the vault has no keys. Pkgs that don't
+	 *  declare the capability never see this field populated. */
+	supabase: { url: string; anonKey: string } | null;
 }
 
-export async function pkgContentHtml(
-  pkgId: string,
-  source: string,
-): Promise<PkgContentHtmlHandle> {
-  return invoke<PkgContentHtmlHandle>("pkg_content_html", { pkgId, source });
+export async function pkgContentHtml(pkgId: string, source: string): Promise<PkgContentHtmlHandle> {
+	return invoke<PkgContentHtmlHandle>('pkg_content_html', { pkgId, source });
 }
 
 export async function pkgContentRevoke(token: string): Promise<void> {
-  return invoke("pkg_content_revoke", { token });
+	return invoke('pkg_content_revoke', { token });
 }
 
 // ─── Pkg MCP tool routing ───────────────────────────────────────────────
@@ -855,17 +1293,17 @@ export async function pkgContentRevoke(token: string): Promise<void> {
 // end-to-end so spec compliance is testable now.
 
 export interface PkgMcpCallResult {
-  ok: boolean;
-  error: string | null;
-  result: unknown | null;
+	ok: boolean;
+	error: string | null;
+	result: unknown | null;
 }
 
 export async function pkgMcpCall(
-  pkgId: string,
-  tool: string,
-  args: unknown,
+	pkgId: string,
+	tool: string,
+	args: unknown
 ): Promise<PkgMcpCallResult> {
-  return invoke<PkgMcpCallResult>("pkg_mcp_call", { pkgId, tool, args });
+	return invoke<PkgMcpCallResult>('pkg_mcp_call', { pkgId, tool, args });
 }
 
 // ─── pkg sidecar invocation ───────────────────────────────────────────────────
@@ -879,27 +1317,27 @@ export async function pkgMcpCall(
 // `sidecar:<name> <sub>` handler.
 
 export interface PkgSidecarCallResult {
-  ok: boolean;
-  error: string | null;
-  stdout: string | null;
-  stderr: string | null;
-  exit_code: number | null;
-  timed_out: boolean;
+	ok: boolean;
+	error: string | null;
+	stdout: string | null;
+	stderr: string | null;
+	exit_code: number | null;
+	timed_out: boolean;
 }
 
 export async function pkgSidecarCall(
-  pkgId: string,
-  name: string,
-  args: string[] = [],
-  options: { stdin?: string; timeoutSecs?: number } = {},
+	pkgId: string,
+	name: string,
+	args: string[] = [],
+	options: { stdin?: string; timeoutSecs?: number } = {}
 ): Promise<PkgSidecarCallResult> {
-  return invoke<PkgSidecarCallResult>("pkg_sidecar_call", {
-    pkgId,
-    name,
-    args,
-    stdin: options.stdin ?? null,
-    timeoutSecs: options.timeoutSecs ?? null,
-  });
+	return invoke<PkgSidecarCallResult>('pkg_sidecar_call', {
+		pkgId,
+		name,
+		args,
+		stdin: options.stdin ?? null,
+		timeoutSecs: options.timeoutSecs ?? null,
+	});
 }
 
 // ─── Iyke MCP info (settings panel) ───────────────────────────────────────────
@@ -908,16 +1346,16 @@ export async function pkgSidecarCall(
 // panel can render a copy-to-clipboard MCP-client config snippet.
 
 export interface IykeMcpInfo {
-  // Absolute path the user should configure their MCP client against.
-  path: string;
-  // True when the binary actually exists at `path`.
-  present: boolean;
-  // "dev-tree" | "resource-dir" | "unknown" — surfaced for the help text.
-  source: string;
+	// Absolute path the user should configure their MCP client against.
+	path: string;
+	// True when the binary actually exists at `path`.
+	present: boolean;
+	// "dev-tree" | "resource-dir" | "unknown" — surfaced for the help text.
+	source: string;
 }
 
 export async function iykeMcpInfo(): Promise<IykeMcpInfo> {
-  return invoke<IykeMcpInfo>("iyke_mcp_info");
+	return invoke<IykeMcpInfo>('iyke_mcp_info');
 }
 
 // ─── Activity-bar pinning (user-level) ────────────────────────────────────────
@@ -932,110 +1370,102 @@ export async function iykeMcpInfo(): Promise<IykeMcpInfo> {
 //     scoped to a single section — pass `''` (empty string) as `sectionId`
 //     to the reorder command to mean "no section".
 
-export type ActivityPinKind =
-  | "artifact"
-  | "route"
-  | "file"
-  | "external"
-  | "pkg-route";
+export type ActivityPinKind = 'artifact' | 'route' | 'file' | 'external' | 'pkg-route';
 
 export interface ActivityPin {
-  id: string;
-  kind: ActivityPinKind;
-  target: string;
-  label: string;
-  iconLucide: string | null;
-  iconEmoji: string | null;
-  sectionId: string | null;
-  sortOrder: number;
-  createdAt: string;
+	id: string;
+	kind: ActivityPinKind;
+	target: string;
+	label: string;
+	iconLucide: string | null;
+	iconEmoji: string | null;
+	sectionId: string | null;
+	sortOrder: number;
+	createdAt: string;
 }
 
 export interface ActivitySection {
-  id: string;
-  label: string;
-  iconLucide: string | null;
-  iconEmoji: string | null;
-  sortOrder: number;
-  createdAt: string;
+	id: string;
+	label: string;
+	iconLucide: string | null;
+	iconEmoji: string | null;
+	sortOrder: number;
+	createdAt: string;
 }
 
 export async function activityPinsList(): Promise<ActivityPin[]> {
-  return invoke<ActivityPin[]>("activity_pins_list");
+	return invoke<ActivityPin[]>('activity_pins_list');
 }
 
 export async function activityPinsAdd(args: {
-  kind: ActivityPinKind;
-  target: string;
-  label: string;
-  iconLucide?: string | null;
-  iconEmoji?: string | null;
-  sectionId?: string | null;
+	kind: ActivityPinKind;
+	target: string;
+	label: string;
+	iconLucide?: string | null;
+	iconEmoji?: string | null;
+	sectionId?: string | null;
 }): Promise<ActivityPin> {
-  return invoke<ActivityPin>("activity_pins_add", {
-    kind: args.kind,
-    target: args.target,
-    label: args.label,
-    iconLucide: args.iconLucide ?? null,
-    iconEmoji: args.iconEmoji ?? null,
-    sectionId: args.sectionId ?? null,
-  });
+	return invoke<ActivityPin>('activity_pins_add', {
+		kind: args.kind,
+		target: args.target,
+		label: args.label,
+		iconLucide: args.iconLucide ?? null,
+		iconEmoji: args.iconEmoji ?? null,
+		sectionId: args.sectionId ?? null,
+	});
 }
 
 export async function activityPinsRemove(id: string): Promise<void> {
-  return invoke("activity_pins_remove", { id });
+	return invoke('activity_pins_remove', { id });
 }
 
 /** Reorder pins within a section. Pass `''` as `sectionId` for the
  *  section-less group. The Rust side validates non-empty ids. */
-export async function activityPinsReorder(
-  orderedIds: string[],
-  sectionId: string,
-): Promise<void> {
-  return invoke("activity_pins_reorder", { orderedIds, sectionId });
+export async function activityPinsReorder(orderedIds: string[], sectionId: string): Promise<void> {
+	return invoke('activity_pins_reorder', { orderedIds, sectionId });
 }
 
 export async function activitySectionsList(): Promise<ActivitySection[]> {
-  return invoke<ActivitySection[]>("activity_sections_list");
+	return invoke<ActivitySection[]>('activity_sections_list');
 }
 
 export async function activitySectionsCreate(args: {
-  id: string;
-  label: string;
-  iconLucide?: string | null;
-  iconEmoji?: string | null;
+	id: string;
+	label: string;
+	iconLucide?: string | null;
+	iconEmoji?: string | null;
 }): Promise<ActivitySection> {
-  return invoke<ActivitySection>("activity_sections_create", {
-    id: args.id,
-    label: args.label,
-    iconLucide: args.iconLucide ?? null,
-    iconEmoji: args.iconEmoji ?? null,
-  });
+	return invoke<ActivitySection>('activity_sections_create', {
+		id: args.id,
+		label: args.label,
+		iconLucide: args.iconLucide ?? null,
+		iconEmoji: args.iconEmoji ?? null,
+	});
 }
 
 export async function activitySectionsUpdate(args: {
-  id: string;
-  label?: string;
-  /** `undefined` = leave unchanged. `null` = clear. `string` = set. */
-  iconLucide?: string | null;
-  iconEmoji?: string | null;
+	id: string;
+	label?: string;
+	/** `undefined` = leave unchanged. `null` = clear. `string` = set. */
+	iconLucide?: string | null;
+	iconEmoji?: string | null;
 }): Promise<ActivitySection> {
-  // Distinguish "not supplied" (don't touch the column) from "explicit null"
-  // (clear it) by serializing both cases differently. Rust deserializes
-  // `Option<Option<String>>`: outer None = leave, inner None = NULL.
-  const payload: Record<string, unknown> = { id: args.id };
-  if (args.label !== undefined) payload.label = args.label;
-  if (Object.hasOwn(args, "iconLucide")) {
-    payload.iconLucide = args.iconLucide ?? null;
-  }
-  if (Object.hasOwn(args, "iconEmoji")) {
-    payload.iconEmoji = args.iconEmoji ?? null;
-  }
-  return invoke<ActivitySection>("activity_sections_update", payload);
+	// Distinguish "not supplied" (don't touch the column) from "explicit null"
+	// (clear it) by serializing both cases differently. Rust deserializes
+	// `Option<Option<String>>`: outer None = leave, inner None = NULL.
+	const payload: Record<string, unknown> = { id: args.id };
+	if (args.label !== undefined) payload.label = args.label;
+	if (Object.hasOwn(args, 'iconLucide')) {
+		payload.iconLucide = args.iconLucide ?? null;
+	}
+	if (Object.hasOwn(args, 'iconEmoji')) {
+		payload.iconEmoji = args.iconEmoji ?? null;
+	}
+	return invoke<ActivitySection>('activity_sections_update', payload);
 }
 
 export async function activitySectionsRemove(id: string): Promise<void> {
-  return invoke("activity_sections_remove", { id });
+	return invoke('activity_sections_remove', { id });
 }
 
 // ─── Backup / restore ─────────────────────────────────────────────────────────
@@ -1047,106 +1477,272 @@ export async function activitySectionsRemove(id: string): Promise<void> {
 // replays staged secrets through the Stronghold-backed `bulk_set`.
 
 export interface PkgEntry {
-  id: string;
-  version: string;
-  enabled: boolean;
+	id: string;
+	version: string;
+	enabled: boolean;
 }
 
-export type PathMode = "raw" | "tokenized" | "bundled";
+export type PathMode = 'raw' | 'tokenized' | 'bundled';
 
 export interface PathWarning {
-  table: string;
-  column: string;
-  value: string;
-  reason: string;
+	table: string;
+	column: string;
+	value: string;
+	reason: string;
 }
 
 export interface BackupManifest {
-  format_version: number;
-  schema_version: number;
-  created_at: string;
-  hostname: string;
-  username: string;
-  path_mode: PathMode;
-  /** Export-time $HOME, present iff path_mode === "tokenized". */
-  home_dir: string | null;
-  has_secrets: boolean;
-  pkg_count: number;
-  path_warnings: PathWarning[];
+	format_version: number;
+	schema_version: number;
+	created_at: string;
+	hostname: string;
+	username: string;
+	path_mode: PathMode;
+	/** Export-time $HOME, present iff path_mode === "tokenized". */
+	home_dir: string | null;
+	has_secrets: boolean;
+	pkg_count: number;
+	path_warnings: PathWarning[];
 }
 
 export interface BackupSummary {
-  path: string;
-  created_at: string;
-  size_bytes: number;
-  schema_version: number;
-  has_secrets: boolean;
-  pkg_count: number;
-  path_mode: PathMode;
+	path: string;
+	created_at: string;
+	size_bytes: number;
+	schema_version: number;
+	has_secrets: boolean;
+	pkg_count: number;
+	path_mode: PathMode;
 }
 
 export interface ExportResult {
-  path: string;
-  size_bytes: number;
-  secrets_count: number;
-  pkg_count: number;
-  path_warnings_count: number;
+	path: string;
+	size_bytes: number;
+	secrets_count: number;
+	pkg_count: number;
+	path_warnings_count: number;
 }
 
 export type SchemaAction =
-  | { kind: "match" }
-  | { kind: "forward"; from: number; to: number }
-  | { kind: "newer_than_app"; backup: number; app: number };
+	| { kind: 'match' }
+	| { kind: 'forward'; from: number; to: number }
+	| { kind: 'newer_than_app'; backup: number; app: number };
 
 export interface ImportPreview {
-  manifest: BackupManifest;
-  size_bytes: number;
-  schema_action: SchemaAction;
-  pkgs: PkgEntry[];
+	manifest: BackupManifest;
+	size_bytes: number;
+	schema_action: SchemaAction;
+	pkgs: PkgEntry[];
 }
 
 export interface ImportResult {
-  staged_at: string;
-  requires_restart: boolean;
-  secrets_staged: boolean;
+	staged_at: string;
+	requires_restart: boolean;
+	secrets_staged: boolean;
 }
 
 export interface BackupExportOpts {
-  /** When true, the bundle includes vault secrets encrypted with `passphrase`. */
-  includeSecrets: boolean;
-  /** Required when `includeSecrets` is true. */
-  passphrase?: string;
-  /** Defaults to "raw" on the Rust side. "bundled" is not yet implemented. */
-  pathMode?: PathMode;
+	/** When true, the bundle includes vault secrets encrypted with `passphrase`. */
+	includeSecrets: boolean;
+	/** Required when `includeSecrets` is true. */
+	passphrase?: string;
+	/** Defaults to "raw" on the Rust side. "bundled" is not yet implemented. */
+	pathMode?: PathMode;
 }
 
 export async function backupExport(
-  destPath: string,
-  opts: BackupExportOpts,
+	destPath: string,
+	opts: BackupExportOpts
 ): Promise<ExportResult> {
-  return invoke<ExportResult>("backup_export", {
-    destPath,
-    includeSecrets: opts.includeSecrets,
-    passphrase: opts.passphrase ?? null,
-    pathMode: opts.pathMode ?? null,
-  });
+	return invoke<ExportResult>('backup_export', {
+		destPath,
+		includeSecrets: opts.includeSecrets,
+		passphrase: opts.passphrase ?? null,
+		pathMode: opts.pathMode ?? null,
+	});
 }
 
 export async function backupImport(
-  srcPath: string,
-  opts: { dryRun: boolean; passphrase?: string },
+	srcPath: string,
+	opts: { dryRun: boolean; passphrase?: string }
 ): Promise<ImportPreview | ImportResult> {
-  return invoke("backup_import", {
-    srcPath,
-    dryRun: opts.dryRun,
-    passphrase: opts.passphrase ?? null,
-  });
+	return invoke('backup_import', {
+		srcPath,
+		dryRun: opts.dryRun,
+		passphrase: opts.passphrase ?? null,
+	});
 }
 
 export async function backupList(): Promise<BackupSummary[]> {
-  return invoke<BackupSummary[]>("backup_list");
+	return invoke<BackupSummary[]>('backup_list');
 }
 
 export async function backupDelete(path: string): Promise<void> {
-  return invoke("backup_delete", { path });
+	return invoke('backup_delete', { path });
+}
+
+// ─── First-run wizard: system + agent detection ──────────────────────────────
+//
+// Three commands the onboarding wizard calls once on mount. All return rich
+// JSON so the wizard can render without a second round-trip. Field names
+// stay snake_case to match the Rust serde output verbatim — easier to
+// audit than a hand-mapped camelCase translation.
+
+export type CheckLevel = 'pass' | 'warn' | 'fail';
+
+export interface SystemCheck {
+	id: string;
+	level: CheckLevel;
+	message: string;
+	fix_hint: string | null;
+}
+
+export interface SystemReport {
+	os: string;
+	arch: string;
+	disk_free_gb: number;
+	app_data_dir: string;
+	app_data_writable: boolean;
+	vault_key_present: boolean;
+	claude_projects_dir_present: boolean;
+	checks: SystemCheck[];
+}
+
+export interface AgentCapabilities {
+	streaming: boolean;
+	tool_use: boolean;
+	thinking: boolean;
+	artifacts: boolean;
+	mcp: boolean;
+	session_resume: boolean;
+}
+
+export interface DetectedAgent {
+	id: string;
+	display: string;
+	executable_path: string;
+	version: string | null;
+	/** null = unknown / not probed; true = authed; false = not authed. */
+	authed: boolean | null;
+	/** Human-readable hint when `authed === false` or probe was inconclusive. */
+	auth_hint: string | null;
+	capabilities: AgentCapabilities;
+}
+
+export interface AgentConfigInventory {
+	root_path: string;
+	config_dir_present: boolean;
+	agent_count: number;
+	skill_count: number;
+	command_count: number;
+	mcp_server_count: number;
+	project_count: number;
+}
+
+export async function detectSystem(): Promise<SystemReport> {
+	return invoke<SystemReport>('detect_system');
+}
+
+export async function detectAgents(): Promise<DetectedAgent[]> {
+	return invoke<DetectedAgent[]>('detect_agents');
+}
+
+export async function detectAgentConfig(
+	agentId: string,
+	rootPath: string
+): Promise<AgentConfigInventory> {
+	return invoke<AgentConfigInventory>('detect_agent_config', {
+		agentId,
+		rootPath,
+	});
+}
+
+// Light-weight scan of `~/.claude/projects/` so the roots step can seed
+// suggestions. The slug→path decode is best-effort (Claude Code slugifies
+// `/` → `-`, which is lossy for components with internal hyphens) — the
+// wizard treats results as suggestions, not source-of-truth.
+export interface ClaudeProjectEntry {
+	slug: string;
+	/** Best-effort decoded path. When `path_verified` is false this is
+	 *  the naive `s/-/\//g` decode — the wizard should show it as a
+	 *  guess the user can edit before adding. */
+	path: string;
+	display_path: string;
+	session_count: number;
+	last_modified_ms: number;
+	/** True iff the Rust side could `metadata()` the decoded path. */
+	path_verified: boolean;
+}
+
+export async function listClaudeProjects(): Promise<ClaudeProjectEntry[]> {
+	return invoke<ClaudeProjectEntry[]>('list_claude_projects');
+}
+
+// Agent-config scaffolder (Phase 6). Lays down a starter set of
+// agents/skills/commands for the given provider into `<rootPath>/.claude/`
+// (or the provider's equivalent). `mode` mirrors the Rust ScaffoldMode:
+//   - 'augment'        (default) — write only files that don't exist
+//   - 'replace'                  — overwrite everything
+//   - 'skip_conflicts'           — like augment but the response lists
+//                                  every conflict-skipped path
+export type ScaffoldAgentConfigMode = 'replace' | 'augment' | 'skip_conflicts';
+
+export interface ScaffoldAgentConfigFileEntry {
+	path: string;
+	reason: string;
+}
+
+export interface ScaffoldAgentConfigResult {
+	ok: boolean;
+	files_written: number;
+	message: string;
+	written: string[];
+	skipped: ScaffoldAgentConfigFileEntry[];
+	errors: ScaffoldAgentConfigFileEntry[];
+}
+
+export async function scaffoldAgentConfig(
+	provider: string,
+	rootPath: string,
+	profile: string,
+	mode: ScaffoldAgentConfigMode = 'augment'
+): Promise<ScaffoldAgentConfigResult> {
+	return invoke<ScaffoldAgentConfigResult>('scaffold_agent_config', {
+		provider,
+		rootPath,
+		profile,
+		mode,
+	});
+}
+
+// ─── Phase 0.5 background-execution spike (debug-only) ────────────────────────
+//
+// Pairs with src-tauri/src/commands/bg_spike.rs. The Rust side is gated on
+// cfg(debug_assertions); the FE side is gated on import.meta.env.DEV by
+// the install helper in src/main.tsx (window.__bgSpikeInstall). Delete both
+// once Phase 0.5 is signed off — these aren't a permanent surface.
+
+export interface BgSpikeReport {
+	intendedCount: number;
+	completedCount: number;
+	timeoutCount: number;
+	durationMs: number;
+	p50Us: number;
+	p95Us: number;
+	p99Us: number;
+	maxUs: number;
+	sampleUs: number[];
+	webviewLabel: string;
+}
+
+export async function bgSpikeRun(
+	durationMs: number,
+	intervalMs: number,
+	perPingTimeoutMs: number,
+): Promise<BgSpikeReport> {
+	return invoke<BgSpikeReport>('bg_spike_run', {
+		durationMs,
+		intervalMs,
+		perPingTimeoutMs,
+	});
 }

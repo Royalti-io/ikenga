@@ -1,7 +1,11 @@
+mod agent_detect;
+pub mod acp;
 pub mod claude;
 mod commands;
+mod fs_roots;
 mod fs_watch;
 mod iyke;
+pub mod path_fix;
 mod pkg;
 mod pkg_content;
 mod pty;
@@ -11,20 +15,24 @@ mod viewer_server;
 use std::sync::Arc;
 
 use tauri::{Emitter, Manager};
-use tauri_plugin_sql::{Migration, MigrationKind};
+// tauri-plugin-sql is loaded as a plugin (below) so the frontend's
+// `@tauri-apps/plugin-sql` callers resolve, but it does NOT own the
+// migration list — that lives in `commands::db::ensure_schema`.
 use tokio::sync::Mutex;
 
 use commands::db::PaDb;
 use commands::screenshot::new_pending as new_screenshot_pending;
 use commands::{
+    acp_cancel, acp_fork_session, acp_initialize, acp_load_session, acp_new_session, acp_prompt,
+    acp_respond_permission, acp_set_mode,
     activity_pins_add, activity_pins_list, activity_pins_remove, activity_pins_reorder,
     activity_sections_create, activity_sections_list, activity_sections_remove,
     activity_sections_update,
     backup_delete, backup_export, backup_import, backup_list,
-    claude_chat_kill, claude_chat_send, claude_chat_spawn,
     claude_config_load, claude_config_read_file, claude_config_unwatch, claude_config_watch,
-    claude_list_sessions, claude_read_jsonl, claude_spawn_session, db_exec, db_query, fs_exists,
-    fs_list, fs_mime, fs_read, fs_rename, fs_trash,
+    claude_list_sessions, claude_read_jsonl, db_exec, db_query, fs_exists,
+    fs_list, fs_mime, fs_read, fs_rename, fs_roots_add, fs_roots_list, fs_roots_remove,
+    fs_roots_reset, fs_trash,
     fs_unwatch, fs_watch, fs_write, iyke_dom_done, iyke_endpoint,
     iyke_log_push, iyke_network_push, iyke_query_cache_done, iyke_set_shell, iyke_wait_done,
     pty_kill, pty_resize, pty_spawn, pty_write,
@@ -38,9 +46,16 @@ use commands::{
     pkg_uninstall, pkg_set_enabled, dev_bind_port, dev_release_port,
     secrets_set, secrets_vault_status, PkgContentState, SidecarsRegistryState, SidecarSupervisorState,
     set_dock_badge, iyke_mcp_info, spike_grant_fs_read, spike_setup_test_file, KernelState, PkgSettingsState,
+    settings_clear_all, settings_get, settings_get_all, settings_set,
+};
+#[cfg(debug_assertions)]
+use commands::{bg_spike_reply, bg_spike_run, new_bg_spike_state};
+use commands::{
     SecretsLock,
+    session_cancel, session_destroy, session_destroy_all, session_ensure,
+    session_send, session_tool_result,
     supabase_config_clear, supabase_config_get, supabase_config_set,
-    viewer_port, viewer_serve, viewer_stop, ClaudeManager, ClaudeManagerState, IykeRuntimeState,
+    viewer_port, viewer_serve, viewer_stop, IykeRuntimeState,
     ScreenshotConfigState, ScreenshotConfigStateRef, ScreenshotPending,
 };
 use fs_watch::FsWatchManager;
@@ -60,75 +75,32 @@ pub fn run() {
 
     init_logging();
 
+    // Repair $PATH on macOS GUI launches (Dock/Finder/Spotlight inherit
+    // launchd's minimal env, missing user-installed tools like `claude`).
+    // Must run before any sub-process spawns inherit our env.
+    path_fix::apply();
+
     let pty_manager = Arc::new(PtyManager::new());
     let fs_watch_manager = Arc::new(FsWatchManager::new());
     let viewer_manager = Arc::new(ViewerServerManager::new());
     let viewer_manager_for_start = viewer_manager.clone();
-    let claude_manager: ClaudeManagerState = Arc::new(ClaudeManager::new());
+    let sessions_manager: claude::session::SessionsState =
+        Arc::new(claude::session::SessionsManager::new());
+    // ACP server shares the same `SessionsManager` so the legacy
+    // `session_*` commands and the new ACP path operate on the same in-
+    // memory session table. Phase 11 retires the legacy path.
+    let acp_server: acp::server::AcpServerState =
+        Arc::new(acp::server::AcpServer::new(sessions_manager.clone()));
     let screenshot_pending: ScreenshotPending = new_screenshot_pending();
 
-    let migrations = vec![
-        Migration {
-            version: 1,
-            description: "init",
-            sql: include_str!("../migrations/0001_init.sql"),
-            kind: MigrationKind::Up,
-        },
-        Migration {
-            version: 2,
-            description: "viewer_recents",
-            sql: include_str!("../migrations/0002_viewer_recents.sql"),
-            kind: MigrationKind::Up,
-        },
-        Migration {
-            version: 3,
-            description: "claude_sessions",
-            sql: include_str!("../migrations/0003_claude_sessions.sql"),
-            kind: MigrationKind::Up,
-        },
-        Migration {
-            version: 4,
-            description: "render_queue",
-            sql: include_str!("../migrations/0004_render_queue.sql"),
-            kind: MigrationKind::Up,
-        },
-        Migration {
-            version: 5,
-            description: "mbox_sync",
-            sql: include_str!("../migrations/0005_mbox_sync.sql"),
-            kind: MigrationKind::Up,
-        },
-        Migration {
-            version: 6,
-            description: "storyboards",
-            sql: include_str!("../migrations/0006_storyboards.sql"),
-            kind: MigrationKind::Up,
-        },
-        Migration {
-            version: 7,
-            description: "pkg_kernel",
-            sql: include_str!("../migrations/0007_pkg_kernel.sql"),
-            kind: MigrationKind::Up,
-        },
-        Migration {
-            version: 8,
-            description: "pkg_install_source",
-            sql: include_str!("../migrations/0008_pkg_install_source.sql"),
-            kind: MigrationKind::Up,
-        },
-        Migration {
-            version: 9,
-            description: "strip_legacy",
-            sql: include_str!("../migrations/0009_strip_legacy.sql"),
-            kind: MigrationKind::Up,
-        },
-        Migration {
-            version: 10,
-            description: "activity_bar_pinning",
-            sql: include_str!("../migrations/0010_activity_bar_pinning.sql"),
-            kind: MigrationKind::Up,
-        },
-    ];
+    // Migrations are the responsibility of `commands::db::ensure_schema`
+    // (the Rust-side sqlx runner). The tauri-plugin-sql migration path only
+    // fires when JS calls `Database.load()` and that path has been observed
+    // to silently hang (see workspace.tsx::raceTimeout); previously this
+    // file maintained a parallel migration list that ran in zero practical
+    // contexts. The plugin is still registered so frontend callers of
+    // `@tauri-apps/plugin-sql` (Database.load for ad-hoc reads) work; it
+    // just doesn't own the schema.
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -136,11 +108,14 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(global_shortcut_plugin())
         .plugin(tauri_plugin_clipboard_manager::init())
-        .plugin(
-            tauri_plugin_sql::Builder::default()
-                .add_migrations("sqlite:pa.db", migrations)
-                .build(),
-        )
+        // Phase 9 (ACP migration): OS notifications for the
+        // user-attention hooks (Notification + PermissionRequest). The
+        // frontend dispatcher (`src/lib/notifications/acp-notify-bridge.ts`)
+        // owns the focus-suppression policy and fires sendNotification
+        // through this plugin's JS surface.
+        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_sql::Builder::default().build())
         .plugin(
             tauri_plugin_stronghold::Builder::new(|_password: &str| {
                 // Phase 14: vault key is bootstrapped from the OS keychain.
@@ -160,7 +135,8 @@ pub fn run() {
         .manage(pty_manager)
         .manage(fs_watch_manager)
         .manage(viewer_manager)
-        .manage(claude_manager)
+        .manage(sessions_manager)
+        .manage(acp_server)
         .manage(screenshot_pending.clone())
         .manage(SecretsLock::new())
         .setup(move |app| {
@@ -170,6 +146,19 @@ pub fn run() {
                 .app_data_dir()
                 .map_err(|e| format!("app_data_dir: {e}"))?;
             std::fs::create_dir_all(&data_dir)?;
+
+            // User-configurable FS allowlist. Must be installed before the
+            // first call to `commands::resolve_allowlisted` (which fs_*,
+            // viewer_serve, and a handful of other commands depend on).
+            match fs_roots::FsRoots::load(data_dir.join("fs_roots.json")) {
+                Ok(roots) => {
+                    let arc = Arc::new(roots);
+                    if let Err(e) = fs_roots::install(arc) {
+                        log::error!("[fs_roots] install failed: {e:#}");
+                    }
+                }
+                Err(e) => log::error!("[fs_roots] load failed: {e:#}"),
+            }
 
             // If the user staged a backup restore last session, swap pa.db
             // now — before any pool opens. apply_staged_restore_if_present
@@ -364,6 +353,11 @@ pub fn run() {
             app.manage(SidecarSupervisorState(sidecar_supervisor));
             app.manage(SidecarsRegistryState(sidecars_reg));
 
+            // Phase 0.5 background-execution spike state. Debug builds only.
+            // See commands/bg_spike.rs.
+            #[cfg(debug_assertions)]
+            app.manage(new_bg_spike_state());
+
             // Phase 14: write the runtime env-vault file so the actions
             // sidecar can read vault values via its existing dotenv loader.
             // Best-effort: a failure here just means sidecars fall through
@@ -391,13 +385,33 @@ pub fn run() {
             fs_unwatch,
             fs_trash,
             fs_rename,
+            // fs allowlist (user-configurable roots)
+            fs_roots_list,
+            fs_roots_add,
+            fs_roots_remove,
+            fs_roots_reset,
             // claude
-            claude_spawn_session,
             claude_list_sessions,
-            claude_chat_spawn,
-            claude_chat_send,
-            claude_chat_kill,
             claude_read_jsonl,
+            // chat sessions (thread_id-keyed)
+            session_ensure,
+            session_send,
+            session_tool_result,
+            session_cancel,
+            session_destroy,
+            session_destroy_all,
+            // acp (phase 3 — runs alongside legacy session_* until phase 10)
+            acp_initialize,
+            acp_new_session,
+            acp_prompt,
+            acp_cancel,
+            // acp permission round-trip (phase 4)
+            acp_respond_permission,
+            // acp session modes (phase 5)
+            acp_set_mode,
+            // acp session fork + faster resume (phase 8)
+            acp_fork_session,
+            acp_load_session,
             // claude config browser
             claude_config_load,
             claude_config_watch,
@@ -414,6 +428,11 @@ pub fn run() {
             secrets_list_keys,
             secrets_vault_status,
             secrets_import_dotenv,
+            // settings_kv (durable mirror for Zustand-backed prefs)
+            settings_get,
+            settings_set,
+            settings_get_all,
+            settings_clear_all,
             // supabase config (URL + anon key manifest)
             supabase_config_get,
             supabase_config_set,
@@ -447,6 +466,11 @@ pub fn run() {
             // spike: dynamic ACL verification (delete after kernel lands)
             spike_grant_fs_read,
             spike_setup_test_file,
+            // Phase 0.5 bg-execution spike. Debug builds only.
+            #[cfg(debug_assertions)]
+            bg_spike_run,
+            #[cfg(debug_assertions)]
+            bg_spike_reply,
             // pkg kernel
             pkg_install_from_path,
             pkg_uninstall,
@@ -465,6 +489,12 @@ pub fn run() {
             pkg_supervisor_restart,
             dev_bind_port,
             dev_release_port,
+            // first-run wizard detection
+            agent_detect::detect_system,
+            agent_detect::detect_agents,
+            agent_detect::detect_agent_config,
+            agent_detect::list_claude_projects,
+            agent_detect::scaffold_agent_config,
             // activity bar pinning
             activity_pins_list,
             activity_pins_add,

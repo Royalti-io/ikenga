@@ -8,8 +8,6 @@ import {
   sessionsListQueryOptions,
   type SessionSummary,
 } from '@/lib/queries/sessions';
-import { useLiveSessions } from '@/lib/queries/live-sessions';
-import { cn } from '@/components/ui/utils';
 
 import '../sessions.css';
 
@@ -39,7 +37,6 @@ function AgentSessionsPage() {
   const { agent } = Route.useParams();
   const navigate = useNavigate();
   const { data, isLoading, error } = useQuery(sessionsListQueryOptions(null));
-  const liveSessions = useLiveSessions((s) => s.sessions);
 
   const filtered = useMemo(() => {
     if (!data) return [] as SessionSummary[];
@@ -118,11 +115,9 @@ function AgentSessionsPage() {
                 </thead>
                 <tbody>
                   {filtered.map((s) => {
-                    const live = liveSessions[s.sessionId];
                     return (
                       <tr
                         key={s.sessionId}
-                        className={cn(live && 'is-live')}
                         onClick={() =>
                           navigate({
                             to: '/sessions/$sessionId',
@@ -140,12 +135,6 @@ function AgentSessionsPage() {
                               )}
                             </span>
                           </div>
-                          {live && (
-                            <span className="live-badge" style={{ marginTop: 4 }}>
-                              <span className="live-dot" />
-                              Live{live.kind ? ` · ${live.kind}` : ''}
-                            </span>
-                          )}
                         </td>
                         <td>
                           <div className="muted">{shortPath(s.projectDir)}</div>

@@ -4,13 +4,12 @@ import { useQuery } from '@tanstack/react-query';
 import { AlertCircle, Loader2, MessageSquare, Plus, Search, Terminal } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
-import { cn } from '@/components/ui/utils';
 import {
   detectAgentSlug,
   sessionsListQueryOptions,
   type SessionSummary,
 } from '@/lib/queries/sessions';
-import { useLiveSessions } from '@/lib/queries/live-sessions';
+import { useThreadBadges } from '@/lib/shell/thread-badges-store';
 import { NewSessionDialog } from '@/shell/sessions/new-session-dialog';
 
 import './sessions.css';
@@ -41,12 +40,16 @@ const PAGE_SIZE = 20;
 
 function SessionRow({
   session,
-  isLive,
-  liveKind,
+  badgeCount,
+  onClearBadge,
 }: {
   session: SessionSummary;
-  isLive: boolean;
-  liveKind?: 'pty' | 'streaming';
+  /** Phase 9: count of unread ACP user-attention pings (claude
+   *  `Notification` hooks + tool-approval requests) accumulated while the
+   *  user was elsewhere. Rendered as an orange dot + numeric count next
+   *  to the title. Cleared when the user clicks the row. */
+  badgeCount: number;
+  onClearBadge: () => void;
 }) {
   const navigate = useNavigate();
   const agent = detectAgentSlug(session);
@@ -56,11 +59,12 @@ function SessionRow({
   function handleRowClick(e: React.MouseEvent<HTMLTableRowElement>) {
     const target = e.target as HTMLElement;
     if (target.closest('a')) return;
+    if (badgeCount > 0) onClearBadge();
     navigate({ to: '/sessions/$sessionId', params: { sessionId: session.sessionId } });
   }
 
   return (
-    <tr onClick={handleRowClick} className={cn(isLive && 'is-live')}>
+    <tr onClick={handleRowClick}>
       <td>
         <div className="title-cell">
           <Link
@@ -69,6 +73,9 @@ function SessionRow({
             className="truncate"
             title={hasTitle ? session.title! : `Session ${session.sessionId}`}
             style={{ color: 'var(--fg)', textDecoration: 'none' }}
+            onClick={() => {
+              if (badgeCount > 0) onClearBadge();
+            }}
           >
             {hasTitle ? (
               session.title
@@ -76,18 +83,36 @@ function SessionRow({
               <span className="session-id-fb">{fallback}</span>
             )}
           </Link>
+          {badgeCount > 0 && (
+            <span
+              className="thread-badge"
+              title={`${badgeCount} unread notification${badgeCount === 1 ? '' : 's'}`}
+              aria-label={`${badgeCount} unread`}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+                marginLeft: 6,
+                padding: '0 6px',
+                borderRadius: 10,
+                background: 'var(--accent, #f59e0b)',
+                color: 'var(--accent-fg, #fff)',
+                fontSize: 10,
+                fontWeight: 600,
+                lineHeight: '16px',
+                minWidth: 16,
+                justifyContent: 'center',
+              }}
+            >
+              {badgeCount > 9 ? '9+' : badgeCount}
+            </span>
+          )}
         </div>
         <div style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
           {agent && (
             <span className="agent-badge">
               <span className="dot" />
               {agent}
-            </span>
-          )}
-          {isLive && (
-            <span className="live-badge" style={{ marginTop: 4 }}>
-              <span className="live-dot" />
-              Live{liveKind ? ` · ${liveKind}` : ''}
             </span>
           )}
         </div>
@@ -119,7 +144,12 @@ function SessionsPage() {
   const [newDialogOpen, setNewDialogOpen] = useState(false);
   const [limit, setLimit] = useState(PAGE_SIZE);
 
-  const liveSessions = useLiveSessions((s) => s.sessions);
+  // Phase 9: per-thread "needs your attention" counts surfaced by the ACP
+  // notify bridge. TODO(phase-10): also render this badge in the chat-pane
+  // tab strip, the command palette session picker, and the activity-bar
+  // pin (for any chat thread the user pinned).
+  const badgeCounts = useThreadBadges((s) => s.counts);
+  const clearBadge = useThreadBadges((s) => s.clear);
 
   useEffect(() => {
     if (search.new === '1' && !newDialogOpen) {
@@ -279,13 +309,13 @@ function SessionsPage() {
                   </thead>
                   <tbody>
                     {filtered.map((s) => {
-                      const live = liveSessions[s.sessionId];
+                      const badgeCount = badgeCounts[s.sessionId] ?? 0;
                       return (
                         <SessionRow
                           key={s.sessionId}
                           session={s}
-                          isLive={!!live}
-                          liveKind={live?.kind}
+                          badgeCount={badgeCount}
+                          onClearBadge={() => clearBadge(s.sessionId)}
                         />
                       );
                     })}

@@ -13,6 +13,7 @@ import { WriteEditRenderer } from './tool-renderers/write-edit';
 import { BashRenderer } from './tool-renderers/bash';
 import { TaskRenderer } from './tool-renderers/task';
 import { GenericJsonRenderer } from './tool-renderers/generic-json';
+import { AskUserQuestionRenderer } from './tool-renderers/ask-user-question';
 
 interface ToolCallCardProps {
   pair: PairedToolCall;
@@ -50,6 +51,11 @@ function Renderer({ pair, threadId }: { pair: PairedToolCall; threadId: string }
     return <WriteEditRenderer pair={pair} expanded />;
   if (name === 'Bash') return <BashRenderer pair={pair} expanded />;
   if (name === 'Task') return <TaskRenderer pair={pair} expanded threadId={threadId} />;
+  // AskUserQuestion may be invoked under several names depending on how it's
+  // registered (built-in, mcp scoped). Match on the trailing token.
+  if (name === 'AskUserQuestion' || name.endsWith('AskUserQuestion')) {
+    return <AskUserQuestionRenderer pair={pair} threadId={threadId} />;
+  }
   return <GenericJsonRenderer pair={pair} expanded />;
 }
 

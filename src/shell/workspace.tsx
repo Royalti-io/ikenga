@@ -6,7 +6,7 @@ import { ContentPane } from './content-pane';
 import { Dock } from './dock/dock';
 import { useDockStore } from './dock/dock-store';
 import { CommandPalette, useCommandPalette } from './command-palette';
-import { SupabaseBanner } from './supabase-banner';
+import { ConnectorBanner } from './connector-banner';
 import { debounce, loadLayoutState, saveLayoutState } from '@/lib/layout-state';
 import { useIykeBridge } from '@/lib/iyke/bridge';
 import { useIykeControlListener } from '@/lib/iyke/control-listener';
@@ -256,7 +256,7 @@ export function Workspace() {
 
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-background text-foreground">
-      <SupabaseBanner />
+      <ConnectorBanner />
       <div className="flex min-h-0 flex-1">
         <ActivityBar />
         <PanelGroup

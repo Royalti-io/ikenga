@@ -41,10 +41,38 @@ export class Pty {
   private exitSubs = new Set<PtyExitHandler>();
   private unlisten: (() => void) | null = null;
   private disposed = false;
+  /**
+   * Bytes received before any subscriber registered. Held so the first
+   * `onData()` consumer can catch up on everything the PTY has emitted so
+   * far — without this, the spawn-before-mount race leaves xterm blank.
+   */
+  private replayBuffer: Uint8Array = new Uint8Array(0);
 
   private constructor(id: string, label: string) {
     this.id = id;
     this.label = label;
+  }
+
+  /**
+   * Internal fanout. If no subscriber has registered yet, the bytes are
+   * appended to `replayBuffer` so the eventual `onData()` consumer can catch
+   * up; once a subscriber exists, bytes flow live.
+   */
+  private deliverData(bytes: Uint8Array) {
+    if (this.dataSubs.size === 0) {
+      const next = new Uint8Array(this.replayBuffer.length + bytes.length);
+      next.set(this.replayBuffer, 0);
+      next.set(bytes, this.replayBuffer.length);
+      this.replayBuffer = next;
+      return;
+    }
+    for (const sub of this.dataSubs) {
+      try {
+        sub(bytes);
+      } catch (err) {
+        console.error("[pty] data handler threw", err);
+      }
+    }
   }
 
   /**
@@ -62,15 +90,7 @@ export class Pty {
     try {
       pty.unlisten = await ptyListen(
         id,
-        (bytes) => {
-          for (const sub of pty.dataSubs) {
-            try {
-              sub(bytes);
-            } catch (err) {
-              console.error("[pty] data handler threw", err);
-            }
-          }
-        },
+        (bytes) => pty.deliverData(bytes),
         (code) => {
           pty.exited = true;
           pty.exitCode = code;
@@ -92,41 +112,18 @@ export class Pty {
   }
 
   /**
-   * Attach to a PTY that was spawned out-of-band (e.g. `claude_spawn_session`
-   * which spawns through Rust directly). The frontend just subscribes to the
-   * existing event stream — it does not own the lifecycle, so `dispose()` on
-   * an attached Pty unsubscribes but does not kill the child by default.
+   * Subscribe to data bytes. Returns an unsubscribe function. If bytes have
+   * already been buffered (received before any subscriber attached), the new
+   * handler receives them synchronously before subscribing to the live stream.
    */
-  static async attach(id: string, label?: string): Promise<Pty> {
-    const pty = new Pty(id, label ?? id);
-    pty.unlisten = await ptyListen(
-      id,
-      (bytes) => {
-        for (const sub of pty.dataSubs) {
-          try {
-            sub(bytes);
-          } catch (err) {
-            console.error('[pty] data handler threw', err);
-          }
-        }
-      },
-      (code) => {
-        pty.exited = true;
-        pty.exitCode = code;
-        for (const sub of pty.exitSubs) {
-          try {
-            sub(code);
-          } catch (err) {
-            console.error('[pty] exit handler threw', err);
-          }
-        }
-      },
-    );
-    return pty;
-  }
-
-  /** Subscribe to data bytes. Returns an unsubscribe function. */
   onData(handler: PtyDataHandler): () => void {
+    if (this.replayBuffer.length > 0) {
+      try {
+        handler(this.replayBuffer);
+      } catch (err) {
+        console.error("[pty] data handler threw on replay", err);
+      }
+    }
     this.dataSubs.add(handler);
     return () => {
       this.dataSubs.delete(handler);

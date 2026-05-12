@@ -19,6 +19,7 @@
 pub mod artifact_watcher;
 pub mod event;
 pub mod jsonl_reader;
+pub mod session;
 pub mod stream_parser;
 
 use std::path::{Path, PathBuf};

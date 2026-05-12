@@ -96,3 +96,117 @@ The actions sidecar logs every run to the Supabase `agent_runs` table — visibl
 This project replaced `ikenga/` (Next.js). The Next.js *server* was retired 2026-05-02 (commit `1768b8f`), but `ikenga/scripts/` and `ikenga/lib/` remain as a shared library that the actions sidecar shells out to via `tsx`. Supabase migrations also still live there — use `supabase db push --linked` from `ikenga/` for schema changes (per global memory).
 
 For broader monorepo conventions see `/home/nedjamez/royalti-co/CLAUDE.md`.
+
+## Pane mount model — current state (2026-05-11)
+
+Captured during Phase 0 of the `pkg-browser` design (see `.company/technical/plans/` if a planning doc lands later). Read this before adding any pkg that wants to embed arbitrary remote pages, control a webview, or mount anything other than an iframe.
+
+### Today: pkgs mount as iframes only
+
+- `Manifest.ui.routes[].kind` accepts `"iframe"` and `"component"`. **No `"webview"` / `"child_webview"` kind exists.**
+- Iframe routes are served by the in-process `pkg_content/` HTTP server and rendered by `src/components/pkg/pkg-iframe-host.tsx`. Resolution path: TanStack catch-all `routes/pkg/$pkgId/$.tsx` → `pkgKernelStatus().registries.ui_routes.entries` → `PkgIframeHost`.
+- `component`-kind routes are recorded but render as `<PkgRouteUnmountable />` for non-builtins. Builtins (Tasks) bypass the catch-all by registering host routes directly.
+- Per-iframe CSP and Permission-Policy can be declared in `Manifest.ui.csp` / `Manifest.ui.permissions` and are applied by `pkg_content` when serving the iframe document.
+
+### Not-yet-built: child webviews
+
+- `tauri.conf.json` declares **one window**. No multi-webview, no `WebviewWindowBuilder`/`WebviewBuilder` usage anywhere in `src-tauri/`. Only `commands/screenshot.rs` references `WebviewWindow` and only to read pixels from the existing main window.
+- Tauri 2's multi-webview is stable in 2.x and doesn't require the old `unstable` flag, but the kernel exposes no `create_child_webview` / `eval_in_pane` / cookie-partition APIs to pkgs today. This is the load-bearing prerequisite for `pkg-browser` and any other pkg that needs to drive arbitrary external sites (iframes hit CSP `frame-ancestors` on Spotify-for-Artists, Bandcamp, partner portals, etc.).
+- WebKitGTK on Linux (`libwebkit2gtk-4.1` per the deb deps), WKWebView on macOS, WebView2 on Windows. CDP is only reachable on WebView2 (Windows only) — `eval()` over Tauri IPC is the cross-platform surface.
+
+### MCP runtime — two paths, both stdio JSON-RPC
+
+The kernel runs every pkg-supplied MCP server as a stdio child:
+
+- **Per-call** (`pkg/mcp_runtime.rs::call_tool`) — default. Spawn → handshake → `tools/call` → reap, every call. 5s wallclock. Cheap for stateless tools, wrong for sidecars with session state.
+- **Long-lived** (`pkg/lifecycle.rs::SidecarSupervisor`) — opt in with `mcp[].lifecycle = "long-lived"` in the manifest. Spawned once on install/boot, multiplexed via JSON-RPC ids over a single child stdin/stdout. Full state machine (Spawning/Running/Crashed/Blocked/Parked/ShuttingDown), 3-strikes-in-60s circuit breaker, port-in-use detection (Blocked, no strike), `pkg://lifecycle` events.
+
+`pkg-browser` will be `"long-lived"` because it owns per-pane state (refs, cookie partitions, pause flags). Cwd of the spawned MCP child is `install_path`; relative paths in `args` resolve against it.
+
+### Registries
+
+Live in `src-tauri/src/pkg/registries/`: `claude_assets`, `cron`, `iyke_routes`, `mcp`, `permissions`, `queries`, `settings`, `sidecars`, `ui_routes`. Plus the `SidecarSupervisor` itself (a `Registry` impl in `pkg/lifecycle.rs`).
+
+Adding a new registry (e.g. `webview_panes` for `pkg-browser`):
+1. Add `pkg/registries/webview_panes.rs` implementing the `Registry` trait (`name`, `register`, `unregister`, `snapshot`).
+2. Re-export from `pkg/registries/mod.rs`.
+3. Construct + push into the registries `Vec` in `lib.rs::run()::setup` (search for the existing `Kernel::new(...)` call).
+4. The kernel handles boot replay, install/uninstall ordering, rollback on failure — registries don't need to think about lifecycle.
+
+### Manifest extension points
+
+`Manifest::CapabilitiesBlock` is the existing pattern for opt-in host-resolved capabilities (currently just Supabase URL/anon key threaded through the AppBridge handshake). A `webview` capability would slot in here. **Top-level `Manifest` has `deny_unknown_fields`**, so any new block (`ui.routes[].kind = "webview"`, `capabilities.webview`, etc.) must be added to `manifest.rs` *and* mirrored in `@ikenga/contract/src/manifest.ts` Zod schema in lockstep — same rule as the engine block.
+
+### What this means for `pkg-browser` Phase 1
+
+Phase 1 ("kernel: child-webview panes") is real net-new work, not just plumbing:
+
+1. New Tauri commands in `commands/pkg_webview.rs`: `pkg_webview_create / destroy / navigate / eval / set_visible`. Backed by `WebviewWindowBuilder` / per-window webview API. Cookie partition keyed by an opaque jar id passed by the pkg.
+2. New `WebviewPanesRegistry` in `pkg/registries/webview_panes.rs` — tracks `(pkg_id, pane_id) → webview handle`, cleans up on `unregister`.
+3. New manifest variant: `ui.routes[].kind = "webview"` *or* a separate `webview_panes` block (TBD in Phase 2). Plus `capabilities.webview = { partitions: string[] }`.
+4. Frontend: `src/components/pkg/pkg-webview-host.tsx` — a placeholder React component that asks the kernel to mount a child webview at its DOM rect, reposition on resize, destroy on unmount. The webview floats over the React tree natively.
+5. Background-execution mitigations from Phase 0.5 (App Nap on macOS, `CoreWebView2Controller.IsVisible` on Windows) get applied here.
+
+The macOS multi-webview rendering case is the highest-risk unknown. If `WebviewWindowBuilder` doesn't behave under WKWebView, fall back to a borderless OS window per pane positioned over the pane rect — same `eval`/cookie/MCP surface, worse UX.
+
+## Phase 0.5 — background-execution spike runbook
+
+The spike is wired into the running shell (not a separate Tauri app) so it inherits the real production webview, IPC layer, and OS integration. Tests the *main* webview (proxy for child-webview behavior on rows 2–5; row 1 of the matrix needs Phase 1's child-webview API to be testable at all).
+
+**Files** (all gated `cfg(debug_assertions)` / `import.meta.env.DEV`, deleted after sign-off):
+- `src-tauri/src/commands/bg_spike.rs` — Rust command pair (`bg_spike_run`, `bg_spike_reply`).
+- `src/lib/tauri-cmd.ts` — `bgSpikeRun()` typed wrapper at the bottom.
+- `src/lib/dev/bg-spike.ts` — installs `window.__bgSpikeReply` + `window.bgSpikeRun` console helpers.
+
+### How it measures
+
+Tauri 2's `WebviewWindow::eval` is fire-and-forget — host gets no direct timing back. So Rust evals a snippet that calls `window.__bgSpikeReply(nonce)` in the page; the FE hook invokes `bg_spike_reply(nonce)` back into Rust; Rust records `t1 - t0` as the round-trip. This is the same shape as the latency a `pkg-browser` MCP tool will experience, end-to-end.
+
+### Matrix to run on each OS (macOS / Windows / Linux)
+
+For each row, in DevTools console:
+
+```js
+// 60-second runs at 500ms cadence, 5s per-ping timeout. Pass a tag so the
+// console output is greppable across runs.
+await window.bgSpikeRun({ tag: 'focused' })          // Row baseline
+// → minimize the Ikenga window with the OS chrome, wait 30s, then:
+await window.bgSpikeRun({ tag: 'minimized' })        // Row 2
+// → restore + focus another app for the full run:
+await window.bgSpikeRun({ tag: 'backgrounded' })     // Row 3
+// → screen off (close lid / xset dpms force off / Ctrl+Shift+Power on Mac)
+//   for the full run; keep machine awake (caffeinate -dim on macOS,
+//   `systemd-inhibit --what=sleep sleep 90` on Linux):
+await window.bgSpikeRun({ tag: 'screen-off' })       // Row 4
+// → laptop to sleep mid-run; on wake, the queued ping should resolve.
+//   Documented as "queued, runs on wake" — no pass/fail metric.
+```
+
+Each call returns `{ intendedCount, completedCount, timeoutCount, p50Us, p95Us, p99Us, maxUs, … }`. Console output prints a one-line summary table.
+
+### Pass/fail thresholds (per-OS, per-row)
+
+| Row | Required | Threshold |
+|---|---|---|
+| `focused` | baseline RTT | p95 < 50ms |
+| `minimized` | eval still works | p95 < 500ms, completedCount/intendedCount > 0.95 |
+| `backgrounded` | no App Nap delay | p95 < 500ms, completedCount/intendedCount > 0.95 |
+| `screen-off` | works degraded | p95 < 2000ms, no full hangs |
+| `sleep` | queued | wake resolves the in-flight ping |
+
+### Decision gate (after collecting all 3 OSes)
+
+- **Green** (3 of 5 rows pass on all OSes, sleep documented): proceed to Phase 1 unmodified.
+- **Yellow** (one or more OSes fail `minimized` only): proceed to Phase 1 + bake the keep-awake mitigation into the kernel (assert macOS `NSProcessInfo.beginActivity(.userInitiated)` / Windows `CoreWebView2Controller.IsVisible = true` while any browser MCP tool call is in flight). Document `pkg-browser` as "works while the app window is open."
+- **Red** (any platform breaks `eval` round-trip when minimized even with mitigations): rescope. Either accept "open window only" as a hard limitation or bring forward `pkg-browser-cdp` so headless Chromium covers minimized/overnight workflows.
+
+### After sign-off
+
+Delete:
+- `src-tauri/src/commands/bg_spike.rs`
+- The `#[cfg(debug_assertions)]` blocks in `src-tauri/src/commands/mod.rs` referencing `bg_spike`
+- The `#[cfg(debug_assertions)]` blocks in `src-tauri/src/lib.rs` (import + manage + handler entries)
+- The `src/lib/dev/bg-spike.ts` file + the `import './bg-spike'` line in `src/lib/dev/index.ts`
+- The "Phase 0.5 background-execution spike (debug-only)" section at the end of `src/lib/tauri-cmd.ts`
+
+This section in CLAUDE.md stays — it's the architecture record.

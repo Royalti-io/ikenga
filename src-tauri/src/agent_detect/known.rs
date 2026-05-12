@@ -1,0 +1,442 @@
+//! Static table of coding-agent CLIs the wizard knows how to probe.
+//!
+//! Keep this list tight — every entry shows up in the wizard UI. Add new
+//! agents only when they ship a real CLI we can shell out to. Anything that
+//! requires a network probe to determine auth should be escalated rather
+//! than added here (the wizard runs these synchronously and we don't want
+//! to block on flaky internet).
+
+use serde::Serialize;
+
+/// Capability shape mirrors the engine adapter's `AdapterCapabilities` so
+/// the wizard can render a green-check matrix without a separate type.
+/// Hand-maintained today; future revisions will pull this from the engine
+/// pkg manifest once one is installed.
+#[derive(Clone, Copy, Debug, Serialize)]
+pub struct AgentCapabilities {
+    pub streaming: bool,
+    pub tool_use: bool,
+    pub thinking: bool,
+    pub artifacts: bool,
+    pub mcp: bool,
+    pub session_resume: bool,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum TargetFamily {
+    Any,
+    Unix,
+    Windows,
+    Macos,
+}
+
+/// Per-target executable-resolution hint. The detect logic tries `names`
+/// against `which` first, then falls back to scanning `extra_dirs`.
+#[derive(Clone, Copy, Debug)]
+pub struct ExecutableSpec {
+    pub target_family: TargetFamily,
+    pub names: &'static [&'static str],
+    /// Extra dirs to search after PATH (e.g. `~/.cursor/bin`). Tilde is
+    /// expanded at lookup time against `$HOME`.
+    pub extra_dirs: &'static [&'static str],
+}
+
+/// How to determine whether the user has already authenticated this agent.
+/// Slow / networked probes are explicitly forbidden — see escalation rules
+/// in the phase doc.
+#[derive(Clone, Copy, Debug)]
+pub enum AuthCheck {
+    /// Spawn `cmd` with `args`; exit-code 0 means authed. Wrapped in
+    /// `tokio::time::timeout(timeout_ms)` so a hanging probe can't stall
+    /// the wizard.
+    Exec {
+        cmd: &'static str,
+        args: &'static [&'static str],
+        timeout_ms: u64,
+    },
+    /// Presence of a non-empty env var implies authed.
+    EnvVar { name: &'static str },
+    /// Presence of any of these files (first match wins) implies authed.
+    /// Paths support `~` expansion.
+    FilePresent { paths: &'static [&'static str] },
+    /// Truthy if *any* of the nested checks succeed.
+    Any { checks: &'static [AuthCheck] },
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct AgentDef {
+    pub id: &'static str,
+    pub display: &'static str,
+    pub executables: &'static [ExecutableSpec],
+    pub version_arg: Option<&'static str>,
+    /// Captures one group; first match wins.
+    pub version_regex: Option<&'static str>,
+    pub auth_check: Option<AuthCheck>,
+    pub capabilities: AgentCapabilities,
+}
+
+const CAP_FULL: AgentCapabilities = AgentCapabilities {
+    streaming: true,
+    tool_use: true,
+    thinking: true,
+    artifacts: true,
+    mcp: true,
+    session_resume: true,
+};
+
+const CAP_CODEX: AgentCapabilities = AgentCapabilities {
+    streaming: true,
+    tool_use: true,
+    thinking: true,
+    artifacts: false,
+    mcp: false,
+    session_resume: false,
+};
+
+const CAP_GEMINI: AgentCapabilities = AgentCapabilities {
+    streaming: true,
+    tool_use: true,
+    thinking: false,
+    artifacts: false,
+    mcp: false,
+    session_resume: false,
+};
+
+const CAP_CURSOR: AgentCapabilities = AgentCapabilities {
+    streaming: true,
+    tool_use: true,
+    thinking: false,
+    artifacts: false,
+    mcp: true,
+    session_resume: false,
+};
+
+const CAP_OPENCODE: AgentCapabilities = AgentCapabilities {
+    streaming: true,
+    tool_use: true,
+    thinking: false,
+    artifacts: false,
+    mcp: false,
+    session_resume: false,
+};
+
+const CAP_QWEN: AgentCapabilities = AgentCapabilities {
+    streaming: true,
+    tool_use: true,
+    thinking: false,
+    artifacts: false,
+    mcp: false,
+    session_resume: false,
+};
+
+const CAP_AIDER: AgentCapabilities = AgentCapabilities {
+    streaming: true,
+    tool_use: true,
+    thinking: false,
+    artifacts: false,
+    mcp: false,
+    session_resume: false,
+};
+
+const CAP_OLLAMA: AgentCapabilities = AgentCapabilities {
+    streaming: true,
+    tool_use: false,
+    thinking: false,
+    artifacts: false,
+    mcp: false,
+    session_resume: false,
+};
+
+/// Standard semver-ish version regex, intentionally lenient so we catch
+/// strings like `1.2.3`, `v1.2.3`, `1.2.3-rc.4`, `1.2.3+meta`. We don't
+/// validate beyond "at least major.minor.patch" because CLIs ship a wide
+/// variety of formats.
+pub const DEFAULT_VERSION_REGEX: &str = r"(?i)v?(\d+\.\d+(?:\.\d+)?(?:[-+][0-9A-Za-z\.\-]+)?)";
+
+pub const KNOWN_AGENTS: &[AgentDef] = &[
+    AgentDef {
+        id: "claude-code",
+        display: "Claude Code",
+        executables: &[
+            ExecutableSpec {
+                target_family: TargetFamily::Unix,
+                names: &["claude"],
+                extra_dirs: &[],
+            },
+            ExecutableSpec {
+                target_family: TargetFamily::Windows,
+                names: &["claude.cmd", "claude.exe"],
+                extra_dirs: &[],
+            },
+        ],
+        version_arg: Some("--version"),
+        version_regex: Some(DEFAULT_VERSION_REGEX),
+        auth_check: Some(AuthCheck::Exec {
+            cmd: "claude",
+            args: &["doctor"],
+            timeout_ms: 4000,
+        }),
+        capabilities: CAP_FULL,
+    },
+    AgentDef {
+        id: "codex",
+        display: "OpenAI Codex CLI",
+        executables: &[
+            ExecutableSpec {
+                target_family: TargetFamily::Unix,
+                names: &["codex"],
+                extra_dirs: &[],
+            },
+            ExecutableSpec {
+                target_family: TargetFamily::Windows,
+                names: &["codex.cmd"],
+                extra_dirs: &[],
+            },
+        ],
+        version_arg: Some("--version"),
+        version_regex: Some(DEFAULT_VERSION_REGEX),
+        auth_check: Some(AuthCheck::EnvVar {
+            name: "OPENAI_API_KEY",
+        }),
+        capabilities: CAP_CODEX,
+    },
+    AgentDef {
+        id: "gemini-cli",
+        display: "Gemini CLI",
+        executables: &[
+            ExecutableSpec {
+                target_family: TargetFamily::Unix,
+                names: &["gemini"],
+                extra_dirs: &[],
+            },
+            ExecutableSpec {
+                target_family: TargetFamily::Windows,
+                names: &["gemini.cmd"],
+                extra_dirs: &[],
+            },
+        ],
+        version_arg: Some("--version"),
+        version_regex: Some(DEFAULT_VERSION_REGEX),
+        auth_check: Some(AuthCheck::Any {
+            checks: &[
+                AuthCheck::EnvVar {
+                    name: "GEMINI_API_KEY",
+                },
+                AuthCheck::FilePresent {
+                    paths: &["~/.config/gemini/credentials.json"],
+                },
+            ],
+        }),
+        capabilities: CAP_GEMINI,
+    },
+    AgentDef {
+        id: "cursor-agent",
+        display: "Cursor Agent",
+        executables: &[
+            ExecutableSpec {
+                target_family: TargetFamily::Unix,
+                names: &["cursor-agent"],
+                extra_dirs: &["~/.cursor/bin"],
+            },
+            ExecutableSpec {
+                target_family: TargetFamily::Windows,
+                names: &["cursor-agent.cmd"],
+                extra_dirs: &[],
+            },
+        ],
+        version_arg: Some("--version"),
+        version_regex: Some(DEFAULT_VERSION_REGEX),
+        auth_check: None,
+        capabilities: CAP_CURSOR,
+    },
+    AgentDef {
+        id: "opencode",
+        display: "OpenCode",
+        executables: &[
+            ExecutableSpec {
+                target_family: TargetFamily::Unix,
+                names: &["opencode"],
+                extra_dirs: &[],
+            },
+            ExecutableSpec {
+                target_family: TargetFamily::Windows,
+                names: &["opencode.cmd"],
+                extra_dirs: &[],
+            },
+        ],
+        version_arg: Some("--version"),
+        version_regex: Some(DEFAULT_VERSION_REGEX),
+        auth_check: None,
+        capabilities: CAP_OPENCODE,
+    },
+    AgentDef {
+        id: "qwen-code",
+        display: "Qwen Code",
+        executables: &[
+            ExecutableSpec {
+                target_family: TargetFamily::Unix,
+                names: &["qwen"],
+                extra_dirs: &[],
+            },
+            ExecutableSpec {
+                target_family: TargetFamily::Windows,
+                names: &["qwen.cmd"],
+                extra_dirs: &[],
+            },
+        ],
+        version_arg: Some("--version"),
+        version_regex: Some(DEFAULT_VERSION_REGEX),
+        auth_check: Some(AuthCheck::EnvVar {
+            name: "DASHSCOPE_API_KEY",
+        }),
+        capabilities: CAP_QWEN,
+    },
+    AgentDef {
+        id: "aider",
+        display: "Aider",
+        executables: &[
+            ExecutableSpec {
+                target_family: TargetFamily::Unix,
+                names: &["aider"],
+                extra_dirs: &[],
+            },
+            ExecutableSpec {
+                target_family: TargetFamily::Windows,
+                names: &["aider.cmd"],
+                extra_dirs: &[],
+            },
+        ],
+        version_arg: Some("--version"),
+        version_regex: Some(DEFAULT_VERSION_REGEX),
+        auth_check: Some(AuthCheck::Any {
+            checks: &[
+                AuthCheck::EnvVar {
+                    name: "OPENAI_API_KEY",
+                },
+                AuthCheck::EnvVar {
+                    name: "ANTHROPIC_API_KEY",
+                },
+            ],
+        }),
+        capabilities: CAP_AIDER,
+    },
+    AgentDef {
+        id: "ollama",
+        display: "Ollama",
+        executables: &[
+            ExecutableSpec {
+                target_family: TargetFamily::Unix,
+                names: &["ollama"],
+                extra_dirs: &[],
+            },
+            ExecutableSpec {
+                target_family: TargetFamily::Windows,
+                names: &["ollama.exe"],
+                extra_dirs: &[],
+            },
+        ],
+        version_arg: Some("--version"),
+        version_regex: Some(DEFAULT_VERSION_REGEX),
+        auth_check: None,
+        capabilities: CAP_OLLAMA,
+    },
+];
+
+/// True if `spec.target_family` is `Any` or matches `os` (`std::env::consts::OS`).
+pub fn family_matches(family: TargetFamily, os: &str) -> bool {
+    match family {
+        TargetFamily::Any => true,
+        TargetFamily::Unix => !matches!(os, "windows"),
+        TargetFamily::Macos => os == "macos",
+        TargetFamily::Windows => os == "windows",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_agent_has_at_least_one_executable_for_some_target() {
+        for def in KNOWN_AGENTS {
+            assert!(
+                !def.executables.is_empty(),
+                "agent {} has no executables",
+                def.id
+            );
+            for spec in def.executables {
+                assert!(
+                    !spec.names.is_empty(),
+                    "agent {} has an ExecutableSpec with empty names",
+                    def.id
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn every_agent_has_unix_or_windows_coverage() {
+        for def in KNOWN_AGENTS {
+            let mut has_unix = false;
+            let mut has_windows = false;
+            for spec in def.executables {
+                match spec.target_family {
+                    TargetFamily::Any => {
+                        has_unix = true;
+                        has_windows = true;
+                    }
+                    TargetFamily::Unix | TargetFamily::Macos => has_unix = true,
+                    TargetFamily::Windows => has_windows = true,
+                }
+            }
+            assert!(
+                has_unix || has_windows,
+                "agent {} has no platform coverage",
+                def.id
+            );
+        }
+    }
+
+    #[test]
+    fn ids_are_unique() {
+        let mut seen = std::collections::HashSet::new();
+        for def in KNOWN_AGENTS {
+            assert!(seen.insert(def.id), "duplicate agent id: {}", def.id);
+        }
+    }
+
+    #[test]
+    fn default_version_regex_parses_common_outputs() {
+        use regex::Regex;
+        let re = Regex::new(DEFAULT_VERSION_REGEX).unwrap();
+        let cases = [
+            ("claude 1.2.3", "1.2.3"),
+            ("codex CLI v0.4.1", "0.4.1"),
+            ("gemini 1.0.0-rc.2", "1.0.0-rc.2"),
+            ("cursor-agent 0.5.7", "0.5.7"),
+            ("opencode v1.10.0", "1.10.0"),
+            ("qwen 0.2", "0.2"),
+            ("aider 0.85.1-dev", "0.85.1-dev"),
+            ("ollama version is 0.5.4", "0.5.4"),
+        ];
+        for (input, expected) in cases {
+            let caps = re.captures(input).unwrap_or_else(|| {
+                panic!("regex did not match `{}`", input);
+            });
+            assert_eq!(caps.get(1).unwrap().as_str(), expected);
+        }
+    }
+
+    #[test]
+    fn family_matches_handles_runtime_os() {
+        assert!(family_matches(TargetFamily::Any, "linux"));
+        assert!(family_matches(TargetFamily::Any, "windows"));
+        assert!(family_matches(TargetFamily::Unix, "linux"));
+        assert!(family_matches(TargetFamily::Unix, "macos"));
+        assert!(!family_matches(TargetFamily::Unix, "windows"));
+        assert!(family_matches(TargetFamily::Macos, "macos"));
+        assert!(!family_matches(TargetFamily::Macos, "linux"));
+        assert!(family_matches(TargetFamily::Windows, "windows"));
+        assert!(!family_matches(TargetFamily::Windows, "linux"));
+    }
+}
