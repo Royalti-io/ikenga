@@ -23,33 +23,27 @@ import { createTerminalSession } from '@/terminal/single-terminal';
 
 // Must match the `ActivityMode` union in `lib/shell/shell-store.ts`. Post-
 // strip: 4 modes only. Mini-app modes were retired with the shell strip-down.
-const ACTIVITY_MODES: ReadonlyArray<ActivityMode> = [
-  'app',
-  'files',
-  'sessions',
-  'settings',
-];
-
+const ACTIVITY_MODES: ReadonlyArray<ActivityMode> = ['app', 'files', 'sessions', 'settings'];
 
 interface GoPayload {
-  path: string;
+	path: string;
 }
 interface ModePayload {
-  mode: string;
+	mode: string;
 }
 interface SplitPayload {
-  direction: 'horizontal' | 'vertical';
-  pane_id?: string | null;
+	direction: 'horizontal' | 'vertical';
+	pane_id?: string | null;
 }
 interface FocusPayload {
-  pane_id?: string | null;
-  index?: number | null;
+	pane_id?: string | null;
+	index?: number | null;
 }
 interface ClosePayload {
-  pane_id?: string | null;
+	pane_id?: string | null;
 }
 interface RefreshPayload {
-  pane_id?: string | null;
+	pane_id?: string | null;
 }
 
 /**
@@ -57,108 +51,108 @@ interface RefreshPayload {
  * effect cleans up on unmount.
  */
 export function useIykeControlListener(): void {
-  useEffect(() => {
-    const unlisteners: UnlistenFn[] = [];
-    let cancelled = false;
+	useEffect(() => {
+		const unlisteners: UnlistenFn[] = [];
+		let cancelled = false;
 
-    function track(p: Promise<UnlistenFn>) {
-      p.then((u) => {
-        if (cancelled) {
-          u();
-        } else {
-          unlisteners.push(u);
-        }
-      }).catch((err) => {
-        console.warn('[iyke] failed to subscribe:', err);
-      });
-    }
+		function track(p: Promise<UnlistenFn>) {
+			p.then((u) => {
+				if (cancelled) {
+					u();
+				} else {
+					unlisteners.push(u);
+				}
+			}).catch((err) => {
+				console.warn('[iyke] failed to subscribe:', err);
+			});
+		}
 
-    track(
-      listen<GoPayload>('iyke:go', (e) => {
-        const path = e.payload?.path;
-        if (typeof path !== 'string' || !path.startsWith('/')) {
-          console.warn('[iyke] iyke:go ignored — bad path:', path);
-          return;
-        }
-        usePaneStore.getState().navigateFocused(path);
-      }),
-    );
+		track(
+			listen<GoPayload>('iyke:go', (e) => {
+				const path = e.payload?.path;
+				if (typeof path !== 'string' || !path.startsWith('/')) {
+					console.warn('[iyke] iyke:go ignored — bad path:', path);
+					return;
+				}
+				usePaneStore.getState().navigateFocused(path);
+			})
+		);
 
-    track(
-      listen<ModePayload>('iyke:mode', (e) => {
-        const mode = e.payload?.mode;
-        if (!ACTIVITY_MODES.includes(mode as ActivityMode)) {
-          console.warn('[iyke] iyke:mode ignored — unknown mode:', mode);
-          return;
-        }
-        useShellStore.getState().setActiveMode(mode as ActivityMode);
-      }),
-    );
+		track(
+			listen<ModePayload>('iyke:mode', (e) => {
+				const mode = e.payload?.mode;
+				if (!ACTIVITY_MODES.includes(mode as ActivityMode)) {
+					console.warn('[iyke] iyke:mode ignored — unknown mode:', mode);
+					return;
+				}
+				useShellStore.getState().setActiveMode(mode as ActivityMode);
+			})
+		);
 
-    track(
-      listen<unknown>('iyke:open', (e) => {
-        const view = paneViewFromOpenPayload(e.payload);
-        if (!view) return;
-        const focusedId = usePaneStore.getState().focusedId;
-        usePaneStore.getState().addTab(focusedId, view);
-      }),
-    );
+		track(
+			listen<unknown>('iyke:open', (e) => {
+				const view = paneViewFromOpenPayload(e.payload);
+				if (!view) return;
+				const focusedId = usePaneStore.getState().focusedId;
+				usePaneStore.getState().addTab(focusedId, view);
+			})
+		);
 
-    track(
-      listen<SplitPayload>('iyke:split', (e) => {
-        const direction = e.payload?.direction;
-        if (direction !== 'horizontal' && direction !== 'vertical') {
-          console.warn('[iyke] iyke:split ignored — bad direction:', direction);
-          return;
-        }
-        const paneId = e.payload?.pane_id;
-        if (paneId) {
-          usePaneStore.getState().splitPane(paneId, direction);
-        } else {
-          usePaneStore.getState().splitFocused(direction);
-        }
-      }),
-    );
+		track(
+			listen<SplitPayload>('iyke:split', (e) => {
+				const direction = e.payload?.direction;
+				if (direction !== 'horizontal' && direction !== 'vertical') {
+					console.warn('[iyke] iyke:split ignored — bad direction:', direction);
+					return;
+				}
+				const paneId = e.payload?.pane_id;
+				if (paneId) {
+					usePaneStore.getState().splitPane(paneId, direction);
+				} else {
+					usePaneStore.getState().splitFocused(direction);
+				}
+			})
+		);
 
-    track(
-      listen<FocusPayload>('iyke:focus', (e) => {
-        const { pane_id: paneId, index } = e.payload ?? {};
-        if (typeof paneId === 'string' && paneId.length > 0) {
-          usePaneStore.getState().focusPane(paneId);
-          return;
-        }
-        if (typeof index === 'number' && index >= 1) {
-          // CLI/MCP use 1-based indexing to match ⌃1..⌃6 keyboard shortcuts.
-          usePaneStore.getState().focusByIndex(index - 1);
-          return;
-        }
-        console.warn('[iyke] iyke:focus ignored — neither pane_id nor index given');
-      }),
-    );
+		track(
+			listen<FocusPayload>('iyke:focus', (e) => {
+				const { pane_id: paneId, index } = e.payload ?? {};
+				if (typeof paneId === 'string' && paneId.length > 0) {
+					usePaneStore.getState().focusPane(paneId);
+					return;
+				}
+				if (typeof index === 'number' && index >= 1) {
+					// CLI/MCP use 1-based indexing to match ⌃1..⌃6 keyboard shortcuts.
+					usePaneStore.getState().focusByIndex(index - 1);
+					return;
+				}
+				console.warn('[iyke] iyke:focus ignored — neither pane_id nor index given');
+			})
+		);
 
-    track(
-      listen<ClosePayload>('iyke:close', (e) => {
-        const paneId = e.payload?.pane_id;
-        if (paneId) {
-          usePaneStore.getState().closePane(paneId);
-        } else {
-          usePaneStore.getState().closeFocusedPane();
-        }
-      }),
-    );
+		track(
+			listen<ClosePayload>('iyke:close', (e) => {
+				const paneId = e.payload?.pane_id;
+				if (paneId) {
+					usePaneStore.getState().closePane(paneId);
+				} else {
+					usePaneStore.getState().closeFocusedPane();
+				}
+			})
+		);
 
-    track(
-      listen<RefreshPayload>('iyke:refresh', (e) => {
-        const paneId = e.payload?.pane_id ?? undefined;
-        usePaneStore.getState().refreshPane(paneId);
-      }),
-    );
+		track(
+			listen<RefreshPayload>('iyke:refresh', (e) => {
+				const paneId = e.payload?.pane_id ?? undefined;
+				usePaneStore.getState().refreshPane(paneId);
+			})
+		);
 
-    return () => {
-      cancelled = true;
-      for (const u of unlisteners) u();
-    };
-  }, []);
+		return () => {
+			cancelled = true;
+			for (const u of unlisteners) u();
+		};
+	}, []);
 }
 
 /**
@@ -167,57 +161,53 @@ export function useIykeControlListener(): void {
  * the caller should drop the event and log a warning.
  */
 function paneViewFromOpenPayload(payload: unknown): PaneView | null {
-  if (!payload || typeof payload !== 'object') {
-    console.warn('[iyke] iyke:open ignored — non-object payload:', payload);
-    return null;
-  }
-  const p = payload as Record<string, unknown>;
-  const kind = p.kind;
+	if (!payload || typeof payload !== 'object') {
+		console.warn('[iyke] iyke:open ignored — non-object payload:', payload);
+		return null;
+	}
+	const p = payload as Record<string, unknown>;
+	const kind = p.kind;
 
-  if (kind === 'route') {
-    const path = p.path;
-    if (typeof path !== 'string' || !path.startsWith('/')) {
-      console.warn('[iyke] iyke:open route ignored — bad path:', path);
-      return null;
-    }
-    return { kind: 'route', path };
-  }
+	if (kind === 'route') {
+		const path = p.path;
+		if (typeof path !== 'string' || !path.startsWith('/')) {
+			console.warn('[iyke] iyke:open route ignored — bad path:', path);
+			return null;
+		}
+		return { kind: 'route', path };
+	}
 
-  if (kind === 'terminal') {
-    // `cmd` is a free-form string from the CLI ("npm run dev") —
-    // shell-words would be ideal but adding a dep for one call is
-    // overkill. Plain whitespace split is the same thing the existing
-    // ⌘T handler does (it doesn't accept args at all), so this is
-    // strictly more capable than the keyboard path.
-    const cmdRaw = p.cmd;
-    const cmd =
-      typeof cmdRaw === 'string' && cmdRaw.trim().length > 0
-        ? cmdRaw.split(/\s+/)
-        : undefined;
-    const sessionId = createTerminalSession(
-      cmd ? { cmd, title: cmdRaw as string } : undefined,
-    );
-    return { kind: 'terminal', sessionId };
-  }
+	if (kind === 'terminal') {
+		// `cmd` is a free-form string from the CLI ("npm run dev") —
+		// shell-words would be ideal but adding a dep for one call is
+		// overkill. Plain whitespace split is the same thing the existing
+		// ⌘T handler does (it doesn't accept args at all), so this is
+		// strictly more capable than the keyboard path.
+		const cmdRaw = p.cmd;
+		const cmd =
+			typeof cmdRaw === 'string' && cmdRaw.trim().length > 0 ? cmdRaw.split(/\s+/) : undefined;
+		const sessionId = createTerminalSession(cmd ? { cmd, title: cmdRaw as string } : undefined);
+		return { kind: 'terminal', sessionId };
+	}
 
-  if (kind === 'chat') {
-    const sessionId = p.session_id;
-    if (typeof sessionId !== 'string' || sessionId.length === 0) {
-      console.warn('[iyke] iyke:open chat ignored — missing session_id');
-      return null;
-    }
-    return { kind: 'chat', sessionId };
-  }
+	if (kind === 'chat') {
+		const sessionId = p.session_id;
+		if (typeof sessionId !== 'string' || sessionId.length === 0) {
+			console.warn('[iyke] iyke:open chat ignored — missing session_id');
+			return null;
+		}
+		return { kind: 'chat', sessionId };
+	}
 
-  if (kind === 'artifact') {
-    const path = p.path;
-    if (typeof path !== 'string' || path.length === 0) {
-      console.warn('[iyke] iyke:open artifact ignored — missing path');
-      return null;
-    }
-    return { kind: 'artifact', path };
-  }
+	if (kind === 'artifact') {
+		const path = p.path;
+		if (typeof path !== 'string' || path.length === 0) {
+			console.warn('[iyke] iyke:open artifact ignored — missing path');
+			return null;
+		}
+		return { kind: 'artifact', path };
+	}
 
-  console.warn('[iyke] iyke:open ignored — unknown kind:', kind);
-  return null;
+	console.warn('[iyke] iyke:open ignored — unknown kind:', kind);
+	return null;
 }

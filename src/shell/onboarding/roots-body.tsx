@@ -249,10 +249,7 @@ export function RootsBody({ onContinue }: RootsBodyProps) {
 								>
 									<div className="min-w-0 flex-1">
 										<div className="flex items-center gap-2">
-											<span
-												className="truncate font-mono text-[12px]"
-												title={s.path}
-											>
+											<span className="truncate font-mono text-[12px]" title={s.path}>
 												{s.display_path}
 											</span>
 											{!s.path_verified && (

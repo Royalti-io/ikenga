@@ -13,29 +13,29 @@ import { supabase } from '@/lib/supabase';
  *   useRealtimeChannel('tasks', () => queryClient.invalidateQueries(...))
  */
 export function useRealtimeChannel(
-  table: string,
-  onChange: (payload: RealtimePostgresChangesPayload<Record<string, unknown>>) => void,
-  opts: { schema?: string; filter?: string } = {},
+	table: string,
+	onChange: (payload: RealtimePostgresChangesPayload<Record<string, unknown>>) => void,
+	opts: { schema?: string; filter?: string } = {}
 ) {
-  const { schema = 'public', filter } = opts;
+	const { schema = 'public', filter } = opts;
 
-  useEffect(() => {
-    const channel = supabase
-      .channel(`rt:${schema}:${table}${filter ? `:${filter}` : ''}`)
-      .on(
-        'postgres_changes' as never,
-        {
-          event: '*',
-          schema,
-          table,
-          ...(filter ? { filter } : {}),
-        },
-        onChange as never,
-      )
-      .subscribe();
+	useEffect(() => {
+		const channel = supabase
+			.channel(`rt:${schema}:${table}${filter ? `:${filter}` : ''}`)
+			.on(
+				'postgres_changes' as never,
+				{
+					event: '*',
+					schema,
+					table,
+					...(filter ? { filter } : {}),
+				},
+				onChange as never
+			)
+			.subscribe();
 
-    return () => {
-      void supabase.removeChannel(channel);
-    };
-  }, [table, schema, filter, onChange]);
+		return () => {
+			void supabase.removeChannel(channel);
+		};
+	}, [table, schema, filter, onChange]);
 }

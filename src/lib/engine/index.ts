@@ -12,24 +12,24 @@
 // stay on `getEngine()` until Phase 11 retires it.
 
 import {
-  createAcpEngine,
-  createEngine,
-  type AcpHost,
-  type HostBridge,
-} from "@ikenga/pkg-engine-claude-code";
-import type { AcpEngine, Engine } from "@ikenga/contract/engine";
+	createAcpEngine,
+	createEngine,
+	type AcpHost,
+	type HostBridge,
+} from '@ikenga/pkg-engine-claude-code';
+import type { AcpEngine, Engine } from '@ikenga/contract/engine';
 
-import { createShellAcpHost, createShellHostBridge } from "./host-bridge";
+import { createShellAcpHost, createShellHostBridge } from './host-bridge';
 
-export { createShellHostBridge, createShellAcpHost } from "./host-bridge";
-export { chatEventToEngineEvent } from "./host-bridge";
+export { createShellHostBridge, createShellAcpHost } from './host-bridge';
+export { chatEventToEngineEvent } from './host-bridge';
 
 /**
  * Construct an `Engine` from a caller-supplied `HostBridge`. Exists so
  * unit tests can inject mocks without touching the Tauri command layer.
  */
 export function createEngineFromBridge(host: HostBridge): Engine {
-  return createEngine(host);
+	return createEngine(host);
 }
 
 /**
@@ -38,7 +38,7 @@ export function createEngineFromBridge(host: HostBridge): Engine {
  * `AcpHost`; production wires `createShellAcpHost()`.
  */
 export function createAcpEngineFromHost(host: AcpHost): AcpEngine {
-  return createAcpEngine(host);
+	return createAcpEngine(host);
 }
 
 let _engine: Engine | null = null;
@@ -52,10 +52,10 @@ let _acpEngine: AcpEngine | null = null;
  * a chance to call `createEngineFromBridge` first).
  */
 export function getEngine(): Engine {
-  if (!_engine) {
-    _engine = createEngine(createShellHostBridge());
-  }
-  return _engine;
+	if (!_engine) {
+		_engine = createEngine(createShellHostBridge());
+	}
+	return _engine;
 }
 
 /**
@@ -63,8 +63,8 @@ export function getEngine(): Engine {
  * `acp` chat adapter. Same lazy-singleton rationale as `getEngine`.
  */
 export function getAcpEngine(): AcpEngine {
-  if (!_acpEngine) {
-    _acpEngine = createAcpEngine(createShellAcpHost());
-  }
-  return _acpEngine;
+	if (!_acpEngine) {
+		_acpEngine = createAcpEngine(createShellAcpHost());
+	}
+	return _acpEngine;
 }

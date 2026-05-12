@@ -14,45 +14,45 @@ import { claudeConfigQueryOptions } from '@/lib/queries/claude-config';
 import { useShellStore } from '@/lib/shell/shell-store';
 
 export function ClaudeSummarySectionBody() {
-  const projectRoots = useShellStore((s) => s.claudeProjectRoots);
-  const query = useQuery(claudeConfigQueryOptions(projectRoots));
+	const projectRoots = useShellStore((s) => s.claudeProjectRoots);
+	const query = useQuery(claudeConfigQueryOptions(projectRoots));
 
-  const total = query.data
-    ? query.data.agents.length +
-      query.data.skills.length +
-      query.data.commands.length +
-      query.data.hooks.length +
-      query.data.mcps.length
-    : null;
+	const total = query.data
+		? query.data.agents.length +
+			query.data.skills.length +
+			query.data.commands.length +
+			query.data.hooks.length +
+			query.data.mcps.length
+		: null;
 
-  return (
-    <div className="flex items-center justify-between gap-3 px-4 py-3">
-      <div className="min-w-0 flex-1 space-y-1">
-        <div className="flex items-center gap-2 text-sm">
-          <FolderTree className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-          <span className="font-medium text-foreground">Claude Code config</span>
-          {total != null && (
-            <span className="font-mono text-[11px] text-muted-foreground">{total} entries</span>
-          )}
-        </div>
-        <p className="text-xs text-muted-foreground">
-          Agents, skills, commands, hooks and MCP servers discovered under each project root and
-          your personal <code>~/.claude/</code>. Manage project roots in{' '}
-          <Link
-            to="/settings/storage"
-            className="underline decoration-dotted underline-offset-2 hover:text-foreground"
-          >
-            Settings → Storage
-          </Link>
-          .
-        </p>
-      </div>
-      <Button asChild variant="outline" size="sm">
-        <Link to="/claude">
-          <ExternalLink className="mr-1 h-3.5 w-3.5" />
-          Open /claude
-        </Link>
-      </Button>
-    </div>
-  );
+	return (
+		<div className="flex items-center justify-between gap-3 px-4 py-3">
+			<div className="min-w-0 flex-1 space-y-1">
+				<div className="flex items-center gap-2 text-sm">
+					<FolderTree className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+					<span className="font-medium text-foreground">Claude Code config</span>
+					{total != null && (
+						<span className="font-mono text-[11px] text-muted-foreground">{total} entries</span>
+					)}
+				</div>
+				<p className="text-xs text-muted-foreground">
+					Agents, skills, commands, hooks and MCP servers discovered under each project root and
+					your personal <code>~/.claude/</code>. Manage project roots in{' '}
+					<Link
+						to="/settings/storage"
+						className="underline decoration-dotted underline-offset-2 hover:text-foreground"
+					>
+						Settings → Storage
+					</Link>
+					.
+				</p>
+			</div>
+			<Button asChild variant="outline" size="sm">
+				<Link to="/claude">
+					<ExternalLink className="mr-1 h-3.5 w-3.5" />
+					Open /claude
+				</Link>
+			</Button>
+		</div>
+	);
 }

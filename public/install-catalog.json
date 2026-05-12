@@ -1,53 +1,53 @@
 {
-  "version": 1,
-  "packages": [
-    {
-      "id": "com.example.demo",
-      "name": "Demo Sidecar",
-      "version": "0.1.0",
-      "summary": "A no-op sidecar package used as a kernel smoke fixture.",
-      "source": { "kind": "local", "path": "/tmp/test-pkg-com.example.demo" },
-      "tags": ["demo", "smoke"]
-    },
-    {
-      "id": "com.example.iyke",
-      "name": "Iyke Routes Demo",
-      "version": "0.1.0",
-      "summary": "Registers two example /pkg/com.example.iyke/ HTTP routes (echo + event).",
-      "source": { "kind": "local", "path": "/tmp/test-pkg-com.example.iyke" },
-      "tags": ["demo", "iyke"]
-    },
-    {
-      "id": "com.example.cron",
-      "name": "Cron Tick Demo",
-      "version": "0.1.0",
-      "summary": "Fires a `pkg://cron-tick` event every second to verify the cron registry.",
-      "source": { "kind": "local", "path": "/tmp/test-pkg-com.example.cron" },
-      "tags": ["demo", "cron"]
-    },
-    {
-      "id": "com.royalti.tasks",
-      "name": "Tasks",
-      "version": "0.1.0",
-      "summary": "Master-detail Tasks UI — first real-feature kernel migration. Marker install: TanStack file-router still serves the route from src/routes/tasks; manifest declares ownership and registries (ui_routes, permissions, queries, settings) fire.",
-      "source": { "kind": "local", "path": "/tmp/test-pkg-com.royalti.tasks" },
-      "tags": ["royalti", "tasks", "migration"]
-    },
-    {
-      "id": "com.example.iframeapp",
-      "name": "Iframe App Smoke Fixture",
-      "version": "0.1.0",
-      "summary": "MCP App smoke fixture — exercises the iframe mount path end-to-end (pkg_content URL → AppBridge handshake → tools/call → uninstall 404). Uses @modelcontextprotocol/ext-apps as the in-iframe client.",
-      "source": { "kind": "local", "path": "/tmp/test-pkg-com.example.iframeapp" },
-      "tags": ["demo", "smoke", "iframe", "mcp-apps"]
-    },
-    {
-      "id": "com.royalti.hyperframes",
-      "name": "HyperFrames",
-      "version": "0.2.0",
-      "summary": "Per-project HyperFrames preview, served as a pkg. Wrapper UI lists projects from $HYPERFRAMES_PROJECTS_DIR; selecting one boots a per-slug Vite preview server (cap 4 concurrent) and embeds it in a nested iframe.",
-      "source": { "kind": "local", "path": "/tmp/test-pkg-com.royalti.hyperframes" },
-      "tags": ["royalti", "studio", "migration"]
-    }
-  ]
+	"version": 1,
+	"packages": [
+		{
+			"id": "com.example.demo",
+			"name": "Demo Sidecar",
+			"version": "0.1.0",
+			"summary": "A no-op sidecar package used as a kernel smoke fixture.",
+			"source": { "kind": "local", "path": "/tmp/test-pkg-com.example.demo" },
+			"tags": ["demo", "smoke"]
+		},
+		{
+			"id": "com.example.iyke",
+			"name": "Iyke Routes Demo",
+			"version": "0.1.0",
+			"summary": "Registers two example /pkg/com.example.iyke/ HTTP routes (echo + event).",
+			"source": { "kind": "local", "path": "/tmp/test-pkg-com.example.iyke" },
+			"tags": ["demo", "iyke"]
+		},
+		{
+			"id": "com.example.cron",
+			"name": "Cron Tick Demo",
+			"version": "0.1.0",
+			"summary": "Fires a `pkg://cron-tick` event every second to verify the cron registry.",
+			"source": { "kind": "local", "path": "/tmp/test-pkg-com.example.cron" },
+			"tags": ["demo", "cron"]
+		},
+		{
+			"id": "com.royalti.tasks",
+			"name": "Tasks",
+			"version": "0.1.0",
+			"summary": "Master-detail Tasks UI — first real-feature kernel migration. Marker install: TanStack file-router still serves the route from src/routes/tasks; manifest declares ownership and registries (ui_routes, permissions, queries, settings) fire.",
+			"source": { "kind": "local", "path": "/tmp/test-pkg-com.royalti.tasks" },
+			"tags": ["royalti", "tasks", "migration"]
+		},
+		{
+			"id": "com.example.iframeapp",
+			"name": "Iframe App Smoke Fixture",
+			"version": "0.1.0",
+			"summary": "MCP App smoke fixture — exercises the iframe mount path end-to-end (pkg_content URL → AppBridge handshake → tools/call → uninstall 404). Uses @modelcontextprotocol/ext-apps as the in-iframe client.",
+			"source": { "kind": "local", "path": "/tmp/test-pkg-com.example.iframeapp" },
+			"tags": ["demo", "smoke", "iframe", "mcp-apps"]
+		},
+		{
+			"id": "com.royalti.hyperframes",
+			"name": "HyperFrames",
+			"version": "0.2.0",
+			"summary": "Per-project HyperFrames preview, served as a pkg. Wrapper UI lists projects from $HYPERFRAMES_PROJECTS_DIR; selecting one boots a per-slug Vite preview server (cap 4 concurrent) and embeds it in a nested iframe.",
+			"source": { "kind": "local", "path": "/tmp/test-pkg-com.royalti.hyperframes" },
+			"tags": ["royalti", "studio", "migration"]
+		}
+	]
 }

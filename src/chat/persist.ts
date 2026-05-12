@@ -11,144 +11,138 @@ import { dbExec, dbQuery, type ChatEvent } from '@/lib/tauri-cmd';
 import type { ChatThread } from './adapter';
 
 interface ChatThreadRow {
-  id: string;
-  adapter: string;
-  title: string | null;
-  cwd: string | null;
-  model: string | null;
-  created_at: number;
-  updated_at: number;
-  claude_session_id: string | null;
-  project_dir: string | null;
-  pty_id: string | null;
+	id: string;
+	adapter: string;
+	title: string | null;
+	cwd: string | null;
+	model: string | null;
+	created_at: number;
+	updated_at: number;
+	claude_session_id: string | null;
+	project_dir: string | null;
+	pty_id: string | null;
 }
 
 function rowToThread(r: ChatThreadRow): ChatThread {
-  return {
-    id: r.id,
-    adapterId: r.adapter,
-    title: r.title,
-    cwd: r.project_dir ?? r.cwd ?? '',
-    model: r.model,
-    claudeSessionId: r.claude_session_id,
-    ptyId: r.pty_id,
-    createdAt: r.created_at,
-    updatedAt: r.updated_at,
-  };
+	return {
+		id: r.id,
+		adapterId: r.adapter,
+		title: r.title,
+		cwd: r.project_dir ?? r.cwd ?? '',
+		model: r.model,
+		claudeSessionId: r.claude_session_id,
+		ptyId: r.pty_id,
+		createdAt: r.created_at,
+		updatedAt: r.updated_at,
+	};
 }
 
 export async function findThreadByClaudeSessionId(
-  claudeSessionId: string,
+	claudeSessionId: string
 ): Promise<ChatThread | null> {
-  const rows = await dbQuery<ChatThreadRow>(
-    `SELECT id, adapter, title, cwd, model, created_at, updated_at,
+	const rows = await dbQuery<ChatThreadRow>(
+		`SELECT id, adapter, title, cwd, model, created_at, updated_at,
             claude_session_id, project_dir, pty_id
        FROM chat_threads
       WHERE claude_session_id = ?
       LIMIT 1`,
-    [claudeSessionId],
-  );
-  return rows[0] ? rowToThread(rows[0]) : null;
+		[claudeSessionId]
+	);
+	return rows[0] ? rowToThread(rows[0]) : null;
 }
 
 export async function findThreadById(id: string): Promise<ChatThread | null> {
-  const rows = await dbQuery<ChatThreadRow>(
-    `SELECT id, adapter, title, cwd, model, created_at, updated_at,
+	const rows = await dbQuery<ChatThreadRow>(
+		`SELECT id, adapter, title, cwd, model, created_at, updated_at,
             claude_session_id, project_dir, pty_id
        FROM chat_threads WHERE id = ? LIMIT 1`,
-    [id],
-  );
-  return rows[0] ? rowToThread(rows[0]) : null;
+		[id]
+	);
+	return rows[0] ? rowToThread(rows[0]) : null;
 }
 
 export interface CreateThreadInput {
-  id: string;
-  adapterId: string;
-  cwd: string;
-  claudeSessionId: string | null;
-  model: string | null;
-  title: string | null;
+	id: string;
+	adapterId: string;
+	cwd: string;
+	claudeSessionId: string | null;
+	model: string | null;
+	title: string | null;
 }
 
 export async function createThread(input: CreateThreadInput): Promise<void> {
-  const now = Date.now();
-  await dbExec(
-    `INSERT OR IGNORE INTO chat_threads
+	const now = Date.now();
+	await dbExec(
+		`INSERT OR IGNORE INTO chat_threads
        (id, adapter, claude_session_id, project_dir, cwd, model, title, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      input.id,
-      input.adapterId,
-      input.claudeSessionId,
-      input.cwd,
-      input.cwd,
-      input.model,
-      input.title,
-      now,
-      now,
-    ],
-  );
+		[
+			input.id,
+			input.adapterId,
+			input.claudeSessionId,
+			input.cwd,
+			input.cwd,
+			input.model,
+			input.title,
+			now,
+			now,
+		]
+	);
 }
 
 export async function updateThreadMeta(
-  id: string,
-  fields: Partial<Pick<ChatThread, 'title' | 'model' | 'claudeSessionId' | 'ptyId' | 'cwd'>>,
+	id: string,
+	fields: Partial<Pick<ChatThread, 'title' | 'model' | 'claudeSessionId' | 'ptyId' | 'cwd'>>
 ): Promise<void> {
-  const sets: string[] = [];
-  const params: (string | number | null)[] = [];
-  if ('title' in fields) {
-    sets.push('title = ?');
-    params.push(fields.title ?? null);
-  }
-  if ('model' in fields) {
-    sets.push('model = ?');
-    params.push(fields.model ?? null);
-  }
-  if ('claudeSessionId' in fields) {
-    sets.push('claude_session_id = ?');
-    params.push(fields.claudeSessionId ?? null);
-  }
-  if ('ptyId' in fields) {
-    sets.push('pty_id = ?');
-    params.push(fields.ptyId ?? null);
-  }
-  if ('cwd' in fields) {
-    sets.push('project_dir = ?', 'cwd = ?');
-    params.push(fields.cwd ?? null, fields.cwd ?? null);
-  }
-  if (sets.length === 0) return;
-  sets.push('updated_at = ?');
-  params.push(Date.now());
-  params.push(id);
-  await dbExec(
-    `UPDATE chat_threads SET ${sets.join(', ')} WHERE id = ?`,
-    params,
-  );
+	const sets: string[] = [];
+	const params: (string | number | null)[] = [];
+	if ('title' in fields) {
+		sets.push('title = ?');
+		params.push(fields.title ?? null);
+	}
+	if ('model' in fields) {
+		sets.push('model = ?');
+		params.push(fields.model ?? null);
+	}
+	if ('claudeSessionId' in fields) {
+		sets.push('claude_session_id = ?');
+		params.push(fields.claudeSessionId ?? null);
+	}
+	if ('ptyId' in fields) {
+		sets.push('pty_id = ?');
+		params.push(fields.ptyId ?? null);
+	}
+	if ('cwd' in fields) {
+		sets.push('project_dir = ?', 'cwd = ?');
+		params.push(fields.cwd ?? null, fields.cwd ?? null);
+	}
+	if (sets.length === 0) return;
+	sets.push('updated_at = ?');
+	params.push(Date.now());
+	params.push(id);
+	await dbExec(`UPDATE chat_threads SET ${sets.join(', ')} WHERE id = ?`, params);
 }
 
 export type MessageRole = 'user' | 'assistant' | 'system' | 'tool';
 
 export async function appendMessage(
-  threadId: string,
-  role: MessageRole,
-  events: ChatEvent[],
+	threadId: string,
+	role: MessageRole,
+	events: ChatEvent[]
 ): Promise<void> {
-  if (events.length === 0) return;
-  const id = `${threadId}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
-  await dbExec(
-    `INSERT INTO chat_messages (id, thread_id, role, content, metadata, created_at)
+	if (events.length === 0) return;
+	const id = `${threadId}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
+	await dbExec(
+		`INSERT INTO chat_messages (id, thread_id, role, content, metadata, created_at)
      VALUES (?, ?, ?, ?, NULL, ?)`,
-    [id, threadId, role, JSON.stringify(events), Date.now()],
-  );
+		[id, threadId, role, JSON.stringify(events), Date.now()]
+	);
 }
 
 /** Cold-start hygiene: drop stale pty_id values left over from a previous
  *  app run. PTYs don't survive process exits. */
 export async function clearLivePtys(): Promise<void> {
-  await dbExec(
-    `UPDATE chat_threads SET pty_id = NULL WHERE pty_id IS NOT NULL`,
-    [],
-  );
+	await dbExec(`UPDATE chat_threads SET pty_id = NULL WHERE pty_id IS NOT NULL`, []);
 }
 
 // ─── User turns ───────────────────────────────────────────────────────────────
@@ -173,59 +167,59 @@ export async function clearLivePtys(): Promise<void> {
 // `shell/docs/acp-migration.md` § Phase 11 for the decision log.
 
 export interface UserTurnRow {
-  id: string;
-  thread_id: string;
-  text: string;
-  sequence: number;
-  created_at: number;
+	id: string;
+	thread_id: string;
+	text: string;
+	sequence: number;
+	created_at: number;
 }
 
 export interface UserTurn {
-  id: string;
-  threadId: string;
-  text: string;
-  sequence: number;
-  createdAt: number;
+	id: string;
+	threadId: string;
+	text: string;
+	sequence: number;
+	createdAt: number;
 }
 
 function rowToUserTurn(r: UserTurnRow): UserTurn {
-  return {
-    id: r.id,
-    threadId: r.thread_id,
-    text: r.text,
-    sequence: r.sequence,
-    createdAt: r.created_at,
-  };
+	return {
+		id: r.id,
+		threadId: r.thread_id,
+		text: r.text,
+		sequence: r.sequence,
+		createdAt: r.created_at,
+	};
 }
 
 /** Append a user turn for this thread. Sequence increments monotonically per
  *  thread; we read max(sequence)+1 in the same call. Cheap on small threads;
  *  if this becomes hot we can cache in-memory off the store. */
 export async function appendUserTurn(threadId: string, text: string): Promise<UserTurn> {
-  const seqRows = await dbQuery<{ next_seq: number }>(
-    `SELECT COALESCE(MAX(sequence), -1) + 1 AS next_seq
+	const seqRows = await dbQuery<{ next_seq: number }>(
+		`SELECT COALESCE(MAX(sequence), -1) + 1 AS next_seq
        FROM chat_user_turns WHERE thread_id = ?`,
-    [threadId],
-  );
-  const sequence = seqRows[0]?.next_seq ?? 0;
-  const id = `ut:${threadId}:${sequence}:${Math.random().toString(36).slice(2, 8)}`;
-  const createdAt = Date.now();
-  await dbExec(
-    `INSERT INTO chat_user_turns (id, thread_id, text, sequence, created_at)
+		[threadId]
+	);
+	const sequence = seqRows[0]?.next_seq ?? 0;
+	const id = `ut:${threadId}:${sequence}:${Math.random().toString(36).slice(2, 8)}`;
+	const createdAt = Date.now();
+	await dbExec(
+		`INSERT INTO chat_user_turns (id, thread_id, text, sequence, created_at)
      VALUES (?, ?, ?, ?, ?)`,
-    [id, threadId, text, sequence, createdAt],
-  );
-  return { id, threadId, text, sequence, createdAt };
+		[id, threadId, text, sequence, createdAt]
+	);
+	return { id, threadId, text, sequence, createdAt };
 }
 
 /** Load all user turns for a thread in send order. */
 export async function loadUserTurns(threadId: string): Promise<UserTurn[]> {
-  const rows = await dbQuery<UserTurnRow>(
-    `SELECT id, thread_id, text, sequence, created_at
+	const rows = await dbQuery<UserTurnRow>(
+		`SELECT id, thread_id, text, sequence, created_at
        FROM chat_user_turns
       WHERE thread_id = ?
       ORDER BY sequence ASC`,
-    [threadId],
-  );
-  return rows.map(rowToUserTurn);
+		[threadId]
+	);
+	return rows.map(rowToUserTurn);
 }

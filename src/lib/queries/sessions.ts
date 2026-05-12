@@ -1,10 +1,10 @@
 import { queryOptions } from '@tanstack/react-query';
 
 import {
-  claudeListSessions,
-  claudeReadJsonl,
-  type ChatEvent,
-  type SessionSummary,
+	claudeListSessions,
+	claudeReadJsonl,
+	type ChatEvent,
+	type SessionSummary,
 } from '@/lib/tauri-cmd';
 import { queryKeys } from '@/lib/query-keys';
 
@@ -19,24 +19,21 @@ import { queryKeys } from '@/lib/query-keys';
 
 export type { ChatEvent, SessionSummary };
 
-export function sessionsListQueryOptions(
-  projectDir?: string | null,
-  limit?: number | null,
-) {
-  return queryOptions({
-    queryKey: [...queryKeys.sessions.list(projectDir), limit ?? 'all'] as const,
-    queryFn: () => claudeListSessions(projectDir ?? null, limit ?? null),
-    staleTime: 30_000,
-  });
+export function sessionsListQueryOptions(projectDir?: string | null, limit?: number | null) {
+	return queryOptions({
+		queryKey: [...queryKeys.sessions.list(projectDir), limit ?? 'all'] as const,
+		queryFn: () => claudeListSessions(projectDir ?? null, limit ?? null),
+		staleTime: 30_000,
+	});
 }
 
 export function sessionDetailQueryOptions(sessionId: string) {
-  return queryOptions({
-    queryKey: queryKeys.sessions.detail(sessionId),
-    queryFn: () => claudeReadJsonl(sessionId),
-    staleTime: Infinity,
-    enabled: sessionId.length > 0,
-  });
+	return queryOptions({
+		queryKey: queryKeys.sessions.detail(sessionId),
+		queryFn: () => claudeReadJsonl(sessionId),
+		staleTime: Infinity,
+		enabled: sessionId.length > 0,
+	});
 }
 
 // ─── Agent grouping ───────────────────────────────────────────────────────────
@@ -48,61 +45,61 @@ export function sessionDetailQueryOptions(sessionId: string) {
 // without requiring the chat thread to declare its agent up front.
 
 const AGENT_SLUGS = [
-  'pa-assistant',
-  'cmo-agent',
-  'cfo-agent',
-  'cpo-agent',
-  'cto-agent',
-  'cbo-agent',
-  'ceo-agent',
-  'vp-sales-agent',
-  'customer-success',
-  'newsletter-agent',
-  'fundraising-agent',
-  'blog-writer',
-  'competitor-analyst',
-  'content-strategist',
-  'content-refiner',
-  'market-researcher',
-  'prospect-researcher',
-  'video-creator-agent',
-  'analytics-coordinator',
-  'product-expert',
-  'system-architect',
-  'support-insights',
-  'seo-optimizer',
-  'financial-analyst',
-  'memory-recall',
-  'clo-agent',
-  'pa',
+	'pa-assistant',
+	'cmo-agent',
+	'cfo-agent',
+	'cpo-agent',
+	'cto-agent',
+	'cbo-agent',
+	'ceo-agent',
+	'vp-sales-agent',
+	'customer-success',
+	'newsletter-agent',
+	'fundraising-agent',
+	'blog-writer',
+	'competitor-analyst',
+	'content-strategist',
+	'content-refiner',
+	'market-researcher',
+	'prospect-researcher',
+	'video-creator-agent',
+	'analytics-coordinator',
+	'product-expert',
+	'system-architect',
+	'support-insights',
+	'seo-optimizer',
+	'financial-analyst',
+	'memory-recall',
+	'clo-agent',
+	'pa',
 ] as const;
 
 export type AgentSlug = (typeof AGENT_SLUGS)[number];
 
 export function detectAgentSlug(s: SessionSummary): AgentSlug | null {
-  const title = (s.title ?? '').toLowerCase();
-  // Look for an /agent-task-check <slug> framing first.
-  const match = title.match(/agent-task-check\s+([a-z0-9-]+)/);
-  if (match) {
-    const slug = match[1];
-    if ((AGENT_SLUGS as readonly string[]).includes(slug)) return slug as AgentSlug;
-  }
-  // Fall back to any agent slug appearing in the first line.
-  for (const slug of AGENT_SLUGS) {
-    if (title.includes(slug)) return slug;
-  }
-  return null;
+	const title = (s.title ?? '').toLowerCase();
+	// Look for an /agent-task-check <slug> framing first.
+	const match = title.match(/agent-task-check\s+([a-z0-9-]+)/);
+	if (match) {
+		const slug = match[1];
+		if ((AGENT_SLUGS as readonly string[]).includes(slug)) return slug as AgentSlug;
+	}
+	// Fall back to any agent slug appearing in the first line.
+	for (const slug of AGENT_SLUGS) {
+		if (title.includes(slug)) return slug;
+	}
+	return null;
 }
 
 export function groupByAgent(
-  sessions: SessionSummary[],
+	sessions: SessionSummary[]
 ): Map<AgentSlug | 'unassigned', SessionSummary[]> {
-  const groups = new Map<AgentSlug | 'unassigned', SessionSummary[]>();
-  for (const s of sessions) {
-    const key = detectAgentSlug(s) ?? 'unassigned';
-    const list = groups.get(key) ?? [];
-    list.push(s);
-    groups.set(key, list);
-  }
-  return groups;
+	const groups = new Map<AgentSlug | 'unassigned', SessionSummary[]>();
+	for (const s of sessions) {
+		const key = detectAgentSlug(s) ?? 'unassigned';
+		const list = groups.get(key) ?? [];
+		list.push(s);
+		groups.set(key, list);
+	}
+	return groups;
 }

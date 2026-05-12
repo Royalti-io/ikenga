@@ -47,20 +47,20 @@ export type IkengaTintStrength = 'off' | 'subtle' | 'strong';
 export type IkengaWorkspace = 'app' | 'files' | 'sessions' | 'settings';
 
 interface IkengaState {
-  theme: IkengaTheme;
-  mode: IkengaMode;
-  density: IkengaDensity;
-  tintStrength: IkengaTintStrength;
-  workspace: IkengaWorkspace;
-  setTheme: (t: IkengaTheme) => void;
-  setMode: (m: IkengaMode) => void;
-  setDensity: (d: IkengaDensity) => void;
-  setTintStrength: (s: IkengaTintStrength) => void;
-  setWorkspace: (w: IkengaWorkspace) => void;
-  /** Pull durable appearance prefs from Rust (settings_kv) and overwrite
-   * local state. If settings_kv is empty, push the current localStorage-
-   * hydrated snapshot in once. Called once at app boot from `main.tsx`. */
-  hydrateAppearanceFromRust: () => Promise<void>;
+	theme: IkengaTheme;
+	mode: IkengaMode;
+	density: IkengaDensity;
+	tintStrength: IkengaTintStrength;
+	workspace: IkengaWorkspace;
+	setTheme: (t: IkengaTheme) => void;
+	setMode: (m: IkengaMode) => void;
+	setDensity: (d: IkengaDensity) => void;
+	setTintStrength: (s: IkengaTintStrength) => void;
+	setWorkspace: (w: IkengaWorkspace) => void;
+	/** Pull durable appearance prefs from Rust (settings_kv) and overwrite
+	 * local state. If settings_kv is empty, push the current localStorage-
+	 * hydrated snapshot in once. Called once at app boot from `main.tsx`. */
+	hydrateAppearanceFromRust: () => Promise<void>;
 }
 
 const KV_THEME = 'appearance.theme';
@@ -71,111 +71,106 @@ const KV_TINT = 'appearance.tintStrength';
 let suppressKv = false;
 
 function kvSet(key: string, value: unknown): void {
-  if (suppressKv) return;
-  settingsSet(key, JSON.stringify(value)).catch(() => {
-    // Tauri unavailable (test env / pre-setup) — localStorage still holds
-    // the user's edit.
-  });
+	if (suppressKv) return;
+	settingsSet(key, JSON.stringify(value)).catch(() => {
+		// Tauri unavailable (test env / pre-setup) — localStorage still holds
+		// the user's edit.
+	});
 }
 
 function parseKv<T>(raw: string | undefined): T | undefined {
-  if (raw == null) return undefined;
-  try {
-    return JSON.parse(raw) as T;
-  } catch {
-    return undefined;
-  }
+	if (raw == null) return undefined;
+	try {
+		return JSON.parse(raw) as T;
+	} catch {
+		return undefined;
+	}
 }
 
 export const useIkengaStore = create<IkengaState>()(
-  persist(
-    (set, get) => ({
-      theme: 'A',
-      mode: 'dark',
-      density: 'comfortable',
-      tintStrength: 'subtle',
-      workspace: 'app',
-      setTheme: (theme) => {
-        set({ theme });
-        kvSet(KV_THEME, theme);
-      },
-      setMode: (mode) => {
-        set({ mode });
-        kvSet(KV_MODE, mode);
-      },
-      setDensity: (density) => {
-        set({ density });
-        kvSet(KV_DENSITY, density);
-      },
-      setTintStrength: (tintStrength) => {
-        set({ tintStrength });
-        kvSet(KV_TINT, tintStrength);
-      },
-      setWorkspace: (workspace) => set({ workspace }),
-      hydrateAppearanceFromRust: async () => {
-        let all: Record<string, string> = {};
-        try {
-          all = await settingsGetAll();
-        } catch {
-          return;
-        }
-        const hasAny = [KV_THEME, KV_MODE, KV_DENSITY, KV_TINT].some(
-          (k) => k in all,
-        );
-        if (!hasAny) {
-          // settings_kv has nothing for appearance — seed it from current
-          // localStorage state so existing users carry over.
-          const s = get();
-          suppressKv = true;
-          try {
-            kvSet(KV_THEME, s.theme);
-            kvSet(KV_MODE, s.mode);
-            kvSet(KV_DENSITY, s.density);
-            kvSet(KV_TINT, s.tintStrength);
-          } finally {
-            suppressKv = false;
-          }
-          return;
-        }
-        suppressKv = true;
-        try {
-          const next: Partial<IkengaState> = {};
-          const t = parseKv<IkengaTheme>(all[KV_THEME]);
-          if (t === 'A' || t === 'B' || t === 'C') next.theme = t;
-          const m = parseKv<IkengaMode>(all[KV_MODE]);
-          if (m === 'light' || m === 'dark' || m === 'system') next.mode = m;
-          const d = parseKv<IkengaDensity>(all[KV_DENSITY]);
-          if (d === 'compact' || d === 'comfortable' || d === 'spacious') {
-            next.density = d;
-          }
-          const ts = parseKv<IkengaTintStrength>(all[KV_TINT]);
-          if (ts === 'off' || ts === 'subtle' || ts === 'strong') {
-            next.tintStrength = ts;
-          }
-          set(next);
-        } finally {
-          suppressKv = false;
-        }
-      },
-    }),
-    {
-      name: 'ikenga.theme',
-      storage: createJSONStorage(() => localStorage),
-      version: 1,
-    },
-  ),
+	persist(
+		(set, get) => ({
+			theme: 'A',
+			mode: 'dark',
+			density: 'comfortable',
+			tintStrength: 'subtle',
+			workspace: 'app',
+			setTheme: (theme) => {
+				set({ theme });
+				kvSet(KV_THEME, theme);
+			},
+			setMode: (mode) => {
+				set({ mode });
+				kvSet(KV_MODE, mode);
+			},
+			setDensity: (density) => {
+				set({ density });
+				kvSet(KV_DENSITY, density);
+			},
+			setTintStrength: (tintStrength) => {
+				set({ tintStrength });
+				kvSet(KV_TINT, tintStrength);
+			},
+			setWorkspace: (workspace) => set({ workspace }),
+			hydrateAppearanceFromRust: async () => {
+				let all: Record<string, string> = {};
+				try {
+					all = await settingsGetAll();
+				} catch {
+					return;
+				}
+				const hasAny = [KV_THEME, KV_MODE, KV_DENSITY, KV_TINT].some((k) => k in all);
+				if (!hasAny) {
+					// settings_kv has nothing for appearance — seed it from current
+					// localStorage state so existing users carry over.
+					const s = get();
+					suppressKv = true;
+					try {
+						kvSet(KV_THEME, s.theme);
+						kvSet(KV_MODE, s.mode);
+						kvSet(KV_DENSITY, s.density);
+						kvSet(KV_TINT, s.tintStrength);
+					} finally {
+						suppressKv = false;
+					}
+					return;
+				}
+				suppressKv = true;
+				try {
+					const next: Partial<IkengaState> = {};
+					const t = parseKv<IkengaTheme>(all[KV_THEME]);
+					if (t === 'A' || t === 'B' || t === 'C') next.theme = t;
+					const m = parseKv<IkengaMode>(all[KV_MODE]);
+					if (m === 'light' || m === 'dark' || m === 'system') next.mode = m;
+					const d = parseKv<IkengaDensity>(all[KV_DENSITY]);
+					if (d === 'compact' || d === 'comfortable' || d === 'spacious') {
+						next.density = d;
+					}
+					const ts = parseKv<IkengaTintStrength>(all[KV_TINT]);
+					if (ts === 'off' || ts === 'subtle' || ts === 'strong') {
+						next.tintStrength = ts;
+					}
+					set(next);
+				} finally {
+					suppressKv = false;
+				}
+			},
+		}),
+		{
+			name: 'ikenga.theme',
+			storage: createJSONStorage(() => localStorage),
+			version: 1,
+		}
+	)
 );
 
 let installed = false;
 
 /** Resolve a store mode (which may be 'system') to the literal mode
  *  written into `<html data-mode>`. Exported for unit tests. */
-export function resolveIkengaMode(
-  mode: IkengaMode,
-  prefersDark: boolean,
-): ResolvedIkengaMode {
-  if (mode === 'system') return prefersDark ? 'dark' : 'light';
-  return mode;
+export function resolveIkengaMode(mode: IkengaMode, prefersDark: boolean): ResolvedIkengaMode {
+	if (mode === 'system') return prefersDark ? 'dark' : 'light';
+	return mode;
 }
 
 /** Subscribe the store to <html> data-attribute writes. Call once at app
@@ -185,40 +180,44 @@ export function resolveIkengaMode(
  *  `prefers-color-scheme` query and re-applies on `change`. The store
  *  itself still persists 'system' so the preference survives reload. */
 export function installIkengaDomSync() {
-  if (installed) return;
-  installed = true;
-  if (typeof document === 'undefined') return;
+	if (installed) return;
+	installed = true;
+	if (typeof document === 'undefined') return;
 
-  // Prefer-dark media query. Safari < 14 lacks `addEventListener` on
-  // MediaQueryList — fall back to the deprecated addListener.
-  const mql =
-    typeof window !== 'undefined' && typeof window.matchMedia === 'function'
-      ? window.matchMedia('(prefers-color-scheme: dark)')
-      : null;
+	// Prefer-dark media query. Safari < 14 lacks `addEventListener` on
+	// MediaQueryList — fall back to the deprecated addListener.
+	const mql =
+		typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+			? window.matchMedia('(prefers-color-scheme: dark)')
+			: null;
 
-  const apply = (s: IkengaState) => {
-    const html = document.documentElement;
-    const prefersDark = !!mql?.matches;
-    const resolved = resolveIkengaMode(s.mode, prefersDark);
-    html.setAttribute('data-theme', s.theme);
-    html.setAttribute('data-mode', resolved);
-    html.setAttribute('data-mode-source', s.mode); // 'light' | 'dark' | 'system'
-    html.setAttribute('data-density', s.density);
-    html.setAttribute('data-tint-strength', s.tintStrength);
-    html.setAttribute('data-workspace', s.workspace);
-  };
+	const apply = (s: IkengaState) => {
+		const html = document.documentElement;
+		const prefersDark = !!mql?.matches;
+		const resolved = resolveIkengaMode(s.mode, prefersDark);
+		html.setAttribute('data-theme', s.theme);
+		html.setAttribute('data-mode', resolved);
+		html.setAttribute('data-mode-source', s.mode); // 'light' | 'dark' | 'system'
+		html.setAttribute('data-density', s.density);
+		html.setAttribute('data-tint-strength', s.tintStrength);
+		html.setAttribute('data-workspace', s.workspace);
+	};
 
-  apply(useIkengaStore.getState());
-  useIkengaStore.subscribe(apply);
+	apply(useIkengaStore.getState());
+	useIkengaStore.subscribe(apply);
 
-  if (mql) {
-    const onChange = () => apply(useIkengaStore.getState());
-    if (typeof mql.addEventListener === 'function') {
-      mql.addEventListener('change', onChange);
-    } else if (typeof (mql as MediaQueryList & {
-      addListener?: (l: () => void) => void;
-    }).addListener === 'function') {
-      (mql as MediaQueryList & { addListener: (l: () => void) => void }).addListener(onChange);
-    }
-  }
+	if (mql) {
+		const onChange = () => apply(useIkengaStore.getState());
+		if (typeof mql.addEventListener === 'function') {
+			mql.addEventListener('change', onChange);
+		} else if (
+			typeof (
+				mql as MediaQueryList & {
+					addListener?: (l: () => void) => void;
+				}
+			).addListener === 'function'
+		) {
+			(mql as MediaQueryList & { addListener: (l: () => void) => void }).addListener(onChange);
+		}
+	}
 }
