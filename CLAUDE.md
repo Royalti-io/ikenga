@@ -51,7 +51,7 @@ When adding a Tauri command:
 
 ### Routes (`src/routes/`)
 
-File-based via TanStack Router. **Do not edit `src/routeTree.gen.ts` by hand** — run `bun run tsr:generate` after adding/renaming routes. Major sections: `mail/` (inbox/triage/drafts), `outbox/` (email/newsletter/sequences/social/sent), `email-queue/`, `social/`, `tasks`, `delegations`, `finance`, `agent-runs`, `cron`, `sessions`, `settings`. The `mail/` and `outbox/` trees are the canonical post-restructure paths (see `docs/nav-restructure-plan.md`); legacy routes under `inbox/`, `emails/`, `triage/`, `social-queue/`, `newsletter-queue/`, `newsletters/` are being phased out.
+File-based via TanStack Router. **Do not edit `src/routeTree.gen.ts` by hand** — run `bun run tsr:generate` after adding/renaming routes. Major sections: `mail/` (inbox/triage/drafts), `outbox/` (email/newsletter/sequences/social/sent), `email-queue/`, `social/`, `tasks`, `delegations`, `finance`, `agent-runs`, `cron`, `sessions`, `settings`. The `mail/` and `outbox/` trees are the canonical post-restructure paths; legacy routes under `inbox/`, `emails/`, `triage/`, `social-queue/`, `newsletter-queue/`, `newsletters/` are being phased out. Restructure plan (private): `<workspace>/plans/shell/docs/nav-restructure-plan.md`.
 
 ### Data layer
 
