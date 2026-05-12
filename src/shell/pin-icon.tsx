@@ -11,44 +11,39 @@ import { DynamicIcon, type IconName } from 'lucide-react/dynamic';
 import type { LucideIcon } from 'lucide-react';
 
 interface PinIconProps {
-  iconLucide: string | null;
-  iconEmoji: string | null;
-  Fallback: LucideIcon;
-  className?: string;
-  /** Tailwind size class. Default `h-[18px] w-[18px]` (matches RailButton). */
-  sizeClass?: string;
+	iconLucide: string | null;
+	iconEmoji: string | null;
+	Fallback: LucideIcon;
+	className?: string;
+	/** Tailwind size class. Default `h-[18px] w-[18px]` (matches RailButton). */
+	sizeClass?: string;
 }
 
 export function PinIcon({
-  iconLucide,
-  iconEmoji,
-  Fallback,
-  className,
-  sizeClass = 'h-[18px] w-[18px]',
+	iconLucide,
+	iconEmoji,
+	Fallback,
+	className,
+	sizeClass = 'h-[18px] w-[18px]',
 }: PinIconProps) {
-  if (iconLucide) {
-    return (
-      <Suspense
-        fallback={<Fallback className={`${sizeClass} ${className ?? ''}`} />}
-      >
-        <DynamicIcon
-          name={iconLucide as IconName}
-          className={`${sizeClass} ${className ?? ''}`}
-        />
-      </Suspense>
-    );
-  }
-  if (iconEmoji) {
-    // Emoji size is roughly visual-equivalent at the same box; nudge with
-    // leading-none so it centers in the same grid as a lucide glyph.
-    return (
-      <span
-        aria-hidden="true"
-        className={`${sizeClass} ${className ?? ''} grid place-items-center text-[15px] leading-none`}
-      >
-        {iconEmoji}
-      </span>
-    );
-  }
-  return <Fallback className={`${sizeClass} ${className ?? ''}`} />;
+	if (iconLucide) {
+		return (
+			<Suspense fallback={<Fallback className={`${sizeClass} ${className ?? ''}`} />}>
+				<DynamicIcon name={iconLucide as IconName} className={`${sizeClass} ${className ?? ''}`} />
+			</Suspense>
+		);
+	}
+	if (iconEmoji) {
+		// Emoji size is roughly visual-equivalent at the same box; nudge with
+		// leading-none so it centers in the same grid as a lucide glyph.
+		return (
+			<span
+				aria-hidden="true"
+				className={`${sizeClass} ${className ?? ''} grid place-items-center text-[15px] leading-none`}
+			>
+				{iconEmoji}
+			</span>
+		);
+	}
+	return <Fallback className={`${sizeClass} ${className ?? ''}`} />;
 }

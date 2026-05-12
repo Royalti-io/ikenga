@@ -20,13 +20,13 @@ export const CHAT_ENGINE_LOCAL_STORAGE_KEY = 'ikenga_chat_engine';
 export type ChatAdapterId = 'acp' | 'cli';
 
 export function defaultChatAdapterId(): ChatAdapterId {
-  try {
-    if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
-      const flag = localStorage.getItem(CHAT_ENGINE_LOCAL_STORAGE_KEY);
-      if (flag === 'legacy' || flag === 'cli') return 'cli';
-    }
-  } catch {
-    // SSR / restricted storage — fall through to default.
-  }
-  return 'acp';
+	try {
+		if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+			const flag = localStorage.getItem(CHAT_ENGINE_LOCAL_STORAGE_KEY);
+			if (flag === 'legacy' || flag === 'cli') return 'cli';
+		}
+	} catch {
+		// SSR / restricted storage — fall through to default.
+	}
+	return 'acp';
 }

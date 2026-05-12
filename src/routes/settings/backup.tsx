@@ -1,11 +1,11 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { createFileRoute } from '@tanstack/react-router';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useState } from 'react';
 import {
 	open as openDialog,
 	save as saveDialog,
 	confirm as confirmDialog,
-} from "@tauri-apps/plugin-dialog";
+} from '@tauri-apps/plugin-dialog';
 import {
 	Download,
 	Upload,
@@ -15,7 +15,7 @@ import {
 	CheckCircle2,
 	Lock,
 	Package,
-} from "lucide-react";
+} from 'lucide-react';
 
 import {
 	backupExport,
@@ -26,11 +26,11 @@ import {
 	type ImportPreview,
 	type ImportResult,
 	type PathMode,
-} from "@/lib/tauri-cmd";
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+} from '@/lib/tauri-cmd';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import {
 	Dialog,
 	DialogContent,
@@ -38,13 +38,13 @@ import {
 	DialogFooter,
 	DialogHeader,
 	DialogTitle,
-} from "@/components/ui/dialog";
+} from '@/components/ui/dialog';
 
-export const Route = createFileRoute("/settings/backup")({
+export const Route = createFileRoute('/settings/backup')({
 	component: BackupSettings,
 });
 
-const BACKUPS_QUERY_KEY = ["settings", "backup", "list"] as const;
+const BACKUPS_QUERY_KEY = ['settings', 'backup', 'list'] as const;
 
 function BackupSettings() {
 	const qc = useQueryClient();
@@ -53,7 +53,7 @@ function BackupSettings() {
 		queryFn: () => backupList(),
 	});
 
-	const [busy, setBusy] = useState<null | "export" | "import">(null);
+	const [busy, setBusy] = useState<null | 'export' | 'import'>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [success, setSuccess] = useState<string | null>(null);
 	const [exportDialog, setExportDialog] = useState<{
@@ -70,33 +70,31 @@ function BackupSettings() {
 	} | null>(null);
 	const [restartPrompt, setRestartPrompt] = useState<ImportResult | null>(null);
 
-	const refreshList = () =>
-		qc.invalidateQueries({ queryKey: BACKUPS_QUERY_KEY });
+	const refreshList = () => qc.invalidateQueries({ queryKey: BACKUPS_QUERY_KEY });
 
 	async function onPickExportDest() {
 		setError(null);
 		setSuccess(null);
-		const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+		const stamp = new Date().toISOString().replace(/[:.]/g, '-');
 		const dest = await saveDialog({
 			defaultPath: `ikenga-backup-${stamp}.ikbak`,
-			filters: [{ name: "Ikenga backup", extensions: ["ikbak"] }],
+			filters: [{ name: 'Ikenga backup', extensions: ['ikbak'] }],
 		});
 		if (!dest) return;
 		setExportDialog({
 			dest,
 			includeSecrets: true,
-			passphrase: "",
-			confirmPassphrase: "",
-			pathMode: "raw",
+			passphrase: '',
+			confirmPassphrase: '',
+			pathMode: 'raw',
 		});
 	}
 
 	async function onConfirmExport() {
 		if (!exportDialog) return;
-		const { dest, includeSecrets, passphrase, confirmPassphrase, pathMode } =
-			exportDialog;
-		if (pathMode === "bundled") {
-			setError("Bundled path mode is not yet implemented (phase 4).");
+		const { dest, includeSecrets, passphrase, confirmPassphrase, pathMode } = exportDialog;
+		if (pathMode === 'bundled') {
+			setError('Bundled path mode is not yet implemented (phase 4).');
 			return;
 		}
 		if (includeSecrets) {
@@ -109,7 +107,7 @@ function BackupSettings() {
 				return;
 			}
 		}
-		setBusy("export");
+		setBusy('export');
 		setError(null);
 		try {
 			const res = await backupExport(dest, {
@@ -121,15 +119,15 @@ function BackupSettings() {
 			const warnSuffix =
 				res.path_warnings_count > 0
 					? `, ${res.path_warnings_count} path${
-							res.path_warnings_count === 1 ? "" : "s"
+							res.path_warnings_count === 1 ? '' : 's'
 						} outside $HOME`
-					: "";
+					: '';
 			setSuccess(
 				`Exported ${formatBytes(res.size_bytes)} → ${shortPath(res.path)} ` +
-					`(${res.pkg_count} pkg${res.pkg_count === 1 ? "" : "s"}, ` +
-					`${res.secrets_count} secret${res.secrets_count === 1 ? "" : "s"}` +
+					`(${res.pkg_count} pkg${res.pkg_count === 1 ? '' : 's'}, ` +
+					`${res.secrets_count} secret${res.secrets_count === 1 ? '' : 's'}` +
 					warnSuffix +
-					`)`,
+					`)`
 			);
 			refreshList();
 		} catch (e) {
@@ -144,13 +142,13 @@ function BackupSettings() {
 		setSuccess(null);
 		const src = await openDialog({
 			multiple: false,
-			filters: [{ name: "Ikenga backup", extensions: ["ikbak"] }],
+			filters: [{ name: 'Ikenga backup', extensions: ['ikbak'] }],
 		});
-		if (!src || typeof src !== "string") return;
-		setBusy("import");
+		if (!src || typeof src !== 'string') return;
+		setBusy('import');
 		try {
 			const res = (await backupImport(src, { dryRun: true })) as ImportPreview;
-			setPreview({ src, preview: res, passphrase: "" });
+			setPreview({ src, preview: res, passphrase: '' });
 		} catch (e) {
 			setError(`Could not read backup: ${String(e)}`);
 		} finally {
@@ -162,17 +160,17 @@ function BackupSettings() {
 		if (!preview) return;
 		if (preview.preview.manifest.has_secrets && !preview.passphrase) {
 			setError(
-				"This bundle contains secrets. Enter the passphrase to include them, " +
-					"or proceed without secrets to restore the database only.",
+				'This bundle contains secrets. Enter the passphrase to include them, ' +
+					'or proceed without secrets to restore the database only.'
 			);
 			return;
 		}
 		const ok = await confirmDialog(
-			"This will replace your local app data on next launch. Continue?",
-			{ title: "Restore backup", kind: "warning" },
+			'This will replace your local app data on next launch. Continue?',
+			{ title: 'Restore backup', kind: 'warning' }
 		);
 		if (!ok) return;
-		setBusy("import");
+		setBusy('import');
 		try {
 			const res = (await backupImport(preview.src, {
 				dryRun: false,
@@ -190,11 +188,11 @@ function BackupSettings() {
 	async function onConfirmImportSkipSecrets() {
 		if (!preview) return;
 		const ok = await confirmDialog(
-			"Restore the database only? Secrets in the backup will be ignored.",
-			{ title: "Restore without secrets", kind: "warning" },
+			'Restore the database only? Secrets in the backup will be ignored.',
+			{ title: 'Restore without secrets', kind: 'warning' }
 		);
 		if (!ok) return;
-		setBusy("import");
+		setBusy('import');
 		try {
 			const res = (await backupImport(preview.src, {
 				dryRun: false,
@@ -211,8 +209,8 @@ function BackupSettings() {
 
 	async function onDelete(path: string) {
 		const ok = await confirmDialog(`Delete this backup?\n${shortPath(path)}`, {
-			title: "Delete backup",
-			kind: "warning",
+			title: 'Delete backup',
+			kind: 'warning',
 		});
 		if (!ok) return;
 		try {
@@ -228,9 +226,9 @@ function BackupSettings() {
 			<header>
 				<h1 className="text-2xl font-semibold">Backup &amp; Restore</h1>
 				<p className="mt-1 text-sm text-muted-foreground">
-					Export your local app data (SQLite, optionally vault secrets and
-					installed-pkg list) to a single <code>.ikbak</code> file. Restore
-					stages the new state and applies it on the next launch.
+					Export your local app data (SQLite, optionally vault secrets and installed-pkg list) to a
+					single <code>.ikbak</code> file. Restore stages the new state and applies it on the next
+					launch.
 				</p>
 			</header>
 
@@ -254,13 +252,12 @@ function BackupSettings() {
 					<div>
 						<h2 className="text-base font-medium">Export now</h2>
 						<p className="mt-1 text-sm text-muted-foreground">
-							You'll be asked for a passphrase to protect any vault secrets in
-							the bundle.
+							You'll be asked for a passphrase to protect any vault secrets in the bundle.
 						</p>
 					</div>
 					<Button onClick={onPickExportDest} disabled={busy !== null}>
 						<Download className="mr-2 h-4 w-4" />
-						{busy === "export" ? "Exporting…" : "Export"}
+						{busy === 'export' ? 'Exporting…' : 'Export'}
 					</Button>
 				</div>
 			</Card>
@@ -270,17 +267,12 @@ function BackupSettings() {
 					<div>
 						<h2 className="text-base font-medium">Restore from file</h2>
 						<p className="mt-1 text-sm text-muted-foreground">
-							Pick a <code>.ikbak</code> file. You'll see a preview before
-							anything is applied.
+							Pick a <code>.ikbak</code> file. You'll see a preview before anything is applied.
 						</p>
 					</div>
-					<Button
-						variant="outline"
-						onClick={onPickAndPreview}
-						disabled={busy !== null}
-					>
+					<Button variant="outline" onClick={onPickAndPreview} disabled={busy !== null}>
 						<Upload className="mr-2 h-4 w-4" />
-						{busy === "import" ? "Reading…" : "Restore"}
+						{busy === 'import' ? 'Reading…' : 'Restore'}
 					</Button>
 				</div>
 			</Card>
@@ -323,8 +315,8 @@ function BackupSettings() {
 					<DialogHeader>
 						<DialogTitle>Export options</DialogTitle>
 						<DialogDescription>
-							Choose what to include. Secrets are encrypted with age + your
-							passphrase before they leave the process.
+							Choose what to include. Secrets are encrypted with age + your passphrase before they
+							leave the process.
 						</DialogDescription>
 					</DialogHeader>
 					{exportDialog && (
@@ -332,26 +324,16 @@ function BackupSettings() {
 							<KV k="Destination" v={shortPath(exportDialog.dest)} />
 
 							<div className="space-y-2">
-								<div className="text-xs font-medium text-muted-foreground">
-									Path mode
-								</div>
-								{(["raw", "tokenized", "bundled"] as PathMode[]).map((m) => (
-									<label
-										key={m}
-										className="flex items-start gap-2"
-										aria-disabled={m === "bundled"}
-									>
+								<div className="text-xs font-medium text-muted-foreground">Path mode</div>
+								{(['raw', 'tokenized', 'bundled'] as PathMode[]).map((m) => (
+									<label key={m} className="flex items-start gap-2" aria-disabled={m === 'bundled'}>
 										<input
 											type="radio"
 											name="path-mode"
 											className="mt-1"
 											checked={exportDialog.pathMode === m}
-											disabled={m === "bundled"}
-											onChange={() =>
-												setExportDialog((d) =>
-													d ? { ...d, pathMode: m } : d,
-												)
-											}
+											disabled={m === 'bundled'}
+											onChange={() => setExportDialog((d) => (d ? { ...d, pathMode: m } : d))}
 										/>
 										<span>
 											<span className="font-medium">{m}</span>
@@ -374,7 +356,7 @@ function BackupSettings() {
 														...d,
 														includeSecrets: e.target.checked,
 													}
-												: d,
+												: d
 										)
 									}
 								/>
@@ -383,30 +365,24 @@ function BackupSettings() {
 							{exportDialog.includeSecrets && (
 								<>
 									<div className="space-y-1">
-										<label className="text-xs text-muted-foreground">
-											Passphrase
-										</label>
+										<label className="text-xs text-muted-foreground">Passphrase</label>
 										<Input
 											type="password"
 											autoFocus
 											value={exportDialog.passphrase}
 											onChange={(e) =>
-												setExportDialog((d) =>
-													d ? { ...d, passphrase: e.target.value } : d,
-												)
+												setExportDialog((d) => (d ? { ...d, passphrase: e.target.value } : d))
 											}
 										/>
 									</div>
 									<div className="space-y-1">
-										<label className="text-xs text-muted-foreground">
-											Confirm passphrase
-										</label>
+										<label className="text-xs text-muted-foreground">Confirm passphrase</label>
 										<Input
 											type="password"
 											value={exportDialog.confirmPassphrase}
 											onChange={(e) =>
 												setExportDialog((d) =>
-													d ? { ...d, confirmPassphrase: e.target.value } : d,
+													d ? { ...d, confirmPassphrase: e.target.value } : d
 												)
 											}
 										/>
@@ -414,9 +390,8 @@ function BackupSettings() {
 									<Alert>
 										<Lock className="h-4 w-4" />
 										<AlertDescription>
-											If you lose this passphrase, the secrets in this bundle
-											are unrecoverable. The database and pkg list remain
-											restorable without it.
+											If you lose this passphrase, the secrets in this bundle are unrecoverable. The
+											database and pkg list remain restorable without it.
 										</AlertDescription>
 									</Alert>
 								</>
@@ -444,9 +419,7 @@ function BackupSettings() {
 				<DialogContent className="max-w-lg">
 					<DialogHeader>
 						<DialogTitle>Restore preview</DialogTitle>
-						<DialogDescription>
-							Review the bundle before applying.
-						</DialogDescription>
+						<DialogDescription>Review the bundle before applying.</DialogDescription>
 					</DialogHeader>
 					{preview && (
 						<div className="space-y-3 text-sm">
@@ -454,13 +427,10 @@ function BackupSettings() {
 							<KV k="Created" v={preview.preview.manifest.created_at} />
 							<KV k="From host" v={preview.preview.manifest.hostname} />
 							<KV k="Size" v={formatBytes(preview.preview.size_bytes)} />
-							<KV
-								k="Schema"
-								v={describeSchemaAction(preview.preview.schema_action)}
-							/>
+							<KV k="Schema" v={describeSchemaAction(preview.preview.schema_action)} />
 							<KV
 								k="Secrets"
-								v={preview.preview.manifest.has_secrets ? "Yes (encrypted)" : "None"}
+								v={preview.preview.manifest.has_secrets ? 'Yes (encrypted)' : 'None'}
 							/>
 							<KV k="Pkgs" v={`${preview.preview.manifest.pkg_count}`} />
 							<KV
@@ -468,7 +438,7 @@ function BackupSettings() {
 								v={`${preview.preview.manifest.path_mode}${
 									preview.preview.manifest.home_dir
 										? ` (from ${preview.preview.manifest.home_dir})`
-										: ""
+										: ''
 								}`}
 							/>
 
@@ -477,27 +447,21 @@ function BackupSettings() {
 									<summary className="cursor-pointer font-medium">
 										<AlertTriangle className="mr-2 inline h-3.5 w-3.5" />
 										{preview.preview.manifest.path_warnings.length} path
-										{preview.preview.manifest.path_warnings.length === 1
-											? ""
-											: "s"}{" "}
-										outside $HOME (kept raw)
+										{preview.preview.manifest.path_warnings.length === 1 ? '' : 's'} outside $HOME
+										(kept raw)
 									</summary>
 									<ul className="mt-2 space-y-1 font-mono">
-										{preview.preview.manifest.path_warnings
-											.slice(0, 50)
-											.map((w, i) => (
-												<li key={`${w.table}.${w.column}.${i}`}>
-													<span className="text-muted-foreground">
-														{w.table}.{w.column}:
-													</span>{" "}
-													{w.value}
-												</li>
-											))}
+										{preview.preview.manifest.path_warnings.slice(0, 50).map((w, i) => (
+											<li key={`${w.table}.${w.column}.${i}`}>
+												<span className="text-muted-foreground">
+													{w.table}.{w.column}:
+												</span>{' '}
+												{w.value}
+											</li>
+										))}
 										{preview.preview.manifest.path_warnings.length > 50 && (
 											<li className="text-muted-foreground">
-												… and{" "}
-												{preview.preview.manifest.path_warnings.length - 50}{" "}
-												more
+												… and {preview.preview.manifest.path_warnings.length - 50} more
 											</li>
 										)}
 									</ul>
@@ -515,9 +479,7 @@ function BackupSettings() {
 											<li key={p.id}>
 												{p.id}@{p.version}
 												{!p.enabled && (
-													<span className="ml-2 text-muted-foreground">
-														(disabled)
-													</span>
+													<span className="ml-2 text-muted-foreground">(disabled)</span>
 												)}
 											</li>
 										))}
@@ -534,19 +496,16 @@ function BackupSettings() {
 										type="password"
 										value={preview.passphrase}
 										onChange={(e) =>
-											setPreview((p) =>
-												p ? { ...p, passphrase: e.target.value } : p,
-											)
+											setPreview((p) => (p ? { ...p, passphrase: e.target.value } : p))
 										}
 									/>
 								</div>
 							)}
 
-							{preview.preview.schema_action.kind === "newer_than_app" && (
+							{preview.preview.schema_action.kind === 'newer_than_app' && (
 								<Alert variant="destructive">
 									<AlertDescription>
-										Backup is newer than this app version. Upgrade Ikenga before
-										restoring.
+										Backup is newer than this app version. Upgrade Ikenga before restoring.
 									</AlertDescription>
 								</Alert>
 							)}
@@ -567,10 +526,7 @@ function BackupSettings() {
 						)}
 						<Button
 							onClick={onConfirmImport}
-							disabled={
-								busy !== null ||
-								preview?.preview.schema_action.kind === "newer_than_app"
-							}
+							disabled={busy !== null || preview?.preview.schema_action.kind === 'newer_than_app'}
 						>
 							Apply on next launch
 						</Button>
@@ -591,8 +547,8 @@ function BackupSettings() {
 						<DialogDescription>
 							The restore is staged. Quit and reopen Ikenga to apply it.
 							{restartPrompt?.secrets_staged
-								? " Secrets will be re-applied to the vault on next boot."
-								: ""}{" "}
+								? ' Secrets will be re-applied to the vault on next boot.'
+								: ''}{' '}
 							The running session is unchanged until then.
 						</DialogDescription>
 					</DialogHeader>
@@ -605,23 +561,16 @@ function BackupSettings() {
 	);
 }
 
-function BackupRow({
-	b,
-	onDelete,
-}: {
-	b: BackupSummary;
-	onDelete: () => void;
-}) {
+function BackupRow({ b, onDelete }: { b: BackupSummary; onDelete: () => void }) {
 	return (
 		<li className="flex items-center justify-between gap-4 py-3">
 			<div className="min-w-0">
 				<div className="truncate text-sm font-medium">{shortPath(b.path)}</div>
 				<div className="text-xs text-muted-foreground">
-					{b.created_at || "(unparseable manifest)"} ·{" "}
-					{formatBytes(b.size_bytes)} · schema v{b.schema_version} ·{" "}
-					{b.path_mode}
-					{b.has_secrets ? " · with secrets" : ""}
-					{b.pkg_count > 0 ? ` · ${b.pkg_count} pkgs` : ""}
+					{b.created_at || '(unparseable manifest)'} · {formatBytes(b.size_bytes)} · schema v
+					{b.schema_version} · {b.path_mode}
+					{b.has_secrets ? ' · with secrets' : ''}
+					{b.pkg_count > 0 ? ` · ${b.pkg_count} pkgs` : ''}
 				</div>
 			</div>
 			<Button variant="ghost" size="sm" onClick={onDelete}>
@@ -642,22 +591,22 @@ function KV({ k, v }: { k: string; v: string }) {
 
 function describePathMode(m: PathMode): string {
 	switch (m) {
-		case "raw":
-			return "Absolute paths kept as-is. Same-machine recovery only.";
-		case "tokenized":
-			return "Rewrite $HOME/... → ${IKENGA_HOME}/... and back on restore. Cross-machine portable.";
-		case "bundled":
-			return "Copy referenced files into the bundle. Not yet implemented.";
+		case 'raw':
+			return 'Absolute paths kept as-is. Same-machine recovery only.';
+		case 'tokenized':
+			return 'Rewrite $HOME/... → ${IKENGA_HOME}/... and back on restore. Cross-machine portable.';
+		case 'bundled':
+			return 'Copy referenced files into the bundle. Not yet implemented.';
 	}
 }
 
-function describeSchemaAction(a: ImportPreview["schema_action"]): string {
+function describeSchemaAction(a: ImportPreview['schema_action']): string {
 	switch (a.kind) {
-		case "match":
-			return "Match";
-		case "forward":
+		case 'match':
+			return 'Match';
+		case 'forward':
 			return `Migrate forward (v${a.from} → v${a.to})`;
-		case "newer_than_app":
+		case 'newer_than_app':
 			return `Newer than app (v${a.backup} > v${a.app})`;
 	}
 }
@@ -669,9 +618,9 @@ function formatBytes(n: number): string {
 }
 
 function shortPath(p: string): string {
-	const home = "/home/";
+	const home = '/home/';
 	const idx = p.indexOf(home);
 	if (idx < 0) return p;
-	const slash = p.indexOf("/", idx + home.length);
+	const slash = p.indexOf('/', idx + home.length);
 	return slash > 0 ? `~${p.slice(slash)}` : p;
 }

@@ -15,33 +15,33 @@ let cachedEndpoint: IykeEndpoint | null = null;
 let inFlight: Promise<IykeEndpoint> | null = null;
 
 export async function getEndpoint(): Promise<IykeEndpoint> {
-  if (cachedEndpoint) return cachedEndpoint;
-  if (inFlight) return inFlight;
-  inFlight = (async () => {
-    const ep = await invoke<IykeEndpoint>('iyke_endpoint');
-    cachedEndpoint = ep;
-    return ep;
-  })();
-  try {
-    return await inFlight;
-  } finally {
-    inFlight = null;
-  }
+	if (cachedEndpoint) return cachedEndpoint;
+	if (inFlight) return inFlight;
+	inFlight = (async () => {
+		const ep = await invoke<IykeEndpoint>('iyke_endpoint');
+		cachedEndpoint = ep;
+		return ep;
+	})();
+	try {
+		return await inFlight;
+	} finally {
+		inFlight = null;
+	}
 }
 
 export async function iykeFetch(path: string, init?: RequestInit): Promise<Response> {
-  const ep = await getEndpoint();
-  const headers = new Headers(init?.headers);
-  headers.set('Authorization', `Bearer ${ep.token}`);
-  return fetch(`${ep.url}${path}`, { ...init, headers });
+	const ep = await getEndpoint();
+	const headers = new Headers(init?.headers);
+	headers.set('Authorization', `Bearer ${ep.token}`);
+	return fetch(`${ep.url}${path}`, { ...init, headers });
 }
 
 export async function getState(): Promise<IykeStateResponse> {
-  const res = await iykeFetch('/iyke/state');
-  if (!res.ok) {
-    throw new Error(`iyke /iyke/state ${res.status} ${res.statusText}`);
-  }
-  return (await res.json()) as IykeStateResponse;
+	const res = await iykeFetch('/iyke/state');
+	if (!res.ok) {
+		throw new Error(`iyke /iyke/state ${res.status} ${res.statusText}`);
+	}
+	return (await res.json()) as IykeStateResponse;
 }
 
 /**
@@ -51,13 +51,13 @@ export async function getState(): Promise<IykeStateResponse> {
  * update semantics).
  */
 export async function setShell(args: {
-  mode?: string | null;
-  route?: string | null;
-  panes?: unknown;
+	mode?: string | null;
+	route?: string | null;
+	panes?: unknown;
 }): Promise<void> {
-  return invoke('iyke_set_shell', {
-    mode: args.mode ?? null,
-    route: args.route ?? null,
-    panes: args.panes ?? null,
-  });
+	return invoke('iyke_set_shell', {
+		mode: args.mode ?? null,
+		route: args.route ?? null,
+		panes: args.panes ?? null,
+	});
 }

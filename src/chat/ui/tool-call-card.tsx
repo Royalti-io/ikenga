@@ -16,96 +16,96 @@ import { GenericJsonRenderer } from './tool-renderers/generic-json';
 import { AskUserQuestionRenderer } from './tool-renderers/ask-user-question';
 
 interface ToolCallCardProps {
-  pair: PairedToolCall;
-  threadId: string;
-  /** When true, render as a nested child (no card chrome). */
-  isChild?: boolean;
+	pair: PairedToolCall;
+	threadId: string;
+	/** When true, render as a nested child (no card chrome). */
+	isChild?: boolean;
 }
 
 export function ToolCallCard({ pair, threadId, isChild }: ToolCallCardProps) {
-  const isError = pair.result?.isError === true;
-  const state = deriveState(pair);
-  const title = deriveTitle(pair);
+	const isError = pair.result?.isError === true;
+	const state = deriveState(pair);
+	const title = deriveTitle(pair);
 
-  return (
-    <Tool
-      defaultOpen={isError}
-      className={cn(
-        'mb-0 bg-background',
-        isChild ? 'border-violet-500/20' : 'border-border',
-        isError ? 'border-l-4 border-l-destructive' : '',
-      )}
-    >
-      <ToolHeader type="dynamic-tool" toolName={pair.use.name} title={title} state={state} />
-      <ToolContent className="space-y-0 p-3">
-        <Renderer pair={pair} threadId={threadId} />
-      </ToolContent>
-    </Tool>
-  );
+	return (
+		<Tool
+			defaultOpen={isError}
+			className={cn(
+				'mb-0 bg-background',
+				isChild ? 'border-violet-500/20' : 'border-border',
+				isError ? 'border-l-4 border-l-destructive' : ''
+			)}
+		>
+			<ToolHeader type="dynamic-tool" toolName={pair.use.name} title={title} state={state} />
+			<ToolContent className="space-y-0 p-3">
+				<Renderer pair={pair} threadId={threadId} />
+			</ToolContent>
+		</Tool>
+	);
 }
 
 function Renderer({ pair, threadId }: { pair: PairedToolCall; threadId: string }) {
-  const name = pair.use.name;
-  if (name === 'Read') return <ReadRenderer pair={pair} expanded />;
-  if (name === 'Write' || name === 'Edit' || name === 'MultiEdit' || name === 'NotebookEdit')
-    return <WriteEditRenderer pair={pair} expanded />;
-  if (name === 'Bash') return <BashRenderer pair={pair} expanded />;
-  if (name === 'Task') return <TaskRenderer pair={pair} expanded threadId={threadId} />;
-  // AskUserQuestion may be invoked under several names depending on how it's
-  // registered (built-in, mcp scoped). Match on the trailing token.
-  if (name === 'AskUserQuestion' || name.endsWith('AskUserQuestion')) {
-    return <AskUserQuestionRenderer pair={pair} threadId={threadId} />;
-  }
-  return <GenericJsonRenderer pair={pair} expanded />;
+	const name = pair.use.name;
+	if (name === 'Read') return <ReadRenderer pair={pair} expanded />;
+	if (name === 'Write' || name === 'Edit' || name === 'MultiEdit' || name === 'NotebookEdit')
+		return <WriteEditRenderer pair={pair} expanded />;
+	if (name === 'Bash') return <BashRenderer pair={pair} expanded />;
+	if (name === 'Task') return <TaskRenderer pair={pair} expanded threadId={threadId} />;
+	// AskUserQuestion may be invoked under several names depending on how it's
+	// registered (built-in, mcp scoped). Match on the trailing token.
+	if (name === 'AskUserQuestion' || name.endsWith('AskUserQuestion')) {
+		return <AskUserQuestionRenderer pair={pair} threadId={threadId} />;
+	}
+	return <GenericJsonRenderer pair={pair} expanded />;
 }
 
 // ─── State / title derivation ───────────────────────────────────────────────
 
 type AIToolState =
-  | 'input-streaming'
-  | 'input-available'
-  | 'output-available'
-  | 'output-error'
-  | 'output-denied'
-  | 'approval-requested'
-  | 'approval-responded';
+	| 'input-streaming'
+	| 'input-available'
+	| 'output-available'
+	| 'output-error'
+	| 'output-denied'
+	| 'approval-requested'
+	| 'approval-responded';
 
 function deriveState(pair: PairedToolCall): AIToolState {
-  if (!pair.result) return 'input-available';
-  if (pair.result.isError) return 'output-error';
-  return 'output-available';
+	if (!pair.result) return 'input-available';
+	if (pair.result.isError) return 'output-error';
+	return 'output-available';
 }
 
 function deriveTitle(pair: PairedToolCall): string {
-  const name = pair.use.name;
-  const input = (pair.use.input ?? {}) as Record<string, unknown>;
+	const name = pair.use.name;
+	const input = (pair.use.input ?? {}) as Record<string, unknown>;
 
-  if (name === 'Bash') {
-    const cmd = typeof input.command === 'string' ? input.command : '';
-    return cmd ? `Bash: ${truncate(cmd, 80)}` : 'Bash';
-  }
-  if (name === 'Read') {
-    const p = typeof input.file_path === 'string' ? input.file_path : '';
-    return p ? `Read: ${shortenPath(p)}` : 'Read';
-  }
-  if (name === 'Write' || name === 'Edit' || name === 'MultiEdit' || name === 'NotebookEdit') {
-    const p = typeof input.file_path === 'string' ? input.file_path : '';
-    return p ? `${name}: ${shortenPath(p)}` : name;
-  }
-  if (name === 'Task') {
-    const desc = typeof input.description === 'string' ? input.description : '';
-    return desc ? `Task: ${truncate(desc, 80)}` : 'Task';
-  }
-  return name;
+	if (name === 'Bash') {
+		const cmd = typeof input.command === 'string' ? input.command : '';
+		return cmd ? `Bash: ${truncate(cmd, 80)}` : 'Bash';
+	}
+	if (name === 'Read') {
+		const p = typeof input.file_path === 'string' ? input.file_path : '';
+		return p ? `Read: ${shortenPath(p)}` : 'Read';
+	}
+	if (name === 'Write' || name === 'Edit' || name === 'MultiEdit' || name === 'NotebookEdit') {
+		const p = typeof input.file_path === 'string' ? input.file_path : '';
+		return p ? `${name}: ${shortenPath(p)}` : name;
+	}
+	if (name === 'Task') {
+		const desc = typeof input.description === 'string' ? input.description : '';
+		return desc ? `Task: ${truncate(desc, 80)}` : 'Task';
+	}
+	return name;
 }
 
 function truncate(s: string, n: number): string {
-  return s.length > n ? s.slice(0, n - 1) + '…' : s;
+	return s.length > n ? s.slice(0, n - 1) + '…' : s;
 }
 
 function shortenPath(p: string): string {
-  // Show last two segments for compactness.
-  const parts = p.split('/');
-  if (parts.length <= 2) return p;
-  return '…/' + parts.slice(-2).join('/');
+	// Show last two segments for compactness.
+	const parts = p.split('/');
+	if (parts.length <= 2) return p;
+	return '…/' + parts.slice(-2).join('/');
 }

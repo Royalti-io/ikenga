@@ -14,59 +14,59 @@ import { usePaneStore } from './pane-store';
 import { findLeaf } from './pane-reducer';
 
 function focusedRoute(): string | null {
-  const { root, focusedId } = usePaneStore.getState();
-  const leaf = findLeaf(root, focusedId);
-  if (!leaf) return null;
-  const view = leaf.tabs[leaf.activeTabIdx];
-  if (!view || view.kind !== 'route') return null;
-  return view.path;
+	const { root, focusedId } = usePaneStore.getState();
+	const leaf = findLeaf(root, focusedId);
+	if (!leaf) return null;
+	const view = leaf.tabs[leaf.activeTabIdx];
+	if (!view || view.kind !== 'route') return null;
+	return view.path;
 }
 
 export function useRouterPaneSync(): void {
-  const router = useRouter();
+	const router = useRouter();
 
-  useEffect(() => {
-    // Direction A: workspace router (browser-history) → focused pane.
-    // Fires on popstate, deep links, manual router.navigate calls outside
-    // the pane scope.
-    const unsubA = router.subscribe('onResolved', () => {
-      const browserPath = router.state.location.pathname;
-      const paneRoute = focusedRoute();
-      if (paneRoute === null) return; // focused pane shows non-route
-      if (paneRoute === browserPath) return;
-      usePaneStore.getState().navigateFocused(browserPath);
-    });
+	useEffect(() => {
+		// Direction A: workspace router (browser-history) → focused pane.
+		// Fires on popstate, deep links, manual router.navigate calls outside
+		// the pane scope.
+		const unsubA = router.subscribe('onResolved', () => {
+			const browserPath = router.state.location.pathname;
+			const paneRoute = focusedRoute();
+			if (paneRoute === null) return; // focused pane shows non-route
+			if (paneRoute === browserPath) return;
+			usePaneStore.getState().navigateFocused(browserPath);
+		});
 
-    // Direction B: focused pane → workspace router.
-    // Re-fires when the tree mutates (any pane action) or focus changes.
-    let lastSyncedPath: string | null = null;
-    const unsubB = usePaneStore.subscribe((state, prev) => {
-      if (state.root === prev.root && state.focusedId === prev.focusedId) {
-        return;
-      }
-      const path = focusedRoute();
-      if (path === null) return;
-      if (path === lastSyncedPath) return;
-      if (router.state.location.pathname === path) {
-        lastSyncedPath = path;
-        return;
-      }
-      lastSyncedPath = path;
-      void router.navigate({ to: path });
-    });
+		// Direction B: focused pane → workspace router.
+		// Re-fires when the tree mutates (any pane action) or focus changes.
+		let lastSyncedPath: string | null = null;
+		const unsubB = usePaneStore.subscribe((state, prev) => {
+			if (state.root === prev.root && state.focusedId === prev.focusedId) {
+				return;
+			}
+			const path = focusedRoute();
+			if (path === null) return;
+			if (path === lastSyncedPath) return;
+			if (router.state.location.pathname === path) {
+				lastSyncedPath = path;
+				return;
+			}
+			lastSyncedPath = path;
+			void router.navigate({ to: path });
+		});
 
-    // Cold-start overlay: align workspace router with focused pane (if
-    // it's a route view). Tauri starts at '/' on launch, so this only
-    // fires for the case where the persisted focused pane has a route
-    // other than '/'.
-    const path = focusedRoute();
-    if (path && router.state.location.pathname !== path) {
-      void router.navigate({ to: path, replace: true });
-    }
+		// Cold-start overlay: align workspace router with focused pane (if
+		// it's a route view). Tauri starts at '/' on launch, so this only
+		// fires for the case where the persisted focused pane has a route
+		// other than '/'.
+		const path = focusedRoute();
+		if (path && router.state.location.pathname !== path) {
+			void router.navigate({ to: path, replace: true });
+		}
 
-    return () => {
-      unsubA();
-      unsubB();
-    };
-  }, [router]);
+		return () => {
+			unsubA();
+			unsubB();
+		};
+	}, [router]);
 }

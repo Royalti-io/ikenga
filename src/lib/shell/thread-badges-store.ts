@@ -50,7 +50,5 @@ export const useThreadBadges = create<ThreadBadgesState>((set) => ({
 /** Selector helper for components that just need "is this thread waiting on
  *  me?" — avoids subscribing to the full counts map. */
 export function useThreadBadgeCount(threadId: string | null | undefined): number {
-	return useThreadBadges((s) =>
-		threadId ? (s.counts[threadId] ?? 0) : 0,
-	);
+	return useThreadBadges((s) => (threadId ? (s.counts[threadId] ?? 0) : 0));
 }

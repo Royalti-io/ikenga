@@ -10,32 +10,29 @@
 // since that's all the panes render. The full Rust enum is still available
 // via `pkgKernelStatus` for debugging.
 
-import { useEffect, useState } from "react";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { pkgKernelStatus } from "@/lib/tauri-cmd";
+import { useEffect, useState } from 'react';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { pkgKernelStatus } from '@/lib/tauri-cmd';
 
-export type PkgState =
-  | { kind: "booting" }
-  | { kind: "ready" }
-  | { kind: "error"; reason: string };
+export type PkgState = { kind: 'booting' } | { kind: 'ready' } | { kind: 'error'; reason: string };
 
 interface LifecycleEvent {
-  pkgId: string;
-  kind: "booting" | "ready" | "error";
-  reason?: string;
+	pkgId: string;
+	kind: 'booting' | 'ready' | 'error';
+	reason?: string;
 }
 
-const LIFECYCLE_CHANNEL = "pkg://lifecycle";
+const LIFECYCLE_CHANNEL = 'pkg://lifecycle';
 
 function eventToState(ev: LifecycleEvent): PkgState {
-  switch (ev.kind) {
-    case "booting":
-      return { kind: "booting" };
-    case "ready":
-      return { kind: "ready" };
-    case "error":
-      return { kind: "error", reason: ev.reason ?? "unknown error" };
-  }
+	switch (ev.kind) {
+		case 'booting':
+			return { kind: 'booting' };
+		case 'ready':
+			return { kind: 'ready' };
+		case 'error':
+			return { kind: 'error', reason: ev.reason ?? 'unknown error' };
+	}
 }
 
 /**
@@ -47,29 +44,29 @@ function eventToState(ev: LifecycleEvent): PkgState {
  * / blocked / parked / shuttingdown.
  */
 function snapshotToState(state: string, lastErr: string | null): PkgState {
-  switch (state) {
-    case "spawning":
-      return { kind: "booting" };
-    case "running":
-      return { kind: "ready" };
-    case "crashed":
-    case "blocked":
-    case "parked":
-      return { kind: "error", reason: lastErr ?? "unknown error" };
-    default:
-      return { kind: "booting" };
-  }
+	switch (state) {
+		case 'spawning':
+			return { kind: 'booting' };
+		case 'running':
+			return { kind: 'ready' };
+		case 'crashed':
+		case 'blocked':
+		case 'parked':
+			return { kind: 'error', reason: lastErr ?? 'unknown error' };
+		default:
+			return { kind: 'booting' };
+	}
 }
 
 interface SupervisorEntry {
-  pkg_id: string;
-  state: string;
-  last_err: string | null;
+	pkg_id: string;
+	state: string;
+	last_err: string | null;
 }
 
 interface SupervisorRegistry {
-  count?: number;
-  entries?: SupervisorEntry[];
+	count?: number;
+	entries?: SupervisorEntry[];
 }
 
 /**
@@ -78,16 +75,12 @@ interface SupervisorRegistry {
  * Returns null if the pkg is not supervised here (per-call lifecycle pkgs,
  * or pkg not installed).
  */
-export async function getPkgLifecycleSnapshot(
-  pkgId: string,
-): Promise<PkgState | null> {
-  const status = await pkgKernelStatus();
-  const supervisor = status.registries?.["sidecar_supervisor"] as
-    | SupervisorRegistry
-    | undefined;
-  const entry = supervisor?.entries?.find((e) => e.pkg_id === pkgId);
-  if (!entry) return null;
-  return snapshotToState(entry.state, entry.last_err ?? null);
+export async function getPkgLifecycleSnapshot(pkgId: string): Promise<PkgState | null> {
+	const status = await pkgKernelStatus();
+	const supervisor = status.registries?.['sidecar_supervisor'] as SupervisorRegistry | undefined;
+	const entry = supervisor?.entries?.find((e) => e.pkg_id === pkgId);
+	if (!entry) return null;
+	return snapshotToState(entry.state, entry.last_err ?? null);
 }
 
 /**
@@ -95,13 +88,13 @@ export async function getPkgLifecycleSnapshot(
  * fn. Filtering happens in JS — there's only one channel for the whole app.
  */
 export function subscribePkgLifecycle(
-  pkgId: string,
-  cb: (state: PkgState) => void,
+	pkgId: string,
+	cb: (state: PkgState) => void
 ): Promise<UnlistenFn> {
-  return listen<LifecycleEvent>(LIFECYCLE_CHANNEL, (ev) => {
-    if (ev.payload.pkgId !== pkgId) return;
-    cb(eventToState(ev.payload));
-  });
+	return listen<LifecycleEvent>(LIFECYCLE_CHANNEL, (ev) => {
+		if (ev.payload.pkgId !== pkgId) return;
+		cb(eventToState(ev.payload));
+	});
 }
 
 /**
@@ -113,32 +106,32 @@ export function subscribePkgLifecycle(
  * they don't yet know which pkg to watch.
  */
 export function usePkgLifecycle(pkgId: string | null): PkgState {
-  const [state, setState] = useState<PkgState>({ kind: "booting" });
+	const [state, setState] = useState<PkgState>({ kind: 'booting' });
 
-  useEffect(() => {
-    if (!pkgId) return;
-    let cancelled = false;
-    let unlisten: UnlistenFn | null = null;
+	useEffect(() => {
+		if (!pkgId) return;
+		let cancelled = false;
+		let unlisten: UnlistenFn | null = null;
 
-    void (async () => {
-      const snap = await getPkgLifecycleSnapshot(pkgId).catch(() => null);
-      if (cancelled) return;
-      if (snap) setState(snap);
+		void (async () => {
+			const snap = await getPkgLifecycleSnapshot(pkgId).catch(() => null);
+			if (cancelled) return;
+			if (snap) setState(snap);
 
-      unlisten = await subscribePkgLifecycle(pkgId, (next) => {
-        if (!cancelled) setState(next);
-      });
-      if (cancelled) {
-        unlisten();
-        unlisten = null;
-      }
-    })();
+			unlisten = await subscribePkgLifecycle(pkgId, (next) => {
+				if (!cancelled) setState(next);
+			});
+			if (cancelled) {
+				unlisten();
+				unlisten = null;
+			}
+		})();
 
-    return () => {
-      cancelled = true;
-      unlisten?.();
-    };
-  }, [pkgId]);
+		return () => {
+			cancelled = true;
+			unlisten?.();
+		};
+	}, [pkgId]);
 
-  return state;
+	return state;
 }

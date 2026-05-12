@@ -91,9 +91,7 @@ export function PackagesBody({ onContinue }: PackagesBodyProps) {
 		// Engine pkgs aren't surfaced here — strip them out of any persisted
 		// payload so the install queue doesn't try to manage them through
 		// the wizard. Core pkgs are force-included.
-		const seed = new Set(
-			(persisted ?? defaultSelectedIds()).filter((id) => !isEnginePkg(id))
-		);
+		const seed = new Set((persisted ?? defaultSelectedIds()).filter((id) => !isEnginePkg(id)));
 		for (const id of CORE_PKG_IDS) seed.add(id);
 		return seed;
 	});

@@ -21,7 +21,7 @@ import '@xterm/xterm/css/xterm.css';
 // Phase 3 smoke test). Lazy-imported so production builds tree-shake the
 // helper entirely.
 if (import.meta.env.DEV) {
-  void import('@/lib/dev');
+	void import('@/lib/dev');
 }
 
 // Sync Ikenga data-attrs onto <html> before first React render so the very
@@ -29,15 +29,15 @@ if (import.meta.env.DEV) {
 installIkengaDomSync();
 
 const router = createRouter({
-  routeTree,
-  defaultPreload: 'intent',
-  context: { queryClient },
+	routeTree,
+	defaultPreload: 'intent',
+	context: { queryClient },
 });
 
 declare module '@tanstack/react-router' {
-  interface Register {
-    router: typeof router;
-  }
+	interface Register {
+		router: typeof router;
+	}
 }
 
 // Install native menu best-effort (Mac-only; silently no-ops elsewhere).
@@ -60,10 +60,10 @@ void useShellStore.getState().hydrateSettingsFromRust();
 void useIkengaStore.getState().hydrateAppearanceFromRust();
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
-      {import.meta.env.DEV && <ReactQueryDevtools buttonPosition="bottom-right" />}
-    </QueryClientProvider>
-  </React.StrictMode>
+	<React.StrictMode>
+		<QueryClientProvider client={queryClient}>
+			<RouterProvider router={router} />
+			{import.meta.env.DEV && <ReactQueryDevtools buttonPosition="bottom-right" />}
+		</QueryClientProvider>
+	</React.StrictMode>
 );

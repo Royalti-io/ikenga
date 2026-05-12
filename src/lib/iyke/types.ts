@@ -4,29 +4,29 @@
 // changes in a non-additive way.
 
 export interface IykeEndpoint {
-  url: string;
-  token: string;
-  port: number;
+	url: string;
+	token: string;
+	port: number;
 }
 
 export interface IykeAppInfo {
-  pid: number;
-  started_at_unix_ms: number;
-  identifier: string;
+	pid: number;
+	started_at_unix_ms: number;
+	identifier: string;
 }
 
 export interface IykeShellInfo {
-  mode: string | null;
-  route: string | null;
-  /** Phase 12 PR-E. Null when the FE hasn't pushed yet. */
-  panes: IykePanesPayload | null;
+	mode: string | null;
+	route: string | null;
+	/** Phase 12 PR-E. Null when the FE hasn't pushed yet. */
+	panes: IykePanesPayload | null;
 }
 
 export interface IykeLeafSummary {
-  id: string;
-  focused: boolean;
-  activeTabIdx: number;
-  tabs: Array<{ kind: string; title: string }>;
+	id: string;
+	focused: boolean;
+	activeTabIdx: number;
+	tabs: Array<{ kind: string; title: string }>;
 }
 
 /**
@@ -35,12 +35,12 @@ export interface IykeLeafSummary {
  * for clients that don't want to walk the tree (most CLI/MCP cases).
  */
 export interface IykePanesPayload {
-  leaves: IykeLeafSummary[];
-  tree: unknown;
+	leaves: IykeLeafSummary[];
+	tree: unknown;
 }
 
 export interface IykeStateResponse {
-  schema_version: number;
-  app: IykeAppInfo;
-  shell: IykeShellInfo;
+	schema_version: number;
+	app: IykeAppInfo;
+	shell: IykeShellInfo;
 }

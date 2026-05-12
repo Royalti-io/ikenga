@@ -20,82 +20,82 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { queryClient } from '@/lib/query-client';
 import { resolvePaneScope, useIykeActivity } from './activity-store';
 import {
-  resolveBySelector,
-  resolveByText,
-  resolveRef,
-  takeSnapshot,
-  type DomSnapshotResult,
+	resolveBySelector,
+	resolveByText,
+	resolveRef,
+	takeSnapshot,
+	type DomSnapshotResult,
 } from './dom-snapshot';
 import {
-  currentStateGeneration,
-  getIframe,
-  installIykeIframeMessageListener,
-  postToIframeFireAndForget,
-  requestIframeDom,
-  requestIframeWait,
+	currentStateGeneration,
+	getIframe,
+	installIykeIframeMessageListener,
+	postToIframeFireAndForget,
+	requestIframeDom,
+	requestIframeWait,
 } from './iframe-registry';
 
 // ── Types ────────────────────────────────────────────────────────────────
 
 interface LogEntry {
-  ts: number;
-  level: 'log' | 'info' | 'warn' | 'error' | 'debug';
-  message: string;
-  source?: string;
-  stack?: string;
+	ts: number;
+	level: 'log' | 'info' | 'warn' | 'error' | 'debug';
+	message: string;
+	source?: string;
+	stack?: string;
 }
 
 interface NetworkEntry {
-  ts: number;
-  method: string;
-  url: string;
-  status?: number;
-  duration_ms: number;
-  kind: 'fetch' | 'xhr';
-  error?: string;
-  source?: string;
+	ts: number;
+	method: string;
+	url: string;
+	status?: number;
+	duration_ms: number;
+	kind: 'fetch' | 'xhr';
+	error?: string;
+	source?: string;
 }
 
 interface DomRequestPayload {
-  request_id: string;
-  pane?: string | null;
-  query?: string | null;
-  all?: boolean;
+	request_id: string;
+	pane?: string | null;
+	query?: string | null;
+	all?: boolean;
 }
 
 interface QueryCacheRequestPayload {
-  request_id: string;
-  pane?: string | null;
+	request_id: string;
+	pane?: string | null;
 }
 
 interface WaitRequestPayload {
-  request_id: string;
-  kind: 'text' | 'selector' | 'ref' | 'gone-text' | 'gone-selector';
-  value: string;
-  timeout_ms: number;
-  pane?: string | null;
+	request_id: string;
+	kind: 'text' | 'selector' | 'ref' | 'gone-text' | 'gone-selector';
+	value: string;
+	timeout_ms: number;
+	pane?: string | null;
 }
 
 interface ClickPayload {
-  ref?: string | null;
-  selector?: string | null;
-  text?: string | null;
-  pane?: string | null;
+	ref?: string | null;
+	selector?: string | null;
+	text?: string | null;
+	pane?: string | null;
 }
 
 interface TypePayload {
-  ref?: string | null;
-  selector?: string | null;
-  text: string;
-  replace?: boolean;
-  pane?: string | null;
+	ref?: string | null;
+	selector?: string | null;
+	text: string;
+	replace?: boolean;
+	pane?: string | null;
 }
 
 interface KeyPayload {
-  combo: string;
-  ref?: string | null;
-  selector?: string | null;
-  pane?: string | null;
+	combo: string;
+	ref?: string | null;
+	selector?: string | null;
+	pane?: string | null;
 }
 
 // ── Instrumentation (module side-effects) ────────────────────────────────
@@ -109,200 +109,195 @@ let logFlushTimer: number | null = null;
 let netFlushTimer: number | null = null;
 
 function flushLogsSoon() {
-  if (logFlushTimer !== null) return;
-  logFlushTimer = window.setTimeout(() => {
-    logFlushTimer = null;
-    if (logBuffer.length === 0) return;
-    const batch = logBuffer.splice(0, logBuffer.length);
-    invoke('iyke_log_push', { entries: batch }).catch(() => {
-      // Tauri not ready yet, requeue silently.
-      logBuffer.unshift(...batch);
-    });
-  }, 250);
+	if (logFlushTimer !== null) return;
+	logFlushTimer = window.setTimeout(() => {
+		logFlushTimer = null;
+		if (logBuffer.length === 0) return;
+		const batch = logBuffer.splice(0, logBuffer.length);
+		invoke('iyke_log_push', { entries: batch }).catch(() => {
+			// Tauri not ready yet, requeue silently.
+			logBuffer.unshift(...batch);
+		});
+	}, 250);
 }
 
 function flushNetworkSoon() {
-  if (netFlushTimer !== null) return;
-  netFlushTimer = window.setTimeout(() => {
-    netFlushTimer = null;
-    if (networkBuffer.length === 0) return;
-    const batch = networkBuffer.splice(0, networkBuffer.length);
-    invoke('iyke_network_push', { entries: batch }).catch(() => {
-      networkBuffer.unshift(...batch);
-    });
-  }, 250);
+	if (netFlushTimer !== null) return;
+	netFlushTimer = window.setTimeout(() => {
+		netFlushTimer = null;
+		if (networkBuffer.length === 0) return;
+		const batch = networkBuffer.splice(0, networkBuffer.length);
+		invoke('iyke_network_push', { entries: batch }).catch(() => {
+			networkBuffer.unshift(...batch);
+		});
+	}, 250);
 }
 
 function pushLog(entry: LogEntry) {
-  logBuffer.push(entry);
-  if (logBuffer.length > 1000) logBuffer.splice(0, logBuffer.length - 500);
-  flushLogsSoon();
+	logBuffer.push(entry);
+	if (logBuffer.length > 1000) logBuffer.splice(0, logBuffer.length - 500);
+	flushLogsSoon();
 }
 
 function pushNetwork(entry: NetworkEntry) {
-  networkBuffer.push(entry);
-  if (networkBuffer.length > 200) networkBuffer.splice(0, networkBuffer.length - 100);
-  flushNetworkSoon();
+	networkBuffer.push(entry);
+	if (networkBuffer.length > 200) networkBuffer.splice(0, networkBuffer.length - 100);
+	flushNetworkSoon();
 }
 
 function stringifyArgs(args: unknown[]): string {
-  return args
-    .map((a) => {
-      if (a instanceof Error) return `${a.name}: ${a.message}`;
-      if (typeof a === 'string') return a;
-      try {
-        return JSON.stringify(a);
-      } catch {
-        return String(a);
-      }
-    })
-    .join(' ');
+	return args
+		.map((a) => {
+			if (a instanceof Error) return `${a.name}: ${a.message}`;
+			if (typeof a === 'string') return a;
+			try {
+				return JSON.stringify(a);
+			} catch {
+				return String(a);
+			}
+		})
+		.join(' ');
 }
 
 function patchConsole() {
-  const levels: LogEntry['level'][] = ['log', 'info', 'warn', 'error', 'debug'];
-  for (const level of levels) {
-    const original = console[level].bind(console);
-    console[level] = (...args: unknown[]) => {
-      try {
-        pushLog({
-          ts: Date.now(),
-          level,
-          message: stringifyArgs(args),
-          source: 'shell',
-          stack: level === 'error' ? new Error().stack ?? undefined : undefined,
-        });
-      } catch {
-        /* never let shim breakage break logging */
-      }
-      original(...args);
-    };
-  }
-  // Capture unhandled errors + rejections too.
-  window.addEventListener('error', (e) => {
-    pushLog({
-      ts: Date.now(),
-      level: 'error',
-      message: e.message || 'window error',
-      source: 'shell',
-      stack: e.error?.stack,
-    });
-  });
-  window.addEventListener('unhandledrejection', (e) => {
-    const reason = e.reason;
-    pushLog({
-      ts: Date.now(),
-      level: 'error',
-      message:
-        reason instanceof Error
-          ? `unhandled rejection: ${reason.message}`
-          : `unhandled rejection: ${String(reason)}`,
-      source: 'shell',
-      stack: reason instanceof Error ? reason.stack : undefined,
-    });
-  });
+	const levels: LogEntry['level'][] = ['log', 'info', 'warn', 'error', 'debug'];
+	for (const level of levels) {
+		const original = console[level].bind(console);
+		console[level] = (...args: unknown[]) => {
+			try {
+				pushLog({
+					ts: Date.now(),
+					level,
+					message: stringifyArgs(args),
+					source: 'shell',
+					stack: level === 'error' ? (new Error().stack ?? undefined) : undefined,
+				});
+			} catch {
+				/* never let shim breakage break logging */
+			}
+			original(...args);
+		};
+	}
+	// Capture unhandled errors + rejections too.
+	window.addEventListener('error', (e) => {
+		pushLog({
+			ts: Date.now(),
+			level: 'error',
+			message: e.message || 'window error',
+			source: 'shell',
+			stack: e.error?.stack,
+		});
+	});
+	window.addEventListener('unhandledrejection', (e) => {
+		const reason = e.reason;
+		pushLog({
+			ts: Date.now(),
+			level: 'error',
+			message:
+				reason instanceof Error
+					? `unhandled rejection: ${reason.message}`
+					: `unhandled rejection: ${String(reason)}`,
+			source: 'shell',
+			stack: reason instanceof Error ? reason.stack : undefined,
+		});
+	});
 }
 
 function isIykeIpc(url: string): boolean {
-  // Tauri's invoke() routes through fetch under the hood. Capturing those
-  // would create a feedback loop (network shim pushes via invoke → fetch
-  // captures → push → ...). Drop ipc:// + tauri:// + the iyke control
-  // bridge endpoint itself.
-  return (
-    url.startsWith('ipc://') ||
-    url.startsWith('tauri://') ||
-    url.includes('/iyke/')
-  );
+	// Tauri's invoke() routes through fetch under the hood. Capturing those
+	// would create a feedback loop (network shim pushes via invoke → fetch
+	// captures → push → ...). Drop ipc:// + tauri:// + the iyke control
+	// bridge endpoint itself.
+	return url.startsWith('ipc://') || url.startsWith('tauri://') || url.includes('/iyke/');
 }
 
 function patchFetch() {
-  const original = window.fetch.bind(window);
-  window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-    const start = performance.now();
-    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-    const method = (init?.method ?? (input instanceof Request ? input.method : 'GET')).toUpperCase();
-    if (isIykeIpc(url)) {
-      return original(input as RequestInfo, init);
-    }
-    try {
-      const res = await original(input as RequestInfo, init);
-      pushNetwork({
-        ts: Date.now(),
-        method,
-        url,
-        status: res.status,
-        duration_ms: Math.round(performance.now() - start),
-        kind: 'fetch',
-        source: 'shell',
-      });
-      return res;
-    } catch (err) {
-      pushNetwork({
-        ts: Date.now(),
-        method,
-        url,
-        duration_ms: Math.round(performance.now() - start),
-        kind: 'fetch',
-        error: err instanceof Error ? err.message : String(err),
-        source: 'shell',
-      });
-      throw err;
-    }
-  };
+	const original = window.fetch.bind(window);
+	window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+		const start = performance.now();
+		const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+		const method = (
+			init?.method ?? (input instanceof Request ? input.method : 'GET')
+		).toUpperCase();
+		if (isIykeIpc(url)) {
+			return original(input as RequestInfo, init);
+		}
+		try {
+			const res = await original(input as RequestInfo, init);
+			pushNetwork({
+				ts: Date.now(),
+				method,
+				url,
+				status: res.status,
+				duration_ms: Math.round(performance.now() - start),
+				kind: 'fetch',
+				source: 'shell',
+			});
+			return res;
+		} catch (err) {
+			pushNetwork({
+				ts: Date.now(),
+				method,
+				url,
+				duration_ms: Math.round(performance.now() - start),
+				kind: 'fetch',
+				error: err instanceof Error ? err.message : String(err),
+				source: 'shell',
+			});
+			throw err;
+		}
+	};
 }
 
 function patchXhr() {
-  const OrigOpen = XMLHttpRequest.prototype.open;
-  const OrigSend = XMLHttpRequest.prototype.send;
-  XMLHttpRequest.prototype.open = function (
-    this: XMLHttpRequest,
-    method: string,
-    url: string | URL,
-    ...rest: unknown[]
-  ) {
-    (this as XMLHttpRequest & { __iyke_method?: string; __iyke_url?: string }).__iyke_method =
-      method.toUpperCase();
-    (this as XMLHttpRequest & { __iyke_method?: string; __iyke_url?: string }).__iyke_url =
-      typeof url === 'string' ? url : url.href;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return OrigOpen.apply(this, [method, url, ...(rest as any[])] as any);
-  } as typeof XMLHttpRequest.prototype.open;
-  XMLHttpRequest.prototype.send = function (
-    this: XMLHttpRequest,
-    body?: Document | XMLHttpRequestBodyInit | null,
-  ) {
-    const xhr = this as XMLHttpRequest & { __iyke_method?: string; __iyke_url?: string };
-    if (xhr.__iyke_url && isIykeIpc(xhr.__iyke_url)) {
-      return OrigSend.call(this, body ?? null);
-    }
-    const start = performance.now();
-    const cleanup = () => {
-      pushNetwork({
-        ts: Date.now(),
-        method: xhr.__iyke_method ?? 'GET',
-        url: xhr.__iyke_url ?? '',
-        status: xhr.status || undefined,
-        duration_ms: Math.round(performance.now() - start),
-        kind: 'xhr',
-        error:
-          xhr.status === 0 && xhr.readyState === 4
-            ? 'network error'
-            : undefined,
-        source: 'shell',
-      });
-    };
-    xhr.addEventListener('loadend', cleanup);
-    return OrigSend.call(this, body ?? null);
-  };
+	const OrigOpen = XMLHttpRequest.prototype.open;
+	const OrigSend = XMLHttpRequest.prototype.send;
+	XMLHttpRequest.prototype.open = function (
+		this: XMLHttpRequest,
+		method: string,
+		url: string | URL,
+		...rest: unknown[]
+	) {
+		(this as XMLHttpRequest & { __iyke_method?: string; __iyke_url?: string }).__iyke_method =
+			method.toUpperCase();
+		(this as XMLHttpRequest & { __iyke_method?: string; __iyke_url?: string }).__iyke_url =
+			typeof url === 'string' ? url : url.href;
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		return OrigOpen.apply(this, [method, url, ...(rest as any[])] as any);
+	} as typeof XMLHttpRequest.prototype.open;
+	XMLHttpRequest.prototype.send = function (
+		this: XMLHttpRequest,
+		body?: Document | XMLHttpRequestBodyInit | null
+	) {
+		const xhr = this as XMLHttpRequest & { __iyke_method?: string; __iyke_url?: string };
+		if (xhr.__iyke_url && isIykeIpc(xhr.__iyke_url)) {
+			return OrigSend.call(this, body ?? null);
+		}
+		const start = performance.now();
+		const cleanup = () => {
+			pushNetwork({
+				ts: Date.now(),
+				method: xhr.__iyke_method ?? 'GET',
+				url: xhr.__iyke_url ?? '',
+				status: xhr.status || undefined,
+				duration_ms: Math.round(performance.now() - start),
+				kind: 'xhr',
+				error: xhr.status === 0 && xhr.readyState === 4 ? 'network error' : undefined,
+				source: 'shell',
+			});
+		};
+		xhr.addEventListener('loadend', cleanup);
+		return OrigSend.call(this, body ?? null);
+	};
 }
 
 export function installInstrumentation() {
-  const g = globalThis as PatchedGlobal;
-  if (g[PATCH_FLAG]) return;
-  g[PATCH_FLAG] = true;
-  patchConsole();
-  patchFetch();
-  patchXhr();
+	const g = globalThis as PatchedGlobal;
+	if (g[PATCH_FLAG]) return;
+	g[PATCH_FLAG] = true;
+	patchConsole();
+	patchFetch();
+	patchXhr();
 }
 
 // Run immediately on import — module-level side effect, idempotent via flag.
@@ -311,442 +306,440 @@ installInstrumentation();
 // ── Tauri event listeners ────────────────────────────────────────────────
 
 function isIframePane(pane: string | null | undefined): pane is string {
-  return Boolean(pane) && pane !== 'shell' && Boolean(getIframe(pane!));
+	return Boolean(pane) && pane !== 'shell' && Boolean(getIframe(pane!));
 }
 
 async function handleDomRequest(payload: DomRequestPayload) {
-  const scope = payload.pane && payload.pane !== 'shell' ? payload.pane : 'window';
-  const actId = useIykeActivity.getState().begin({
-    kind: 'dom',
-    scope,
-    detail: payload.query ?? undefined,
-  });
-  try {
-    let result: { text: string; json: unknown; generation: number };
-    if (isIframePane(payload.pane)) {
-      result = await requestIframeDom(
-        payload.pane!,
-        payload.query ?? undefined,
-        payload.all === true,
-      );
-    } else {
-      const snap: DomSnapshotResult = takeSnapshot({
-        query: payload.query ?? undefined,
-        all: payload.all === true,
-      });
-      result = { text: snap.text, json: snap.json, generation: snap.generation };
-    }
-    await invoke('iyke_dom_done', {
-      requestId: payload.request_id,
-      result,
-    });
-  } catch (err) {
-    await invoke('iyke_dom_done', {
-      requestId: payload.request_id,
-      result: {
-        text: `error: ${err instanceof Error ? err.message : String(err)}`,
-        json: [],
-        generation: 0,
-      },
-    }).catch(() => {});
-  } finally {
-    useIykeActivity.getState().end(actId);
-  }
+	const scope = payload.pane && payload.pane !== 'shell' ? payload.pane : 'window';
+	const actId = useIykeActivity.getState().begin({
+		kind: 'dom',
+		scope,
+		detail: payload.query ?? undefined,
+	});
+	try {
+		let result: { text: string; json: unknown; generation: number };
+		if (isIframePane(payload.pane)) {
+			result = await requestIframeDom(
+				payload.pane!,
+				payload.query ?? undefined,
+				payload.all === true
+			);
+		} else {
+			const snap: DomSnapshotResult = takeSnapshot({
+				query: payload.query ?? undefined,
+				all: payload.all === true,
+			});
+			result = { text: snap.text, json: snap.json, generation: snap.generation };
+		}
+		await invoke('iyke_dom_done', {
+			requestId: payload.request_id,
+			result,
+		});
+	} catch (err) {
+		await invoke('iyke_dom_done', {
+			requestId: payload.request_id,
+			result: {
+				text: `error: ${err instanceof Error ? err.message : String(err)}`,
+				json: [],
+				generation: 0,
+			},
+		}).catch(() => {});
+	} finally {
+		useIykeActivity.getState().end(actId);
+	}
 }
 
 interface QueryEntry {
-  queryKey: unknown;
-  status: string;
-  fetchStatus: string;
-  isStale: boolean;
-  dataUpdatedAt: number;
-  errorUpdatedAt: number;
-  error?: string;
-  dataPreview?: string;
+	queryKey: unknown;
+	status: string;
+	fetchStatus: string;
+	isStale: boolean;
+	dataUpdatedAt: number;
+	errorUpdatedAt: number;
+	error?: string;
+	dataPreview?: string;
 }
 
 async function handleQueryCacheRequest(payload: QueryCacheRequestPayload) {
-  const scope = payload.pane && payload.pane !== 'shell' ? payload.pane : 'window';
-  const actId = useIykeActivity.getState().begin({ kind: 'query-cache', scope });
-  try {
-    const cache = queryClient.getQueryCache();
-    const entries: QueryEntry[] = cache.getAll().map((q) => {
-      const state = q.state;
-      let dataPreview: string | undefined;
-      if (state.data !== undefined && state.data !== null) {
-        try {
-          const s = JSON.stringify(state.data);
-          dataPreview = s.length > 200 ? s.slice(0, 200) + '…' : s;
-        } catch {
-          dataPreview = String(state.data);
-        }
-      }
-      return {
-        queryKey: q.queryKey,
-        status: state.status,
-        fetchStatus: state.fetchStatus,
-        isStale: q.isStale(),
-        dataUpdatedAt: state.dataUpdatedAt,
-        errorUpdatedAt: state.errorUpdatedAt,
-        error: state.error instanceof Error ? state.error.message : undefined,
-        dataPreview,
-      };
-    });
-    await invoke('iyke_query_cache_done', {
-      requestId: payload.request_id,
-      result: { entries },
-    });
-  } catch (err) {
-    await invoke('iyke_query_cache_done', {
-      requestId: payload.request_id,
-      result: { entries: [{ error: err instanceof Error ? err.message : String(err) }] },
-    }).catch(() => {});
-  } finally {
-    useIykeActivity.getState().end(actId);
-  }
+	const scope = payload.pane && payload.pane !== 'shell' ? payload.pane : 'window';
+	const actId = useIykeActivity.getState().begin({ kind: 'query-cache', scope });
+	try {
+		const cache = queryClient.getQueryCache();
+		const entries: QueryEntry[] = cache.getAll().map((q) => {
+			const state = q.state;
+			let dataPreview: string | undefined;
+			if (state.data !== undefined && state.data !== null) {
+				try {
+					const s = JSON.stringify(state.data);
+					dataPreview = s.length > 200 ? s.slice(0, 200) + '…' : s;
+				} catch {
+					dataPreview = String(state.data);
+				}
+			}
+			return {
+				queryKey: q.queryKey,
+				status: state.status,
+				fetchStatus: state.fetchStatus,
+				isStale: q.isStale(),
+				dataUpdatedAt: state.dataUpdatedAt,
+				errorUpdatedAt: state.errorUpdatedAt,
+				error: state.error instanceof Error ? state.error.message : undefined,
+				dataPreview,
+			};
+		});
+		await invoke('iyke_query_cache_done', {
+			requestId: payload.request_id,
+			result: { entries },
+		});
+	} catch (err) {
+		await invoke('iyke_query_cache_done', {
+			requestId: payload.request_id,
+			result: { entries: [{ error: err instanceof Error ? err.message : String(err) }] },
+		}).catch(() => {});
+	} finally {
+		useIykeActivity.getState().end(actId);
+	}
 }
 
 async function handleWaitRequest(payload: WaitRequestPayload) {
-  const scope = payload.pane && payload.pane !== 'shell' ? payload.pane : 'window';
-  const actId = useIykeActivity.getState().begin({
-    kind: 'wait',
-    scope,
-    detail: `${payload.kind}:${payload.value}`,
-  });
-  const finish = () => useIykeActivity.getState().end(actId);
-  if (isIframePane(payload.pane)) {
-    try {
-      const r = await requestIframeWait(
-        payload.pane!,
-        payload.kind,
-        payload.value,
-        payload.timeout_ms,
-      );
-      await invoke('iyke_wait_done', {
-        requestId: payload.request_id,
-        result: r,
-      });
-    } catch (err) {
-      await invoke('iyke_wait_done', {
-        requestId: payload.request_id,
-        result: {
-          satisfied: false,
-          elapsed_ms: 0,
-          message: err instanceof Error ? err.message : String(err),
-        },
-      }).catch(() => {});
-    } finally {
-      finish();
-    }
-    return;
-  }
-  const start = performance.now();
-  const deadline = start + payload.timeout_ms;
-  const check = (): boolean => {
-    switch (payload.kind) {
-      case 'text': {
-        return Boolean(document.body && document.body.innerText.includes(payload.value));
-      }
-      case 'gone-text': {
-        return !(document.body && document.body.innerText.includes(payload.value));
-      }
-      case 'selector': {
-        const el = resolveBySelector(payload.value);
-        return Boolean(el && el instanceof HTMLElement && el.offsetParent !== null);
-      }
-      case 'gone-selector': {
-        const el = resolveBySelector(payload.value);
-        return !el || (el instanceof HTMLElement && el.offsetParent === null);
-      }
-      case 'ref': {
-        const el = resolveRef(payload.value);
-        return Boolean(el);
-      }
-    }
-  };
+	const scope = payload.pane && payload.pane !== 'shell' ? payload.pane : 'window';
+	const actId = useIykeActivity.getState().begin({
+		kind: 'wait',
+		scope,
+		detail: `${payload.kind}:${payload.value}`,
+	});
+	const finish = () => useIykeActivity.getState().end(actId);
+	if (isIframePane(payload.pane)) {
+		try {
+			const r = await requestIframeWait(
+				payload.pane!,
+				payload.kind,
+				payload.value,
+				payload.timeout_ms
+			);
+			await invoke('iyke_wait_done', {
+				requestId: payload.request_id,
+				result: r,
+			});
+		} catch (err) {
+			await invoke('iyke_wait_done', {
+				requestId: payload.request_id,
+				result: {
+					satisfied: false,
+					elapsed_ms: 0,
+					message: err instanceof Error ? err.message : String(err),
+				},
+			}).catch(() => {});
+		} finally {
+			finish();
+		}
+		return;
+	}
+	const start = performance.now();
+	const deadline = start + payload.timeout_ms;
+	const check = (): boolean => {
+		switch (payload.kind) {
+			case 'text': {
+				return Boolean(document.body && document.body.innerText.includes(payload.value));
+			}
+			case 'gone-text': {
+				return !(document.body && document.body.innerText.includes(payload.value));
+			}
+			case 'selector': {
+				const el = resolveBySelector(payload.value);
+				return Boolean(el && el instanceof HTMLElement && el.offsetParent !== null);
+			}
+			case 'gone-selector': {
+				const el = resolveBySelector(payload.value);
+				return !el || (el instanceof HTMLElement && el.offsetParent === null);
+			}
+			case 'ref': {
+				const el = resolveRef(payload.value);
+				return Boolean(el);
+			}
+		}
+	};
 
-  return new Promise<void>((resolve) => {
-    const tick = async () => {
-      const now = performance.now();
-      if (check()) {
-        await invoke('iyke_wait_done', {
-          requestId: payload.request_id,
-          result: { satisfied: true, elapsed_ms: Math.round(now - start) },
-        }).catch(() => {});
-        finish();
-        resolve();
-        return;
-      }
-      if (now >= deadline) {
-        await invoke('iyke_wait_done', {
-          requestId: payload.request_id,
-          result: {
-            satisfied: false,
-            elapsed_ms: Math.round(now - start),
-            message: `timeout after ${payload.timeout_ms}ms (kind=${payload.kind})`,
-          },
-        }).catch(() => {});
-        finish();
-        resolve();
-        return;
-      }
-      setTimeout(tick, 50);
-    };
-    tick().catch(() => {
-      finish();
-      resolve();
-    });
-  });
+	return new Promise<void>((resolve) => {
+		const tick = async () => {
+			const now = performance.now();
+			if (check()) {
+				await invoke('iyke_wait_done', {
+					requestId: payload.request_id,
+					result: { satisfied: true, elapsed_ms: Math.round(now - start) },
+				}).catch(() => {});
+				finish();
+				resolve();
+				return;
+			}
+			if (now >= deadline) {
+				await invoke('iyke_wait_done', {
+					requestId: payload.request_id,
+					result: {
+						satisfied: false,
+						elapsed_ms: Math.round(now - start),
+						message: `timeout after ${payload.timeout_ms}ms (kind=${payload.kind})`,
+					},
+				}).catch(() => {});
+				finish();
+				resolve();
+				return;
+			}
+			setTimeout(tick, 50);
+		};
+		tick().catch(() => {
+			finish();
+			resolve();
+		});
+	});
 }
 
 function resolveTarget(
-  ref: string | null | undefined,
-  selector: string | null | undefined,
-  text: string | null | undefined,
+	ref: string | null | undefined,
+	selector: string | null | undefined,
+	text: string | null | undefined
 ): Element | null {
-  if (ref) return resolveRef(ref);
-  if (selector) return resolveBySelector(selector);
-  if (text) return resolveByText(text);
-  return null;
+	if (ref) return resolveRef(ref);
+	if (selector) return resolveBySelector(selector);
+	if (text) return resolveByText(text);
+	return null;
 }
 
 function handleClick(payload: ClickPayload) {
-  if (isIframePane(payload.pane)) {
-    const id = useIykeActivity.getState().begin({
-      kind: 'click',
-      scope: payload.pane!,
-      detail: payload.ref ?? payload.selector ?? payload.text ?? undefined,
-    });
-    postToIframeFireAndForget(payload.pane!, 'click', {
-      ref: payload.ref ?? null,
-      selector: payload.selector ?? null,
-      text: payload.text ?? null,
-    });
-    useIykeActivity.getState().end(id);
-    return;
-  }
-  const el = resolveTarget(payload.ref, payload.selector, payload.text);
-  if (!el) {
-    console.warn('[iyke] click target not found:', payload);
-    return;
-  }
-  const id = useIykeActivity.getState().begin({
-    kind: 'click',
-    scope: resolvePaneScope(el),
-    detail: payload.ref ?? payload.selector ?? payload.text ?? undefined,
-  });
-  if (el instanceof HTMLElement) {
-    // Match Playwright's hierarchy: focus first (so :focus styles + form
-    // semantics fire), then dispatch a real click. .click() routes through
-    // the user-activation path, which is what most React handlers expect.
-    try {
-      el.focus({ preventScroll: false });
-    } catch {
-      /* svg etc. */
-    }
-    el.click();
-  } else {
-    el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-  }
-  useIykeActivity.getState().end(id);
+	if (isIframePane(payload.pane)) {
+		const id = useIykeActivity.getState().begin({
+			kind: 'click',
+			scope: payload.pane!,
+			detail: payload.ref ?? payload.selector ?? payload.text ?? undefined,
+		});
+		postToIframeFireAndForget(payload.pane!, 'click', {
+			ref: payload.ref ?? null,
+			selector: payload.selector ?? null,
+			text: payload.text ?? null,
+		});
+		useIykeActivity.getState().end(id);
+		return;
+	}
+	const el = resolveTarget(payload.ref, payload.selector, payload.text);
+	if (!el) {
+		console.warn('[iyke] click target not found:', payload);
+		return;
+	}
+	const id = useIykeActivity.getState().begin({
+		kind: 'click',
+		scope: resolvePaneScope(el),
+		detail: payload.ref ?? payload.selector ?? payload.text ?? undefined,
+	});
+	if (el instanceof HTMLElement) {
+		// Match Playwright's hierarchy: focus first (so :focus styles + form
+		// semantics fire), then dispatch a real click. .click() routes through
+		// the user-activation path, which is what most React handlers expect.
+		try {
+			el.focus({ preventScroll: false });
+		} catch {
+			/* svg etc. */
+		}
+		el.click();
+	} else {
+		el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+	}
+	useIykeActivity.getState().end(id);
 }
 
 function handleType(payload: TypePayload) {
-  if (isIframePane(payload.pane)) {
-    const id = useIykeActivity.getState().begin({
-      kind: 'type',
-      scope: payload.pane!,
-      detail: payload.ref ?? payload.selector ?? undefined,
-    });
-    postToIframeFireAndForget(payload.pane!, 'type', {
-      ref: payload.ref ?? null,
-      selector: payload.selector ?? null,
-      text: payload.text,
-      replace: payload.replace === true,
-    });
-    useIykeActivity.getState().end(id);
-    return;
-  }
-  const el = resolveTarget(payload.ref, payload.selector, null);
-  if (!el) {
-    console.warn('[iyke] type target not found:', payload);
-    return;
-  }
-  const id = useIykeActivity.getState().begin({
-    kind: 'type',
-    scope: resolvePaneScope(el),
-    detail: payload.ref ?? payload.selector ?? undefined,
-  });
-  if (
-    el instanceof HTMLInputElement ||
-    el instanceof HTMLTextAreaElement ||
-    (el instanceof HTMLElement && el.isContentEditable)
-  ) {
-    el.focus();
-    if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
-      const setter = Object.getOwnPropertyDescriptor(
-        el instanceof HTMLInputElement
-          ? HTMLInputElement.prototype
-          : HTMLTextAreaElement.prototype,
-        'value',
-      )?.set;
-      const next = payload.replace ? payload.text : `${el.value}${payload.text}`;
-      if (setter) setter.call(el, next);
-      else el.value = next;
-      el.dispatchEvent(new Event('input', { bubbles: true }));
-      el.dispatchEvent(new Event('change', { bubbles: true }));
-    } else {
-      // contenteditable
-      if (payload.replace) (el as HTMLElement).innerText = payload.text;
-      else (el as HTMLElement).innerText += payload.text;
-      el.dispatchEvent(new Event('input', { bubbles: true }));
-    }
-  } else {
-    console.warn('[iyke] type: target is not editable', el.tagName);
-  }
-  useIykeActivity.getState().end(id);
+	if (isIframePane(payload.pane)) {
+		const id = useIykeActivity.getState().begin({
+			kind: 'type',
+			scope: payload.pane!,
+			detail: payload.ref ?? payload.selector ?? undefined,
+		});
+		postToIframeFireAndForget(payload.pane!, 'type', {
+			ref: payload.ref ?? null,
+			selector: payload.selector ?? null,
+			text: payload.text,
+			replace: payload.replace === true,
+		});
+		useIykeActivity.getState().end(id);
+		return;
+	}
+	const el = resolveTarget(payload.ref, payload.selector, null);
+	if (!el) {
+		console.warn('[iyke] type target not found:', payload);
+		return;
+	}
+	const id = useIykeActivity.getState().begin({
+		kind: 'type',
+		scope: resolvePaneScope(el),
+		detail: payload.ref ?? payload.selector ?? undefined,
+	});
+	if (
+		el instanceof HTMLInputElement ||
+		el instanceof HTMLTextAreaElement ||
+		(el instanceof HTMLElement && el.isContentEditable)
+	) {
+		el.focus();
+		if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
+			const setter = Object.getOwnPropertyDescriptor(
+				el instanceof HTMLInputElement ? HTMLInputElement.prototype : HTMLTextAreaElement.prototype,
+				'value'
+			)?.set;
+			const next = payload.replace ? payload.text : `${el.value}${payload.text}`;
+			if (setter) setter.call(el, next);
+			else el.value = next;
+			el.dispatchEvent(new Event('input', { bubbles: true }));
+			el.dispatchEvent(new Event('change', { bubbles: true }));
+		} else {
+			// contenteditable
+			if (payload.replace) (el as HTMLElement).innerText = payload.text;
+			else (el as HTMLElement).innerText += payload.text;
+			el.dispatchEvent(new Event('input', { bubbles: true }));
+		}
+	} else {
+		console.warn('[iyke] type: target is not editable', el.tagName);
+	}
+	useIykeActivity.getState().end(id);
 }
 
 const KEY_ALIASES: Record<string, string> = {
-  enter: 'Enter',
-  esc: 'Escape',
-  escape: 'Escape',
-  tab: 'Tab',
-  space: ' ',
-  up: 'ArrowUp',
-  down: 'ArrowDown',
-  left: 'ArrowLeft',
-  right: 'ArrowRight',
-  backspace: 'Backspace',
-  delete: 'Delete',
-  home: 'Home',
-  end: 'End',
+	enter: 'Enter',
+	esc: 'Escape',
+	escape: 'Escape',
+	tab: 'Tab',
+	space: ' ',
+	up: 'ArrowUp',
+	down: 'ArrowDown',
+	left: 'ArrowLeft',
+	right: 'ArrowRight',
+	backspace: 'Backspace',
+	delete: 'Delete',
+	home: 'Home',
+	end: 'End',
 };
 
 function parseCombo(combo: string): {
-  key: string;
-  ctrl: boolean;
-  alt: boolean;
-  shift: boolean;
-  meta: boolean;
+	key: string;
+	ctrl: boolean;
+	alt: boolean;
+	shift: boolean;
+	meta: boolean;
 } {
-  const parts = combo.split(/[+,]/).map((p) => p.trim()).filter(Boolean);
-  let key = '';
-  let ctrl = false,
-    alt = false,
-    shift = false,
-    meta = false;
-  for (const p of parts) {
-    const low = p.toLowerCase();
-    if (low === 'ctrl' || low === 'control') ctrl = true;
-    else if (low === 'alt' || low === 'option') alt = true;
-    else if (low === 'shift') shift = true;
-    else if (low === 'meta' || low === 'cmd' || low === 'command' || low === 'super')
-      meta = true;
-    else key = KEY_ALIASES[low] ?? p;
-  }
-  return { key, ctrl, alt, shift, meta };
+	const parts = combo
+		.split(/[+,]/)
+		.map((p) => p.trim())
+		.filter(Boolean);
+	let key = '';
+	let ctrl = false,
+		alt = false,
+		shift = false,
+		meta = false;
+	for (const p of parts) {
+		const low = p.toLowerCase();
+		if (low === 'ctrl' || low === 'control') ctrl = true;
+		else if (low === 'alt' || low === 'option') alt = true;
+		else if (low === 'shift') shift = true;
+		else if (low === 'meta' || low === 'cmd' || low === 'command' || low === 'super') meta = true;
+		else key = KEY_ALIASES[low] ?? p;
+	}
+	return { key, ctrl, alt, shift, meta };
 }
 
 function handleKey(payload: KeyPayload) {
-  if (isIframePane(payload.pane)) {
-    const id = useIykeActivity.getState().begin({
-      kind: 'key',
-      scope: payload.pane!,
-      detail: payload.combo,
-    });
-    postToIframeFireAndForget(payload.pane!, 'key', {
-      combo: payload.combo,
-      ref: payload.ref ?? null,
-      selector: payload.selector ?? null,
-    });
-    useIykeActivity.getState().end(id);
-    return;
-  }
-  const target =
-    resolveTarget(payload.ref, payload.selector, null) ??
-    document.activeElement ??
-    document.body;
-  if (!target) return;
-  const id = useIykeActivity.getState().begin({
-    kind: 'key',
-    scope: resolvePaneScope(target instanceof Element ? target : null),
-    detail: payload.combo,
-  });
-  const combo = parseCombo(payload.combo);
-  for (const type of ['keydown', 'keypress', 'keyup'] as const) {
-    if (type === 'keypress' && combo.key.length !== 1) continue;
-    target.dispatchEvent(
-      new KeyboardEvent(type, {
-        key: combo.key,
-        code: combo.key,
-        ctrlKey: combo.ctrl,
-        altKey: combo.alt,
-        shiftKey: combo.shift,
-        metaKey: combo.meta,
-        bubbles: true,
-        cancelable: true,
-      }),
-    );
-  }
-  useIykeActivity.getState().end(id);
+	if (isIframePane(payload.pane)) {
+		const id = useIykeActivity.getState().begin({
+			kind: 'key',
+			scope: payload.pane!,
+			detail: payload.combo,
+		});
+		postToIframeFireAndForget(payload.pane!, 'key', {
+			combo: payload.combo,
+			ref: payload.ref ?? null,
+			selector: payload.selector ?? null,
+		});
+		useIykeActivity.getState().end(id);
+		return;
+	}
+	const target =
+		resolveTarget(payload.ref, payload.selector, null) ?? document.activeElement ?? document.body;
+	if (!target) return;
+	const id = useIykeActivity.getState().begin({
+		kind: 'key',
+		scope: resolvePaneScope(target instanceof Element ? target : null),
+		detail: payload.combo,
+	});
+	const combo = parseCombo(payload.combo);
+	for (const type of ['keydown', 'keypress', 'keyup'] as const) {
+		if (type === 'keypress' && combo.key.length !== 1) continue;
+		target.dispatchEvent(
+			new KeyboardEvent(type, {
+				key: combo.key,
+				code: combo.key,
+				ctrlKey: combo.ctrl,
+				altKey: combo.alt,
+				shiftKey: combo.shift,
+				metaKey: combo.meta,
+				bubbles: true,
+				cancelable: true,
+			})
+		);
+	}
+	useIykeActivity.getState().end(id);
 }
 
 // ── Hook ─────────────────────────────────────────────────────────────────
 
 export function useIykeBridge(): void {
-  useEffect(() => {
-    installIykeIframeMessageListener();
+	useEffect(() => {
+		installIykeIframeMessageListener();
 
-    const unlisteners: UnlistenFn[] = [];
-    let cancelled = false;
-    const track = (p: Promise<UnlistenFn>) =>
-      p
-        .then((u) => {
-          if (cancelled) u();
-          else unlisteners.push(u);
-        })
-        .catch((err) => {
-          console.warn('[iyke] subscribe failed:', err);
-        });
+		const unlisteners: UnlistenFn[] = [];
+		let cancelled = false;
+		const track = (p: Promise<UnlistenFn>) =>
+			p
+				.then((u) => {
+					if (cancelled) u();
+					else unlisteners.push(u);
+				})
+				.catch((err) => {
+					console.warn('[iyke] subscribe failed:', err);
+				});
 
-    track(listen<DomRequestPayload>('iyke://dom-request', (e) => handleDomRequest(e.payload)));
-    track(
-      listen<{ request_id: string; pane: string }>('iyke://iframe-state-request', (e) => {
-        const reg = getIframe(e.payload.pane);
-        const state = reg ? reg.state : null;
-        invoke('iyke_dom_done', {
-          requestId: e.payload.request_id,
-          result: {
-            text: JSON.stringify(state, null, 2),
-            json: state ?? {},
-            generation: currentStateGeneration(),
-          },
-        }).catch(() => {});
-      }),
-    );
-    track(
-      listen<{ pane: string; kind: string; payload: unknown }>('iyke://iframe-message', (e) => {
-        postToIframeFireAndForget(e.payload.pane, e.payload.kind, e.payload.payload);
-      }),
-    );
-    track(
-      listen<QueryCacheRequestPayload>('iyke://query-cache-request', (e) =>
-        handleQueryCacheRequest(e.payload),
-      ),
-    );
-    track(
-      listen<WaitRequestPayload>('iyke://wait-request', (e) => {
-        void handleWaitRequest(e.payload);
-      }),
-    );
-    track(listen<ClickPayload>('iyke://click', (e) => handleClick(e.payload)));
-    track(listen<TypePayload>('iyke://type', (e) => handleType(e.payload)));
-    track(listen<KeyPayload>('iyke://key', (e) => handleKey(e.payload)));
+		track(listen<DomRequestPayload>('iyke://dom-request', (e) => handleDomRequest(e.payload)));
+		track(
+			listen<{ request_id: string; pane: string }>('iyke://iframe-state-request', (e) => {
+				const reg = getIframe(e.payload.pane);
+				const state = reg ? reg.state : null;
+				invoke('iyke_dom_done', {
+					requestId: e.payload.request_id,
+					result: {
+						text: JSON.stringify(state, null, 2),
+						json: state ?? {},
+						generation: currentStateGeneration(),
+					},
+				}).catch(() => {});
+			})
+		);
+		track(
+			listen<{ pane: string; kind: string; payload: unknown }>('iyke://iframe-message', (e) => {
+				postToIframeFireAndForget(e.payload.pane, e.payload.kind, e.payload.payload);
+			})
+		);
+		track(
+			listen<QueryCacheRequestPayload>('iyke://query-cache-request', (e) =>
+				handleQueryCacheRequest(e.payload)
+			)
+		);
+		track(
+			listen<WaitRequestPayload>('iyke://wait-request', (e) => {
+				void handleWaitRequest(e.payload);
+			})
+		);
+		track(listen<ClickPayload>('iyke://click', (e) => handleClick(e.payload)));
+		track(listen<TypePayload>('iyke://type', (e) => handleType(e.payload)));
+		track(listen<KeyPayload>('iyke://key', (e) => handleKey(e.payload)));
 
-    return () => {
-      cancelled = true;
-      for (const u of unlisteners) u();
-    };
-  }, []);
+		return () => {
+			cancelled = true;
+			for (const u of unlisteners) u();
+		};
+	}, []);
 }
