@@ -4,7 +4,7 @@ import { createFileRoute, redirect } from '@tanstack/react-router';
 // `route.tsx` also throws this redirect via `beforeLoad`, but we keep this
 // file as an explicit safety net for TanStack's file-based routing.
 export const Route = createFileRoute('/settings/')({
-  beforeLoad: () => {
-    throw redirect({ to: '/settings/appearance' });
-  },
+	beforeLoad: () => {
+		throw redirect({ to: '/settings/appearance' });
+	},
 });

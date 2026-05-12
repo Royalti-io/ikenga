@@ -453,7 +453,7 @@ export async function sessionToolResult(
 	threadId: string,
 	toolUseId: string,
 	output: unknown,
-	isError = false,
+	isError = false
 ): Promise<void> {
 	return invoke('session_tool_result', { threadId, toolUseId, output, isError });
 }
@@ -678,9 +678,7 @@ export interface AcpSessionNotification {
 
 /** ACP `initialize` — handshake. Returns the negotiated protocol version
  *  + the agent's advertised capabilities. */
-export async function acpInitialize(
-	req: AcpInitializeRequest
-): Promise<AcpInitializeResponse> {
+export async function acpInitialize(req: AcpInitializeRequest): Promise<AcpInitializeResponse> {
 	return invoke<AcpInitializeResponse>('acp_initialize', { req });
 }
 
@@ -716,9 +714,7 @@ export async function acpListen(
 	threadId: string,
 	onUpdate: (notification: AcpSessionNotification) => void
 ): Promise<UnlistenFn> {
-	return listen<AcpSessionNotification>(`acp://session/${threadId}`, (e) =>
-		onUpdate(e.payload)
-	);
+	return listen<AcpSessionNotification>(`acp://session/${threadId}`, (e) => onUpdate(e.payload));
 }
 
 // ─── ACP permission round-trip (phase 4) ──────────────────────────────────────
@@ -783,9 +779,8 @@ export async function acpListenRequests(
 	threadId: string,
 	onRequest: (envelope: AcpRequestEnvelope) => void
 ): Promise<UnlistenFn> {
-	return listen<AcpRequestEnvelope>(
-		`acp://session/${threadId}/request`,
-		(e) => onRequest(e.payload),
+	return listen<AcpRequestEnvelope>(`acp://session/${threadId}/request`, (e) =>
+		onRequest(e.payload)
 	);
 }
 
@@ -794,7 +789,7 @@ export async function acpListenRequests(
  *  `sdk_control_response` envelope, and writes it back to claude's stdin. */
 export async function acpRespondPermission(
 	requestId: string,
-	response: AcpRequestPermissionResponse,
+	response: AcpRequestPermissionResponse
 ): Promise<void> {
 	return invoke('acp_respond_permission', { requestId, response });
 }
@@ -840,7 +835,7 @@ export interface AcpLoadSessionResponse {
  *  implementation; a future phase can do full transcript divergence. */
 export async function acpForkSession(
 	sourceThreadId: string,
-	opts?: { upToTurn?: number; label?: string },
+	opts?: { upToTurn?: number; label?: string }
 ): Promise<AcpForkResult> {
 	return invoke<AcpForkResult>('acp_fork_session', {
 		sourceThreadId,
@@ -884,7 +879,7 @@ export interface AcpNotifyPayload {
  *  `acp-notify-bridge.ts` (the singleton dispatcher) and by the
  *  `ikengaAcpNotifyWatch` smoke helper. */
 export async function acpListenNotify(
-	callback: (payload: AcpNotifyPayload) => void,
+	callback: (payload: AcpNotifyPayload) => void
 ): Promise<UnlistenFn> {
 	return listen<AcpNotifyPayload>('acp://notify', (e) => callback(e.payload));
 }
@@ -1738,7 +1733,7 @@ export interface BgSpikeReport {
 export async function bgSpikeRun(
 	durationMs: number,
 	intervalMs: number,
-	perPingTimeoutMs: number,
+	perPingTimeoutMs: number
 ): Promise<BgSpikeReport> {
 	return invoke<BgSpikeReport>('bg_spike_run', {
 		durationMs,

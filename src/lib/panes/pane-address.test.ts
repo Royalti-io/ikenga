@@ -2,127 +2,127 @@ import { describe, expect, it } from 'vitest';
 import { getPaneAddress, hasAddressBar, parsePaneAddress } from './pane-address';
 
 describe('getPaneAddress', () => {
-  it('returns the path for route views', () => {
-    expect(getPaneAddress({ kind: 'route', path: '/inbox' })).toBe('/inbox');
-  });
+	it('returns the path for route views', () => {
+		expect(getPaneAddress({ kind: 'route', path: '/inbox' })).toBe('/inbox');
+	});
 
-  it('coerces empty route paths to "/"', () => {
-    expect(getPaneAddress({ kind: 'route', path: '' })).toBe('/');
-  });
+	it('coerces empty route paths to "/"', () => {
+		expect(getPaneAddress({ kind: 'route', path: '' })).toBe('/');
+	});
 
-  it('returns the path for artifact views', () => {
-    expect(getPaneAddress({ kind: 'artifact', path: '/tmp/x.html' })).toBe('/tmp/x.html');
-  });
+	it('returns the path for artifact views', () => {
+		expect(getPaneAddress({ kind: 'artifact', path: '/tmp/x.html' })).toBe('/tmp/x.html');
+	});
 
-  it('returns null for chat views', () => {
-    expect(getPaneAddress({ kind: 'chat', sessionId: 'abc' })).toBeNull();
-  });
+	it('returns null for chat views', () => {
+		expect(getPaneAddress({ kind: 'chat', sessionId: 'abc' })).toBeNull();
+	});
 
-  it('returns null for terminal views', () => {
-    expect(getPaneAddress({ kind: 'terminal', sessionId: 'tty1' })).toBeNull();
-  });
+	it('returns null for terminal views', () => {
+		expect(getPaneAddress({ kind: 'terminal', sessionId: 'tty1' })).toBeNull();
+	});
 });
 
 describe('hasAddressBar', () => {
-  it('is true for route + artifact', () => {
-    expect(hasAddressBar({ kind: 'route', path: '/x' })).toBe(true);
-    expect(hasAddressBar({ kind: 'artifact', path: '/y' })).toBe(true);
-  });
+	it('is true for route + artifact', () => {
+		expect(hasAddressBar({ kind: 'route', path: '/x' })).toBe(true);
+		expect(hasAddressBar({ kind: 'artifact', path: '/y' })).toBe(true);
+	});
 
-  it('is false for chat + terminal', () => {
-    expect(hasAddressBar({ kind: 'chat', sessionId: 's' })).toBe(false);
-    expect(hasAddressBar({ kind: 'terminal', sessionId: 's' })).toBe(false);
-  });
+	it('is false for chat + terminal', () => {
+		expect(hasAddressBar({ kind: 'chat', sessionId: 's' })).toBe(false);
+		expect(hasAddressBar({ kind: 'terminal', sessionId: 's' })).toBe(false);
+	});
 });
 
 describe('parsePaneAddress', () => {
-  it('returns null for empty input', () => {
-    expect(parsePaneAddress('')).toBeNull();
-    expect(parsePaneAddress('   ')).toBeNull();
-  });
+	it('returns null for empty input', () => {
+		expect(parsePaneAddress('')).toBeNull();
+		expect(parsePaneAddress('   ')).toBeNull();
+	});
 
-  it('parses https URLs as artifact (auto-router handles URLs)', () => {
-    expect(parsePaneAddress('https://example.com/foo')).toEqual({
-      kind: 'artifact',
-      path: 'https://example.com/foo',
-    });
-  });
+	it('parses https URLs as artifact (auto-router handles URLs)', () => {
+		expect(parsePaneAddress('https://example.com/foo')).toEqual({
+			kind: 'artifact',
+			path: 'https://example.com/foo',
+		});
+	});
 
-  it('parses http URLs as artifact', () => {
-    expect(parsePaneAddress('http://localhost:3000')).toEqual({
-      kind: 'artifact',
-      path: 'http://localhost:3000',
-    });
-  });
+	it('parses http URLs as artifact', () => {
+		expect(parsePaneAddress('http://localhost:3000')).toEqual({
+			kind: 'artifact',
+			path: 'http://localhost:3000',
+		});
+	});
 
-  it('parses ikenga://artifact/<id> as artifact with the suffix', () => {
-    expect(parsePaneAddress('ikenga://artifact/abc-123')).toEqual({
-      kind: 'artifact',
-      path: 'abc-123',
-    });
-  });
+	it('parses ikenga://artifact/<id> as artifact with the suffix', () => {
+		expect(parsePaneAddress('ikenga://artifact/abc-123')).toEqual({
+			kind: 'artifact',
+			path: 'abc-123',
+		});
+	});
 
-  it('rejects ikenga://artifact/ with empty suffix', () => {
-    expect(parsePaneAddress('ikenga://artifact/')).toBeNull();
-  });
+	it('rejects ikenga://artifact/ with empty suffix', () => {
+		expect(parsePaneAddress('ikenga://artifact/')).toBeNull();
+	});
 
-  it('rejects unknown URI schemes', () => {
-    expect(parsePaneAddress('mailto:a@b.com')).toBeNull();
-    expect(parsePaneAddress('foo://bar')).toBeNull();
-  });
+	it('rejects unknown URI schemes', () => {
+		expect(parsePaneAddress('mailto:a@b.com')).toBeNull();
+		expect(parsePaneAddress('foo://bar')).toBeNull();
+	});
 
-  it('parses a leading-slash route', () => {
-    expect(parsePaneAddress('/inbox')).toEqual({
-      kind: 'route',
-      path: '/inbox',
-    });
-  });
+	it('parses a leading-slash route', () => {
+		expect(parsePaneAddress('/inbox')).toEqual({
+			kind: 'route',
+			path: '/inbox',
+		});
+	});
 
-  it('parses a leading-slash filesystem path with extension as artifact', () => {
-    expect(parsePaneAddress('/home/me/x.html')).toEqual({
-      kind: 'artifact',
-      path: '/home/me/x.html',
-    });
-  });
+	it('parses a leading-slash filesystem path with extension as artifact', () => {
+		expect(parsePaneAddress('/home/me/x.html')).toEqual({
+			kind: 'artifact',
+			path: '/home/me/x.html',
+		});
+	});
 
-  it('parses /Users/... as artifact (mac home)', () => {
-    expect(parsePaneAddress('/Users/me/notes')).toEqual({
-      kind: 'artifact',
-      path: '/Users/me/notes',
-    });
-  });
+	it('parses /Users/... as artifact (mac home)', () => {
+		expect(parsePaneAddress('/Users/me/notes')).toEqual({
+			kind: 'artifact',
+			path: '/Users/me/notes',
+		});
+	});
 
-  it('parses Windows drive paths as artifact', () => {
-    expect(parsePaneAddress('C:\\Users\\me\\x.txt')).toEqual({
-      kind: 'artifact',
-      path: 'C:\\Users\\me\\x.txt',
-    });
-    expect(parsePaneAddress('D:/projects/foo')).toEqual({
-      kind: 'artifact',
-      path: 'D:/projects/foo',
-    });
-  });
+	it('parses Windows drive paths as artifact', () => {
+		expect(parsePaneAddress('C:\\Users\\me\\x.txt')).toEqual({
+			kind: 'artifact',
+			path: 'C:\\Users\\me\\x.txt',
+		});
+		expect(parsePaneAddress('D:/projects/foo')).toEqual({
+			kind: 'artifact',
+			path: 'D:/projects/foo',
+		});
+	});
 
-  it('parses relative paths containing a dot as artifact', () => {
-    expect(parsePaneAddress('docs/readme.md')).toEqual({
-      kind: 'artifact',
-      path: 'docs/readme.md',
-    });
-  });
+	it('parses relative paths containing a dot as artifact', () => {
+		expect(parsePaneAddress('docs/readme.md')).toEqual({
+			kind: 'artifact',
+			path: 'docs/readme.md',
+		});
+	});
 
-  it('parses relative paths containing a slash as artifact', () => {
-    expect(parsePaneAddress('a/b')).toEqual({ kind: 'artifact', path: 'a/b' });
-  });
+	it('parses relative paths containing a slash as artifact', () => {
+		expect(parsePaneAddress('a/b')).toEqual({ kind: 'artifact', path: 'a/b' });
+	});
 
-  it('rejects bare words with no slash, dot, or scheme', () => {
-    expect(parsePaneAddress('inbox')).toBeNull();
-    expect(parsePaneAddress('hello world')).toBeNull();
-  });
+	it('rejects bare words with no slash, dot, or scheme', () => {
+		expect(parsePaneAddress('inbox')).toBeNull();
+		expect(parsePaneAddress('hello world')).toBeNull();
+	});
 
-  it('trims surrounding whitespace before parsing', () => {
-    expect(parsePaneAddress('  /inbox  ')).toEqual({
-      kind: 'route',
-      path: '/inbox',
-    });
-  });
+	it('trims surrounding whitespace before parsing', () => {
+		expect(parsePaneAddress('  /inbox  ')).toEqual({
+			kind: 'route',
+			path: '/inbox',
+		});
+	});
 });

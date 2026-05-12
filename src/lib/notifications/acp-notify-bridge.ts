@@ -140,11 +140,10 @@ export interface DispatchDecision {
 /** Pure-function policy. The single place that owns the matrix above. */
 export function decideDispatch(
 	payload: AcpNotifyPayload,
-	inputs: DispatchInputs,
+	inputs: DispatchInputs
 ): DispatchDecision {
 	const onThisThread =
-		inputs.focusedThreadId !== null &&
-		inputs.focusedThreadId === payload.threadId;
+		inputs.focusedThreadId !== null && inputs.focusedThreadId === payload.threadId;
 
 	// Window focused AND on this thread → fully suppress. The in-UI
 	// surface (PermissionDialog / inline notification) is already visible

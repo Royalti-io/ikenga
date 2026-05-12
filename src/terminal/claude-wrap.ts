@@ -11,33 +11,33 @@
  */
 
 export interface ClaudeWrapOpts {
-  /** Claude session id to resume. Omit to start a fresh session. */
-  resumeSessionId?: string | null;
-  /** One-shot prompt — becomes `-p <prompt>`. */
-  prompt?: string | null;
-  /** `default` | `acceptEdits` | `plan` | etc. — becomes `--permission-mode`. */
-  permissionMode?: string | null;
-  model?: string | null;
+	/** Claude session id to resume. Omit to start a fresh session. */
+	resumeSessionId?: string | null;
+	/** One-shot prompt — becomes `-p <prompt>`. */
+	prompt?: string | null;
+	/** `default` | `acceptEdits` | `plan` | etc. — becomes `--permission-mode`. */
+	permissionMode?: string | null;
+	model?: string | null;
 }
 
 /** POSIX single-quote escape: wrap in `'…'`, replace each `'` with `'\''`. */
 function shQuote(arg: string): string {
-  return `'${arg.replace(/'/g, `'\\''`)}'`;
+	return `'${arg.replace(/'/g, `'\\''`)}'`;
 }
 
 export function buildClaudeWrappedCmd(opts: ClaudeWrapOpts = {}): string[] {
-  const args = ['claude', '--dangerously-skip-permissions'];
-  if (opts.resumeSessionId) args.push('--resume', opts.resumeSessionId);
-  if (opts.permissionMode) args.push('--permission-mode', opts.permissionMode);
-  if (opts.model) args.push('--model', opts.model);
-  if (opts.prompt) args.push('-p', opts.prompt);
+	const args = ['claude', '--dangerously-skip-permissions'];
+	if (opts.resumeSessionId) args.push('--resume', opts.resumeSessionId);
+	if (opts.permissionMode) args.push('--permission-mode', opts.permissionMode);
+	if (opts.model) args.push('--model', opts.model);
+	if (opts.prompt) args.push('-p', opts.prompt);
 
-  const quoted = args.map(shQuote).join(' ');
-  const script =
-    `printf '\\033[2m$ %s\\033[0m\\n' ${shQuote(quoted)}; ` +
-    `${quoted}; ` +
-    `__status=$?; ` +
-    `if [ $__status -ne 0 ]; then printf '\\n\\033[31m[claude exited %d]\\033[0m\\n' $__status; fi; ` +
-    `exec "$SHELL" -i`;
-  return ['/bin/bash', '-i', '-c', script];
+	const quoted = args.map(shQuote).join(' ');
+	const script =
+		`printf '\\033[2m$ %s\\033[0m\\n' ${shQuote(quoted)}; ` +
+		`${quoted}; ` +
+		`__status=$?; ` +
+		`if [ $__status -ne 0 ]; then printf '\\n\\033[31m[claude exited %d]\\033[0m\\n' $__status; fi; ` +
+		`exec "$SHELL" -i`;
+	return ['/bin/bash', '-i', '-c', script];
 }

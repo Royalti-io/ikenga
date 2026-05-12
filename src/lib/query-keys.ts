@@ -10,25 +10,23 @@
  */
 
 export const queryKeys = {
-  sessions: {
-    all: ['claude_sessions'] as const,
-    list: (projectDir?: string | null) =>
-      ['claude_sessions', 'list', projectDir ?? 'all'] as const,
-    detail: (sessionId: string) =>
-      ['claude_sessions', 'detail', sessionId] as const,
-  },
-  secrets: {
-    all: ['secrets'] as const,
-    vaultStatus: () => ['secrets', 'vault-status'] as const,
-    keys: () => ['secrets', 'keys'] as const,
-  },
-  fs: {
-    all: ['fs'] as const,
-    list: (path: string) => ['fs', 'list', path] as const,
-  },
-  claudeConfig: {
-    all: ['claude_config'] as const,
-    load: (projectRoots: readonly string[]) =>
-      ['claude_config', 'load', [...projectRoots].sort().join('|')] as const,
-  },
+	sessions: {
+		all: ['claude_sessions'] as const,
+		list: (projectDir?: string | null) => ['claude_sessions', 'list', projectDir ?? 'all'] as const,
+		detail: (sessionId: string) => ['claude_sessions', 'detail', sessionId] as const,
+	},
+	secrets: {
+		all: ['secrets'] as const,
+		vaultStatus: () => ['secrets', 'vault-status'] as const,
+		keys: () => ['secrets', 'keys'] as const,
+	},
+	fs: {
+		all: ['fs'] as const,
+		list: (path: string) => ['fs', 'list', path] as const,
+	},
+	claudeConfig: {
+		all: ['claude_config'] as const,
+		load: (projectRoots: readonly string[]) =>
+			['claude_config', 'load', [...projectRoots].sort().join('|')] as const,
+	},
 } as const;

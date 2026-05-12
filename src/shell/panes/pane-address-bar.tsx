@@ -17,120 +17,120 @@ import type { PaneId, PaneView } from '@/lib/panes/types';
 import { usePaneHistory } from '@/lib/panes/use-pane-history';
 
 interface PaneAddressBarProps {
-  paneId: PaneId;
-  view: PaneView;
+	paneId: PaneId;
+	view: PaneView;
 }
 
 const INVALID_FLASH_MS = 600;
 
 export function PaneAddressBar({ paneId, view }: PaneAddressBarProps) {
-  const { canGoBack, canGoForward, back, forward, replace, bumpKey } = usePaneHistory(paneId, view);
+	const { canGoBack, canGoForward, back, forward, replace, bumpKey } = usePaneHistory(paneId, view);
 
-  const address = getPaneAddress(view) ?? '';
-  const [draft, setDraft] = useState(address);
-  const [invalid, setInvalid] = useState(false);
-  const inputRef = useRef<HTMLInputElement | null>(null);
+	const address = getPaneAddress(view) ?? '';
+	const [draft, setDraft] = useState(address);
+	const [invalid, setInvalid] = useState(false);
+	const inputRef = useRef<HTMLInputElement | null>(null);
 
-  // External navigations (sidebar click, command palette, back/forward)
-  // should sync into the input. We only adopt the upstream value when the
-  // user isn't actively editing — checked by focus.
-  useEffect(() => {
-    if (document.activeElement !== inputRef.current) {
-      setDraft(address);
-    }
-  }, [address]);
+	// External navigations (sidebar click, command palette, back/forward)
+	// should sync into the input. We only adopt the upstream value when the
+	// user isn't actively editing — checked by focus.
+	useEffect(() => {
+		if (document.activeElement !== inputRef.current) {
+			setDraft(address);
+		}
+	}, [address]);
 
-  const flashInvalid = useCallback(() => {
-    setInvalid(true);
-    window.setTimeout(() => setInvalid(false), INVALID_FLASH_MS);
-  }, []);
+	const flashInvalid = useCallback(() => {
+		setInvalid(true);
+		window.setTimeout(() => setInvalid(false), INVALID_FLASH_MS);
+	}, []);
 
-  const submit = useCallback(() => {
-    const next = parsePaneAddress(draft);
-    if (!next) {
-      flashInvalid();
-      return;
-    }
-    // No-op if it matches the current address exactly (avoid cluttering
-    // history when the user just hits Enter on what's already loaded).
-    if (getPaneAddress(next) === address) {
-      bumpKey();
-      return;
-    }
-    replace(next);
-  }, [draft, address, replace, bumpKey, flashInvalid]);
+	const submit = useCallback(() => {
+		const next = parsePaneAddress(draft);
+		if (!next) {
+			flashInvalid();
+			return;
+		}
+		// No-op if it matches the current address exactly (avoid cluttering
+		// history when the user just hits Enter on what's already loaded).
+		if (getPaneAddress(next) === address) {
+			bumpKey();
+			return;
+		}
+		replace(next);
+	}, [draft, address, replace, bumpKey, flashInvalid]);
 
-  return (
-    <div className="flex shrink-0 items-center gap-0.5 border-b border-border bg-background px-1.5 py-1">
-      <NavButton onClick={() => back()} disabled={!canGoBack} title="Back" aria-label="Back">
-        <ArrowLeft className="h-3.5 w-3.5" />
-      </NavButton>
-      <NavButton
-        onClick={() => forward()}
-        disabled={!canGoForward}
-        title="Forward"
-        aria-label="Forward"
-      >
-        <ArrowRight className="h-3.5 w-3.5" />
-      </NavButton>
-      <NavButton onClick={() => bumpKey()} title="Refresh" aria-label="Refresh pane">
-        <RefreshCw className="h-3.5 w-3.5" />
-      </NavButton>
-      <Input
-        ref={inputRef}
-        type="text"
-        value={draft}
-        onChange={(e) => {
-          setDraft(e.target.value);
-          if (invalid) setInvalid(false);
-        }}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') {
-            e.preventDefault();
-            submit();
-          } else if (e.key === 'Escape') {
-            setDraft(address);
-            inputRef.current?.blur();
-          }
-        }}
-        spellCheck={false}
-        autoCorrect="off"
-        autoCapitalize="off"
-        aria-invalid={invalid || undefined}
-        aria-label="Address"
-        className={cn(
-          'ml-1 h-6 flex-1 rounded-sm px-2 py-0 font-mono text-xs',
-          invalid && 'border-destructive ring-2 ring-destructive/40'
-        )}
-      />
-    </div>
-  );
+	return (
+		<div className="flex shrink-0 items-center gap-0.5 border-b border-border bg-background px-1.5 py-1">
+			<NavButton onClick={() => back()} disabled={!canGoBack} title="Back" aria-label="Back">
+				<ArrowLeft className="h-3.5 w-3.5" />
+			</NavButton>
+			<NavButton
+				onClick={() => forward()}
+				disabled={!canGoForward}
+				title="Forward"
+				aria-label="Forward"
+			>
+				<ArrowRight className="h-3.5 w-3.5" />
+			</NavButton>
+			<NavButton onClick={() => bumpKey()} title="Refresh" aria-label="Refresh pane">
+				<RefreshCw className="h-3.5 w-3.5" />
+			</NavButton>
+			<Input
+				ref={inputRef}
+				type="text"
+				value={draft}
+				onChange={(e) => {
+					setDraft(e.target.value);
+					if (invalid) setInvalid(false);
+				}}
+				onKeyDown={(e) => {
+					if (e.key === 'Enter') {
+						e.preventDefault();
+						submit();
+					} else if (e.key === 'Escape') {
+						setDraft(address);
+						inputRef.current?.blur();
+					}
+				}}
+				spellCheck={false}
+				autoCorrect="off"
+				autoCapitalize="off"
+				aria-invalid={invalid || undefined}
+				aria-label="Address"
+				className={cn(
+					'ml-1 h-6 flex-1 rounded-sm px-2 py-0 font-mono text-xs',
+					invalid && 'border-destructive ring-2 ring-destructive/40'
+				)}
+			/>
+		</div>
+	);
 }
 
 interface NavButtonProps {
-  onClick: () => void;
-  disabled?: boolean;
-  title: string;
-  'aria-label': string;
-  children: React.ReactNode;
+	onClick: () => void;
+	disabled?: boolean;
+	title: string;
+	'aria-label': string;
+	children: React.ReactNode;
 }
 
 function NavButton({ onClick, disabled, title, children, ...rest }: NavButtonProps) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      title={title}
-      aria-label={rest['aria-label']}
-      className={cn(
-        'flex h-6 w-6 items-center justify-center rounded',
-        'text-muted-foreground transition-colors',
-        'hover:bg-accent hover:text-accent-foreground',
-        'disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent'
-      )}
-    >
-      {children}
-    </button>
-  );
+	return (
+		<button
+			type="button"
+			onClick={onClick}
+			disabled={disabled}
+			title={title}
+			aria-label={rest['aria-label']}
+			className={cn(
+				'flex h-6 w-6 items-center justify-center rounded',
+				'text-muted-foreground transition-colors',
+				'hover:bg-accent hover:text-accent-foreground',
+				'disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent'
+			)}
+		>
+			{children}
+		</button>
+	);
 }

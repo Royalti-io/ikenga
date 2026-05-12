@@ -74,8 +74,8 @@ export async function runAcpSmokeTest(
 	// Phase 5: optional mode switch right after `session/new`. Mirrors what
 	// the composer mode picker does — change the tracked mode before the
 	// first prompt so the spawn picks it up via `--permission-mode`.
-	let finalMode: AcpSessionModeId =
-		(advertisedModes?.currentModeId ?? 'default') as AcpSessionModeId;
+	let finalMode: AcpSessionModeId = (advertisedModes?.currentModeId ??
+		'default') as AcpSessionModeId;
 	if (opts.mode && opts.mode !== finalMode) {
 		await acpSetMode(threadId, opts.mode);
 		finalMode = opts.mode;
@@ -163,9 +163,7 @@ export async function runAcpImageSmokeTest(
 	// not the prefixed URI form.
 	const match = imageDataUrl.match(/^data:([^;,]+);base64,(.+)$/);
 	if (!match) {
-		throw new Error(
-			'imageDataUrl must be a base64 data URL like `data:image/png;base64,...`',
-		);
+		throw new Error('imageDataUrl must be a base64 data URL like `data:image/png;base64,...`');
 	}
 	const mimeType = match[1];
 	const data = match[2];
@@ -175,8 +173,8 @@ export async function runAcpImageSmokeTest(
 	const session = await acpNewSession({ cwd, mcpServers: [] });
 	const threadId = session.sessionId;
 	const advertisedModes = session.modes ?? null;
-	const finalMode: AcpSessionModeId =
-		(advertisedModes?.currentModeId ?? 'default') as AcpSessionModeId;
+	const finalMode: AcpSessionModeId = (advertisedModes?.currentModeId ??
+		'default') as AcpSessionModeId;
 
 	const updates: AcpSessionUpdate[] = [];
 	const unlisten = await acpListen(threadId, (notif: AcpSessionNotification) => {
@@ -256,8 +254,8 @@ export async function runAcpInterruptSmokeTest(
 	const session = await acpNewSession({ cwd, mcpServers: [] });
 	const threadId = session.sessionId;
 	const advertisedModes = session.modes ?? null;
-	const finalMode: AcpSessionModeId =
-		(advertisedModes?.currentModeId ?? 'default') as AcpSessionModeId;
+	const finalMode: AcpSessionModeId = (advertisedModes?.currentModeId ??
+		'default') as AcpSessionModeId;
 
 	const updates: AcpSessionUpdate[] = [];
 	const unlisten = await acpListen(threadId, (notif: AcpSessionNotification) => {
@@ -332,7 +330,7 @@ export async function runAcpInterruptSmokeTest(
  */
 export async function runAcpForkSmokeTest(
 	sourceThreadId: string,
-	opts: { upToTurn?: number; label?: string } = {},
+	opts: { upToTurn?: number; label?: string } = {}
 ): Promise<AcpForkResult> {
 	return acpForkSession(sourceThreadId, opts);
 }
@@ -349,9 +347,7 @@ export async function runAcpForkSmokeTest(
  *
  *   iyke javascript "const r = window.ikengaAcpNotifyWatch(15000); // trigger something; (await r).length"
  */
-export async function watchAcpNotify(
-	durationMs = 30000,
-): Promise<AcpNotifyPayload[]> {
+export async function watchAcpNotify(durationMs = 30000): Promise<AcpNotifyPayload[]> {
 	const payloads: AcpNotifyPayload[] = [];
 	const unlisten = await acpListenNotify((p) => {
 		payloads.push(p);

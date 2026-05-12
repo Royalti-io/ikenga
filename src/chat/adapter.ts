@@ -12,76 +12,76 @@ import type { ChatEvent } from '@/lib/tauri-cmd';
 export type { ChatEvent };
 
 export interface AdapterCapabilities {
-  toolCalls: boolean;
-  artifacts: boolean;
-  fileAttachments: boolean;
-  imageInput: boolean;
-  slashCommands: boolean;
-  modelSwitching: boolean;
-  streaming: boolean;
-  promptCaching: boolean;
-  agenticTools: boolean;
+	toolCalls: boolean;
+	artifacts: boolean;
+	fileAttachments: boolean;
+	imageInput: boolean;
+	slashCommands: boolean;
+	modelSwitching: boolean;
+	streaming: boolean;
+	promptCaching: boolean;
+	agenticTools: boolean;
 }
 
 export interface ModelOption {
-  id: string;
-  label: string;
+	id: string;
+	label: string;
 }
 
 export interface Attachment {
-  kind: 'file' | 'image';
-  path: string;
-  name: string;
+	kind: 'file' | 'image';
+	path: string;
+	name: string;
 }
 
 export interface ChatInput {
-  threadId: string;
-  text: string;
-  attachments?: Attachment[];
-  slashCommand?: { name: string; args: string };
+	threadId: string;
+	text: string;
+	attachments?: Attachment[];
+	slashCommand?: { name: string; args: string };
 }
 
 /** Persisted thread metadata. The full event log is held in the store +
  *  mirrored to SQLite / Claude's on-disk JSONL. */
 export interface ChatThread {
-  id: string;
-  adapterId: string;
-  title: string | null;
-  cwd: string;
-  model: string | null;
-  /** Set once we know the real Claude Code session id. */
-  claudeSessionId: string | null;
-  /** When the adapter currently has a live PTY for this thread. Cleared when
-   *  the PTY exits or the app cold-starts. */
-  ptyId: string | null;
-  createdAt: number;
-  updatedAt: number;
+	id: string;
+	adapterId: string;
+	title: string | null;
+	cwd: string;
+	model: string | null;
+	/** Set once we know the real Claude Code session id. */
+	claudeSessionId: string | null;
+	/** When the adapter currently has a live PTY for this thread. Cleared when
+	 *  the PTY exits or the app cold-starts. */
+	ptyId: string | null;
+	createdAt: number;
+	updatedAt: number;
 }
 
 export interface AdapterContext {
-  /** Reserved — adapters can use this hook to read settings / secrets. */
-  getConfig?: () => Promise<unknown>;
+	/** Reserved — adapters can use this hook to read settings / secrets. */
+	getConfig?: () => Promise<unknown>;
 }
 
 export interface ChatAdapter {
-  readonly id: string;
-  readonly label: string;
-  readonly Icon: React.ComponentType<{ className?: string }>;
-  readonly models: ModelOption[] | null;
-  readonly capabilities: AdapterCapabilities;
+	readonly id: string;
+	readonly label: string;
+	readonly Icon: React.ComponentType<{ className?: string }>;
+	readonly models: ModelOption[] | null;
+	readonly capabilities: AdapterCapabilities;
 
-  init(ctx: AdapterContext): Promise<void>;
-  /** Attach the adapter's live subscription for a thread. Idempotent; safe
-   *  to call from a hook on every mount. v1 adapter has this; the interface
-   *  marks it optional so future adapters (SDK, Pencil) can declare it lazy. */
-  attach?(threadId: string, cwd: string): Promise<void>;
-  /** Begin a turn. The store drains the iterable and updates UI state.
-   *  Returns a `streamId` usable for `cancel()`. */
-  send(input: ChatInput): { streamId: string; iterable: AsyncIterable<ChatEvent> };
-  cancel(streamId: string): Promise<void>;
-  suspend(): Promise<void>;
-  /** Only meaningful with multiple adapters; v1 is a no-op. */
-  migrate(thread: ChatThread): Promise<void>;
-  listSessions?(): Promise<unknown[]>;
-  destroy(): Promise<void>;
+	init(ctx: AdapterContext): Promise<void>;
+	/** Attach the adapter's live subscription for a thread. Idempotent; safe
+	 *  to call from a hook on every mount. v1 adapter has this; the interface
+	 *  marks it optional so future adapters (SDK, Pencil) can declare it lazy. */
+	attach?(threadId: string, cwd: string): Promise<void>;
+	/** Begin a turn. The store drains the iterable and updates UI state.
+	 *  Returns a `streamId` usable for `cancel()`. */
+	send(input: ChatInput): { streamId: string; iterable: AsyncIterable<ChatEvent> };
+	cancel(streamId: string): Promise<void>;
+	suspend(): Promise<void>;
+	/** Only meaningful with multiple adapters; v1 is a no-op. */
+	migrate(thread: ChatThread): Promise<void>;
+	listSessions?(): Promise<unknown[]>;
+	destroy(): Promise<void>;
 }
