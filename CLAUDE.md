@@ -211,6 +211,38 @@ Delete:
 
 This section in CLAUDE.md stays — it's the architecture record.
 
+### Phase 1 — child-webview kernel (landed 2026-05-12)
+
+Commit `2de5db9` (Rust side); FE half is a separate follow-up commit.
+
+**New modules**:
+- `pkg/webview.rs` — `WebviewPanesRegistry` (implements `Registry`). Tracks `(pkg_id, pane_id) → tauri::Webview`. Read-locked for navigate/eval/set_rect; write-locked only for create/destroy. Cleanup on pkg uninstall is automatic via the `Registry::unregister` trait path. Cookie partition data persists across uninstall by design (re-install picks up logins, same as a normal browser).
+- `pkg/keep_awake.rs` — defensive Yellow mitigations from Phase 0.5. `acquire(reason)` returns an `InflightGuard`; multiple concurrent calls share one macOS `NSProcessInfo.beginActivity(.UserInitiated)` via an `Arc<Weak>` singleton. `pin_visible()` is a no-op on Linux, asserts `CoreWebView2Controller.IsVisible = true` on Windows.
+- `commands/pkg_webview.rs` — four Tauri commands (`pkg_webview_create / destroy / navigate / set_rect`). Each takes a keep-awake guard except `destroy` and `set_rect` (resize is always in-focus). `eval` is intentionally not exposed to the FE — only the kernel and pkg-MCP servers ever drive it.
+
+**Cargo changes**:
+- `tauri = { version = "2.1", features = ["unstable"] }` — `unstable` enables `Window::add_child` for in-window child webviews. Pinned to 2.1+ for the macOS multi-webview fix (Tauri PR #11616).
+- `sha2`, `url` — direct deps for partition-id derivation and URL parsing.
+- macOS target: `objc2 = "0.5"`, `objc2-foundation = "0.2"` for the App-Nap inhibitor.
+- Windows target: `webview2-com = "0.33"` for the visibility hold.
+
+**Manifest extension** (Rust + `@ikenga/contract`):
+- New `capabilities.webview = { child_webviews: bool, partitions: string[] }` block. Required for any `kind: "webview"` route to mount.
+- TS Zod now includes `'webview'` in the `UiRouteSchema.kind` enum (drift fix — Zod was also missing the existing `capabilities.supabase` block, restored in the same commit).
+
+**Per-jar isolation strategy**:
+- Linux WebKitGTK + Windows WebView2: `data_directory(PathBuf)` keyed by `app_data_dir/webjars/<pkg-slug>/<partition>/`.
+- macOS 14+ WKWebView: `data_store_identifier([u8; 16])` derived from `sha256(pkg_id || '/' || partition)[..16]`.
+- Inlined under `#[cfg(target_os = "macos")]` inside `WebviewPanesRegistry::create` rather than a generic-typed helper (Tauri's `WebviewBuilder` is generic over the Runtime; a separate helper fights the type chain).
+
+**Capability check on create**:
+- `pkg_capabilities` cache populated at `Registry::register` time. `create()` rejects with explicit errors if `child_webviews = false` or if the requested partition isn't in the declared list.
+
+**What's still pending in Phase 1**:
+- FE component (`PkgWebviewHost`) — in flight, separate commit.
+- Route resolver branch on `kind: "webview"` in `routes/pkg/$pkgId/$.tsx` — same FE commit.
+- Smoke test pkg (`pkgs/test-webview/`) drafted; runs after FE lands.
+
 ### Findings — Linux WebKitGTK (2026-05-12)
 
 Run on Linux 6.17 / WebKitGTK (`libwebkit2gtk-4.1`) on a ThinkPad T490s. 60s runs at 500ms cadence, 5s per-ping timeout. Same dev binary (`bun run tauri dev`) across all four rows.
