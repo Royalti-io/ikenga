@@ -2,14 +2,21 @@ import { useEffect } from 'react';
 import {
   Folder,
   LayoutGrid,
+  Monitor,
+  Moon,
   Pin as PinGlyph,
   Settings,
   SquareTerminal,
+  Sun,
   type LucideIcon,
 } from 'lucide-react';
 import { useShellStore, type ActivityMode, type CoreMode } from '@/lib/shell/shell-store';
 import { usePaneStore } from '@/lib/panes/pane-store';
-import { useIkengaStore, type IkengaWorkspace } from '@/lib/ikenga/theme-store';
+import {
+  useIkengaStore,
+  type IkengaMode,
+  type IkengaWorkspace,
+} from '@/lib/ikenga/theme-store';
 import { cn } from '@/components/ui/utils';
 import { useActivityBarPins, usePinsStore, type Pin } from '@/lib/shell/pins-store';
 import { PinIcon } from './pin-icon';
@@ -174,6 +181,8 @@ export function ActivityBar() {
 
       <div className="mt-auto" />
 
+      <ThemeToggleButton />
+
       {CORE_BOTTOM.map((item) => (
         <RailButton
           key={item.mode}
@@ -224,6 +233,46 @@ function RailButton({ mode, label, Icon, shortcut, isActive, onSelect }: RailBut
           style={{ background: `var(--tint-${ws}-fg)` }}
         />
       )}
+      <Icon className="h-[18px] w-[18px]" />
+    </button>
+  );
+}
+
+const MODE_CYCLE: Record<IkengaMode, IkengaMode> = {
+  light: 'dark',
+  dark: 'system',
+  system: 'light',
+};
+
+const MODE_ICON: Record<IkengaMode, LucideIcon> = {
+  light: Sun,
+  dark: Moon,
+  system: Monitor,
+};
+
+const MODE_LABEL: Record<IkengaMode, string> = {
+  light: 'Light',
+  dark: 'Dark',
+  system: 'System',
+};
+
+function ThemeToggleButton() {
+  const mode = useIkengaStore((s) => s.mode);
+  const setMode = useIkengaStore((s) => s.setMode);
+  const Icon = MODE_ICON[mode];
+  const next = MODE_CYCLE[mode];
+  return (
+    <button
+      type="button"
+      onClick={() => setMode(next)}
+      title={`Theme: ${MODE_LABEL[mode]} (click for ${MODE_LABEL[next]})`}
+      aria-label={`Theme: ${MODE_LABEL[mode]}`}
+      className={cn(
+        'relative my-0.5 grid h-9 w-9 place-items-center rounded-md transition-colors',
+        'hover:bg-card',
+      )}
+      style={{ color: 'var(--fg-faint)' }}
+    >
       <Icon className="h-[18px] w-[18px]" />
     </button>
   );
