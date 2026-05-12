@@ -1,11 +1,8 @@
 # ikenga-desktop
 
 > Tauri 2 + Vite + React 19 + TypeScript desktop app — the production replacement
-> for `ikenga/` (Next.js). Houses terminals, chat, viewers, and (later) the
+> for the Next.js predecessor. Houses terminals, chat, viewers, and (later) the
 > video / storyboard tools, all behind a single window.
-
-See `.company/technical/plans/2026-04-30-pa-desktop-migration/` for the full
-migration plan and architecture.
 
 ## Phase status
 
@@ -30,8 +27,6 @@ Phase 5 ported the chat adapter and streaming input. Phase 6 added the
 video engine port (Remotion-based studio sidecar, render queue, video
 player UI under `/video`). Phase 7 added the storyboard editor (sidecar
 on port 3105, storyboard SQLite tables, `/video-bespoke` integration).
-The Ikenga design system is in progress in `design/` — concept screens
-and shared tokens/primitives exist; porting into `src/` not started.
 
 ## Quickstart
 

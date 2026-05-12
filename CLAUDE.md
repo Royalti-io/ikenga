@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-`ikenga-desktop` is the Tauri 2 + Vite + React 19 + TypeScript desktop replacement for the (now-retired Next.js) `ikenga/` server. It is a single-window control plane for the Ikenga: terminals, Claude sessions, email/social/newsletter queues, viewers, and (ports in progress) the video engine and storyboard tools.
+`ikenga-desktop` is the Tauri 2 + Vite + React 19 + TypeScript desktop app. It is a single-window control plane for the Ikenga: terminals, Claude sessions, email/social/newsletter queues, viewers, and (ports in progress) the video engine and storyboard tools.
 
-Migration plan + per-phase docs live in `.company/technical/plans/2026-04-30-pa-desktop-migration/`. Phase status is tracked in `README.md`.
+Phase status is tracked in `README.md`.
 
 ## Common commands
 
@@ -71,7 +71,7 @@ Each sidecar is a separate bun project that compiles to a single binary embedded
 | `hyperframes/` | HyperFrames render server. |
 | `storyboard/` | Storyboard editor server (port 3105 in dev). |
 
-The actions sidecar logs every run to the Supabase `agent_runs` table — visible on `/cron`. Env loads from `PA_ACTIONS_ENV_FILE` → `~/.config/pa-actions/env` → `royalti-co/ikenga/.env` (transition fallback).
+The actions sidecar logs every run to the Supabase `agent_runs` table — visible on `/cron`. Env loads from `PA_ACTIONS_ENV_FILE` → `~/.config/pa-actions/env`.
 
 ### Claude session integration
 
@@ -93,13 +93,11 @@ The actions sidecar logs every run to the Supabase `agent_runs` table — visibl
 
 ## Cross-repo context
 
-This project replaced `ikenga/` (Next.js). The Next.js *server* was retired 2026-05-02 (commit `1768b8f`), but `ikenga/scripts/` and `ikenga/lib/` remain as a shared library that the actions sidecar shells out to via `tsx`. Supabase migrations also still live there — use `supabase db push --linked` from `ikenga/` for schema changes (per global memory).
-
-For broader monorepo conventions see `/home/nedjamez/royalti-co/CLAUDE.md`.
+This project replaced an earlier Next.js predecessor. The Next.js *server* was retired 2026-05-02; some legacy scripts and a `lib/` directory in that predecessor still serve as a shared library that the actions sidecar shells out to via `tsx`. Supabase migrations also still live there — `supabase db push --linked` from the predecessor's directory is the path for schema changes.
 
 ## Pane mount model — current state (2026-05-11)
 
-Captured during Phase 0 of the `pkg-browser` design (see `.company/technical/plans/` if a planning doc lands later). Read this before adding any pkg that wants to embed arbitrary remote pages, control a webview, or mount anything other than an iframe.
+Captured during Phase 0 of the `pkg-browser` design. Read this before adding any pkg that wants to embed arbitrary remote pages, control a webview, or mount anything other than an iframe.
 
 ### Today: pkgs mount as iframes only
 
