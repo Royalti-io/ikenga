@@ -28,45 +28,45 @@
 import { Sparkles } from 'lucide-react';
 import type { UnlistenFn } from '@tauri-apps/api/event';
 import {
-  acpCancel,
-  acpListen,
-  acpNewSession,
-  acpPrompt,
-  claudeListSessions,
-  type AcpContentBlock,
-  type AcpSessionNotification,
-  type AcpSessionUpdate,
-  type ChatEvent,
+	acpCancel,
+	acpListen,
+	acpNewSession,
+	acpPrompt,
+	claudeListSessions,
+	type AcpContentBlock,
+	type AcpSessionNotification,
+	type AcpSessionUpdate,
+	type ChatEvent,
 } from '@/lib/tauri-cmd';
 import { defaultCwd } from '@/lib/shell/default-cwd';
 
 import { useChatStore } from '../store';
 import { updateThreadMeta } from '../persist';
 import type {
-  AdapterCapabilities,
-  AdapterContext,
-  ChatAdapter,
-  ChatInput,
-  ChatThread,
-  ModelOption,
+	AdapterCapabilities,
+	AdapterContext,
+	ChatAdapter,
+	ChatInput,
+	ChatThread,
+	ModelOption,
 } from '../adapter';
 
 const CAPABILITIES: AdapterCapabilities = {
-  toolCalls: true,
-  artifacts: true,
-  fileAttachments: true,
-  // Phase 7 wired end-to-end image support through the ACP path.
-  imageInput: true,
-  slashCommands: true,
-  modelSwitching: false,
-  streaming: true,
-  promptCaching: true,
-  agenticTools: true,
+	toolCalls: true,
+	artifacts: true,
+	fileAttachments: true,
+	// Phase 7 wired end-to-end image support through the ACP path.
+	imageInput: true,
+	slashCommands: true,
+	modelSwitching: false,
+	streaming: true,
+	promptCaching: true,
+	agenticTools: true,
 };
 
 interface ActiveStream {
-  threadId: string;
-  unlisten: UnlistenFn | null;
+	threadId: string;
+	unlisten: UnlistenFn | null;
 }
 
 /**
@@ -83,266 +83,249 @@ interface ActiveStream {
 // as a known shape and assert into a local type — this is safe because the
 // Rust side guarantees the schema per `sessionUpdate` discriminator.
 interface AcpChunkUpdate {
-  sessionUpdate: string;
-  content?: { type: string; text?: string };
-  messageId?: string;
+	sessionUpdate: string;
+	content?: { type: string; text?: string };
+	messageId?: string;
 }
 interface AcpToolCallUpdateWire {
-  sessionUpdate: 'tool_call';
-  toolCallId: string;
-  title: string;
-  rawInput?: unknown;
+	sessionUpdate: 'tool_call';
+	toolCallId: string;
+	title: string;
+	rawInput?: unknown;
 }
 interface AcpToolCallUpdateUpdateWire {
-  sessionUpdate: 'tool_call_update';
-  toolCallId: string;
-  fields?: {
-    status?: string;
-    content?: unknown[];
-    rawOutput?: unknown;
-  };
+	sessionUpdate: 'tool_call_update';
+	toolCallId: string;
+	fields?: {
+		status?: string;
+		content?: unknown[];
+		rawOutput?: unknown;
+	};
 }
 
 function acpUpdateToChatEvent(update: AcpSessionUpdate): ChatEvent | null {
-  switch (update.sessionUpdate) {
-    case 'agent_message_chunk': {
-      const u = update as AcpChunkUpdate;
-      const c = u.content;
-      if (c && c.type === 'text' && typeof c.text === 'string') {
-        return { kind: 'text', delta: c.text, messageId: u.messageId };
-      }
-      return null;
-    }
-    case 'agent_thought_chunk': {
-      const u = update as AcpChunkUpdate;
-      const c = u.content;
-      if (c && c.type === 'text' && typeof c.text === 'string') {
-        return { kind: 'thinking', delta: c.text, messageId: u.messageId };
-      }
-      return null;
-    }
-    case 'tool_call': {
-      const u = update as AcpToolCallUpdateWire;
-      return {
-        kind: 'tool_use',
-        id: u.toolCallId,
-        name: u.title,
-        input: u.rawInput,
-      };
-    }
-    case 'tool_call_update': {
-      const u = update as AcpToolCallUpdateUpdateWire;
-      const status = u.fields?.status;
-      // Only emit a tool_result row when the call has actually finished.
-      // Earlier "in_progress" updates have no equivalent in the legacy shape.
-      if (status === 'completed' || status === 'failed') {
-        return {
-          kind: 'tool_result',
-          id: u.toolCallId,
-          output: u.fields?.rawOutput ?? u.fields?.content,
-          isError: status === 'failed',
-        };
-      }
-      return null;
-    }
-    case 'user_message_chunk':
-    case 'current_mode_update':
-    case 'plan_update':
-      return null;
-    default:
-      return null;
-  }
+	switch (update.sessionUpdate) {
+		case 'agent_message_chunk': {
+			const u = update as AcpChunkUpdate;
+			const c = u.content;
+			if (c && c.type === 'text' && typeof c.text === 'string') {
+				return { kind: 'text', delta: c.text, messageId: u.messageId };
+			}
+			return null;
+		}
+		case 'agent_thought_chunk': {
+			const u = update as AcpChunkUpdate;
+			const c = u.content;
+			if (c && c.type === 'text' && typeof c.text === 'string') {
+				return { kind: 'thinking', delta: c.text, messageId: u.messageId };
+			}
+			return null;
+		}
+		case 'tool_call': {
+			const u = update as AcpToolCallUpdateWire;
+			return {
+				kind: 'tool_use',
+				id: u.toolCallId,
+				name: u.title,
+				input: u.rawInput,
+			};
+		}
+		case 'tool_call_update': {
+			const u = update as AcpToolCallUpdateUpdateWire;
+			const status = u.fields?.status;
+			// Only emit a tool_result row when the call has actually finished.
+			// Earlier "in_progress" updates have no equivalent in the legacy shape.
+			if (status === 'completed' || status === 'failed') {
+				return {
+					kind: 'tool_result',
+					id: u.toolCallId,
+					output: u.fields?.rawOutput ?? u.fields?.content,
+					isError: status === 'failed',
+				};
+			}
+			return null;
+		}
+		case 'user_message_chunk':
+		case 'current_mode_update':
+		case 'plan_update':
+			return null;
+		default:
+			return null;
+	}
 }
 
 class AcpAdapterImpl implements ChatAdapter {
-  readonly id = 'acp';
-  readonly label = 'Claude (ACP)';
-  readonly Icon = Sparkles;
-  readonly models: ModelOption[] | null = null;
-  readonly capabilities = CAPABILITIES;
+	readonly id = 'acp';
+	readonly label = 'Claude (ACP)';
+	readonly Icon = Sparkles;
+	readonly models: ModelOption[] | null = null;
+	readonly capabilities = CAPABILITIES;
 
-  /** One subscription per thread. Keyed by threadId so re-mounts don't
-   *  double-subscribe (and so `destroy()` can tear them all down). */
-  private streams = new Map<string, ActiveStream>();
-  /** Set of threadIds whose Rust-side ACP session has been created. We do
-   *  this lazily on first attach so opening an existing thread doesn't pay
-   *  the new-session round-trip if it's already known to the Rust side. */
-  private sessioned = new Set<string>();
+	/** One subscription per thread. Keyed by threadId so re-mounts don't
+	 *  double-subscribe (and so `destroy()` can tear them all down). */
+	private streams = new Map<string, ActiveStream>();
+	/** Set of threadIds whose Rust-side ACP session has been created. We do
+	 *  this lazily on first attach so opening an existing thread doesn't pay
+	 *  the new-session round-trip if it's already known to the Rust side. */
+	private sessioned = new Set<string>();
 
-  async init(_ctx: AdapterContext): Promise<void> {
-    // No API key needed — the underlying Rust ACP server wraps the user's
-    // already-authenticated `claude` binary.
-  }
+	async init(_ctx: AdapterContext): Promise<void> {
+		// No API key needed — the underlying Rust ACP server wraps the user's
+		// already-authenticated `claude` binary.
+	}
 
-  /** Ensure the ACP session row exists and a subscription is attached.
-   *  Idempotent; safe to call from a hook on every mount. */
-  async attach(threadId: string, cwd: string): Promise<void> {
-    if (this.streams.has(threadId)) return;
-    if (!this.sessioned.has(threadId)) {
-      // `acp_new_session` is idempotent on the Rust side via the threadId
-      // key: it returns the existing modes state if the thread already
-      // exists. The child stays lazy — spawn happens on the first prompt.
-      try {
-        await acpNewSession({ cwd, mcpServers: [], _meta: { threadId } });
-        this.sessioned.add(threadId);
-      } catch (e) {
-        // If the Rust side decides the thread already has a different cwd
-        // and rejects, fall through to listening — the existing session
-        // remains valid.
-        console.warn('acpNewSession:', e);
-      }
-    }
-    const placeholder: ActiveStream = { threadId, unlisten: null };
-    this.streams.set(threadId, placeholder);
-    try {
-      const unlisten = await acpListen(threadId, (notif) =>
-        this.onNotification(threadId, notif),
-      );
-      placeholder.unlisten = unlisten;
-    } catch (e) {
-      this.streams.delete(threadId);
-      throw e;
-    }
-  }
+	/** Ensure the ACP session row exists and a subscription is attached.
+	 *  Idempotent; safe to call from a hook on every mount. */
+	async attach(threadId: string, cwd: string): Promise<void> {
+		if (this.streams.has(threadId)) return;
+		if (!this.sessioned.has(threadId)) {
+			// `acp_new_session` is idempotent on the Rust side via the threadId
+			// key: it returns the existing modes state if the thread already
+			// exists. The child stays lazy — spawn happens on the first prompt.
+			try {
+				await acpNewSession({ cwd, mcpServers: [], _meta: { threadId } });
+				this.sessioned.add(threadId);
+			} catch (e) {
+				// If the Rust side decides the thread already has a different cwd
+				// and rejects, fall through to listening — the existing session
+				// remains valid.
+				console.warn('acpNewSession:', e);
+			}
+		}
+		const placeholder: ActiveStream = { threadId, unlisten: null };
+		this.streams.set(threadId, placeholder);
+		try {
+			const unlisten = await acpListen(threadId, (notif) => this.onNotification(threadId, notif));
+			placeholder.unlisten = unlisten;
+		} catch (e) {
+			this.streams.delete(threadId);
+			throw e;
+		}
+	}
 
-  private onNotification(threadId: string, notif: AcpSessionNotification) {
-    const store = useChatStore.getState();
-    const existing = store.threads[threadId];
-    if (!existing) return; // store row not hydrated yet — drop on the floor
+	private onNotification(threadId: string, notif: AcpSessionNotification) {
+		const store = useChatStore.getState();
+		const existing = store.threads[threadId];
+		if (!existing) return; // store row not hydrated yet — drop on the floor
 
-    // Phase 5: the ACP server emits the underlying claude session id via the
-    // `_meta` envelope on the first prompt response, but we also capture it
-    // from any session_init that surfaces. The legacy adapter pulls it from
-    // a `session_init` ChatEvent; ACP doesn't translate that 1:1, so we
-    // peek into _meta when present.
-    const claudeSessionId = (notif._meta as { claudeSessionId?: string } | undefined)?.claudeSessionId;
-    if (claudeSessionId && existing.thread.claudeSessionId !== claudeSessionId) {
-      store.setThread(threadId, { claudeSessionId });
-      void updateThreadMeta(threadId, { claudeSessionId });
-    }
+		// Phase 5: the ACP server emits the underlying claude session id via the
+		// `_meta` envelope on the first prompt response, but we also capture it
+		// from any session_init that surfaces. The legacy adapter pulls it from
+		// a `session_init` ChatEvent; ACP doesn't translate that 1:1, so we
+		// peek into _meta when present.
+		const claudeSessionId = (notif._meta as { claudeSessionId?: string } | undefined)
+			?.claudeSessionId;
+		if (claudeSessionId && existing.thread.claudeSessionId !== claudeSessionId) {
+			store.setThread(threadId, { claudeSessionId });
+			void updateThreadMeta(threadId, { claudeSessionId });
+		}
 
-    const event = acpUpdateToChatEvent(notif.update);
-    if (!event) return;
-    if (
-      event.kind === 'text' ||
-      event.kind === 'thinking' ||
-      event.kind === 'tool_use'
-    ) {
-      if (existing.status !== 'streaming') store.setStatus(threadId, 'streaming');
-    }
-    store.appendEvents(threadId, [event]);
-  }
+		const event = acpUpdateToChatEvent(notif.update);
+		if (!event) return;
+		if (event.kind === 'text' || event.kind === 'thinking' || event.kind === 'tool_use') {
+			if (existing.status !== 'streaming') store.setStatus(threadId, 'streaming');
+		}
+		store.appendEvents(threadId, [event]);
+	}
 
-  send(input: ChatInput): { streamId: string; iterable: AsyncIterable<ChatEvent> } {
-    const streamId = `acp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    let resolveNext: ((v: IteratorResult<ChatEvent>) => void) | null = null;
-    let closed = false;
+	send(input: ChatInput): { streamId: string; iterable: AsyncIterable<ChatEvent> } {
+		const streamId = `acp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+		let resolveNext: ((v: IteratorResult<ChatEvent>) => void) | null = null;
+		let closed = false;
 
-    const close = () => {
-      closed = true;
-      resolveNext?.({ value: undefined as unknown as ChatEvent, done: true });
-      resolveNext = null;
-    };
+		const close = () => {
+			closed = true;
+			resolveNext?.({ value: undefined as unknown as ChatEvent, done: true });
+			resolveNext = null;
+		};
 
-    void (async () => {
-      try {
-        const cwd =
-          useChatStore.getState().threads[input.threadId]?.thread.cwd || '';
-        await this.attach(input.threadId, cwd || defaultCwd());
-        useChatStore.getState().setStatus(input.threadId, 'streaming');
+		void (async () => {
+			try {
+				const cwd = useChatStore.getState().threads[input.threadId]?.thread.cwd || '';
+				await this.attach(input.threadId, cwd || defaultCwd());
+				useChatStore.getState().setStatus(input.threadId, 'streaming');
 
-        const prompt: AcpContentBlock[] = [{ type: 'text', text: input.text }];
-        const res = await acpPrompt({ sessionId: input.threadId, prompt });
-        // acpPrompt resolves when the turn ends. Clear streaming status.
-        useChatStore
-          .getState()
-          .setStatus(
-            input.threadId,
-            res.stopReason === 'cancelled' ? 'interrupted' : 'idle',
-          );
-      } catch (e) {
-        useChatStore
-          .getState()
-          .setStatus(
-            input.threadId,
-            'error',
-            e instanceof Error ? e.message : String(e),
-          );
-      } finally {
-        close();
-      }
-    })();
+				const prompt: AcpContentBlock[] = [{ type: 'text', text: input.text }];
+				const res = await acpPrompt({ sessionId: input.threadId, prompt });
+				// acpPrompt resolves when the turn ends. Clear streaming status.
+				useChatStore
+					.getState()
+					.setStatus(input.threadId, res.stopReason === 'cancelled' ? 'interrupted' : 'idle');
+			} catch (e) {
+				useChatStore
+					.getState()
+					.setStatus(input.threadId, 'error', e instanceof Error ? e.message : String(e));
+			} finally {
+				close();
+			}
+		})();
 
-    const iterable: AsyncIterable<ChatEvent> = {
-      [Symbol.asyncIterator]() {
-        return {
-          next() {
-            if (closed) {
-              return Promise.resolve({
-                value: undefined as unknown as ChatEvent,
-                done: true,
-              });
-            }
-            return new Promise<IteratorResult<ChatEvent>>((resolve) => {
-              resolveNext = resolve;
-            });
-          },
-        };
-      },
-    };
+		const iterable: AsyncIterable<ChatEvent> = {
+			[Symbol.asyncIterator]() {
+				return {
+					next() {
+						if (closed) {
+							return Promise.resolve({
+								value: undefined as unknown as ChatEvent,
+								done: true,
+							});
+						}
+						return new Promise<IteratorResult<ChatEvent>>((resolve) => {
+							resolveNext = resolve;
+						});
+					},
+				};
+			},
+		};
 
-    return { streamId, iterable };
-  }
+		return { streamId, iterable };
+	}
 
-  async cancel(_streamId: string): Promise<void> {
-    // Per-turn streamId isn't meaningful for ACP — cancellation is
-    // per-session. Find the active thread via the store, then write a
-    // clean interrupt to the underlying claude child via `acpCancel`.
-    const state = useChatStore.getState();
-    const active = Object.values(state.threads).find(
-      (t) => t.streamId === _streamId,
-    );
-    const tid = active?.thread.id;
-    if (!tid) return;
-    try {
-      await acpCancel(tid);
-    } catch (e) {
-      console.warn('acpCancel:', e);
-    }
-    state.appendEvents(tid, [
-      { kind: 'system_hook', hookEvent: 'cancel', name: 'user_cancel' },
-    ]);
-    state.setStatus(tid, 'interrupted');
-  }
+	async cancel(_streamId: string): Promise<void> {
+		// Per-turn streamId isn't meaningful for ACP — cancellation is
+		// per-session. Find the active thread via the store, then write a
+		// clean interrupt to the underlying claude child via `acpCancel`.
+		const state = useChatStore.getState();
+		const active = Object.values(state.threads).find((t) => t.streamId === _streamId);
+		const tid = active?.thread.id;
+		if (!tid) return;
+		try {
+			await acpCancel(tid);
+		} catch (e) {
+			console.warn('acpCancel:', e);
+		}
+		state.appendEvents(tid, [{ kind: 'system_hook', hookEvent: 'cancel', name: 'user_cancel' }]);
+		state.setStatus(tid, 'interrupted');
+	}
 
-  async suspend(): Promise<void> {
-    // No-op; the ACP server keeps the child alive between turns by design.
-  }
+	async suspend(): Promise<void> {
+		// No-op; the ACP server keeps the child alive between turns by design.
+	}
 
-  async migrate(_thread: ChatThread): Promise<void> {
-    throw new Error('AcpAdapter.migrate: not implemented');
-  }
+	async migrate(_thread: ChatThread): Promise<void> {
+		throw new Error('AcpAdapter.migrate: not implemented');
+	}
 
-  async listSessions() {
-    // Same on-disk JSONL surface — `claudeListSessions` reads the user's
-    // `~/.claude/projects/<hash>/*.jsonl` files regardless of how the
-    // session was driven (legacy CLI or ACP).
-    return claudeListSessions(null);
-  }
+	async listSessions() {
+		// Same on-disk JSONL surface — `claudeListSessions` reads the user's
+		// `~/.claude/projects/<hash>/*.jsonl` files regardless of how the
+		// session was driven (legacy CLI or ACP).
+		return claudeListSessions(null);
+	}
 
-  async destroy(): Promise<void> {
-    const entries = [...this.streams.values()];
-    this.streams.clear();
-    this.sessioned.clear();
-    for (const s of entries) {
-      s.unlisten?.();
-    }
-  }
+	async destroy(): Promise<void> {
+		const entries = [...this.streams.values()];
+		this.streams.clear();
+		this.sessioned.clear();
+		for (const s of entries) {
+			s.unlisten?.();
+		}
+	}
 }
 
 export const AcpAdapter: ChatAdapter = new AcpAdapterImpl();
 
 /** Test helper. */
 export function getAcpAdapterInstance(): AcpAdapterImpl {
-  return AcpAdapter as unknown as AcpAdapterImpl;
+	return AcpAdapter as unknown as AcpAdapterImpl;
 }

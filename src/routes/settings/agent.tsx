@@ -12,10 +12,7 @@ import { Bot, Pencil, RotateCcw } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { cn } from '@/components/ui/utils';
-import {
-	type DetectedAgent,
-	detectAgents,
-} from '@/lib/tauri-cmd';
+import { type DetectedAgent, detectAgents } from '@/lib/tauri-cmd';
 import { useShellStore } from '@/lib/shell/shell-store';
 
 import { SettingGroup } from './-components/setting-group';
@@ -28,13 +25,24 @@ function AgentSettingsPage() {
 	const selectedAgentId = useShellStore((s) => s.onboarding.selectedAgentId);
 	const chatAdapterId = useShellStore((s) => s.chatAdapterId);
 	const payload = useShellStore(
-		(s) => s.onboarding.steps.agent.payload as
-			| { agentId: string; display?: string; executablePath?: string; version?: string | null; authed?: boolean | null }
-			| undefined,
+		(s) =>
+			s.onboarding.steps.agent.payload as
+				| {
+						agentId: string;
+						display?: string;
+						executablePath?: string;
+						version?: string | null;
+						authed?: boolean | null;
+				  }
+				| undefined
 	);
 	const enterOnboardingEdit = useShellStore((s) => s.enterOnboardingEdit);
 
-	const { data: detected, isLoading, refetch } = useQuery<DetectedAgent[]>({
+	const {
+		data: detected,
+		isLoading,
+		refetch,
+	} = useQuery<DetectedAgent[]>({
 		queryKey: ['settings', 'agent', 'detect'],
 		queryFn: detectAgents,
 		refetchOnWindowFocus: false,
@@ -76,7 +84,10 @@ function AgentSettingsPage() {
 					</header>
 
 					<SettingGroup title="Current selection">
-						<SettingRow label="Engine" desc="Mirrors the onboarding step's choice and the chat adapter id.">
+						<SettingRow
+							label="Engine"
+							desc="Mirrors the onboarding step's choice and the chat adapter id."
+						>
 							<div className="flex items-center gap-2">
 								<Bot className="h-4 w-4 text-muted-foreground" />
 								<span className="text-sm font-medium text-foreground">{display}</span>
@@ -90,11 +101,17 @@ function AgentSettingsPage() {
 
 						{!isOffline && (
 							<>
-								<SettingRow label="Auth status" desc="Whether the selected agent is currently signed in / has a working API key.">
+								<SettingRow
+									label="Auth status"
+									desc="Whether the selected agent is currently signed in / has a working API key."
+								>
 									<AuthBadge authed={authed} loading={isLoading} />
 								</SettingRow>
 								<SettingRow label="Binary" desc="Path the agent CLI was discovered at.">
-									<span className="truncate font-mono text-[11px] text-muted-foreground" title={execPath}>
+									<span
+										className="truncate font-mono text-[11px] text-muted-foreground"
+										title={execPath}
+									>
 										{execPath ?? '(unknown)'}
 									</span>
 								</SettingRow>
@@ -106,7 +123,10 @@ function AgentSettingsPage() {
 							</>
 						)}
 
-						<SettingRow label="Chat adapter id" desc="The pkg id wired into the chat surface. `null` when offline.">
+						<SettingRow
+							label="Chat adapter id"
+							desc="The pkg id wired into the chat surface. `null` when offline."
+						>
 							<span className="font-mono text-[11px] text-muted-foreground">
 								{chatAdapterId ?? '(none)'}
 							</span>
@@ -190,7 +210,11 @@ function AuthBadge({ authed, loading }: { authed: boolean | null; loading: boole
 		);
 	}
 	return (
-		<span className={cn('inline-flex items-center gap-1.5 rounded-full border border-border bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground')}>
+		<span
+			className={cn(
+				'inline-flex items-center gap-1.5 rounded-full border border-border bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground'
+			)}
+		>
 			Unknown
 		</span>
 	);

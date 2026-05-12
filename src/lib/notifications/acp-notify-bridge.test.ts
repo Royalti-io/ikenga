@@ -77,10 +77,10 @@ describe('decideDispatch', () => {
 		// Phase 9 doesn't (yet) differentiate per-kind in the dispatch
 		// decision — both are user-attention events. Lock this in so a
 		// future kind-aware tweak is a deliberate change.
-		const r = decideDispatch(
-			basePayload({ kind: 'permissionRequest' }),
-			{ windowFocused: true, focusedThreadId: 't_1' },
-		);
+		const r = decideDispatch(basePayload({ kind: 'permissionRequest' }), {
+			windowFocused: true,
+			focusedThreadId: 't_1',
+		});
 		expect(r.bumpBadge).toBe(false);
 		expect(r.fireOsNotification).toBe(false);
 	});

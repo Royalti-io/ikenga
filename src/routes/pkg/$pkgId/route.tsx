@@ -10,9 +10,9 @@
 import { createFileRoute, Outlet } from '@tanstack/react-router';
 
 export const Route = createFileRoute('/pkg/$pkgId')({
-  component: PkgRouteLayout,
+	component: PkgRouteLayout,
 });
 
 function PkgRouteLayout() {
-  return <Outlet />;
+	return <Outlet />;
 }

@@ -11,24 +11,22 @@ import { create } from 'zustand';
 export type DragSource = 'pane' | 'dock';
 
 interface DragState {
-  active: boolean;
-  source: DragSource | null;
-  srcLeafId: string | null;
-  srcTabIdx: number | null;
-  startPane: (leafId: string, tabIdx: number) => void;
-  startDock: (tabIdx: number) => void;
-  end: () => void;
+	active: boolean;
+	source: DragSource | null;
+	srcLeafId: string | null;
+	srcTabIdx: number | null;
+	startPane: (leafId: string, tabIdx: number) => void;
+	startDock: (tabIdx: number) => void;
+	end: () => void;
 }
 
 export const useDragState = create<DragState>((set) => ({
-  active: false,
-  source: null,
-  srcLeafId: null,
-  srcTabIdx: null,
-  startPane: (leafId, tabIdx) =>
-    set({ active: true, source: 'pane', srcLeafId: leafId, srcTabIdx: tabIdx }),
-  startDock: (tabIdx) =>
-    set({ active: true, source: 'dock', srcLeafId: null, srcTabIdx: tabIdx }),
-  end: () =>
-    set({ active: false, source: null, srcLeafId: null, srcTabIdx: null }),
+	active: false,
+	source: null,
+	srcLeafId: null,
+	srcTabIdx: null,
+	startPane: (leafId, tabIdx) =>
+		set({ active: true, source: 'pane', srcLeafId: leafId, srcTabIdx: tabIdx }),
+	startDock: (tabIdx) => set({ active: true, source: 'dock', srcLeafId: null, srcTabIdx: tabIdx }),
+	end: () => set({ active: false, source: null, srcLeafId: null, srcTabIdx: null }),
 }));

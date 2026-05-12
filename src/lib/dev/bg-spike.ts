@@ -50,7 +50,7 @@ async function run(opts: BgSpikeRunOpts = {}): Promise<BgSpikeReport> {
 	const perPingTimeoutMs = opts.perPingTimeoutMs ?? 5_000;
 	const tag = opts.tag ?? 'baseline';
 	console.log(
-		`[bg-spike] starting tag=${tag} duration=${durationMs}ms interval=${intervalMs}ms timeout=${perPingTimeoutMs}ms`,
+		`[bg-spike] starting tag=${tag} duration=${durationMs}ms interval=${intervalMs}ms timeout=${perPingTimeoutMs}ms`
 	);
 	const t0 = performance.now();
 	const r = await bgSpikeRun(durationMs, intervalMs, perPingTimeoutMs);

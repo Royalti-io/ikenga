@@ -17,32 +17,32 @@ import { useEffect } from 'react';
  *  guarantees the timeout fallback fires within `maxDelayMs` even if
  *  the main thread never goes idle. */
 function whenIdle(cb: () => void, maxDelayMs = 4000): () => void {
-  type IdleHandle = number;
-  type Win = Window & {
-    requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => IdleHandle;
-    cancelIdleCallback?: (h: IdleHandle) => void;
-  };
-  const w = window as Win;
-  if (typeof w.requestIdleCallback === 'function') {
-    const handle = w.requestIdleCallback(cb, { timeout: maxDelayMs });
-    return () => w.cancelIdleCallback?.(handle);
-  }
-  // Safari / older webviews — plain timeout. 2s is long enough for first
-  // paint + the user's first interaction; matches the comment in
-  // workspace.tsx about hydration races.
-  const t = setTimeout(cb, 2000);
-  return () => clearTimeout(t);
+	type IdleHandle = number;
+	type Win = Window & {
+		requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => IdleHandle;
+		cancelIdleCallback?: (h: IdleHandle) => void;
+	};
+	const w = window as Win;
+	if (typeof w.requestIdleCallback === 'function') {
+		const handle = w.requestIdleCallback(cb, { timeout: maxDelayMs });
+		return () => w.cancelIdleCallback?.(handle);
+	}
+	// Safari / older webviews — plain timeout. 2s is long enough for first
+	// paint + the user's first interaction; matches the comment in
+	// workspace.tsx about hydration races.
+	const t = setTimeout(cb, 2000);
+	return () => clearTimeout(t);
 }
 
 export function usePreloadViewers() {
-  useEffect(() => {
-    const cancel = whenIdle(() => {
-      // Fire-and-forget. Errors here are harmless — the lazy import
-      // still works on actual demand. Logging would be noise.
-      void import('@/viewer/renderers/code-view').catch(() => {});
-      void import('@/viewer/renderers/pdf-view').catch(() => {});
-      void import('@/viewer/renderers/xlsx-view').catch(() => {});
-    });
-    return cancel;
-  }, []);
+	useEffect(() => {
+		const cancel = whenIdle(() => {
+			// Fire-and-forget. Errors here are harmless — the lazy import
+			// still works on actual demand. Logging would be noise.
+			void import('@/viewer/renderers/code-view').catch(() => {});
+			void import('@/viewer/renderers/pdf-view').catch(() => {});
+			void import('@/viewer/renderers/xlsx-view').catch(() => {});
+		});
+		return cancel;
+	}, []);
 }

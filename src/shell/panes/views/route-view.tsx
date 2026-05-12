@@ -1,9 +1,9 @@
 import { useEffect, useMemo, createContext, useContext } from 'react';
 import {
-  RouterProvider,
-  createRouter,
-  createMemoryHistory,
-  type AnyRouter,
+	RouterProvider,
+	createRouter,
+	createMemoryHistory,
+	type AnyRouter,
 } from '@tanstack/react-router';
 
 import { routeTree } from '@/routeTree.gen';
@@ -20,24 +20,24 @@ const routerCache = new Map<string, AnyRouter>();
 // Evict cache entries for panes that no longer exist. One global
 // subscription is enough — pane changes are infrequent.
 usePaneStore.subscribe((state) => {
-  const liveIds = new Set(getLeafIdsInOrder(state.root));
-  for (const id of Array.from(routerCache.keys())) {
-    if (!liveIds.has(id)) routerCache.delete(id);
-  }
+	const liveIds = new Set(getLeafIdsInOrder(state.root));
+	for (const id of Array.from(routerCache.keys())) {
+		if (!liveIds.has(id)) routerCache.delete(id);
+	}
 });
 
 function getOrCreateRouter(paneId: string, initialPath: string): AnyRouter {
-  let router = routerCache.get(paneId);
-  if (!router) {
-    router = createRouter({
-      routeTree,
-      defaultPreload: 'intent',
-      context: { queryClient },
-      history: createMemoryHistory({ initialEntries: [initialPath || '/'] }),
-    });
-    routerCache.set(paneId, router);
-  }
-  return router;
+	let router = routerCache.get(paneId);
+	if (!router) {
+		router = createRouter({
+			routeTree,
+			defaultPreload: 'intent',
+			context: { queryClient },
+			history: createMemoryHistory({ initialEntries: [initialPath || '/'] }),
+		});
+		routerCache.set(paneId, router);
+	}
+	return router;
 }
 
 // Context tag so __root can detect "I'm rendered inside a pane router" and
@@ -45,32 +45,29 @@ function getOrCreateRouter(paneId: string, initialPath: string): AnyRouter {
 const PaneScopeContext = createContext<string | null>(null);
 
 export function usePaneScope(): string | null {
-  return useContext(PaneScopeContext);
+	return useContext(PaneScopeContext);
 }
 
 interface RouteViewProps {
-  paneId: string;
-  path: string;
+	paneId: string;
+	path: string;
 }
 
 export function RouteView({ paneId, path }: RouteViewProps) {
-  const router = useMemo(
-    () => getOrCreateRouter(paneId, path),
-    [paneId],
-  );
+	const router = useMemo(() => getOrCreateRouter(paneId, path), [paneId]);
 
-  // Sync external path changes (sidebar nav, command palette) into this
-  // pane's router. We compare to current location to avoid a redundant
-  // navigate on first mount.
-  useEffect(() => {
-    if (router.state.location.pathname !== path) {
-      void router.navigate({ to: path });
-    }
-  }, [path, router]);
+	// Sync external path changes (sidebar nav, command palette) into this
+	// pane's router. We compare to current location to avoid a redundant
+	// navigate on first mount.
+	useEffect(() => {
+		if (router.state.location.pathname !== path) {
+			void router.navigate({ to: path });
+		}
+	}, [path, router]);
 
-  return (
-    <PaneScopeContext.Provider value={paneId}>
-      <RouterProvider router={router} />
-    </PaneScopeContext.Provider>
-  );
+	return (
+		<PaneScopeContext.Provider value={paneId}>
+			<RouterProvider router={router} />
+		</PaneScopeContext.Provider>
+	);
 }

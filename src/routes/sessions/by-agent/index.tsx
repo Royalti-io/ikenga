@@ -5,86 +5,79 @@ import { Bot } from 'lucide-react';
 
 import { useShellStore } from '@/lib/shell/shell-store';
 import { claudeConfigQueryOptions } from '@/lib/queries/claude-config';
-import {
-  detectAgentSlug,
-  sessionsListQueryOptions,
-} from '@/lib/queries/sessions';
+import { detectAgentSlug, sessionsListQueryOptions } from '@/lib/queries/sessions';
 import { cn } from '@/components/ui/utils';
 
 import '../sessions.css';
 
 export const Route = createFileRoute('/sessions/by-agent/')({
-  component: ByAgentIndex,
+	component: ByAgentIndex,
 });
 
 function ByAgentIndex() {
-  const projectRoots = useShellStore((s) => s.claudeProjectRoots);
-  const agentsQuery = useQuery(claudeConfigQueryOptions(projectRoots));
-  const sessionsQuery = useQuery(sessionsListQueryOptions(null));
+	const projectRoots = useShellStore((s) => s.claudeProjectRoots);
+	const agentsQuery = useQuery(claudeConfigQueryOptions(projectRoots));
+	const sessionsQuery = useQuery(sessionsListQueryOptions(null));
 
-  const agents = agentsQuery.data?.agents ?? [];
+	const agents = agentsQuery.data?.agents ?? [];
 
-  const sessionsByAgent = useMemo(() => {
-    const m = new Map<string, number>();
-    for (const s of sessionsQuery.data ?? []) {
-      const a = detectAgentSlug(s);
-      if (!a) continue;
-      m.set(a, (m.get(a) ?? 0) + 1);
-    }
-    return m;
-  }, [sessionsQuery.data]);
+	const sessionsByAgent = useMemo(() => {
+		const m = new Map<string, number>();
+		for (const s of sessionsQuery.data ?? []) {
+			const a = detectAgentSlug(s);
+			if (!a) continue;
+			m.set(a, (m.get(a) ?? 0) + 1);
+		}
+		return m;
+	}, [sessionsQuery.data]);
 
-  return (
-    <div className="ses-agents-split">
-      <div className="ses-agents-list">
-        <div className="ses-list-head" style={{ padding: 'var(--space-3) var(--space-4)' }}>
-          <div>
-            <h2 style={{ fontSize: 'var(--text-h4)' }}>
-              <Bot className="h-mark" />
-              Agents
-              <span className="count">({agents.length})</span>
-            </h2>
-          </div>
-        </div>
-        {agentsQuery.isLoading && (
-          <div className="p-4 text-sm text-muted-foreground">Loading…</div>
-        )}
-        {agentsQuery.error && (
-          <div className="p-4 text-sm text-destructive">{String(agentsQuery.error)}</div>
-        )}
-        {agents.map((a) => {
-          const count = sessionsByAgent.get(a.name) ?? 0;
-          return (
-            <Link
-              key={`${a.scope}:${a.name}`}
-              to="/sessions/by-agent/$agent"
-              params={{ agent: a.name }}
-              className={cn('ses-agent-row')}
-              activeProps={{ className: 'ses-agent-row is-on' }}
-            >
-              <div style={{ minWidth: 0 }}>
-                <div className="name">
-                  <Bot className="h-3 w-3 shrink-0" />
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {a.name}
-                  </span>
-                </div>
-                {a.model && <div className="model">{a.model}</div>}
-              </div>
-              <span className="ct">{count > 0 ? count : ''}</span>
-            </Link>
-          );
-        })}
-        {!agentsQuery.isLoading && agents.length === 0 && (
-          <div className="px-4 py-4 text-xs text-muted-foreground">
-            No agents discovered. Configure project roots in Settings.
-          </div>
-        )}
-      </div>
-      <div style={{ background: 'var(--border-soft)' }} />
-      <div className="ses-agents-detail">
-        <div className="ses-empty">Select an agent to see its session history.</div>
-      </div>
-    </div>
-  );
+	return (
+		<div className="ses-agents-split">
+			<div className="ses-agents-list">
+				<div className="ses-list-head" style={{ padding: 'var(--space-3) var(--space-4)' }}>
+					<div>
+						<h2 style={{ fontSize: 'var(--text-h4)' }}>
+							<Bot className="h-mark" />
+							Agents
+							<span className="count">({agents.length})</span>
+						</h2>
+					</div>
+				</div>
+				{agentsQuery.isLoading && <div className="p-4 text-sm text-muted-foreground">Loading…</div>}
+				{agentsQuery.error && (
+					<div className="p-4 text-sm text-destructive">{String(agentsQuery.error)}</div>
+				)}
+				{agents.map((a) => {
+					const count = sessionsByAgent.get(a.name) ?? 0;
+					return (
+						<Link
+							key={`${a.scope}:${a.name}`}
+							to="/sessions/by-agent/$agent"
+							params={{ agent: a.name }}
+							className={cn('ses-agent-row')}
+							activeProps={{ className: 'ses-agent-row is-on' }}
+						>
+							<div style={{ minWidth: 0 }}>
+								<div className="name">
+									<Bot className="h-3 w-3 shrink-0" />
+									<span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{a.name}</span>
+								</div>
+								{a.model && <div className="model">{a.model}</div>}
+							</div>
+							<span className="ct">{count > 0 ? count : ''}</span>
+						</Link>
+					);
+				})}
+				{!agentsQuery.isLoading && agents.length === 0 && (
+					<div className="px-4 py-4 text-xs text-muted-foreground">
+						No agents discovered. Configure project roots in Settings.
+					</div>
+				)}
+			</div>
+			<div style={{ background: 'var(--border-soft)' }} />
+			<div className="ses-agents-detail">
+				<div className="ses-empty">Select an agent to see its session history.</div>
+			</div>
+		</div>
+	);
 }

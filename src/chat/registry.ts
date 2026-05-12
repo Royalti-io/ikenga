@@ -8,19 +8,19 @@ import type { ChatAdapter } from './adapter';
 const registry = new Map<string, ChatAdapter>();
 
 export function registerAdapter(adapter: ChatAdapter): void {
-  registry.set(adapter.id, adapter);
+	registry.set(adapter.id, adapter);
 }
 
 export function getAdapter(id: string): ChatAdapter {
-  const a = registry.get(id);
-  if (!a) throw new Error(`adapter not registered: ${id}`);
-  return a;
+	const a = registry.get(id);
+	if (!a) throw new Error(`adapter not registered: ${id}`);
+	return a;
 }
 
 export function listAdapters(): ChatAdapter[] {
-  return Array.from(registry.values());
+	return Array.from(registry.values());
 }
 
 export function hasAdapter(id: string): boolean {
-  return registry.has(id);
+	return registry.has(id);
 }
