@@ -126,9 +126,13 @@ pub async fn bg_spike_run(
         }
 
         let t0 = Instant::now();
+        // Guard with `if` rather than `||` because the reply hook returns
+        // `undefined` (it's a fire-and-forget invoke), and `undefined ||
+        // warn(...)` would fire the warning on every successful ping.
         let js = format!(
-            "(window.__bgSpikeReply && window.__bgSpikeReply({nonce})) || \
-             console.warn('[bg_spike] reply hook not installed; call window.__bgSpikeInstall()')"
+            "if (window.__bgSpikeReply) {{ window.__bgSpikeReply({nonce}); }} \
+             else {{ console.warn('[bg_spike] reply hook not installed — \
+             dev/bg-spike.ts should auto-install on dev boot'); }}"
         );
         if let Err(e) = window.eval(&js) {
             log::warn!("[bg_spike] eval failed (nonce={nonce}): {e}");
