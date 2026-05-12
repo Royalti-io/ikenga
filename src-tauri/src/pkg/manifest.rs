@@ -190,6 +190,12 @@ pub struct EngineBlock {
 pub struct CapabilitiesBlock {
     #[serde(default)]
     pub supabase: Option<SupabaseCapability>,
+    /// Native child-webview capability. Required for any `ui.routes[]` entry
+    /// with `kind = "webview"` to mount. See `pkg/webview.rs` for the kernel
+    /// implementation. Mirrors `WebviewCapabilitySchema` in
+    /// `@ikenga/contract/manifest.ts`.
+    #[serde(default)]
+    pub webview: Option<WebviewCapability>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -200,6 +206,21 @@ pub struct SupabaseCapability {
     /// back to its own dev `.env.local`.
     #[serde(default)]
     pub required: bool,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct WebviewCapability {
+    /// Whether this pkg requests the right to create child webviews via the
+    /// kernel. Required for any `ui.routes[]` entry with `kind = "webview"`
+    /// to mount. Defaults to false; the kernel rejects mount with an explicit
+    /// error if the route declares `webview` but the capability is missing.
+    #[serde(default)]
+    pub child_webviews: bool,
+    /// Named cookie/data partitions the pkg may use. Created lazily on first
+    /// navigate per name; uninstall drops them all. Empty = pkg uses the
+    /// implicit "default" partition.
+    #[serde(default)]
+    pub partitions: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

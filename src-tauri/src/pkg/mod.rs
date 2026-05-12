@@ -7,12 +7,14 @@
 //! the `pkg_*` Tauri commands in `commands::pkg`.
 
 pub mod kernel;
+pub mod keep_awake;
 pub mod lifecycle;
 pub mod manifest;
 pub mod mcp_runtime;
 pub mod registries;
 pub mod registry;
 pub mod source;
+pub mod webview;
 
 pub use kernel::{DiscoveredPkg, InstalledSummary, Kernel, KernelStatus};
 pub use lifecycle::SidecarSupervisor;

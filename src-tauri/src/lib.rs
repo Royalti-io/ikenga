@@ -44,6 +44,8 @@ use commands::{
     pkg_mcp_call, pkg_preview_manifest, pkg_settings_get, pkg_settings_set, pkg_sidecar_call,
     pkg_supervisor_restart,
     pkg_uninstall, pkg_set_enabled, dev_bind_port, dev_release_port,
+    pkg_webview_create, pkg_webview_destroy, pkg_webview_navigate, pkg_webview_set_rect,
+    WebviewPanesState,
     secrets_set, secrets_vault_status, PkgContentState, SidecarsRegistryState, SidecarSupervisorState,
     set_dock_badge, iyke_mcp_info, spike_grant_fs_read, spike_setup_test_file, KernelState, PkgSettingsState,
     settings_clear_all, settings_get, settings_get_all, settings_set,
@@ -257,6 +259,10 @@ pub fn run() {
             let claude_assets_reg = Arc::new(pkg::registries::ClaudeAssetsRegistry::new());
             let mcp_reg = Arc::new(pkg::registries::McpRegistry::new());
             let queries_reg = Arc::new(pkg::registries::QueriesRegistry::new());
+            // Webview-panes: tracks pkg-owned child webviews; cleanup runs on
+            // uninstall so pkgs can't leave orphan browser surfaces behind.
+            // Cookie partitions on disk survive (re-install picks up logins).
+            let webview_panes_reg = Arc::new(pkg::webview::WebviewPanesRegistry::new());
             // Sidecar supervisor: itself a Registry, owns long-lived MCP
             // children for any pkg with `mcp[].lifecycle = "long-lived"`.
             // Held separately as an Arc so `pkg_mcp_call` can dispatch to it
@@ -299,6 +305,7 @@ pub fn run() {
                     claude_assets_reg as Arc<dyn pkg::Registry>,
                     mcp_reg as Arc<dyn pkg::Registry>,
                     queries_reg as Arc<dyn pkg::Registry>,
+                    webview_panes_reg.clone() as Arc<dyn pkg::Registry>,
                     pkg_content_server.clone() as Arc<dyn pkg::Registry>,
                     sidecar_supervisor.clone() as Arc<dyn pkg::Registry>,
                 ],
@@ -352,6 +359,7 @@ pub fn run() {
             app.manage(PkgContentState(pkg_content_server));
             app.manage(SidecarSupervisorState(sidecar_supervisor));
             app.manage(SidecarsRegistryState(sidecars_reg));
+            app.manage(WebviewPanesState(webview_panes_reg));
 
             // Phase 0.5 background-execution spike state. Debug builds only.
             // See commands/bg_spike.rs.
@@ -466,6 +474,11 @@ pub fn run() {
             // spike: dynamic ACL verification (delete after kernel lands)
             spike_grant_fs_read,
             spike_setup_test_file,
+            // pkg-browser child webviews
+            pkg_webview_create,
+            pkg_webview_destroy,
+            pkg_webview_navigate,
+            pkg_webview_set_rect,
             // Phase 0.5 bg-execution spike. Debug builds only.
             #[cfg(debug_assertions)]
             bg_spike_run,

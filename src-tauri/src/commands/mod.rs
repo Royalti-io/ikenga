@@ -19,6 +19,7 @@ pub mod pkg;
 pub mod pkg_content;
 pub mod pkg_mcp;
 pub mod pkg_sidecar;
+pub mod pkg_webview;
 pub mod pty;
 pub mod screenshot;
 pub mod secrets;
@@ -68,6 +69,10 @@ pub use pkg_mcp::{
     dev_bind_port, dev_release_port, pkg_mcp_call, pkg_supervisor_restart, SidecarSupervisorState,
 };
 pub use pkg_sidecar::{pkg_sidecar_call, SidecarsRegistryState};
+pub use pkg_webview::{
+    pkg_webview_create, pkg_webview_destroy, pkg_webview_navigate, pkg_webview_set_rect,
+    WebviewPanesState,
+};
 pub use pty::{pty_kill, pty_resize, pty_spawn, pty_write};
 pub use screenshot::{
     screenshot_capture_done, screenshot_capture_failed, screenshot_get_config, screenshot_pane,
