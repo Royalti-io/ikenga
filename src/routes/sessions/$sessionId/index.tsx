@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { AlertCircle, ArrowLeft, Loader2, Terminal } from 'lucide-react';
 
 import { detectAgentSlug, sessionsListQueryOptions } from '@/lib/queries/sessions';
+import { shortPath, loadHome } from '@/lib/home';
 
 import '../sessions.css';
 import { acpForkSession, acpLoadSession } from '@/lib/tauri-cmd';
@@ -18,12 +19,6 @@ import {
 	useThread,
 	findThreadByClaudeSessionId,
 } from '@/chat';
-
-function shortPath(p: string): string {
-	if (!p) return '—';
-	const home = '/home/nedjamez';
-	return p.startsWith(home) ? `~${p.slice(home.length)}` : p;
-}
 
 // Claude session ids are uuid v4: 8-4-4-4-12 hex with hyphens.
 const CLAUDE_SESSION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -83,13 +78,14 @@ function SessionDetailPage() {
 	// Open `claude --resume <id>` in a fresh terminal tab in the focused
 	// pane. The shell-wrapper (see claude-wrap.ts) keeps the PTY alive on
 	// any claude failure mode and lets the user edit/retry the command.
-	function handleAttachTerminal() {
+	async function handleAttachTerminal() {
 		// Resume id priority: the chat store's claudeSessionId (set when the
 		// streaming child emitted system:init) → threadId (legacy sessions
 		// where threadId IS the claude session id; the JSONL is named after it).
 		const resumeId = claudeSessionId ?? threadId;
+		const fallbackCwd = await loadHome();
 		const sessionId = createTerminalSession({
-			cwd: summary?.projectDir ?? '/home/nedjamez/royalti-co',
+			cwd: summary?.projectDir ?? fallbackCwd,
 			cmd: buildClaudeWrappedCmd({ resumeSessionId: resumeId }),
 			title: `claude · ${resumeId.slice(0, 8)}`,
 		});

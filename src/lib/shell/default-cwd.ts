@@ -7,9 +7,9 @@
 //      variable and expose a sync getter).
 //   3. The literal `~` as a last resort for non-Tauri/test environments.
 //
-// Replaces the per-call-site hardcoded `'/home/nedjamez/royalti-co'`
-// fallbacks that used to live in dock.tsx, new-tab-menu.tsx,
-// single-terminal.tsx, the chat adapters, and the sessions dialog.
+// Replaces the per-call-site hardcoded developer-machine fallbacks that
+// used to live in dock.tsx, new-tab-menu.tsx, single-terminal.tsx, the
+// chat adapters, and the sessions dialog.
 
 import { homeDir } from '@tauri-apps/api/path';
 

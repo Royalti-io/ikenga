@@ -8,6 +8,7 @@ import {
 	sessionsListQueryOptions,
 	type SessionSummary,
 } from '@/lib/queries/sessions';
+import { shortPath } from '@/lib/home';
 
 import '../sessions.css';
 
@@ -25,12 +26,6 @@ function formatRelative(iso: string | null): string {
 	const days = Math.floor(hours / 24);
 	if (days < 30) return `${days}d ago`;
 	return new Date(iso).toLocaleDateString();
-}
-
-function shortPath(p: string): string {
-	if (!p) return '—';
-	const home = '/home/nedjamez';
-	return p.startsWith(home) ? `~${p.slice(home.length)}` : p;
 }
 
 function AgentSessionsPage() {

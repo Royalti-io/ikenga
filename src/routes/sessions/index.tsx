@@ -10,6 +10,7 @@ import {
 	type SessionSummary,
 } from '@/lib/queries/sessions';
 import { useThreadBadges } from '@/lib/shell/thread-badges-store';
+import { shortPath } from '@/lib/home';
 import { NewSessionDialog } from '@/shell/sessions/new-session-dialog';
 
 import './sessions.css';
@@ -28,12 +29,6 @@ function formatRelative(iso: string | null): string {
 	const days = Math.floor(hours / 24);
 	if (days < 30) return `${days}d ago`;
 	return new Date(iso).toLocaleDateString();
-}
-
-function shortPath(p: string): string {
-	if (!p) return '—';
-	const home = '/home/nedjamez';
-	return p.startsWith(home) ? `~${p.slice(home.length)}` : p;
 }
 
 const PAGE_SIZE = 20;

@@ -22,8 +22,8 @@ import rehypeAutolinkHeadings from 'rehype-autolink-headings';
 // react-markdown type instead so we stay compatible with whatever
 // version comes through.
 type PluggableList = NonNullable<React.ComponentProps<typeof ReactMarkdown>['rehypePlugins']>;
-import { homeDir } from '@tauri-apps/api/path';
 import { useTheme } from '@/lib/theme';
+import { loadHome, getHomeSync } from '@/lib/home';
 import { usePaneStore } from '@/lib/panes/pane-store';
 import { findLeaf } from '@/lib/panes/pane-reducer';
 import { fsExists } from '@/lib/tauri-cmd';
@@ -409,37 +409,15 @@ function looksLikePath(s: string): boolean {
 	return true;
 }
 
-// Lazy home-dir resolution via Tauri's path API. Cached after first call so
-// subsequent path resolutions don't pay the IPC cost. Sync `resolvePath`
-// uses the cached value if available, else a hardcoded fallback for first
-// paint — the cache fills in the background on module load.
-const HOME_FALLBACK = '/home/nedjamez';
-let homeCached: string = HOME_FALLBACK;
-let homePromise: Promise<string> | null = null;
-
-function loadHome(): Promise<string> {
-	if (!homePromise) {
-		homePromise = homeDir()
-			.then((h) => {
-				homeCached = h.replace(/\/$/, '');
-				return homeCached;
-			})
-			.catch(() => HOME_FALLBACK);
-	}
-	return homePromise;
-}
-
-// Kick off home detection eagerly so the cache is warm by the time pills render.
-void loadHome();
-
 function resolvePath(p: string, cwd?: string): string {
 	let path = p.trim();
-	if (path.startsWith('~/')) {
-		path = path.replace(/^~\//, `${homeCached}/`);
-	} else if (path.startsWith('~')) {
-		path = homeCached + path.slice(1);
+	const home = getHomeSync();
+	if (path.startsWith('~/') && home) {
+		path = path.replace(/^~\//, `${home}/`);
+	} else if (path.startsWith('~') && home) {
+		path = home + path.slice(1);
 	} else if (!path.startsWith('/') && cwd) {
-		path = cwd.replace(/\/$/, '') + '/' + path;
+		path = `${cwd.replace(/\/$/, '')}/${path}`;
 	}
 	return path;
 }

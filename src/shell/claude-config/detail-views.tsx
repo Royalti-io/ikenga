@@ -12,6 +12,7 @@ import type {
 } from '@/lib/tauri-cmd';
 import { claudeConfigReadFile } from '@/lib/tauri-cmd';
 import { cn } from '@/components/ui/utils';
+import { shortPath } from '@/lib/home';
 
 import { Chips, FrontmatterGrid } from './list-detail';
 
@@ -27,11 +28,6 @@ function formatTime(ms: number): string {
 	if (!ms) return '—';
 	const d = new Date(ms);
 	return d.toISOString().slice(0, 16).replace('T', ' ');
-}
-
-function shortPath(p: string): string {
-	const home = '/home/nedjamez';
-	return p.startsWith(home) ? `~${p.slice(home.length)}` : p;
 }
 
 /** Split frontmatter values into (tools, mcp tools, skills, others) using the

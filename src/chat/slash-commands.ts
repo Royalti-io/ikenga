@@ -10,15 +10,13 @@
 
 import { useEffect, useState } from 'react';
 import { fsList } from '@/lib/tauri-cmd';
+import { loadHome } from '@/lib/home';
 
 export interface SlashCommand {
 	name: string;
 	source: 'user' | 'project';
 	path: string;
 }
-
-const HOME = '/home/nedjamez';
-const USER_DIR = `${HOME}/.claude/commands`;
 
 async function listMarkdown(dir: string): Promise<string[]> {
 	try {
@@ -32,13 +30,15 @@ async function listMarkdown(dir: string): Promise<string[]> {
 }
 
 export async function loadSlashCommands(cwd: string | null): Promise<SlashCommand[]> {
+	const home = await loadHome();
+	const userDir = `${home}/.claude/commands`;
 	const [userNames, projectNames] = await Promise.all([
-		listMarkdown(USER_DIR),
+		listMarkdown(userDir),
 		cwd ? listMarkdown(`${cwd}/.claude/commands`) : Promise.resolve([]),
 	]);
 	const byName = new Map<string, SlashCommand>();
 	for (const n of userNames) {
-		byName.set(n, { name: n, source: 'user', path: `${USER_DIR}/${n}.md` });
+		byName.set(n, { name: n, source: 'user', path: `${userDir}/${n}.md` });
 	}
 	for (const n of projectNames) {
 		// project shadows user
