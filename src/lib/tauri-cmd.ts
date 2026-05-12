@@ -44,6 +44,22 @@ export async function ptyKill(id: string): Promise<void> {
 }
 
 /**
+ * Return the session's scrollback buffer as bytes. Late-attaching frontends
+ * (PTY spawned by Rust, FE subscribed via `ptyListen` only after the React
+ * tree mounted) call this immediately after `ptyListen` to replay bytes that
+ * were emitted on the `pty://{id}` channel before the listener was wired up.
+ * Returns an empty array if the session has already been reaped.
+ */
+export async function ptyConsumeBuffer(id: string): Promise<Uint8Array> {
+	const b64 = await invoke<string>('pty_consume_buffer', { id });
+	if (!b64) return new Uint8Array(0);
+	const bin = atob(b64);
+	const arr = new Uint8Array(bin.length);
+	for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+	return arr;
+}
+
+/**
  * Subscribe to PTY byte stream + exit. Backend emits the data chunk as a
  * base64 string because Tauri's event system serializes payloads as JSON and
  * Uint8Array doesn't survive cleanly.
