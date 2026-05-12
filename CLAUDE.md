@@ -210,3 +210,35 @@ Delete:
 - The "Phase 0.5 background-execution spike (debug-only)" section at the end of `src/lib/tauri-cmd.ts`
 
 This section in CLAUDE.md stays — it's the architecture record.
+
+### Findings — Linux WebKitGTK (2026-05-12)
+
+Run on Linux 6.17 / WebKitGTK (`libwebkit2gtk-4.1`) on a ThinkPad T490s. 60s runs at 500ms cadence, 5s per-ping timeout. Same dev binary (`bun run tauri dev`) across all four rows.
+
+| Row | done/intended | p50_ms | p95_ms | p99_ms | max_ms | timeouts |
+|---|---|---|---|---|---|---|
+| focused | 120/120 | 1.34 | 2.72 | 27.93 | 38.68 | 0 |
+| minimized | 113/114 | 1.28 | 3.09 | 5.60 | 94.75 | 1 |
+| backgrounded | 120/120 | 1.23 | 2.59 | 3.68 | 4.48 | 0 |
+| screen-off | 120/120 | 1.34 | 2.95 | 6.46 | 6.74 | 0 |
+
+**All four rows pass with margin.** Sub-3ms p95 across every state — focus / occlusion / screen state are essentially invisible to host-injected `eval`. The one timeout in `minimized` was the moment of the minimize animation itself; the next ping landed normally. The single 94ms `max_ms` in `minimized` is the same artifact.
+
+**Decision: Green on Linux.** No keep-awake mitigation needed for this OS.
+
+**Outstanding: macOS and Windows** were not run (no machine available this session). The original concerns — macOS App Nap and Windows WebView2 `TrySuspend` — apply to those engines, not WebKitGTK. Linux passing tells us the kernel + eval pipeline is sound but says nothing about the other two OSes.
+
+### Recommendation: Phase 1 "defensive Yellow"
+
+Proceed to Phase 1 as planned, but **bake the keep-awake mitigations in from day one** rather than waiting for macOS / Windows numbers. They're cheap, the kernel is small, and they remove a re-architecture risk if the macOS pass turns out worse:
+
+- **macOS**: hold `NSProcessInfo.beginActivity(.userInitiated, reason: "Ikenga browser automation")` while any `pkg_webview_eval` call is in flight; release when the in-flight count drops to zero.
+- **Windows**: set `CoreWebView2Controller.IsVisible = true` on browser-pkg-owned webviews even when the host window is minimized; don't honor `TrySuspend` on them.
+- **Linux**: nothing (Green confirmed).
+
+If a future macOS or Windows spike run shows the mitigations are sufficient, no rework. If they're not, we already have the right hooks in place to layer on the next mitigation (separate borderless window, etc.) without touching the public manifest / MCP surface.
+
+### Notes / known minor issues from this run
+
+- The "[bg_spike] reply hook not installed" warnings printed in the original spike output were a **cosmetic bug** in the Rust eval snippet (`X && X() || warn` evaluates the warn branch because `X()` returns `undefined`). Replies were still firing — that's how we got 120/120 in three of four rows. Fixed in the same commit as these findings; subsequent runs should be silent.
+- The user ran `screen-off` on Linux Wayland despite the runbook suggesting to skip it (`xset dpms force off` doesn't work on Wayland). Result still passed cleanly, presumably via a system-menu lock or lid action that blanked the display without suspending the process. Documented as: screen-off works on Linux when you can get the screen off, regardless of the mechanism.
