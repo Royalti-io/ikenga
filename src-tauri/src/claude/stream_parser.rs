@@ -108,6 +108,32 @@ pub(crate) fn dispatch_envelope(value: &Value, out: &mut Vec<ChatEvent>) {
         "rate_limit_event" => out.push(ChatEvent::RateLimit {
             info: value.clone(),
         }),
+        // Phase 4: tool-permission round-trip. `claude
+        // --permission-prompt-tool stdio` writes one of these to stdout when
+        // a tool needs approval; the ACP server forwards it as
+        // `session/request_permission`, then writes a `sdk_control_response`
+        // back to stdin. Some claude builds omit `request_id`; fall back to
+        // a locally-generated uuid so the bridge always has a key.
+        "sdk_control_request" => {
+            let req = value.get("request").cloned().unwrap_or(Value::Null);
+            out.push(ChatEvent::ControlRequest {
+                request_id: req
+                    .get("request_id")
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+                    .unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
+                subtype: req
+                    .get("subtype")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
+                tool_name: req
+                    .get("tool_name")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+                tool_input: req.get("tool_input").cloned(),
+            });
+        }
         // Internal/control envelopes — JSONL bookkeeping that's not part of
         // the conversation. Drop silently; they're noise to the chat feed.
         "attachment" | "queue-operation" | "last-prompt" | "skill_listing"
@@ -162,10 +188,12 @@ fn dispatch_assistant(value: &Value, out: &mut Vec<ChatEvent>) {
         .get("parent_tool_use_id")
         .and_then(Value::as_str)
         .map(str::to_string);
-    let content = value
-        .get("message")
-        .and_then(|m| m.get("content"))
-        .and_then(Value::as_array);
+    let message = value.get("message");
+    let message_id = message
+        .and_then(|m| m.get("id"))
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let content = message.and_then(|m| m.get("content")).and_then(Value::as_array);
     let blocks = match content {
         Some(b) => b,
         None => {
@@ -182,6 +210,7 @@ fn dispatch_assistant(value: &Value, out: &mut Vec<ChatEvent>) {
                 if let Some(t) = block.get("text").and_then(Value::as_str) {
                     out.push(ChatEvent::Text {
                         delta: t.to_string(),
+                        message_id: message_id.clone(),
                     });
                 }
             }
@@ -189,6 +218,7 @@ fn dispatch_assistant(value: &Value, out: &mut Vec<ChatEvent>) {
                 if let Some(t) = block.get("thinking").and_then(Value::as_str) {
                     out.push(ChatEvent::Thinking {
                         delta: t.to_string(),
+                        message_id: message_id.clone(),
                     });
                 }
             }
@@ -259,6 +289,7 @@ mod tests {
             Some(ChatEvent::RateLimit { .. }) => "rate_limit",
             Some(ChatEvent::SystemHook { .. }) => "system_hook",
             Some(ChatEvent::Artifact { .. }) => "artifact",
+            Some(ChatEvent::ControlRequest { .. }) => "control_request",
             Some(ChatEvent::Unknown { .. }) => "unknown",
             Some(ChatEvent::ParseError { .. }) => "parse_error",
             None => "<none>",
@@ -354,7 +385,7 @@ mod tests {
         events = p.feed(part2);
         assert_eq!(events.len(), 1);
         match &events[0] {
-            ChatEvent::Text { delta } => assert_eq!(delta, "hello"),
+            ChatEvent::Text { delta, .. } => assert_eq!(delta, "hello"),
             _ => unreachable!(),
         }
     }
@@ -367,6 +398,47 @@ mod tests {
         assert_eq!(events.len(), 2);
         assert!(matches!(events[0], ChatEvent::ParseError { .. }));
         assert!(matches!(events[1], ChatEvent::Done { .. }));
+    }
+
+    #[test]
+    fn control_request_parses_from_sdk_envelope() {
+        let mut p = StreamParser::new();
+        let line = br#"{"type":"sdk_control_request","request":{"request_id":"req_42","subtype":"permission","tool_name":"AskUserQuestion","tool_input":{"questions":[{"question":"Confirm?","options":[{"label":"Yes"}]}]}}}
+"#;
+        let events = p.feed(line);
+        assert_eq!(events.len(), 1);
+        match &events[0] {
+            ChatEvent::ControlRequest {
+                request_id,
+                subtype,
+                tool_name,
+                tool_input,
+            } => {
+                assert_eq!(request_id, "req_42");
+                assert_eq!(subtype, "permission");
+                assert_eq!(tool_name.as_deref(), Some("AskUserQuestion"));
+                assert!(tool_input.is_some());
+            }
+            other => panic!("expected ControlRequest, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn control_request_synthesizes_request_id_when_missing() {
+        let mut p = StreamParser::new();
+        // Older claude builds emit no request_id; we generate a uuid so the
+        // ACP server always has a stable correlation key.
+        let line = br#"{"type":"sdk_control_request","request":{"subtype":"permission","tool_name":"Bash","tool_input":{"command":"ls"}}}
+"#;
+        let events = p.feed(line);
+        match &events[0] {
+            ChatEvent::ControlRequest { request_id, .. } => {
+                assert!(!request_id.is_empty(), "request_id should be synthesized");
+                // Loose check: uuid v4 is 36 chars with dashes.
+                assert_eq!(request_id.len(), 36);
+            }
+            other => panic!("expected ControlRequest, got {other:?}"),
+        }
     }
 
     #[test]

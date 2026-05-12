@@ -12,10 +12,9 @@ import {
 } from '@/lib/queries/secrets';
 import { iykeMcpInfo } from '@/lib/tauri-cmd';
 
-import {
-  ApiKeysSectionBody,
-  ClaudeConfigSectionBody,
-} from './-components/legacy-sections';
+import { ApiKeysSectionBody } from './-components/api-keys';
+import { ClaudeSummarySectionBody } from './-components/claude-summary';
+import { ConnectorCardsSection } from './-components/connector-cards';
 import { SettingGroup } from './-components/setting-group';
 import { SettingRow } from './-components/setting-row';
 
@@ -74,13 +73,12 @@ function IntegrationsPage() {
             </p>
           </header>
 
+          {/* ─── Connectors required by installed pkgs (Phase 5) ────── */}
+          <ConnectorCardsSection />
+
           {/* ─── Claude Code ────────────────────────────────────────── */}
           <SettingGroup title="Claude Code">
-            <ClaudeConfigSectionBody />
-            <div className="px-4 py-2 text-[11px] italic text-muted-foreground">
-              Wiring through PR2.5 — most engine-level fields (CLI binary path, model, skills
-              dir) are still display-only.
-            </div>
+            <ClaudeSummarySectionBody />
           </SettingGroup>
 
           {/* ─── Iyke MCP ───────────────────────────────────────────── */}

@@ -12,6 +12,7 @@ import {
   Brain,
   CheckCircle2,
   CircleAlert,
+  GitBranch,
   Loader2,
   MessageCircle,
   User,
@@ -39,9 +40,15 @@ interface ThreadProps {
   className?: string;
   /** Kept for API compat; auto-scroll is now handled by Conversation. */
   autoScroll?: boolean;
+  /** Phase 8: invoked when the user clicks "Branch from here" on an
+   *  assistant turn. `upToTurn` is the user-turn count up to (and
+   *  including) the message being forked from. The caller is responsible
+   *  for the actual `acpForkSession` call + route navigation so Thread
+   *  stays route-agnostic. */
+  onBranch?: (upToTurn: number) => void;
 }
 
-export function Thread({ threadId, className }: ThreadProps) {
+export function Thread({ threadId, className, onBranch }: ThreadProps) {
   const state = useChatStore((s) => (threadId ? s.threads[threadId] ?? null : null));
   const cwd = state?.thread.cwd ?? undefined;
   const includeDebug = import.meta.env.DEV;
@@ -49,6 +56,22 @@ export function Thread({ threadId, className }: ThreadProps) {
     () => (state ? buildRenderItems(state.events, false) : []),
     [state?.events],
   );
+  // Phase 8: for each render item, snapshot the user-turn count up to and
+  // including the most recent `user_turn`. Used so "Branch from here" on
+  // an assistant row can pass a meaningful `upToTurn` to the server. We
+  // walk in render order so the count is stable across re-renders even if
+  // tool pairs interleave between user + assistant turns.
+  const branchTurnByItem = useMemo(() => {
+    const out = new Map<string, number>();
+    if (!state) return out;
+    let userTurnCount = 0;
+    for (const it of items) {
+      const ev = it.event;
+      if ('kind' in ev && ev.kind === 'user_turn') userTurnCount += 1;
+      out.set(it.key, userTurnCount);
+    }
+    return out;
+  }, [items, state]);
   const debugEvents = useMemo(
     () => (includeDebug && state ? selectDebugEvents(state.events) : []),
     [state?.events, includeDebug],
@@ -74,7 +97,14 @@ export function Thread({ threadId, className }: ThreadProps) {
         ) : (
           <ul className="divide-y divide-border/40">
             {items.map((item) => (
-              <RenderRow key={item.key} item={item} threadId={threadId} cwd={cwd} />
+              <RenderRow
+                key={item.key}
+                item={item}
+                threadId={threadId}
+                cwd={cwd}
+                branchTurn={branchTurnByItem.get(item.key)}
+                onBranch={onBranch}
+              />
             ))}
           </ul>
         )}
@@ -107,10 +137,16 @@ function RenderRow({
   item,
   threadId,
   cwd,
+  branchTurn,
+  onBranch,
 }: {
   item: RenderItem;
   threadId: string;
   cwd: string | undefined;
+  /** Phase 8: user-turn count up to this row. Passed as `upToTurn` to
+   *  `acpForkSession` when the user clicks "Branch from here". */
+  branchTurn?: number;
+  onBranch?: (upToTurn: number) => void;
 }) {
   const event = item.event;
 
@@ -132,12 +168,36 @@ function RenderRow({
           )}
         </Row>
       );
-    case 'text':
+    case 'text': {
+      // Phase 8: "Branch from here" affordance on assistant turns. Hidden
+      // when no callback is wired. `branchTurn` is the user-turn index
+      // threaded through from Thread's running count — we pass it as
+      // `upToTurn` so the new thread knows where to resume from.
+      const canBranch = onBranch && branchTurn != null;
       return (
         <Row icon={MessageCircle} tone="assistant" label="assistant">
-          <Markdown content={event.delta} cwd={cwd} density="compact" className="text-sm leading-relaxed" />
+          <div className="group relative">
+            <Markdown
+              content={event.delta}
+              cwd={cwd}
+              density="compact"
+              className="text-sm leading-relaxed"
+            />
+            {canBranch && (
+              <button
+                type="button"
+                onClick={() => onBranch(branchTurn)}
+                className="absolute right-0 top-0 inline-flex items-center gap-1 rounded-md border border-input bg-background/80 px-1.5 py-0.5 text-[10px] text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground group-hover:opacity-100"
+                title="Branch from here — fork this thread into a new conversation that continues from this assistant turn"
+              >
+                <GitBranch className="h-3 w-3" />
+                Branch from here
+              </button>
+            )}
+          </div>
         </Row>
       );
+    }
     case 'thinking':
       return (
         <Row icon={Brain} tone="muted" label="thinking">
@@ -157,18 +217,13 @@ function RenderRow({
           <ArtifactPill path={event.path} mime={event.mime} producedBy={event.producedBy} />
         </Row>
       );
+    case 'user_turn':
+      return (
+        <Row icon={User} tone="user" label="you">
+          <Markdown content={event.text} cwd={cwd} density="compact" className="text-sm leading-relaxed" />
+        </Row>
+      );
     case 'system_hook':
-      if (event.hookEvent === 'user_message') {
-        const userText =
-          typeof event.content === 'string'
-            ? event.content
-            : JSON.stringify(event.content);
-        return (
-          <Row icon={User} tone="user" label="you">
-            <Markdown content={userText} cwd={cwd} density="compact" className="text-sm leading-relaxed" />
-          </Row>
-        );
-      }
       if (event.hookEvent === 'cancel') {
         return (
           <li className="flex items-center gap-2 bg-amber-50/30 px-4 py-2 text-xs text-amber-700 dark:bg-amber-950/10 dark:text-amber-300">

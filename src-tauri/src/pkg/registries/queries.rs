@@ -143,6 +143,7 @@ mod tests {
                 key_prefixes: prefixes.into_iter().map(String::from).collect(),
             }),
             capabilities: None,
+            engine: None,
         };
         Package {
             manifest,

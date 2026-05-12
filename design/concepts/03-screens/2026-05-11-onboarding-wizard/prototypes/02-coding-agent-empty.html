@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en" data-mode="light" data-theme="A">
+<head>
+<meta charset="UTF-8">
+<title>Ikenga · Coding Agent (none detected)</title>
+<link rel="stylesheet" href="_shared/base.css">
+<style>
+  .wizard-shell { display: flex; flex-direction: column; height: calc(800px - 32px); }
+  .wizard-progress { height: 4px; background: var(--bg-raised); }
+  .wizard-progress .fill { height: 100%; background: var(--primary); width: 22.22%; }
+  .wizard-header { display: flex; align-items: center; justify-content: space-between; padding: var(--space-5) var(--space-12); border-bottom: 1px solid var(--border-soft); }
+  .wizard-steps-label { font-size: 12px; color: var(--fg-muted); font-variant-numeric: tabular-nums; }
+  .wizard-steps-label .current { color: var(--fg); font-weight: 600; }
+
+  .wizard-body { flex: 1; min-height: 0; overflow: auto; padding: var(--space-10) var(--space-12); display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: var(--space-12); align-content: start; }
+
+  .empty-state { padding: var(--space-8); border: 1.5px dashed var(--border-strong); border-radius: var(--radius-lg); background: var(--bg-sunken); text-align: left; }
+  .empty-state .icon {
+    width: 48px; height: 48px; border-radius: var(--radius-md);
+    background: var(--bg-raised); display: flex; align-items: center; justify-content: center;
+    margin-bottom: var(--space-4);
+  }
+
+  .install-list { display: grid; gap: var(--space-3); margin-top: var(--space-6); }
+  .install-row {
+    display: grid; grid-template-columns: 36px 1fr auto; gap: var(--space-3); align-items: center;
+    padding: var(--space-3) var(--space-4); background: var(--bg-surface);
+    border: 1px solid var(--border-soft); border-radius: var(--radius-md);
+  }
+  .install-row .logo { width: 28px; height: 28px; border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; font-family: var(--font-mono); font-weight: 700; font-size: 13px; }
+  .install-row .name { font-weight: 600; font-size: 13px; }
+  .install-row .cmd { font-family: var(--font-mono); font-size: 11.5px; color: var(--fg-muted); margin-top: 2px; }
+  .install-row .logo.claude { background: hsl(28,40%,90%); color: hsl(20,60%,32%); }
+  .install-row .logo.codex { background: hsl(220,15%,90%); color: hsl(220,20%,30%); }
+  .install-row .logo.gemini { background: hsl(220,40%,92%); color: hsl(220,60%,40%); }
+
+  aside.sidecard { background: var(--bg-surface); border: 1px solid var(--border-soft); border-radius: var(--radius-lg); padding: var(--space-5); }
+  aside.sidecard h3 { margin: 0 0 var(--space-3); font-size: 14px; }
+  aside.sidecard p { font-size: 12.5px; color: var(--fg-muted); line-height: 1.55; margin: 0 0 var(--space-4); }
+
+  .wizard-footer { border-top: 1px solid var(--border-soft); padding: var(--space-4) var(--space-12); display: flex; align-items: center; justify-content: space-between; background: var(--bg-surface); }
+  .footer-meta { font-size: 12px; color: var(--fg-faint); font-family: var(--font-mono); }
+</style>
+</head>
+<body>
+<div class="tauri-window">
+  <div class="title-bar">
+    <div class="traffic-lights"><span class="red"></span><span class="yellow"></span><span class="green"></span></div>
+    <div class="title-bar-label">Ikenga · First-Run Setup</div>
+  </div>
+
+  <div class="wizard-shell">
+    <div class="wizard-progress"><div class="fill"></div></div>
+
+    <header class="wizard-header">
+      <div class="brand-mark">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M4 20L12 4L20 20" stroke="hsl(20,50%,34%)" stroke-width="2.4" stroke-linecap="square"/><path d="M8 14H16" stroke="hsl(20,50%,34%)" stroke-width="2.4" stroke-linecap="square"/></svg>
+        Ikenga
+      </div>
+      <div class="wizard-steps-label">Step <span class="current">2</span> of 9 · Coding agent</div>
+    </header>
+
+    <div class="wizard-body">
+
+      <div>
+        <p class="caption" style="color: var(--primary); margin: 0 0 var(--space-2);">Empty state</p>
+        <h1 class="h1">No coding agent detected on this machine.</h1>
+        <p style="color: var(--fg-muted); font-size: 14px; max-width: 60ch; margin: var(--space-2) 0 var(--space-6);">
+          You can install one of these and Ikenga will pick it up automatically, or skip and use the shell offline.
+        </p>
+
+        <div class="install-list">
+
+          <div class="install-row">
+            <div class="logo claude">C</div>
+            <div>
+              <div class="name">Claude Code <span class="pill pill-primary" style="margin-left: 6px;">recommended</span></div>
+              <div class="cmd">curl -fsSL https://claude.ai/install.sh | sh</div>
+            </div>
+            <button class="btn btn-secondary btn-sm">Copy</button>
+          </div>
+
+          <div class="install-row">
+            <div class="logo codex">⌘</div>
+            <div>
+              <div class="name">Codex CLI</div>
+              <div class="cmd">brew install openai/tap/codex</div>
+            </div>
+            <button class="btn btn-secondary btn-sm">Copy</button>
+          </div>
+
+          <div class="install-row">
+            <div class="logo gemini">G</div>
+            <div>
+              <div class="name">Gemini CLI</div>
+              <div class="cmd">npm install -g @google/gemini-cli</div>
+            </div>
+            <button class="btn btn-secondary btn-sm">Copy</button>
+          </div>
+
+        </div>
+
+        <button class="btn btn-ghost" style="margin-top: var(--space-5);">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8L7 12L13 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"/></svg>
+          Re-scan after installing
+        </button>
+      </div>
+
+      <aside class="sidecard">
+        <h3>Use Ikenga without an agent</h3>
+        <p>You'll still get pkg management, terminal, file browsing, and project routing. AI-driven features (chat, agents, scaffolding) stay dormant.</p>
+        <button class="btn btn-secondary" style="width: 100%;">Continue offline</button>
+        <p style="margin-top: var(--space-5); font-size: 11.5px; color: var(--fg-faint);">
+          You can connect an agent any time from <span class="mono">Settings → Engine</span>.
+        </p>
+      </aside>
+
+    </div>
+
+    <footer class="wizard-footer">
+      <span class="footer-meta">Scanned <span class="mono">$PATH</span>, <span class="mono">~/.bun/bin</span>, <span class="mono">/opt/homebrew/bin</span> — 0 matches</span>
+      <div style="display: flex; gap: var(--space-3); align-items: center;">
+        <button class="btn btn-ghost" onclick="window.location.href='01-welcome.html'">Back</button>
+        <button class="btn btn-secondary" onclick="window.location.href='03-project-roots.html'">Skip for now</button>
+      </div>
+    </footer>
+  </div>
+</div>
+</body>
+</html>

@@ -5,6 +5,7 @@ import {
   useNavigate,
   useRouter,
 } from '@tanstack/react-router';
+// useNavigate is still used by the inner TabBar component (further down).
 import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState, createContext, useContext } from 'react';
 import { open as shellOpen } from '@tauri-apps/plugin-shell';
@@ -16,7 +17,9 @@ import {
   type ClaudeConfig,
 } from '@/lib/queries/claude-config';
 import { useShellStore } from '@/lib/shell/shell-store';
-import { useSpawnSession } from '@/lib/queries/sessions';
+import { createTerminalSession } from '@/terminal/single-terminal';
+import { buildClaudeWrappedCmd } from '@/terminal/claude-wrap';
+import { usePaneStore } from '@/lib/panes/pane-store';
 import { NewSessionDialog } from '@/shell/sessions/new-session-dialog';
 import { cn } from '@/components/ui/utils';
 import type { ClaudeCommand } from '@/lib/tauri-cmd';
@@ -43,8 +46,6 @@ function ClaudeLayout() {
   useClaudeConfigWatch(projectRoots, watchEnabled);
 
   const router = useRouter();
-  const navigate = useNavigate();
-  const spawn = useSpawnSession();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [presetPrompt, setPresetPrompt] = useState<string>('');
 
@@ -66,17 +67,13 @@ function ClaudeLayout() {
 
   function handleRunCommand(cmd: ClaudeCommand) {
     if (!projectRoots[0]) return;
-    spawn.mutate(
-      {
-        cwd: projectRoots[0],
-        opts: { prompt: cmd.body },
-      },
-      {
-        onSuccess: ({ sessionId }) => {
-          navigate({ to: '/sessions/$sessionId', params: { sessionId } });
-        },
-      },
-    );
+    const sessionId = createTerminalSession({
+      cwd: projectRoots[0],
+      cmd: buildClaudeWrappedCmd({ prompt: cmd.body }),
+      title: `claude · ${cmd.name ?? cmd.body.slice(0, 32)}`,
+    });
+    const focusedId = usePaneStore.getState().focusedId;
+    usePaneStore.getState().addTab(focusedId, { kind: 'terminal', sessionId });
   }
 
   const counts = useMemo(() => {

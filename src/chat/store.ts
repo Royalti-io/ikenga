@@ -48,12 +48,33 @@ interface ChatStoreState {
 
 function coalesceTail(events: ChatEvent[], next: ChatEvent): ChatEvent[] {
   const last = events[events.length - 1];
-  if (last && last.kind === 'text' && next.kind === 'text') {
-    const merged: ChatEvent = { kind: 'text', delta: last.delta + next.delta };
+  // Only coalesce when both events come from the same Anthropic message —
+  // otherwise we'd glue two distinct assistant turns into one giant block
+  // and the reconciler couldn't tell them apart.
+  if (
+    last &&
+    last.kind === 'text' &&
+    next.kind === 'text' &&
+    last.messageId === next.messageId
+  ) {
+    const merged: ChatEvent = {
+      kind: 'text',
+      delta: last.delta + next.delta,
+      messageId: last.messageId,
+    };
     return [...events.slice(0, -1), merged];
   }
-  if (last && last.kind === 'thinking' && next.kind === 'thinking') {
-    const merged: ChatEvent = { kind: 'thinking', delta: last.delta + next.delta };
+  if (
+    last &&
+    last.kind === 'thinking' &&
+    next.kind === 'thinking' &&
+    last.messageId === next.messageId
+  ) {
+    const merged: ChatEvent = {
+      kind: 'thinking',
+      delta: last.delta + next.delta,
+      messageId: last.messageId,
+    };
     return [...events.slice(0, -1), merged];
   }
   return [...events, next];

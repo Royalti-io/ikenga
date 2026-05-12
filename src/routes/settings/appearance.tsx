@@ -16,7 +16,7 @@ import {
   useIkengaStore,
 } from '@/lib/ikenga/theme-store';
 
-import { LAYOUT_LS_PREFIX } from './-components/legacy-sections';
+import { LAYOUT_LS_PREFIX } from './-components/clear-data';
 import { SettingGroup } from './-components/setting-group';
 import { SettingRow } from './-components/setting-row';
 
@@ -145,11 +145,9 @@ function AppearancePage() {
               label="Mode"
               desc="Light or dark. Modulates lightness only; hues stay constant per theme."
             >
-              <SegmentedControl<IkengaMode | 'system'>
+              <SegmentedControl<IkengaMode>
                 value={mode}
-                onChange={(v) => {
-                  if (v !== 'system') setMode(v);
-                }}
+                onChange={setMode}
                 items={[
                   { value: 'light', label: 'Light', Icon: Sun },
                   { value: 'dark', label: 'Dark', Icon: Moon },
@@ -157,8 +155,7 @@ function AppearancePage() {
                     value: 'system',
                     label: 'System',
                     Icon: Monitor,
-                    disabled: true,
-                    title: 'System mode coming soon',
+                    title: 'Follow OS preference',
                   },
                 ]}
               />

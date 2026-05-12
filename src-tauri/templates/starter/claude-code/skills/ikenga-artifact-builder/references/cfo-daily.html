@@ -1,0 +1,419 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CFO Daily</title>
+
+  <!--
+    Canonical reference artifact — exercises all four source types and three
+    refresh modes:
+      - cash         (supabase, interval 15m + onFocus)
+      - ar_aging     (sql,      manual)
+      - fx           (fetch,    interval 1h)
+      - cron_status  (file,     watch)
+    In browser mode: fetch attempts live FX (open.er-api.com), all other
+    sources fall back to mock immediately.
+  -->
+
+  <script type="application/json" id="ikenga-manifest">
+  {
+    "format": "ikenga-artifact",
+    "formatVersion": "0.1",
+    "id": "cfo-daily",
+    "name": "CFO Daily",
+    "version": "0.1.0",
+    "description": "Cash position, AR aging, FX, and overnight cron status. Refresh ladder per source.",
+    "license": "BUSL-1.1",
+    "icon": { "lucide": "wallet" },
+    "dataSources": {
+      "cash": {
+        "type": "supabase",
+        "table": "v_cash_position",
+        "select": "*",
+        "refresh": { "mode": "interval", "every": "15m", "onFocus": true }
+      },
+      "ar_aging": {
+        "type": "sql",
+        "db": "ikenga.local",
+        "query": "select * from ar_aging_view",
+        "refresh": { "mode": "manual" }
+      },
+      "fx": {
+        "type": "fetch",
+        "url": "https://open.er-api.com/v6/latest/USD",
+        "refresh": { "mode": "interval", "every": "1h" }
+      },
+      "cron_status": {
+        "type": "file",
+        "path": "./data/last_run.json",
+        "refresh": { "mode": "watch" }
+      }
+    },
+    "fallback": {
+      "mode": "mock",
+      "dataTag": "ikenga-mock-data",
+      "banner": "Showing mock data — live sources unavailable."
+    },
+    "pin": { "suggested": true, "section": "finance", "label": "CFO Daily" },
+    "notes": { "enabled": true },
+    "requires": { "ikenga": ">=0.4", "bridge": "^1.0" }
+  }
+  </script>
+
+  <script type="application/json" id="ikenga-mock-data">
+  {
+    "cash": {
+      "total_usd": 1842300,
+      "change_24h": -12500,
+      "by_account": [
+        { "name": "Operating",      "amount": 985000, "currency": "USD" },
+        { "name": "Reserve",        "amount": 500000, "currency": "USD" },
+        { "name": "Royalty Float",  "amount": 357300, "currency": "USD" }
+      ]
+    },
+    "ar_aging": [
+      { "bucket": "Current",    "amount": 245000, "count": 18 },
+      { "bucket": "1-30 days",  "amount":  89500, "count":  7 },
+      { "bucket": "31-60 days", "amount":  32100, "count":  3 },
+      { "bucket": "61-90 days", "amount":  14800, "count":  2 },
+      { "bucket": "90+ days",   "amount":   8200, "count":  1 }
+    ],
+    "fx": {
+      "result": "success",
+      "base_code": "USD",
+      "rates": { "EUR": 0.92, "GBP": 0.79, "NGN": 1580.50, "JPY": 152.30, "CAD": 1.36 }
+    },
+    "cron_status": {
+      "job": "cfo-refresh",
+      "last_run_at": "2026-05-10T08:00:00Z",
+      "duration_ms": 3420,
+      "status": "success",
+      "rows_processed": 8472
+    }
+  }
+  </script>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script crossorigin src="https://cdn.jsdelivr.net/npm/react@18.3.1/umd/react.production.min.js"></script>
+  <script crossorigin src="https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.25.6/babel.min.js"></script>
+
+  <!-- Bridge polyfill — v0 stand-in for `@ikenga/artifact`. -->
+  <script>
+  window.__ikenga_bridge_polyfill__ = (function () {
+    var manifest = JSON.parse(document.getElementById('ikenga-manifest').textContent);
+    var mock = JSON.parse(document.getElementById('ikenga-mock-data').textContent);
+    var hostKind = window.__ikenga_host__ ? 'ikenga' : 'browser';
+
+    var cache = {};
+    var subs = {};
+    var usedFallback = {};
+    var intervals = {};
+
+    function resolve(name) {
+      var def = manifest.dataSources[name];
+      // In browser mode, only `fetch` sources attempt live; supabase/sql/file always mock.
+      if (hostKind === 'browser' && def.type !== 'fetch') {
+        usedFallback[name] = true;
+        return Promise.resolve(mock[name]);
+      }
+      if (def.type === 'fetch') {
+        return fetch(def.url, { method: def.method || 'GET', headers: def.headers })
+          .then(function (r) { return r.ok ? r.json() : Promise.reject(new Error('http ' + r.status)); })
+          .then(function (d) { usedFallback[name] = false; return d; })
+          .catch(function () { usedFallback[name] = true; return mock[name]; });
+      }
+      usedFallback[name] = true;
+      return Promise.resolve(mock[name]);
+    }
+
+    function notify(name, value) {
+      (subs[name] || []).forEach(function (fn) { fn(value); });
+    }
+
+    function startInterval(name) {
+      var def = manifest.dataSources[name];
+      if (!def.refresh || def.refresh.mode !== 'interval') return;
+      var ms = parseDuration(def.refresh.every);
+      if (!ms) return;
+      intervals[name] = setInterval(function () {
+        resolve(name).then(function (v) { cache[name] = v; notify(name, v); });
+      }, ms);
+    }
+
+    function parseDuration(s) {
+      var m = /^(\d+)\s*(s|m|h|d)$/.exec(s || '');
+      if (!m) return 0;
+      var n = parseInt(m[1], 10);
+      return n * { s: 1000, m: 60000, h: 3600000, d: 86400000 }[m[2]];
+    }
+
+    function init() {
+      var keys = Object.keys(manifest.dataSources);
+      return Promise.all(keys.map(function (k) {
+        return resolve(k).then(function (v) { cache[k] = v; });
+      })).then(function () {
+        keys.forEach(startInterval);
+        return {
+          host: {
+            kind: hostKind,
+            user: null,
+            usedFallback: function (n) { return !!usedFallback[n]; },
+            anyFallback: function () { return Object.keys(usedFallback).some(function (k) { return usedFallback[k]; }); },
+          },
+          source: function (name) {
+            return {
+              get: function () { return cache[name]; },
+              subscribe: function (fn) {
+                if (!subs[name]) subs[name] = [];
+                subs[name].push(fn);
+                return function () { subs[name] = subs[name].filter(function (f) { return f !== fn; }); };
+              },
+              refresh: function () {
+                return resolve(name).then(function (v) { cache[name] = v; notify(name, v); });
+              },
+            };
+          },
+          state: {
+            get: function (k) {
+              try { return JSON.parse(localStorage.getItem('ikenga:' + manifest.id + ':' + k)); }
+              catch (e) { return null; }
+            },
+            set: function (k, v) { localStorage.setItem('ikenga:' + manifest.id + ':' + k, JSON.stringify(v)); },
+            subscribe: function () { return function () {}; },
+          },
+          notes: { send: function (t, o) { console.log('[ikenga.notes]', t, o || {}); } },
+          pin: function () { console.log('[ikenga.pin] requested'); },
+        };
+      });
+    }
+
+    return { init: init };
+  })();
+  </script>
+
+  <style>
+    /* Tabular numbers in money/count columns. */
+    .tnum { font-variant-numeric: tabular-nums; }
+  </style>
+</head>
+
+<body class="bg-neutral-50 text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100 antialiased min-h-screen">
+  <div id="root">
+    <div class="max-w-6xl mx-auto p-6 text-sm text-neutral-500">Initializing…</div>
+  </div>
+
+  <script type="text/babel" data-presets="env,react">
+    (function () {
+      const { useState, useEffect, useCallback } = React;
+
+      const usd = (n) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n || 0);
+      const usdSigned = (n) => (n >= 0 ? '+' : '') + usd(n);
+      const num = (n) => new Intl.NumberFormat('en-US').format(n || 0);
+
+      function timeAgo(iso) {
+        const ms = Date.now() - new Date(iso).getTime();
+        const m = Math.floor(ms / 60000);
+        if (m < 1) return 'just now';
+        if (m < 60) return m + 'm ago';
+        const h = Math.floor(m / 60);
+        if (h < 24) return h + 'h ago';
+        return Math.floor(h / 24) + 'd ago';
+      }
+
+      function useSource(art, name) {
+        const [value, setValue] = useState(() => art.source(name).get());
+        useEffect(() => art.source(name).subscribe(setValue), [art, name]);
+        return [value, () => art.source(name).refresh()];
+      }
+
+      function KpiTile({ label, value, sub, trend, tone }) {
+        const toneClass = tone === 'pos'
+          ? 'text-emerald-600 dark:text-emerald-400'
+          : tone === 'neg'
+          ? 'text-rose-600 dark:text-rose-400'
+          : 'text-neutral-500 dark:text-neutral-400';
+        return (
+          <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4">
+            <div className="text-xs uppercase tracking-wide text-neutral-500">{label}</div>
+            <div className="mt-2 text-2xl font-semibold tnum">{value}</div>
+            {sub && <div className={'mt-1 text-sm tnum ' + toneClass}>{trend}{sub}</div>}
+          </div>
+        );
+      }
+
+      function App({ art }) {
+        const [cash, refreshCash] = useSource(art, 'cash');
+        const [aging, refreshAging] = useSource(art, 'ar_aging');
+        const [fx, refreshFx] = useSource(art, 'fx');
+        const [cron, refreshCron] = useSource(art, 'cron_status');
+        const [refreshing, setRefreshing] = useState(false);
+
+        const refreshAll = useCallback(async () => {
+          setRefreshing(true);
+          await Promise.all([refreshCash(), refreshAging(), refreshFx(), refreshCron()]);
+          setRefreshing(false);
+        }, [refreshCash, refreshAging, refreshFx, refreshCron]);
+
+        const arTotal = (aging || []).reduce((s, r) => s + (r.amount || 0), 0);
+        const arOver60 = (aging || [])
+          .filter((r) => /^(61|90)/.test(r.bucket))
+          .reduce((s, r) => s + (r.amount || 0), 0);
+        const overdueShare = arTotal ? (arOver60 / arTotal) * 100 : 0;
+
+        const cronOk = cron && cron.status === 'success';
+
+        return (
+          <div className="max-w-6xl mx-auto p-6">
+            {art.host.anyFallback() && (
+              <div className="mb-4 px-3 py-2 rounded border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-900/20 text-amber-900 dark:text-amber-200 text-sm">
+                Showing mock data for one or more sources — live host (Ikenga shell) not connected.
+              </div>
+            )}
+
+            <header className="flex items-baseline justify-between mb-6">
+              <div>
+                <h1 className="text-2xl font-semibold">CFO Daily</h1>
+                <p className="text-sm text-neutral-500 mt-1">
+                  Cash, AR aging, FX, and overnight refresh status · host: <span className="font-mono">{art.host.kind}</span>
+                </p>
+              </div>
+              <button
+                onClick={refreshAll}
+                disabled={refreshing}
+                className="px-3 py-1.5 text-sm rounded border border-neutral-300 dark:border-neutral-700 hover:bg-neutral-100 dark:hover:bg-neutral-800 disabled:opacity-50 transition-colors"
+              >
+                {refreshing ? 'Refreshing…' : 'Refresh all'}
+              </button>
+            </header>
+
+            {/* KPI tiles */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+              <KpiTile
+                label="Cash position"
+                value={usd(cash && cash.total_usd)}
+                sub={usdSigned(cash && cash.change_24h) + ' · 24h'}
+                trend={cash && cash.change_24h >= 0 ? '↑ ' : '↓ '}
+                tone={cash && cash.change_24h >= 0 ? 'pos' : 'neg'}
+              />
+              <KpiTile
+                label="A/R outstanding"
+                value={usd(arTotal)}
+                sub={(aging || []).reduce((s, r) => s + (r.count || 0), 0) + ' invoices'}
+              />
+              <KpiTile
+                label="Overdue 60+ d"
+                value={usd(arOver60)}
+                sub={overdueShare.toFixed(1) + '% of A/R'}
+                trend=""
+                tone={overdueShare > 5 ? 'neg' : 'pos'}
+              />
+              <KpiTile
+                label="Last refresh"
+                value={cron ? timeAgo(cron.last_run_at) : '—'}
+                sub={cron ? num(cron.rows_processed) + ' rows · ' + (cron.duration_ms / 1000).toFixed(1) + 's' : ''}
+                tone={cronOk ? 'pos' : 'neg'}
+                trend={cronOk ? '✓ ' : '✗ '}
+              />
+            </div>
+
+            {/* AR aging + FX side-by-side on lg */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 mb-6">
+              <section className="lg:col-span-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900">
+                <div className="flex items-baseline justify-between p-4 pb-3 border-b border-neutral-200 dark:border-neutral-800">
+                  <h2 className="font-semibold">A/R aging</h2>
+                  <button
+                    onClick={refreshAging}
+                    className="text-xs text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100"
+                  >
+                    refresh
+                  </button>
+                </div>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-xs uppercase tracking-wide text-neutral-500 border-b border-neutral-200 dark:border-neutral-800">
+                      <th className="px-4 py-2 font-medium">Bucket</th>
+                      <th className="px-4 py-2 font-medium text-right">Invoices</th>
+                      <th className="px-4 py-2 font-medium text-right">Amount</th>
+                      <th className="px-4 py-2 font-medium text-right">Share</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(aging || []).map((r) => {
+                      const share = arTotal ? (r.amount / arTotal) * 100 : 0;
+                      const overdue = /^(31|61|90)/.test(r.bucket);
+                      return (
+                        <tr key={r.bucket} className="border-b border-neutral-100 dark:border-neutral-800/60 last:border-0">
+                          <td className={'px-4 py-2 ' + (overdue ? 'text-rose-700 dark:text-rose-300 font-medium' : '')}>{r.bucket}</td>
+                          <td className="px-4 py-2 text-right tnum text-neutral-500">{num(r.count)}</td>
+                          <td className="px-4 py-2 text-right tnum">{usd(r.amount)}</td>
+                          <td className="px-4 py-2 text-right tnum text-neutral-500">{share.toFixed(1)}%</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </section>
+
+              <section className="rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900">
+                <div className="flex items-baseline justify-between p-4 pb-3 border-b border-neutral-200 dark:border-neutral-800">
+                  <h2 className="font-semibold">FX (vs {fx && fx.base_code})</h2>
+                  <span className="text-xs text-neutral-500">{art.host.usedFallback('fx') ? 'mock' : 'live'}</span>
+                </div>
+                <ul className="divide-y divide-neutral-200 dark:divide-neutral-800">
+                  {fx && fx.rates && Object.entries(fx.rates).slice(0, 6).map(([code, rate]) => (
+                    <li key={code} className="px-4 py-2 flex justify-between items-baseline text-sm">
+                      <span className="font-mono">{code}</span>
+                      <span className="tnum">{rate.toLocaleString('en-US', { maximumFractionDigits: 2 })}</span>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            </div>
+
+            {/* Cash by account */}
+            <section className="rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 mb-6">
+              <div className="p-4 pb-3 border-b border-neutral-200 dark:border-neutral-800">
+                <h2 className="font-semibold">Cash by account</h2>
+              </div>
+              <ul className="divide-y divide-neutral-200 dark:divide-neutral-800">
+                {cash && cash.by_account && cash.by_account.map((a) => {
+                  const share = cash.total_usd ? (a.amount / cash.total_usd) * 100 : 0;
+                  return (
+                    <li key={a.name} className="px-4 py-3 flex items-center gap-3 text-sm">
+                      <div className="flex-1">
+                        <div className="font-medium">{a.name}</div>
+                        <div className="text-xs text-neutral-500 mt-0.5">{a.currency}</div>
+                      </div>
+                      <div className="w-40 h-1.5 rounded-full bg-neutral-200 dark:bg-neutral-800 overflow-hidden">
+                        <div className="h-full bg-neutral-900 dark:bg-neutral-100" style={{ width: share + '%' }}></div>
+                      </div>
+                      <div className="w-32 text-right tnum">{usd(a.amount)}</div>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+
+            <footer className="text-xs text-neutral-400 flex justify-between">
+              <span>Ikenga artifact · v0.1 · cfo-daily</span>
+              <span>4 sources · supabase + sql + fetch + file</span>
+            </footer>
+          </div>
+        );
+      }
+
+      window.__ikenga_bridge_polyfill__.init().then(function (art) {
+        ReactDOM.createRoot(document.getElementById('root')).render(<App art={art} />);
+      }).catch(function (err) {
+        document.getElementById('root').innerHTML =
+          '<pre style="padding:2rem;color:#b91c1c;font-family:ui-monospace,monospace;white-space:pre-wrap">'
+          + 'Init failed: ' + (err && err.message ? err.message : String(err))
+          + '</pre>';
+        console.error('[ikenga] init failed', err);
+      });
+    })();
+  </script>
+</body>
+</html>

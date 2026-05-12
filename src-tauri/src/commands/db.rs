@@ -138,6 +138,21 @@ async fn ensure_schema(pool: &sqlx::SqlitePool) -> Result<(), String> {
             "0010_activity_bar_pinning",
             include_str!("../../migrations/0010_activity_bar_pinning.sql"),
         ),
+        (
+            11,
+            "0011_chat_sessions",
+            include_str!("../../migrations/0011_chat_sessions.sql"),
+        ),
+        (
+            12,
+            "0012_session_fork",
+            include_str!("../../migrations/0012_session_fork.sql"),
+        ),
+        (
+            13,
+            "0013_settings_kv",
+            include_str!("../../migrations/0013_settings_kv.sql"),
+        ),
     ];
 
     for (id, name, sql) in migrations {

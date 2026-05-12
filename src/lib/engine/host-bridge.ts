@@ -4,31 +4,39 @@
 // implements the `Engine` interface from `@ikenga/contract/engine`. It does
 // not call `invoke()` directly — it talks to the host shell through this
 // `HostBridge`, which adapts each engine-level operation onto the shell's
-// existing `claude_chat_*` Tauri commands.
+// session_* Tauri commands.
 //
-// Two concerns this file handles:
+// v2: the engine's `Session.id` (a uuid minted by the engine via
+// `crypto.randomUUID()`) is used as the shell's `threadId` directly. The
+// shell maintains a stable Session keyed on that id; Claude's internal
+// session id is metadata. No placeholder→real translation needed.
 //
-//   1. Session id translation. The engine generates its own UUID for each
-//      session (`crypto.randomUUID()` inside `ClaudeCodeEngine.startSession`)
-//      and uses it as the stable `Session.id`. The shell's
-//      `claudeChatSpawn` returns a *placeholder* uuid that is later replaced
-//      by the real Claude Code session id (arriving on the first
-//      `session_init` event). Both ids fan-in to the same backend channel
-//      because Rust re-emits events on `claude://session/{placeholderId}`
-//      AND `claude://session/{realId}`. We map engine-id → placeholder id
-//      and use the placeholder for `send` / `kill` / `listen`.
+// `chatEventToEngineEvent` adapts the shell's richer `ChatEvent` union to
+// the engine contract's `EngineEvent` (a strict subset). Unmapped variants
+// are silently dropped — the engine doesn't model artifacts / hooks /
+// user-turn echoes.
 //
-//   2. Event shape translation. The shell emits a richer `ChatEvent` union
-//      tagged by `kind`. The engine contract's `EngineEvent` is tagged by
-//      `type` and is a strict subset (text/tool/thinking/usage/done). The
-//      mapper below converts the overlap and treats unmapped variants as
-//      best-effort `done` or pass-through silence (see comments inline).
+// Phase 10 — an additional `createShellAcpHost()` factory binds the ACP
+// engine pkg to the shell's `acp*` Tauri-cmd wrappers. The host shape is
+// the ACP-shaped sibling of `HostBridge`; both surfaces exist while the
+// legacy engine path is retained for one release.
 
 import {
-  claudeChatKill,
-  claudeChatSend,
-  claudeChatSpawn,
-  claudeListenSession,
+  acpCancel,
+  acpForkSession,
+  acpInitialize,
+  acpListen,
+  acpListenNotify,
+  acpListenRequests,
+  acpLoadSession,
+  acpNewSession,
+  acpPrompt,
+  acpRespondPermission,
+  acpSetMode,
+  sessionDestroy,
+  sessionEnsure,
+  sessionListen,
+  sessionSend,
   type ChatEvent,
   type ClaudeOpts,
 } from "@/lib/tauri-cmd";
@@ -36,21 +44,18 @@ import type {
   EngineEvent,
   McpServerSpec,
 } from "@ikenga/contract/engine";
-import type { HostBridge } from "@ikenga/pkg-engine-claude-code";
+import type {
+  AcpHost,
+  HostBridge,
+} from "@ikenga/pkg-engine-claude-code";
 
 interface SessionRecord {
-  /** Placeholder id returned by `claudeChatSpawn`. Used for all subsequent
-   *  Tauri calls because the backend re-emits events on this id. */
-  placeholderId: string;
   /** Working directory used at spawn time. */
   cwd: string;
 }
 
-/**
- * Map an engine-supplied uuid to the placeholder id returned by
- * `claudeChatSpawn`. Module-level because `HostBridge` is a singleton and
- * the kernel constructs exactly one engine instance.
- */
+/** Sessions known to this bridge. `sessionId` is the engine's uuid which is
+ *  also the shell's threadId — no translation. */
 const sessions = new Map<string, SessionRecord>();
 
 /**
@@ -102,10 +107,17 @@ export function chatEventToEngineEvent(event: ChatEvent): EngineEvent | null {
         reason: "error",
         error: `parse_error: ${event.message}`,
       };
-    // session_init, artifact, system_hook, unknown: no engine equivalent.
+    // session_init, artifact, system_hook, user_turn, control_request,
+    // unknown: no engine equivalent. user_turn is a frontend-only echo of
+    // what the user typed; the engine sees it via its own `send` call so
+    // we don't replay it. control_request (Phase 4) is handled out-of-band
+    // by the ACP server emitting a `session/request_permission` request;
+    // legacy engine consumers ignore it.
     case "session_init":
     case "artifact":
     case "system_hook":
+    case "user_turn":
+    case "control_request":
     case "unknown":
       return null;
     default: {
@@ -123,7 +135,7 @@ export function chatEventToEngineEvent(event: ChatEvent): EngineEvent | null {
  * slow.
  */
 function listenAsAsyncIterable(
-  placeholderId: string,
+  threadId: string,
 ): AsyncIterable<EngineEvent> {
   return {
     [Symbol.asyncIterator]() {
@@ -150,7 +162,7 @@ function listenAsAsyncIterable(
         }
       };
 
-      unlistenPromise = claudeListenSession(placeholderId, (chatEvent) => {
+      unlistenPromise = sessionListen(threadId, (chatEvent) => {
         const mapped = chatEventToEngineEvent(chatEvent);
         if (mapped) push(mapped);
       });
@@ -186,47 +198,40 @@ function listenAsAsyncIterable(
 export function createShellHostBridge(): HostBridge {
   return {
     async spawn(opts) {
+      // The engine's sessionId IS the shell's threadId — no translation.
+      // `claude` honors a system prompt via the initial prompt arg, and the
+      // shell's `sessionEnsure` is lazy (no actual process until first send),
+      // so we kick the system prompt as the first send when present.
+      const cwd = opts.cwd ?? ".";
       const claudeOpts: ClaudeOpts = {
-        // The contract's `systemPrompt` doesn't have a direct ClaudeOpts
-        // analogue — `claude` honors a system prompt via the `prompt` arg
-        // at spawn time. Passing as the initial prompt mirrors how the
-        // shell's existing chat code primes a session.
-        prompt: opts.systemPrompt,
         resumeSessionId: opts.resumeSessionId,
         model: opts.model,
       };
-      // `claudeChatSpawn` requires a cwd. Default to '.' (resolved by the
-      // Rust side relative to app cwd) when the engine caller didn't supply
-      // one. Real callers always pass cwd from the pkg manifest.
-      const cwd = opts.cwd ?? ".";
-      const result = await claudeChatSpawn(cwd, claudeOpts);
-      sessions.set(opts.sessionId, {
-        placeholderId: result.sessionId,
-        cwd,
-      });
+      await sessionEnsure(opts.sessionId, cwd, claudeOpts);
+      sessions.set(opts.sessionId, { cwd });
+      if (opts.systemPrompt) {
+        await sessionSend(opts.sessionId, opts.systemPrompt);
+      }
     },
 
     async send(sessionId, message) {
-      const rec = sessions.get(sessionId);
-      if (!rec) {
+      if (!sessions.has(sessionId)) {
         throw new Error(`engine bridge: unknown session ${sessionId}`);
       }
-      await claudeChatSend(rec.placeholderId, message);
+      await sessionSend(sessionId, message);
     },
 
     async kill(sessionId) {
-      const rec = sessions.get(sessionId);
-      if (!rec) return; // idempotent
+      if (!sessions.has(sessionId)) return; // idempotent
       try {
-        await claudeChatKill(rec.placeholderId);
+        await sessionDestroy(sessionId);
       } finally {
         sessions.delete(sessionId);
       }
     },
 
     listen(sessionId) {
-      const rec = sessions.get(sessionId);
-      if (!rec) {
+      if (!sessions.has(sessionId)) {
         // Return an iterable that immediately yields a done/error so callers
         // don't hang waiting for events on an un-spawned session.
         return {
@@ -249,7 +254,7 @@ export function createShellHostBridge(): HostBridge {
           },
         };
       }
-      return listenAsAsyncIterable(rec.placeholderId);
+      return listenAsAsyncIterable(sessionId);
     },
 
     async registerMcp(_spec: McpServerSpec) {
@@ -264,5 +269,37 @@ export function createShellHostBridge(): HostBridge {
       // TODO(phase-engine): pair with `registerMcp` above.
       return;
     },
+  };
+}
+
+/**
+ * Phase 10 — construct the ACP-shaped host adapter the engine pkg consumes.
+ *
+ * Each method is a direct passthrough to the shell's `acp*` Tauri-cmd
+ * wrapper. The shapes already match the contract (`AcpInitializeRequest`,
+ * `AcpPromptRequest`, etc.), so this layer is mostly a type bridge — its
+ * value is letting `pkgs/engine-claude-code` stay free of `@tauri-apps/*`
+ * deps while the shell still owns the canonical wire layer.
+ *
+ * The two subscription helpers (`listenSession`, `listenPermissionRequests`,
+ * `listenNotify`) hand back the underlying `UnlistenFn` so the engine pkg
+ * can wrap them in a sync unsubscribe.
+ */
+export function createShellAcpHost(): AcpHost {
+  return {
+    initialize: (req) => acpInitialize(req),
+    newSession: (req) => acpNewSession(req),
+    prompt: (req) => acpPrompt(req),
+    cancel: (sessionId) => acpCancel(sessionId),
+    setMode: (sessionId, modeId) => acpSetMode(sessionId, modeId),
+    loadSession: (sessionId) => acpLoadSession(sessionId),
+    forkSession: (sourceSessionId, opts) =>
+      acpForkSession(sourceSessionId, opts),
+    listenSession: (sessionId, onUpdate) => acpListen(sessionId, onUpdate),
+    listenPermissionRequests: (sessionId, onRequest) =>
+      acpListenRequests(sessionId, onRequest),
+    respondPermission: (requestId, response) =>
+      acpRespondPermission(requestId, response),
+    listenNotify: (callback) => acpListenNotify(callback),
   };
 }

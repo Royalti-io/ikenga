@@ -3,48 +3,40 @@ import {
   AdapterSwitcher,
   Composer,
   Thread,
-  useEnsureThreadForSession,
+  useThread,
 } from '@/chat';
 
 interface ChatViewProps {
+  /** Stable thread id (frontend-minted uuid). For back-compat with v1
+   *  pane-view shapes, the prop is still called `sessionId`. */
   sessionId: string;
 }
 
-const CLAUDE_SESSION_ID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 export function ChatView({ sessionId }: ChatViewProps) {
-  // Only hydrate when the sessionId looks like a real Claude session UUID.
-  // new-tab-menu / command-palette mint placeholder ids like `chat-1234…`
-  // that don't map to anything on disk; we render the empty state for those
-  // so the user can start a real session via ⌘⇧N.
-  const isClaudeSession =
-    sessionId.length > 0 && CLAUDE_SESSION_ID_RE.test(sessionId);
-  if (!isClaudeSession) {
+  if (!sessionId) {
     return (
       <div className="flex h-full w-full items-center justify-center bg-muted/20 p-6">
         <div className="max-w-sm text-center">
           <MessageSquare className="mx-auto mb-3 h-8 w-8 text-muted-foreground" />
-          <div className="text-sm font-medium text-foreground">No session selected</div>
+          <div className="text-sm font-medium text-foreground">No chat selected</div>
           <div className="mt-1 text-xs text-muted-foreground">
-            Open a session from the Sessions sidebar or use{' '}
-            <span className="font-mono">⌘⇧N</span> to start a new Claude session.
+            Open a chat from the dock + menu or use <span className="font-mono">⌘⇧N</span>.
           </div>
         </div>
       </div>
     );
   }
-  return <ChatViewBody sessionId={sessionId} />;
+  return <ChatViewBody threadId={sessionId} />;
 }
 
-function ChatViewBody({ sessionId }: { sessionId: string }) {
-  const { threadId, loading, error } = useEnsureThreadForSession(sessionId);
+function ChatViewBody({ threadId }: { threadId: string }) {
+  const { loading, error } = useThread(threadId);
   return (
     <div className="flex h-full w-full flex-col">
       <div className="flex shrink-0 items-center justify-between border-b border-border bg-muted/20 px-3 py-1.5">
         <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
           <MessageSquare className="h-3 w-3" />
-          <span className="font-mono">{sessionId.slice(0, 8)}…</span>
+          <span className="font-mono">{threadId.slice(0, 8)}…</span>
         </div>
         <AdapterSwitcher />
       </div>
