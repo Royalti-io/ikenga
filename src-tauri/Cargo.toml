@@ -14,7 +14,11 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+# `unstable` enables Window::add_child for in-window child webviews (the
+# load-bearing API for pkg-browser). Multi-webview was stabilized in
+# tauri 2.1 (PR #11616, Nov 2024) for the macOS WKWebView render path; the
+# feature flag remains the way to opt into the per-window child API.
+tauri = { version = "2.1", features = ["unstable"] }
 tauri-plugin-sql = { version = "2", features = ["sqlite"] }
 tauri-plugin-stronghold = "2"
 tauri-plugin-fs = "2"
@@ -89,6 +93,13 @@ sysinfo = { version = "0.36.1", default-features = false, features = ["disk"] }
 # src-tauri/templates/starter/claude-code/.
 include_dir = "0.7"
 
+# pkg-browser kernel: per-pkg child webview cookie-jar isolation. On macOS the
+# data_store_identifier is a 16-byte sha256 prefix of (pkg_id || '/' || partition).
+sha2 = "0.10"
+# URL parsing for pkg_webview navigation. Already a transitive dep via several
+# crates; pinning explicitly so usage in pkg/webview.rs is direct.
+url = "2"
+
 # Agent Client Protocol — types + traits for our in-process ACP server
 # implementation. The wire-framing/JSON-RPC layer is not used today (we
 # expose the Agent surface through Tauri commands, not stdio); we only
@@ -97,6 +108,20 @@ include_dir = "0.7"
 # codex-acp, etc.). `unstable` enables fork/resume/session_model which
 # we want for /branch + faster resume + per-session model overrides.
 agent-client-protocol = { version = "0.11", features = ["unstable"] }
+
+# macOS-only: NSProcessInfo.beginActivity App-Nap inhibitor. Held while a
+# browser MCP tool call is in flight to keep eval round-trips fast even when
+# the host window is occluded / minimized. Phase 0.5 confirmed Linux doesn't
+# need this; Windows uses webview2-com for its analog.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.5"
+objc2-foundation = { version = "0.2", features = ["NSProcessInfo", "NSString"] }
+
+# Windows-only: WebView2 controller access for the IsVisible hold (see
+# pkg/keep_awake.rs). webview2-com is already in Tauri's tree; pinning here
+# so the controller-level call site is explicit.
+[target.'cfg(windows)'.dependencies]
+webview2-com = "0.33"
 
 # Mac-only polish (window vibrancy + dock-tile badge) was removed
 # in the strip-down. The resolved objc2 v0.5 didn't export
