@@ -48,7 +48,7 @@ function parseKv<T>(raw: string | undefined): T | undefined {
 // Agents were app-pkg surfaces and got removed with the strip-down.
 // Mini-apps are gone too — they were placeholders for media tooling
 // that lives in app pkgs now.
-export type CoreMode = 'app' | 'files' | 'sessions' | 'settings';
+export type CoreMode = 'app' | 'files' | 'sessions' | 'pkgs' | 'settings';
 export type ActivityMode = CoreMode;
 
 // Default file roots. Kept in sync with `src-tauri/src/fs_roots.rs::DEFAULT_ROOTS`;
@@ -245,8 +245,9 @@ export function migrateShellStore(persisted: unknown, _version: number): unknown
 		onboarding?: Partial<OnboardingState>;
 	};
 
-	// v7 carry-over: snap stale activeMode → 'app'.
-	const valid: ActivityMode[] = ['app', 'files', 'sessions', 'settings'];
+	// v7 carry-over: snap stale activeMode → 'app'. v10 widens valid set to
+	// include 'pkgs' (registry browser activity-bar entry).
+	const valid: ActivityMode[] = ['app', 'files', 'sessions', 'pkgs', 'settings'];
 	if (p.activeMode && !valid.includes(p.activeMode as ActivityMode)) {
 		p.activeMode = 'app';
 	}
@@ -599,9 +600,11 @@ export const useShellStore = create<ShellState>()(
 		//     predecessor onboarding plan) into the new OnboardingState.
 		// v9: canonical telemetry consent + chat adapter id. Seeded from any
 		//     existing onboarding payload so user choices survive the bump.
+		// v10: widen CoreMode with 'pkgs' for the registry browser activity-bar
+		//     entry. Migrate keeps the same valid-set check, just widened.
 		{
 			name: 'shell-store',
-			version: 9,
+			version: 10,
 			migrate: (persisted, version) => migrateShellStore(persisted, version) as ShellState,
 		}
 	)

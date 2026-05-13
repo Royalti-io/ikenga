@@ -22,6 +22,7 @@
 	"dependencies": {
 		"@ikenga/contract": "workspace:*",
 		"@ikenga/pkg-engine-claude-code": "workspace:*",
+		"@ikenga/registry-client": "file:../ikenga-pkgs/packages/lib/registry-client",
 		"@ikenga/tokens": "workspace:*",
 		"@modelcontextprotocol/ext-apps": "^1.7.1",
 		"@radix-ui/react-dialog": "^1.1.15",

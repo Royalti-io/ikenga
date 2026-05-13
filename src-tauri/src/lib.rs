@@ -40,7 +40,7 @@ use commands::{
     screenshot_capture_failed, screenshot_get_config, screenshot_pane, screenshot_set_dir,
     screenshot_window, secrets_delete, secrets_get, secrets_import_dotenv, secrets_list_keys,
     pkg_content_html, pkg_content_revoke, pkg_content_url, pkg_db_diag, pkg_discover_workspace,
-    pkg_install_from_path, pkg_kernel_status,
+    pkg_install_from_path, pkg_install_from_registry, pkg_kernel_status,
     pkg_mcp_call, pkg_preview_manifest, pkg_settings_get, pkg_settings_set, pkg_sidecar_call,
     pkg_supervisor_restart,
     pkg_uninstall, pkg_set_enabled, dev_bind_port, dev_release_port,
@@ -488,6 +488,7 @@ pub fn run() {
             bg_spike_reply,
             // pkg kernel
             pkg_install_from_path,
+            pkg_install_from_registry,
             pkg_uninstall,
             pkg_set_enabled,
             pkg_kernel_status,

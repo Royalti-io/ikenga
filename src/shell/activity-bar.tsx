@@ -4,6 +4,7 @@ import {
 	LayoutGrid,
 	Monitor,
 	Moon,
+	Package,
 	Pin as PinGlyph,
 	Settings,
 	SquareTerminal,
@@ -15,6 +16,7 @@ import { usePaneStore } from '@/lib/panes/pane-store';
 import { useIkengaStore, type IkengaMode, type IkengaWorkspace } from '@/lib/ikenga/theme-store';
 import { cn } from '@/components/ui/utils';
 import { useActivityBarPins, usePinsStore, type Pin } from '@/lib/shell/pins-store';
+import { useUpdatesAvailable } from '@/lib/registry/use-updates-available';
 import { PinIcon } from './pin-icon';
 
 interface CoreItem {
@@ -33,7 +35,10 @@ const CORE_TOP: CoreItem[] = [
 	{ mode: 'sessions', label: 'Sessions', Icon: SquareTerminal, shortcut: '⌘3' },
 ];
 
+// Packages sits above Settings — it's a system-level surface (registry,
+// updates, install state), not a per-workspace entry like the top rail.
 const CORE_BOTTOM: CoreItem[] = [
+	{ mode: 'pkgs', label: 'Packages', Icon: Package, shortcut: '⌘4' },
 	{ mode: 'settings', label: 'Settings', Icon: Settings, shortcut: '⌘,' },
 ];
 
@@ -41,7 +46,16 @@ const SHORTCUT_MAP: Record<string, ActivityMode> = {
 	'1': 'app',
 	'2': 'files',
 	'3': 'sessions',
+	'4': 'pkgs',
 	',': 'settings',
+};
+
+/** Landing route per mode — used by ⌘N shortcut + click. Settings + Packages
+ *  navigate the focused pane; App / Files / Sessions reuse whatever the user
+ *  last looked at in that mode (handled by tab-workspace state). */
+const MODE_LANDING: Partial<Record<ActivityMode, string>> = {
+	settings: '/settings/appearance',
+	pkgs: '/packages/browse',
 };
 
 // Workspace tint mirrors core mode 1:1 post-strip; no mini-app rollup.
@@ -68,12 +82,13 @@ export function ActivityBar() {
 		setWorkspace(modeToWorkspace(activeMode));
 	}, [activeMode, setWorkspace]);
 
-	const SETTINGS_LANDING = '/settings/appearance';
+	const updatesAvailable = useUpdatesAvailable();
 
 	function handleSelectMode(mode: ActivityMode) {
 		setActiveMode(mode);
-		if (mode === 'settings') {
-			usePaneStore.getState().navigateFocused(SETTINGS_LANDING);
+		const landing = MODE_LANDING[mode];
+		if (landing) {
+			usePaneStore.getState().navigateFocused(landing);
 		}
 	}
 
@@ -96,8 +111,9 @@ export function ActivityBar() {
 			if (!next) return;
 			e.preventDefault();
 			setActiveMode(next);
-			if (next === 'settings') {
-				usePaneStore.getState().navigateFocused(SETTINGS_LANDING);
+			const landing = MODE_LANDING[next];
+			if (landing) {
+				usePaneStore.getState().navigateFocused(landing);
 			}
 		}
 		window.addEventListener('keydown', onKey);
@@ -127,6 +143,7 @@ export function ActivityBar() {
 						shortcut={item.shortcut}
 						isActive={activeMode === item.mode}
 						onSelect={handleSelectMode}
+						badgeCount={0}
 					/>
 				))}
 			</div>
@@ -179,6 +196,7 @@ export function ActivityBar() {
 					shortcut={item.shortcut}
 					isActive={activeMode === item.mode}
 					onSelect={handleSelectMode}
+					badgeCount={item.mode === 'pkgs' ? updatesAvailable : 0}
 				/>
 			))}
 		</nav>
@@ -192,16 +210,27 @@ interface RailButtonProps {
 	shortcut: string;
 	isActive: boolean;
 	onSelect: (m: ActivityMode) => void;
+	/** Renders a small dot/pill in the top-right when > 0. */
+	badgeCount: number;
 }
 
-function RailButton({ mode, label, Icon, shortcut, isActive, onSelect }: RailButtonProps) {
+function RailButton({
+	mode,
+	label,
+	Icon,
+	shortcut,
+	isActive,
+	onSelect,
+	badgeCount,
+}: RailButtonProps) {
 	const ws = modeToWorkspace(mode);
+	const titleSuffix = badgeCount > 0 ? ` · ${badgeCount} update${badgeCount === 1 ? '' : 's'}` : '';
 	return (
 		<button
 			type="button"
 			onClick={() => onSelect(mode)}
-			title={`${label} (${shortcut})`}
-			aria-label={label}
+			title={`${label} (${shortcut})${titleSuffix}`}
+			aria-label={badgeCount > 0 ? `${label} (${badgeCount} updates available)` : label}
 			aria-current={isActive ? 'page' : undefined}
 			data-ws={ws}
 			className={cn(
@@ -221,6 +250,14 @@ function RailButton({ mode, label, Icon, shortcut, isActive, onSelect }: RailBut
 				/>
 			)}
 			<Icon className="h-[18px] w-[18px]" />
+			{badgeCount > 0 && (
+				<span
+					aria-hidden="true"
+					className="absolute right-1 top-1 grid h-3.5 min-w-[14px] place-items-center rounded-full bg-[var(--accent,#3b82f6)] px-1 text-[9px] font-semibold leading-none text-white"
+				>
+					{badgeCount > 9 ? '9+' : badgeCount}
+				</span>
+			)}
 		</button>
 	);
 }

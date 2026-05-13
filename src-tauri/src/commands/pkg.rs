@@ -2,11 +2,16 @@
 //! list, uninstall, and inspect packages; the same surface is exposed to
 //! external tools via the iyke bridge once the iyke routes registry lands.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use serde::Serialize;
+use anyhow::{anyhow, Context, Result as AnyResult};
+use base64::Engine;
+use futures_util::StreamExt;
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha512};
 use tauri::State;
+use tokio::io::AsyncWriteExt;
 
 use crate::pkg::registries::SettingsRegistry;
 use crate::pkg::{DiscoveredPkg, InstallSource, InstalledSummary, Kernel, KernelStatus};
@@ -193,6 +198,311 @@ pub fn pkg_settings_get(
         schema: serde_json::to_value(schema).unwrap_or(serde_json::Value::Null),
         values: serde_json::Value::Object(merged),
     })
+}
+
+// ─── pkg_install_from_registry ───────────────────────────────────────────────
+//
+// Single-pkg installer. The TS registry-client owns signature verification of
+// the registry index + dep resolution; by the time we land here the caller has
+// already vetted that this `tarball` URL is the one named in the signed
+// index, that `integrity` is the SRI digest npm shipped, and that `pkg_id`
+// matches the manifest declared at this version.
+//
+// We still re-verify the tarball SHA-512 against `integrity` after download —
+// that's the second leg of the trust chain (signed index → integrity → bytes).
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PkgInstallFromRegistryArgs {
+    /// Direct tarball URL from `PkgVersion.tarball` (npm).
+    pub tarball: String,
+    /// `sha512-<base64>` SRI integrity from `PkgVersion.integrity` (npm).
+    pub integrity: String,
+    /// Manifest id, used as the install dir name and cross-checked against
+    /// the manifest.json inside the tarball.
+    pub pkg_id: String,
+    /// Recorded as `InstallSource::Registry.url`. Typically equals `tarball`;
+    /// passed separately so the FE can choose a more meaningful "origin" URL
+    /// later (e.g. the index URL).
+    pub source_url: String,
+}
+
+#[tauri::command]
+pub async fn pkg_install_from_registry(
+    kernel: State<'_, KernelState>,
+    args: PkgInstallFromRegistryArgs,
+) -> Result<PkgInstallResult, String> {
+    install_from_registry_inner(kernel.0.clone(), args)
+        .await
+        .map_err(|e| format!("{e:#}"))
+}
+
+async fn install_from_registry_inner(
+    kernel: Arc<Kernel>,
+    args: PkgInstallFromRegistryArgs,
+) -> AnyResult<PkgInstallResult> {
+    let pkgs_dir = kernel.pkgs_dir()?;
+    tokio::fs::create_dir_all(&pkgs_dir)
+        .await
+        .with_context(|| format!("create pkgs dir {}", pkgs_dir.display()))?;
+
+    // Stage path is a sibling of the final install dir. Both live under
+    // pkgs_dir, so a successful untar + atomic rename never crosses
+    // filesystems.
+    let final_dir = pkgs_dir.join(&args.pkg_id);
+    let staging_dir = pkgs_dir.join(format!(".staging-{}", args.pkg_id));
+    let backup_dir = pkgs_dir.join(format!(".bak-{}", args.pkg_id));
+
+    // Clean up leftover staging/backup from a prior aborted install. We never
+    // resume a partial install — start fresh every time.
+    if staging_dir.exists() {
+        let _ = tokio::fs::remove_dir_all(&staging_dir).await;
+    }
+    if backup_dir.exists() {
+        let _ = tokio::fs::remove_dir_all(&backup_dir).await;
+    }
+
+    // 1. Download tarball + verify SHA-512 against the SRI integrity.
+    let tarball_path = staging_dir.with_extension("tgz");
+    if let Some(parent) = tarball_path.parent() {
+        tokio::fs::create_dir_all(parent).await.ok();
+    }
+    download_and_verify(&args.tarball, &args.integrity, &tarball_path)
+        .await
+        .with_context(|| format!("download {}", args.tarball))?;
+
+    // 2. Extract into staging. Strip leading `package/` (npm convention).
+    //    Reject any entry whose normalized path escapes the staging root.
+    let tarball_path_for_blocking = tarball_path.clone();
+    let staging_dir_for_blocking = staging_dir.clone();
+    tokio::task::spawn_blocking(move || -> AnyResult<()> {
+        extract_tarball(&tarball_path_for_blocking, &staging_dir_for_blocking)
+    })
+    .await
+    .map_err(|e| anyhow!("untar task join: {e}"))??;
+
+    // 3. Cross-check the unpacked manifest's id against the requested pkg_id.
+    //    Catches: typo in pkg_id, tarball/manifest mismatch from a bad publish.
+    let manifest_path = staging_dir.join("manifest.json");
+    let manifest_bytes = tokio::fs::read(&manifest_path)
+        .await
+        .with_context(|| format!("read manifest.json from {}", manifest_path.display()))?;
+    let manifest_json: serde_json::Value = serde_json::from_slice(&manifest_bytes)
+        .with_context(|| format!("parse {}", manifest_path.display()))?;
+    let manifest_id = manifest_json
+        .get("id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow!("manifest.json missing `id` field"))?;
+    if manifest_id != args.pkg_id {
+        // Clean up staging before erroring.
+        let _ = tokio::fs::remove_dir_all(&staging_dir).await;
+        let _ = tokio::fs::remove_file(&tarball_path).await;
+        return Err(anyhow!(
+            "manifest id mismatch: tarball declares `{manifest_id}`, registry said `{}`",
+            args.pkg_id
+        ));
+    }
+
+    // 4. Atomic-ish swap: backup existing → move staging → final.
+    //    Reverse on failure so the previous install isn't lost.
+    if final_dir.exists() {
+        tokio::fs::rename(&final_dir, &backup_dir)
+            .await
+            .with_context(|| {
+                format!(
+                    "backup existing install: {} → {}",
+                    final_dir.display(),
+                    backup_dir.display()
+                )
+            })?;
+    }
+    if let Err(e) = tokio::fs::rename(&staging_dir, &final_dir).await {
+        // Rollback: put the backup back.
+        if backup_dir.exists() {
+            let _ = tokio::fs::rename(&backup_dir, &final_dir).await;
+        }
+        return Err(anyhow!(
+            "promote staging dir to install: {} → {}: {}",
+            staging_dir.display(),
+            final_dir.display(),
+            e
+        ));
+    }
+
+    // 5. Register with the kernel. If the kernel rejects (e.g. ikenga_api
+    //    incompatible, registry conflict), we already have a backup to
+    //    restore; the kernel's own rollback handles the DB side.
+    let final_dir_for_kernel = final_dir.clone();
+    let source = InstallSource::Registry {
+        url: args.source_url,
+        publisher_key: None,
+    };
+    let installed = tokio::task::spawn_blocking(move || {
+        kernel.install_from_path(&final_dir_for_kernel, source)
+    })
+    .await
+    .map_err(|e| anyhow!("kernel install task join: {e}"))?;
+
+    match installed {
+        Ok(summary) => {
+            // Success — drop the backup + downloaded tarball.
+            let _ = tokio::fs::remove_dir_all(&backup_dir).await;
+            let _ = tokio::fs::remove_file(&tarball_path).await;
+            Ok(PkgInstallResult { installed: summary })
+        }
+        Err(e) => {
+            // Roll the filesystem back: remove the new dir, restore the backup.
+            let _ = tokio::fs::remove_dir_all(&final_dir).await;
+            if backup_dir.exists() {
+                let _ = tokio::fs::rename(&backup_dir, &final_dir).await;
+            }
+            let _ = tokio::fs::remove_file(&tarball_path).await;
+            Err(anyhow!("{e:#}"))
+        }
+    }
+}
+
+/// Stream the tarball to disk while hashing in parallel. Constant-time-compare
+/// the final digest against the SRI integrity. Removes the partial file on
+/// any failure.
+async fn download_and_verify(
+    url: &str,
+    integrity_sri: &str,
+    dest: &Path,
+) -> AnyResult<()> {
+    let expected = parse_sri_sha512(integrity_sri)?;
+
+    let res = reqwest::get(url)
+        .await
+        .with_context(|| format!("GET {url}"))?
+        .error_for_status()
+        .with_context(|| format!("HTTP error from {url}"))?;
+
+    let mut file = tokio::fs::File::create(dest)
+        .await
+        .with_context(|| format!("create {}", dest.display()))?;
+    let mut hasher = Sha512::new();
+    let mut stream = res.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let bytes = match chunk {
+            Ok(b) => b,
+            Err(e) => {
+                let _ = tokio::fs::remove_file(dest).await;
+                return Err(anyhow!("tarball stream read: {e}"));
+            }
+        };
+        hasher.update(&bytes);
+        if let Err(e) = file.write_all(&bytes).await {
+            let _ = tokio::fs::remove_file(dest).await;
+            return Err(anyhow!("write tarball chunk: {e}"));
+        }
+    }
+    file.flush().await.ok();
+    drop(file);
+
+    let actual: [u8; 64] = hasher.finalize().into();
+    if !constant_time_eq(&actual, &expected) {
+        let _ = tokio::fs::remove_file(dest).await;
+        return Err(anyhow!(
+            "tarball SHA-512 integrity mismatch — refusing to install"
+        ));
+    }
+    Ok(())
+}
+
+/// Parse a `sha512-<base64>` SRI integrity string into a 64-byte digest.
+fn parse_sri_sha512(s: &str) -> AnyResult<[u8; 64]> {
+    let rest = s
+        .strip_prefix("sha512-")
+        .ok_or_else(|| anyhow!("integrity must start with `sha512-`: got {s}"))?;
+    let decoded = base64::engine::general_purpose::STANDARD
+        .decode(rest)
+        .with_context(|| format!("base64-decode integrity digest: {rest}"))?;
+    if decoded.len() != 64 {
+        return Err(anyhow!(
+            "integrity digest must be 64 bytes, got {}",
+            decoded.len()
+        ));
+    }
+    let mut out = [0u8; 64];
+    out.copy_from_slice(&decoded);
+    Ok(out)
+}
+
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff: u8 = 0;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
+/// Untar a gzipped npm tarball into `dest_dir`. Strips the leading `package/`
+/// component (npm convention). Rejects entries whose normalized path escapes
+/// `dest_dir` (defends against `..` traversal and absolute paths).
+fn extract_tarball(src: &Path, dest_dir: &Path) -> AnyResult<()> {
+    std::fs::create_dir_all(dest_dir)
+        .with_context(|| format!("mkdir {}", dest_dir.display()))?;
+    let file = std::fs::File::open(src)
+        .with_context(|| format!("open tarball {}", src.display()))?;
+    let gz = flate2::read::GzDecoder::new(file);
+    let mut archive = tar::Archive::new(gz);
+    archive.set_preserve_mtime(false);
+    archive.set_overwrite(true);
+
+    for entry in archive
+        .entries()
+        .with_context(|| format!("read entries in {}", src.display()))?
+    {
+        let mut entry = entry.with_context(|| "read tar entry")?;
+        let entry_path = entry
+            .path()
+            .with_context(|| "decode tar entry path")?
+            .into_owned();
+
+        // Strip the `package/` prefix that npm pack always adds. Skip entries
+        // outside that prefix (npm puts `package.json` etc. inside it; any
+        // sibling top-level entry would be malformed).
+        let stripped = match entry_path.strip_prefix("package") {
+            Ok(p) => p,
+            Err(_) => continue,
+        };
+        if stripped.as_os_str().is_empty() {
+            continue;
+        }
+
+        // Reject `..` components and absolute paths. `Path::components()`
+        // surfaces `ParentDir` explicitly; we walk and refuse if any appears.
+        for comp in stripped.components() {
+            use std::path::Component;
+            match comp {
+                Component::Normal(_) | Component::CurDir => {}
+                Component::ParentDir | Component::RootDir | Component::Prefix(_) => {
+                    return Err(anyhow!(
+                        "tarball entry escapes install root: {}",
+                        entry_path.display()
+                    ));
+                }
+            }
+        }
+
+        let target = dest_dir.join(stripped);
+        // npm tarballs don't reliably include directory entries before the
+        // files inside them, and `Entry::unpack` doesn't always mkdir parents
+        // on Linux. Create them explicitly before unpacking.
+        if let Some(parent) = target.parent() {
+            std::fs::create_dir_all(parent).with_context(|| {
+                format!("mkdir -p parent of {}", target.display())
+            })?;
+        }
+        entry
+            .unpack(&target)
+            .with_context(|| format!("unpack entry to {}", target.display()))?;
+    }
+    Ok(())
 }
 
 #[tauri::command]

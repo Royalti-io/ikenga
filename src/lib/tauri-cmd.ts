@@ -1121,6 +1121,27 @@ export async function pkgInstallFromPath(
 	return invoke('pkg_install_from_path', { installPath });
 }
 
+/**
+ * Install a pkg from a (registry-vetted) tarball URL. Rust downloads the
+ * tarball, re-verifies SHA-512 against `integrity`, untars into the pkgs
+ * dir, and hands off to the kernel as `InstallSource::Registry`.
+ *
+ * The TS registry-client is expected to have already signature-verified the
+ * index that named this tarball — see `src/lib/registry/`.
+ */
+export interface PkgInstallFromRegistryArgs {
+	tarball: string;
+	integrity: string;
+	pkgId: string;
+	sourceUrl: string;
+}
+
+export async function pkgInstallFromRegistry(
+	args: PkgInstallFromRegistryArgs
+): Promise<{ installed: PkgInstalledSummary }> {
+	return invoke('pkg_install_from_registry', { args });
+}
+
 export async function pkgUninstall(pkgId: string): Promise<void> {
 	return invoke('pkg_uninstall', { pkgId });
 }

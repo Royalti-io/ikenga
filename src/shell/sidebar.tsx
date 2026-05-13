@@ -8,6 +8,7 @@ const CORE_TITLES = {
 	app: 'Ikenga',
 	files: 'Files',
 	sessions: 'Sessions',
+	pkgs: 'Packages',
 	settings: 'Settings',
 } as const;
 
@@ -29,6 +30,14 @@ export function Sidebar() {
 		case 'sessions':
 			title = CORE_TITLES.sessions;
 			body = <SessionsMode />;
+			break;
+		case 'pkgs':
+			title = CORE_TITLES.pkgs;
+			// Reuse AppMode for now — it already lists installed pkgs as a nav
+			// section. A pkgs-specific sidebar (recent installs, "updates
+			// available" group, registry status) can land later without
+			// touching the activity-bar wiring.
+			body = <AppMode />;
 			break;
 		case 'settings':
 			title = CORE_TITLES.settings;

@@ -39,6 +39,7 @@ import { Route as SettingsBackupRouteImport } from './routes/settings/backup'
 import { Route as SettingsAppearanceRouteImport } from './routes/settings/appearance'
 import { Route as SettingsAgentRouteImport } from './routes/settings/agent'
 import { Route as SettingsAboutRouteImport } from './routes/settings/about'
+import { Route as PackagesBrowseRouteImport } from './routes/packages_.browse'
 import { Route as OnboardingWelcomeRouteImport } from './routes/onboarding/welcome'
 import { Route as OnboardingTelemetryRouteImport } from './routes/onboarding/telemetry'
 import { Route as OnboardingSummaryRouteImport } from './routes/onboarding/summary'
@@ -210,6 +211,11 @@ const SettingsAboutRoute = SettingsAboutRouteImport.update({
   path: '/about',
   getParentRoute: () => SettingsRouteRoute,
 } as any)
+const PackagesBrowseRoute = PackagesBrowseRouteImport.update({
+  id: '/packages_/browse',
+  path: '/packages/browse',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const OnboardingWelcomeRoute = OnboardingWelcomeRouteImport.update({
   id: '/welcome',
   path: '/welcome',
@@ -343,6 +349,7 @@ export interface FileRoutesByFullPath {
   '/onboarding/summary': typeof OnboardingSummaryRoute
   '/onboarding/telemetry': typeof OnboardingTelemetryRoute
   '/onboarding/welcome': typeof OnboardingWelcomeRoute
+  '/packages/browse': typeof PackagesBrowseRoute
   '/settings/about': typeof SettingsAboutRoute
   '/settings/agent': typeof SettingsAgentRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
@@ -390,6 +397,7 @@ export interface FileRoutesByTo {
   '/onboarding/summary': typeof OnboardingSummaryRoute
   '/onboarding/telemetry': typeof OnboardingTelemetryRoute
   '/onboarding/welcome': typeof OnboardingWelcomeRoute
+  '/packages/browse': typeof PackagesBrowseRoute
   '/settings/about': typeof SettingsAboutRoute
   '/settings/agent': typeof SettingsAgentRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
@@ -443,6 +451,7 @@ export interface FileRoutesById {
   '/onboarding/summary': typeof OnboardingSummaryRoute
   '/onboarding/telemetry': typeof OnboardingTelemetryRoute
   '/onboarding/welcome': typeof OnboardingWelcomeRoute
+  '/packages_/browse': typeof PackagesBrowseRoute
   '/settings/about': typeof SettingsAboutRoute
   '/settings/agent': typeof SettingsAgentRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
@@ -497,6 +506,7 @@ export interface FileRouteTypes {
     | '/onboarding/summary'
     | '/onboarding/telemetry'
     | '/onboarding/welcome'
+    | '/packages/browse'
     | '/settings/about'
     | '/settings/agent'
     | '/settings/appearance'
@@ -544,6 +554,7 @@ export interface FileRouteTypes {
     | '/onboarding/summary'
     | '/onboarding/telemetry'
     | '/onboarding/welcome'
+    | '/packages/browse'
     | '/settings/about'
     | '/settings/agent'
     | '/settings/appearance'
@@ -596,6 +607,7 @@ export interface FileRouteTypes {
     | '/onboarding/summary'
     | '/onboarding/telemetry'
     | '/onboarding/welcome'
+    | '/packages_/browse'
     | '/settings/about'
     | '/settings/agent'
     | '/settings/appearance'
@@ -636,6 +648,7 @@ export interface RootRouteChildren {
   SettingsSmokeRoute: typeof SettingsSmokeRoute
   UiroutesSmokeRoute: typeof UiroutesSmokeRoute
   PkgPkgIdRouteRoute: typeof PkgPkgIdRouteRouteWithChildren
+  PackagesBrowseRoute: typeof PackagesBrowseRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -849,6 +862,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/settings/about'
       preLoaderRoute: typeof SettingsAboutRouteImport
       parentRoute: typeof SettingsRouteRoute
+    }
+    '/packages_/browse': {
+      id: '/packages_/browse'
+      path: '/packages/browse'
+      fullPath: '/packages/browse'
+      preLoaderRoute: typeof PackagesBrowseRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/onboarding/welcome': {
       id: '/onboarding/welcome'
@@ -1126,6 +1146,7 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsSmokeRoute: SettingsSmokeRoute,
   UiroutesSmokeRoute: UiroutesSmokeRoute,
   PkgPkgIdRouteRoute: PkgPkgIdRouteRouteWithChildren,
+  PackagesBrowseRoute: PackagesBrowseRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

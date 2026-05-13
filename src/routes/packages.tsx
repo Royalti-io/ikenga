@@ -205,7 +205,12 @@ export function PackagesPage() {
 							<Plus className="h-3.5 w-3.5" />
 							Install
 						</Button>
-						<Button size="sm" variant="ghost" className="h-9" disabled title="Coming soon">
+						<Button
+							size="sm"
+							variant="ghost"
+							className="h-9"
+							onClick={() => navigate({ to: '/packages/browse' })}
+						>
 							Browse registry →
 						</Button>
 					</div>

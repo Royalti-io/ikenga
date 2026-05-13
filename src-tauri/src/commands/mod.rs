@@ -58,9 +58,9 @@ pub use iyke::{
     iyke_set_shell, iyke_wait_done, IykeRuntimeState,
 };
 pub use pkg::{
-    pkg_db_diag, pkg_discover_workspace, pkg_install_from_path, pkg_kernel_status,
-    pkg_preview_manifest, pkg_set_enabled, pkg_settings_get, pkg_settings_set, pkg_uninstall,
-    KernelState, PkgSettingsState,
+    pkg_db_diag, pkg_discover_workspace, pkg_install_from_path, pkg_install_from_registry,
+    pkg_kernel_status, pkg_preview_manifest, pkg_set_enabled, pkg_settings_get, pkg_settings_set,
+    pkg_uninstall, KernelState, PkgSettingsState,
 };
 pub use pkg_content::{
     pkg_content_html, pkg_content_revoke, pkg_content_url, PkgContentState,
