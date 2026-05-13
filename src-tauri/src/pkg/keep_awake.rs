@@ -34,12 +34,19 @@ use std::sync::{Arc, Mutex, OnceLock, Weak};
 #[cfg(target_os = "macos")]
 mod macos {
     use objc2::rc::Retained;
-    use objc2::runtime::{NSObjectProtocol, ProtocolObject};
-    use objc2_foundation::{NSActivityOptions, NSProcessInfo, NSString};
+    use objc2_foundation::{NSActivityOptions, NSObject, NSProcessInfo, NSString};
 
     /// Single retained `NSObject` token returned by `beginActivityWithOptions`.
     /// Drop calls `endActivity` against the same `NSProcessInfo`.
-    pub(super) struct ActivityToken(Retained<ProtocolObject<dyn NSObjectProtocol>>);
+    ///
+    /// `beginActivityWithOptions_reason` returns `Retained<ProtocolObject<dyn
+    /// NSObjectProtocol>>` per the objc2-foundation 0.2 binding, but
+    /// `endActivity` strictly wants `&NSObject`. We cast the returned handle
+    /// to `Retained<NSObject>` at construction so the drop site can pass
+    /// `&self.0` directly. The cast is sound because every Objective-C
+    /// object IS an NSObject at the runtime level — the protocol-object
+    /// wrapper is purely a type-system convenience.
+    pub(super) struct ActivityToken(Retained<NSObject>);
 
     impl ActivityToken {
         pub(super) fn begin(reason: &str) -> Self {
@@ -55,7 +62,11 @@ mod macos {
             let opts = NSActivityOptions::UserInitiated;
             let pi = NSProcessInfo::processInfo();
             let ns_reason = NSString::from_str(reason);
-            let token = pi.beginActivityWithOptions_reason(opts, &ns_reason);
+            let proto_token = pi.beginActivityWithOptions_reason(opts, &ns_reason);
+            // SAFETY: the runtime object behind a `ProtocolObject<dyn
+            // NSObjectProtocol>` always inherits from NSObject; the cast is
+            // a zero-cost retype.
+            let token: Retained<NSObject> = unsafe { Retained::cast(proto_token) };
             log::debug!("[keep_awake.macos] beginActivity .UserInitiated reason={reason:?}");
             ActivityToken(token)
         }
