@@ -88,6 +88,10 @@ jobs:
 
   build:
     needs: plan
+    # `contents: write` so tauri-action can create the draft Release; the
+    # WORKSPACE_DEPS_PAT used for sibling clones still needs its own scope.
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.plan.outputs.matrix) }}
@@ -272,63 +276,53 @@ jobs:
         run: bun run build
 
       # ── Tauri bundle ───────────────────────────────────────────────────────
-      - name: Tauri build
-        shell: bash
-        working-directory: shell
+      # ── Build + sign + (on tag push) publish a draft Release ──────────────
+      # tauri-action runs `tauri build`, signs the installer with
+      # TAURI_SIGNING_PRIVATE_KEY, generates the per-platform .sig +
+      # latest.json updater artifacts (because bundle.createUpdaterArtifacts
+      # is true in tauri.conf.json), and on tag push attaches everything to
+      # a draft GitHub Release. Matrix jobs share the same tag and append
+      # their platform's assets to the same draft.
+      #
+      # On workflow_dispatch we don't pass `tagName` — tauri-action still
+      # builds + signs and exits with `artifactPaths`, which the next step
+      # attaches as a workflow-run artifact for download via the UI.
+      - name: Build + sign + release (tauri-action)
+        id: tauri_action
+        uses: tauri-apps/tauri-action@v0
         env:
-          TAURI_TARGET: ${{ matrix.target }}
-        run: bunx tauri build --target ${{ matrix.target }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        with:
+          projectPath: shell
+          tagName: ${{ github.event_name == 'push' && github.ref_name || '' }}
+          releaseName: 'Ikenga v__VERSION__'
+          releaseDraft: true
+          prerelease: false
+          includeUpdaterJson: true
+          args: --target ${{ matrix.target }}
 
-      # ── Collect installer artifacts ────────────────────────────────────────
-      - name: Stage artifacts
-        shell: bash
-        run: |
-          mkdir -p out
-          BUNDLE=shell/src-tauri/target/${{ matrix.target }}/release/bundle
-          # Copy whatever the platform produced; -name args cover all
-          # supported Tauri output formats.
-          find "$BUNDLE" -type f \( \
-            -name '*.dmg' -o \
-            -name '*.app.tar.gz' -o \
-            -name '*.deb' -o \
-            -name '*.AppImage' -o \
-            -name '*.msi' -o \
-            -name '*.exe' \
-          \) -exec cp {} out/ \; || true
-          ls -la out/
-
-      - name: Upload artifacts
+      # Workflow-dispatch runs don't publish a release — surface the built
+      # installers as a workflow-run artifact so the UI download still works.
+      - name: Upload installers as workflow artifact (dispatch only)
+        if: github.event_name != 'push'
         uses: actions/upload-artifact@v4
         with:
           name: ikenga-${{ matrix.arch_label }}
-          path: out/*
+          path: |
+            shell/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.dmg
+            shell/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.app.tar.gz
+            shell/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.deb
+            shell/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.AppImage
+            shell/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.msi
+            shell/src-tauri/target/${{ matrix.target }}/release/bundle/**/*-setup.exe
+            shell/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.sig
+            shell/src-tauri/target/${{ matrix.target }}/release/bundle/**/latest.json
           if-no-files-found: error
           retention-days: 14
 
-  # ── Publish a GitHub Release on tag push ──────────────────────────────────
-  # Manual dispatch never publishes — the build job uploads artifacts
-  # which the user downloads from the workflow run page in the GitHub UI.
-  # Releases are gated to tag-triggered runs only.
-  release:
-    if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-
-      - name: Flatten artifact tree
-        run: |
-          mkdir -p release
-          find artifacts -type f -exec cp -v {} release/ \;
-          ls -la release/
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: release/*
-          generate_release_notes: true
-          draft: true   # Reviewable in the GitHub UI before going live
+  # ── Release publication ────────────────────────────────────────────────────
+  # No separate `release:` job — `tauri-apps/tauri-action` in the build job
+  # creates the draft GitHub Release inline on tag push (one per matrix
+  # platform appends its assets + .sig to the same draft). Workflow_dispatch
+  # runs upload the bundles as workflow-run artifacts instead.
