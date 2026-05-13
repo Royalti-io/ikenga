@@ -12,6 +12,9 @@
 //! land in Day 2/3.
 
 pub mod auth;
+pub mod browser_handlers;
+pub mod browser_rpc;
+pub mod browser_sessions;
 pub mod handlers;
 pub mod pkg_dispatch;
 pub mod rpc;
@@ -26,6 +29,7 @@ use serde::Serialize;
 use tauri::AppHandle;
 use tokio::sync::oneshot;
 
+pub use browser_rpc::BrowserRpc;
 pub use rpc::{new_pending, Pending};
 pub use state::IykeState;
 
@@ -108,6 +112,9 @@ impl Drop for IykeRuntime {
 pub async fn start(
     state: Arc<IykeState>,
     rpc: IykeRpc,
+    browser_rpc: BrowserRpc,
+    webview_panes: Arc<crate::pkg::webview::WebviewPanesRegistry>,
+    pa_db: Arc<crate::commands::db::PaDb>,
     control_path: PathBuf,
     app_handle: AppHandle,
     screenshot_pending: crate::commands::ScreenshotPending,
@@ -118,6 +125,9 @@ pub async fn start(
     let (url, port, shutdown) = server::serve(
         state.clone(),
         rpc,
+        browser_rpc,
+        webview_panes,
+        pa_db,
         token.clone(),
         app_handle,
         screenshot_pending,

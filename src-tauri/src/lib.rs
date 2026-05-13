@@ -232,6 +232,7 @@ pub fn run() {
             let iyke_rpc_for_start = iyke_rpc.clone();
             let browser_rpc_for_start = browser_rpc.clone();
             let webview_panes_for_start = webview_panes_reg.clone();
+            let pa_db_for_iyke = pa_db.clone();
             let app_handle_for_iyke = app.handle().clone();
             let pending_for_iyke = screenshot_pending.clone();
             let iyke_routes_for_start = iyke_routes_reg.clone();
@@ -241,6 +242,7 @@ pub fn run() {
                     iyke_rpc_for_start,
                     browser_rpc_for_start,
                     webview_panes_for_start,
+                    pa_db_for_iyke,
                     control_path,
                     app_handle_for_iyke,
                     pending_for_iyke,

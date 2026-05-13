@@ -121,6 +121,9 @@ pub struct WebviewPaneStatus {
     /// borderless overlay window). Surfaced so the FE / dev tools can
     /// distinguish without doing OS detection.
     pub surface_kind: &'static str,
+    /// Phase 5: true when the pane is paused (snapshot/interaction tools
+    /// return 409). Navigation + destroy still work.
+    pub paused: bool,
 }
 
 /// Per-OS native handle. See module docstring for why the variants split.
@@ -195,6 +198,10 @@ struct PaneHandle {
     /// The rect the FE measured. Held so `set_rect` and (on Linux) the
     /// parent-event listener have a fresh source of truth.
     stored_rect: RwLock<PaneRect>,
+    /// Phase 5: when true, snapshot/interaction tools return 409 Conflict.
+    /// Navigation and lifecycle (destroy, set_rect) still work — pause is
+    /// about agent-driven actions, not the user's ability to recover.
+    paused: std::sync::atomic::AtomicBool,
 }
 
 #[derive(Default)]
@@ -244,9 +251,14 @@ impl WebviewPanesRegistry {
             ));
         }
         let partition = partition.unwrap_or("default");
-        if partition != "default" && !cap.partitions.iter().any(|p| p == partition) {
+        let wildcard = cap.partitions.iter().any(|p| p == "*");
+        if partition != "default"
+            && !wildcard
+            && !cap.partitions.iter().any(|p| p == partition)
+        {
             return Err(anyhow!(
-                "pkg `{pkg_id}` did not declare partition `{partition}` (declared: {:?})",
+                "pkg `{pkg_id}` did not declare partition `{partition}` (declared: {:?}). \
+                 Use `partitions: [\"*\"]` in the manifest to allow any.",
                 cap.partitions
             ));
         }
@@ -289,6 +301,7 @@ impl WebviewPanesRegistry {
             partition: partition.to_string(),
             current_url: RwLock::new(Some(url.to_string())),
             stored_rect: RwLock::new(rect),
+            paused: std::sync::atomic::AtomicBool::new(false),
         });
         self.panes
             .write()
@@ -354,6 +367,29 @@ impl WebviewPanesRegistry {
             .eval(js)
             .with_context(|| format!("eval into `{}`", handle.label))?;
         Ok(())
+    }
+
+    /// Phase 5: flip the per-pane pause flag. Returns the previous value
+    /// so callers can detect no-ops if they care. Always succeeds for any
+    /// known pane; unknown panes return an error.
+    pub fn set_paused(&self, pkg_id: &str, pane_id: &str, paused: bool) -> Result<bool> {
+        let handle = self
+            .lookup(pkg_id, pane_id)
+            .ok_or_else(|| anyhow!("no webview pane for ({pkg_id}, {pane_id})"))?;
+        let prev = handle
+            .paused
+            .swap(paused, std::sync::atomic::Ordering::SeqCst);
+        log::info!(
+            "[pkg_webview] pane=({pkg_id},{pane_id}) paused {prev} -> {paused}"
+        );
+        Ok(prev)
+    }
+
+    pub fn is_paused(&self, pkg_id: &str, pane_id: &str) -> Result<bool> {
+        let handle = self
+            .lookup(pkg_id, pane_id)
+            .ok_or_else(|| anyhow!("no webview pane for ({pkg_id}, {pane_id})"))?;
+        Ok(handle.paused.load(std::sync::atomic::Ordering::SeqCst))
     }
 
     pub fn set_rect(&self, pkg_id: &str, pane_id: &str, rect: PaneRect) -> Result<()> {
@@ -472,6 +508,7 @@ impl WebviewPanesRegistry {
                     live_position: h.surface.position(),
                     live_size: h.surface.size(),
                     surface_kind: h.surface.kind(),
+                    paused: h.paused.load(std::sync::atomic::Ordering::SeqCst),
                 }
             })
             .collect()

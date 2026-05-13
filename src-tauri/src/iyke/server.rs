@@ -18,6 +18,20 @@ use tokio::sync::oneshot;
 use tower_http::cors::{Any, CorsLayer};
 
 use super::auth::{require_token, AuthState};
+use super::browser_handlers::{
+    get_browser_list, post_browser_back, post_browser_click, post_browser_close,
+    post_browser_eval, post_browser_fill, post_browser_focus, post_browser_forward,
+    post_browser_goto, post_browser_open, post_browser_pause, post_browser_press_key,
+    post_browser_read_text, post_browser_reload, post_browser_reply, post_browser_resume,
+    post_browser_screenshot, post_browser_select, post_browser_snapshot,
+    post_browser_wait_for, BrowserPort,
+};
+use super::browser_rpc::BrowserRpc;
+use super::browser_sessions::{
+    get_browser_session_list, post_browser_session_create, post_browser_session_delete,
+    post_browser_session_resolve,
+};
+use crate::commands::db::PaDb;
 use super::handlers::{
     get_dom, get_iframe_state, get_logs, get_network, get_query_cache, get_state, post_click,
     post_close, post_devtools, post_focus, post_go, post_iframe_message, post_key, post_mode,
@@ -29,18 +43,34 @@ use super::state::IykeState;
 use super::IykeRpc;
 use crate::commands::ScreenshotPending;
 use crate::pkg::registries::IykeRoutesRegistry;
+use crate::pkg::webview::WebviewPanesRegistry;
 
+#[allow(clippy::too_many_arguments)]
 pub async fn serve(
     state: Arc<IykeState>,
     rpc: IykeRpc,
+    browser_rpc: BrowserRpc,
+    webview_panes: Arc<WebviewPanesRegistry>,
+    pa_db: Arc<PaDb>,
     token: String,
     app_handle: AppHandle,
     screenshot_pending: ScreenshotPending,
     iyke_routes: Arc<IykeRoutesRegistry>,
 ) -> Result<(String, u16, oneshot::Sender<()>)> {
+    // Bind first so we can thread the live port into handlers that need to
+    // bake it into in-page eval closures (pkg-browser reply fetch).
+    let listener = tokio::net::TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0)))
+        .await
+        .context("bind iyke listener")?;
+    let local_addr = listener.local_addr().context("local_addr")?;
+    let port = local_addr.port();
+    let url = format!("http://{}", local_addr);
+
     let auth_state = Arc::new(AuthState { token });
 
-    let app = Router::new()
+    // Authed routes — everything except the pkg-browser reply endpoint,
+    // which uses a per-request oneshot_token instead of the global bearer.
+    let authed = Router::new()
         .route("/iyke/state", get(get_state))
         .route("/iyke/go", post(post_go))
         .route("/iyke/mode", post(post_mode))
@@ -66,15 +96,53 @@ pub async fn serve(
         .route("/iyke/pkg/uninstall", post(post_pkg_uninstall))
         .route("/iyke/iframe-state", get(get_iframe_state))
         .route("/iyke/iframe-message", post(post_iframe_message))
+        // pkg-browser bridge (kernel-direct + eval).
+        .route("/iyke/browser/open", post(post_browser_open))
+        .route("/iyke/browser/close", post(post_browser_close))
+        .route("/iyke/browser/list", get(get_browser_list))
+        .route("/iyke/browser/focus", post(post_browser_focus))
+        .route("/iyke/browser/goto", post(post_browser_goto))
+        .route("/iyke/browser/back", post(post_browser_back))
+        .route("/iyke/browser/forward", post(post_browser_forward))
+        .route("/iyke/browser/reload", post(post_browser_reload))
+        .route("/iyke/browser/snapshot", post(post_browser_snapshot))
+        .route("/iyke/browser/read-text", post(post_browser_read_text))
+        .route("/iyke/browser/screenshot", post(post_browser_screenshot))
+        .route("/iyke/browser/click", post(post_browser_click))
+        .route("/iyke/browser/fill", post(post_browser_fill))
+        .route("/iyke/browser/select", post(post_browser_select))
+        .route("/iyke/browser/press-key", post(post_browser_press_key))
+        .route("/iyke/browser/wait-for", post(post_browser_wait_for))
+        .route("/iyke/browser/eval", post(post_browser_eval))
+        // Pause / resume (Phase 5).
+        .route("/iyke/browser/pause", post(post_browser_pause))
+        .route("/iyke/browser/resume", post(post_browser_resume))
+        // Named sessions (Phase 4).
+        .route("/iyke/browser/session/create", post(post_browser_session_create))
+        .route("/iyke/browser/session/list", get(get_browser_session_list))
+        .route("/iyke/browser/session/delete", post(post_browser_session_delete))
+        .route("/iyke/browser/session/resolve", post(post_browser_session_resolve))
         // Catch-all for package-installed routes. The dispatcher reads the
         // method+path off the request and consults `IykeRoutesRegistry`.
         .route("/pkg/*path", get(pkg_dispatch).post(pkg_dispatch))
         .layer(middleware::from_fn_with_state(
             auth_state.clone(),
             require_token,
-        ))
+        ));
+
+    // Unauthed reply endpoint — partner-site JS POSTs here to fulfill an
+    // in-flight pkg-browser request. Auth is via the per-request
+    // `oneshot_token` validated inside `BrowserRpc::resolve`.
+    let unauthed = Router::new().route("/iyke/browser/_reply", post(post_browser_reply));
+
+    let app = authed
+        .merge(unauthed)
         .layer(Extension(state))
         .layer(Extension(rpc))
+        .layer(Extension(browser_rpc))
+        .layer(Extension(webview_panes))
+        .layer(Extension(pa_db))
+        .layer(Extension(BrowserPort(port)))
         .layer(Extension(auth_state))
         .layer(Extension(app_handle))
         .layer(Extension(screenshot_pending))
@@ -86,12 +154,8 @@ pub async fn serve(
                 .allow_headers(Any),
         );
 
-    let listener = tokio::net::TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0)))
-        .await
-        .context("bind iyke listener")?;
-    let local_addr = listener.local_addr().context("local_addr")?;
-    let port = local_addr.port();
-    let url = format!("http://{}", local_addr);
+    // Silence the warning if HeaderValue isn't directly used in this file.
+    let _ = HeaderValue::from_static;
 
     let (tx, rx) = oneshot::channel::<()>();
 
