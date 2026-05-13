@@ -118,10 +118,11 @@ objc2 = "0.5"
 objc2-foundation = { version = "0.2", features = ["NSProcessInfo", "NSString"] }
 
 # Windows-only: WebView2 controller access for the IsVisible hold (see
-# pkg/keep_awake.rs). webview2-com is already in Tauri's tree; pinning here
-# so the controller-level call site is explicit.
+# pkg/keep_awake.rs). webview2-com is already in Tauri's tree; pinning
+# here to the same major as tauri-runtime-wry to avoid pulling a second
+# version (which causes windows-core type-mismatch errors at compile).
 [target.'cfg(windows)'.dependencies]
-webview2-com = "0.33"
+webview2-com = "0.38"
 
 # Mac-only polish (window vibrancy + dock-tile badge) was removed
 # in the strip-down. The resolved objc2 v0.5 didn't export
