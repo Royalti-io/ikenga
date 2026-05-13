@@ -7,6 +7,7 @@ import { Dock } from './dock/dock';
 import { useDockStore } from './dock/dock-store';
 import { CommandPalette, useCommandPalette } from './command-palette';
 import { ConnectorBanner } from './connector-banner';
+import { UpdaterBanner } from './updater-banner';
 import { debounce, loadLayoutState, saveLayoutState } from '@/lib/layout-state';
 import { useIykeBridge } from '@/lib/iyke/bridge';
 import { useIykeControlListener } from '@/lib/iyke/control-listener';
@@ -261,6 +262,7 @@ export function Workspace() {
 
 	return (
 		<div className="flex h-screen w-screen flex-col overflow-hidden bg-background text-foreground">
+			<UpdaterBanner />
 			<ConnectorBanner />
 			<div className="flex min-h-0 flex-1">
 				<ActivityBar />
