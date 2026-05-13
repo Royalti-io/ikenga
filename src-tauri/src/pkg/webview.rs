@@ -1,8 +1,21 @@
 //! Per-pkg child webview kernel.
 //!
-//! Owns the `(pkg_id, pane_id) → tauri::Webview` mapping and the per-jar
+//! Owns the `(pkg_id, pane_id) → WebviewWindow` mapping and the per-jar
 //! cookie partition resolution. Tauri commands in `commands/pkg_webview.rs`
 //! are thin wrappers around the methods here.
+//!
+//! ## Architecture: borderless top-level child windows
+//!
+//! Initial Phase 1 used `Window::add_child(WebviewBuilder, pos, size)` to
+//! float a child webview inside the main window. That path turned out to be
+//! broken on Linux WebKitGTK (Tauri issue #13071 — GTK box layout ignores
+//! the explicit position+size args and lays the child out as a regular
+//! sibling widget). We fell back to the documented alternative: spawn a
+//! borderless top-level `WebviewWindow` per pane, parented to the main
+//! window (so it follows minimize/restore/close natively), and manually
+//! track parent move/resize events to keep the child aligned with the
+//! placeholder rect the React side measured. Same logical model, slightly
+//! different OS-level mechanics — works uniformly on all three platforms.
 //!
 //! ## Lifecycle
 //!
@@ -10,17 +23,17 @@
 //!   demand when the frontend mounts a `kind = "webview"` route, not at
 //!   pkg install time. The registry exists to enforce cleanup on
 //!   uninstall — see `unregister`.
-//! - **create** (FE-triggered): allocate a stable label
-//!   `pkg-<pkg-slug>-<pane-slug>`, resolve the partition's data store
-//!   (per-OS, see below), call `Window::add_child` against the main
-//!   window with `WebviewBuilder::new(label, External(url))`. Track the
-//!   resulting `tauri::Webview` handle in `panes`.
-//! - **destroy** (FE-triggered or pkg uninstall): close the webview and
-//!   drop it from the map. Cookie partition data persists on disk so a
-//!   future create with the same partition name picks up the same jar.
-//! - **navigate / eval / set_rect**: thin pass-through to `tauri::Webview`
-//!   methods; each takes a `keep_awake::InflightGuard` at the call site
-//!   so background-eval throttling is inhibited on macOS / Windows.
+//! - **create** (FE-triggered): allocate a stable label, resolve the
+//!   partition's data store (per-OS, see below), build a borderless
+//!   `WebviewWindow` parented to the main window, install the parent-
+//!   event listener (idempotent — installed once across all panes), and
+//!   record the requested rect for later re-positioning on parent move.
+//! - **destroy**: close the child window and drop the handle. Cookie
+//!   partition data persists on disk; a future create with the same
+//!   partition name picks up the same jar.
+//! - **navigate / eval / set_rect**: pass-through to `WebviewWindow`
+//!   methods; `set_rect` recomputes the screen-coords position from the
+//!   parent window's current outer_position + the new pane rect.
 //!
 //! ## Cookie partition resolution
 //!
@@ -29,10 +42,9 @@
 //! restart picks up the same cookies, localStorage, etc.
 //!
 //! - **Linux (WebKitGTK) + Windows (WebView2)**: `data_directory(PathBuf)`
-//!   on `WebviewBuilder`. Path: `app_data_dir/webjars/<pkg-slug>/<partition>/`.
-//! - **macOS 14+ (WKWebView)**: `data_store_identifier([u8; 16])` on
-//!   `WebviewBuilder`. The 16-byte id is `sha256(pkg_id || '/' ||
-//!   partition_name)[..16]` — collision-resistant within the app.
+//!   on `WebviewWindowBuilder`. Path: `app_data_dir/webjars/<pkg-slug>/<partition>/`.
+//! - **macOS 14+ (WKWebView)**: `data_store_identifier([u8; 16])` derived
+//!   from `sha256(pkg_id || '/' || partition_name)[..16]`.
 //!
 //! ## Capability check
 //!
@@ -44,21 +56,23 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, OnceLock, RwLock, Weak};
 
 use anyhow::{anyhow, Context, Result};
 use serde::Serialize;
 use serde_json::Value;
 use tauri::{
-    webview::{PageLoadEvent, WebviewBuilder},
-    AppHandle, LogicalPosition, LogicalSize, Manager, Webview, WebviewUrl,
+    AppHandle, LogicalPosition, LogicalSize, Manager, PhysicalPosition, WebviewUrl,
+    WebviewWindow, WebviewWindowBuilder, WindowEvent,
 };
 
 use crate::pkg::manifest::Package;
 use crate::pkg::registry::Registry;
 
-/// Rect passed across the Tauri command boundary in window-client coordinates.
-/// Integer fields; the FE rounds `getBoundingClientRect()` before sending.
+/// Rect passed across the Tauri command boundary in main-window-client
+/// coordinates (the placeholder div's `getBoundingClientRect()` rounded to
+/// integers). Translated to screen coordinates inside `create` / `set_rect`
+/// by adding the parent window's `outer_position`.
 #[derive(Debug, Clone, Copy, serde::Deserialize, Serialize)]
 pub struct PaneRect {
     pub x: i32,
@@ -68,6 +82,8 @@ pub struct PaneRect {
 }
 
 /// Snapshot row surfaced via `Registry::snapshot` into `pkg_kernel_status`.
+/// `live_*` fields are queried from Tauri at snapshot time so they reflect
+/// what the kernel-side webview actually thinks its rect is.
 #[derive(Debug, Clone, Serialize)]
 pub struct WebviewPaneStatus {
     pub pkg_id: String,
@@ -75,13 +91,22 @@ pub struct WebviewPaneStatus {
     pub webview_label: String,
     pub current_url: Option<String>,
     pub partition: String,
+    /// Last-requested rect (in main-window-client coords) from FE.
+    pub stored_rect: PaneRect,
+    /// Live screen position reported by the child window.
+    pub live_position: Option<[i32; 2]>,
+    /// Live outer size reported by the child window.
+    pub live_size: Option<[u32; 2]>,
 }
 
 struct PaneHandle {
-    webview: Webview,
+    window: WebviewWindow,
     label: String,
     partition: String,
     current_url: RwLock<Option<String>>,
+    /// The rect the FE measured. Held so the parent-event listener can
+    /// re-position the child as the parent window moves/resizes.
+    stored_rect: RwLock<PaneRect>,
 }
 
 #[derive(Default)]
@@ -92,6 +117,10 @@ pub struct WebviewPanesRegistry {
     /// Per-pkg cached capability — populated on `register`, read on `create`
     /// so we don't have to walk `pkg_installed` for every create.
     pkg_capabilities: RwLock<HashMap<String, PkgCapability>>,
+    /// Set once, the first time `create` is called. Guards installing
+    /// `on_window_event` on the parent main window — a single listener
+    /// iterates all panes on each event, rather than one listener per pane.
+    parent_listener_installed: OnceLock<()>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -109,7 +138,7 @@ impl WebviewPanesRegistry {
     /// same key: if a webview already exists under that pair, it's destroyed
     /// first so the new one gets the requested URL / partition / rect.
     pub fn create(
-        &self,
+        self: &Arc<Self>,
         app: &AppHandle,
         pkg_id: &str,
         pane_id: &str,
@@ -142,45 +171,48 @@ impl WebviewPanesRegistry {
         // for FE strict-mode double-mount.
         self.destroy(pkg_id, pane_id).ok();
 
-        let window = app
-            .get_window("main")
-            .ok_or_else(|| anyhow!("no main window — kernel called before setup completed?"))?;
+        let main_window = app
+            .get_webview_window("main")
+            .ok_or_else(|| anyhow!("no main webview window — kernel called before setup completed?"))?;
 
         let label = webview_label(pkg_id, pane_id);
         let parsed_url = url::Url::parse(url).with_context(|| format!("parse url `{url}`"))?;
 
-        // Per-OS partition wiring. Linux/Windows use a path; macOS uses a
-        // stable 16-byte id derived from sha256(pkg_id + "/" + partition).
         let data_dir = partition_dir(app, pkg_id, partition)?;
         std::fs::create_dir_all(&data_dir).with_context(|| {
             format!("create webview data dir {}", data_dir.display())
         })?;
 
-        // Build the WebviewBuilder. `_builder` is mutated under cfg below to
-        // attach the macOS data-store identifier; the assignment back through
-        // `let builder = ...` keeps the chained-builder pattern type-stable
-        // because the `data_store_identifier` method on macOS returns the
-        // same generic-parameterized type.
-        #[allow(unused_mut)]
-        let mut builder = WebviewBuilder::new(&label, WebviewUrl::External(parsed_url))
-            .auto_resize() // keep child rect proportional under parent resize
-            .data_directory(data_dir)
-            .on_page_load(move |webview, payload| {
-                if matches!(payload.event(), PageLoadEvent::Finished) {
-                    log::debug!(
-                        "[pkg_webview] `{}` page_load_finished url={}",
-                        webview.label(),
-                        payload.url()
-                    );
-                }
-            });
+        // Translate pane rect (main-window-client coords) → screen coords.
+        // outer_position is the screen position of the main window's top-
+        // left including its title bar. The placeholder div's
+        // getBoundingClientRect() returns coords relative to the main
+        // window's main webview, which on all three platforms is positioned
+        // at (0, 0) within the client area (no offset for our use today).
+        let main_pos = main_window
+            .inner_position()
+            .context("read main window inner_position")?;
+        let screen_x = main_pos.x + rect.x;
+        let screen_y = main_pos.y + rect.y;
+
+        let mut builder = WebviewWindowBuilder::new(
+            app,
+            &label,
+            WebviewUrl::External(parsed_url),
+        )
+        .decorations(false)
+        .resizable(false)
+        .skip_taskbar(true)
+        .position(screen_x as f64, screen_y as f64)
+        .inner_size(rect.w as f64, rect.h as f64)
+        .data_directory(data_dir);
+
+        builder = builder
+            .parent(&main_window)
+            .context("set parent window for child webview")?;
 
         #[cfg(target_os = "macos")]
         {
-            // macOS WKWebView ignores `data_directory`; isolation goes through
-            // `WKWebsiteDataStore` keyed by a 16-byte identifier. Derive it
-            // deterministically from (pkg_id, partition) so the same pair
-            // resolves to the same store across restarts.
             use sha2::{Digest, Sha256};
             let mut hasher = Sha256::new();
             hasher.update(pkg_id.as_bytes());
@@ -192,27 +224,57 @@ impl WebviewPanesRegistry {
             builder = builder.data_store_identifier(id);
         }
 
-        let webview = window
-            .add_child(
-                builder,
-                LogicalPosition::new(rect.x as f64, rect.y as f64),
-                LogicalSize::new(rect.w as f64, rect.h as f64),
-            )
-            .with_context(|| format!("add_child {label}"))?;
+        let window = builder.build().with_context(|| format!("build {label}"))?;
+
+        // Wayland workaround: the builder's `.position(x, y)` is silently
+        // ignored on Wayland (xdg-shell doesn't let apps choose top-level
+        // positions at creation). Some compositors honor `set_position`
+        // after the surface is mapped — try once, log on failure. Also
+        // works around the Linux WebKitGTK quirk we hit during in-window
+        // `add_child` (Tauri #13071) — the borderless top-level path
+        // sidesteps it entirely on X11/macOS/Windows. To use this on a
+        // Wayland session, launch the app with `GDK_BACKEND=x11` so it
+        // routes through XWayland.
+        if let Err(e) = window.set_position(PhysicalPosition::new(screen_x, screen_y)) {
+            log::warn!(
+                "[pkg_webview] post-build set_position for `{label}` failed (continuing): {e}"
+            );
+        }
+
+        // Detect manual close (user clicks the WM close button or the
+        // compositor kills the window) so the kernel removes it from the
+        // panes map automatically. Without this, subsequent set_rect /
+        // navigate / eval calls would error against a dead WebviewWindow
+        // handle, and `pkg_kernel_status` would falsely report it as live.
+        Self::install_child_destroy_listener(
+            self,
+            pkg_id.to_string(),
+            pane_id.to_string(),
+            &window,
+        );
 
         let handle = Arc::new(PaneHandle {
-            webview,
+            window,
             label: label.clone(),
             partition: partition.to_string(),
             current_url: RwLock::new(Some(url.to_string())),
+            stored_rect: RwLock::new(rect),
         });
         self.panes
             .write()
             .map_err(|_| anyhow!("panes lock poisoned"))?
             .insert((pkg_id.to_string(), pane_id.to_string()), handle);
 
+        // Install the parent-event listener at most once across all panes.
+        // Captures a clone of `self` (the Arc) so the closure can iterate
+        // panes and re-position each child on parent moved/resized.
+        self.install_parent_listener(&main_window);
+
         log::info!(
-            "[pkg_webview] created `{label}` pkg={pkg_id} pane={pane_id} partition={partition} url={url}"
+            "[pkg_webview] created `{label}` pkg={pkg_id} pane={pane_id} partition={partition} \
+             url={url} screen_pos=({screen_x},{screen_y}) size=({},{})",
+            rect.w,
+            rect.h,
         );
         Ok(label)
     }
@@ -224,9 +286,7 @@ impl WebviewPanesRegistry {
             .map_err(|_| anyhow!("panes lock poisoned"))?
             .remove(&(pkg_id.to_string(), pane_id.to_string()));
         if let Some(handle) = removed {
-            // Best-effort close — log and continue on error so callers can't
-            // get stuck if the webview is already gone (race with window close).
-            if let Err(e) = handle.webview.close() {
+            if let Err(e) = handle.window.close() {
                 log::warn!(
                     "[pkg_webview] close `{}` failed (continuing): {e}",
                     handle.label
@@ -243,7 +303,7 @@ impl WebviewPanesRegistry {
             .ok_or_else(|| anyhow!("no webview pane for ({pkg_id}, {pane_id})"))?;
         let parsed = url::Url::parse(url).with_context(|| format!("parse url `{url}`"))?;
         handle
-            .webview
+            .window
             .navigate(parsed)
             .with_context(|| format!("navigate `{}` -> {url}", handle.label))?;
         if let Ok(mut cur) = handle.current_url.write() {
@@ -256,11 +316,8 @@ impl WebviewPanesRegistry {
         let handle = self
             .lookup(pkg_id, pane_id)
             .ok_or_else(|| anyhow!("no webview pane for ({pkg_id}, {pane_id})"))?;
-        // Windows: re-assert IsVisible per eval. macOS keep-awake is handled
-        // by the caller's InflightGuard. Linux: no-op.
-        let _ = crate::pkg::keep_awake::pin_visible(&handle.webview);
         handle
-            .webview
+            .window
             .eval(js)
             .with_context(|| format!("eval into `{}`", handle.label))?;
         Ok(())
@@ -270,12 +327,28 @@ impl WebviewPanesRegistry {
         let handle = self
             .lookup(pkg_id, pane_id)
             .ok_or_else(|| anyhow!("no webview pane for ({pkg_id}, {pane_id})"))?;
+
+        // Update stored rect first so the parent-event listener uses the
+        // new rect on the next parent-move/resize. Then compute the new
+        // screen position from the current parent outer_position.
+        if let Ok(mut r) = handle.stored_rect.write() {
+            *r = rect;
+        }
+
+        let app = handle.window.app_handle();
+        let main_window = app
+            .get_webview_window("main")
+            .ok_or_else(|| anyhow!("no main webview window"))?;
+        let main_pos = main_window
+            .inner_position()
+            .context("read main window inner_position")?;
+
         handle
-            .webview
-            .set_position(LogicalPosition::new(rect.x as f64, rect.y as f64))
+            .window
+            .set_position(PhysicalPosition::new(main_pos.x + rect.x, main_pos.y + rect.y))
             .with_context(|| format!("set_position `{}`", handle.label))?;
         handle
-            .webview
+            .window
             .set_size(LogicalSize::new(rect.w as f64, rect.h as f64))
             .with_context(|| format!("set_size `{}`", handle.label))?;
         Ok(())
@@ -289,18 +362,107 @@ impl WebviewPanesRegistry {
             .cloned()
     }
 
+    /// Per-pane: hook the child window's events so external close (user
+    /// clicks WM close button, compositor kills the surface, etc.) is
+    /// reflected in the panes map. Uses `Weak<Self>` to avoid the
+    /// Self → panes → PaneHandle → window → closure → Self cycle.
+    fn install_child_destroy_listener(
+        self: &Arc<Self>,
+        pkg_id: String,
+        pane_id: String,
+        window: &WebviewWindow,
+    ) {
+        let weak_self: Weak<Self> = Arc::downgrade(self);
+        window.on_window_event(move |event| {
+            if matches!(event, WindowEvent::Destroyed) {
+                if let Some(reg) = weak_self.upgrade() {
+                    if let Ok(mut g) = reg.panes.write() {
+                        if g.remove(&(pkg_id.clone(), pane_id.clone())).is_some() {
+                            log::info!(
+                                "[pkg_webview] child window externally destroyed; cleaned up ({pkg_id}, {pane_id})"
+                            );
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    /// Idempotent: registers a single `on_window_event` listener on the main
+    /// window. The listener iterates all currently-tracked panes on
+    /// Moved/Resized and re-positions each child window so it stays
+    /// overlaid on its assigned pane rect.
+    fn install_parent_listener(self: &Arc<Self>, main_window: &WebviewWindow) {
+        if self.parent_listener_installed.get().is_some() {
+            return;
+        }
+        if self.parent_listener_installed.set(()).is_err() {
+            // Lost a race with another concurrent first-create; harmless.
+            return;
+        }
+        let registry = self.clone();
+        let main = main_window.clone();
+        main_window.on_window_event(move |event| {
+            match event {
+                WindowEvent::Moved(_) | WindowEvent::Resized(_) => {
+                    let main_pos = match main.inner_position() {
+                        Ok(p) => p,
+                        Err(_) => return,
+                    };
+                    let panes = match registry.panes.read() {
+                        Ok(g) => g,
+                        Err(_) => return,
+                    };
+                    for handle in panes.values() {
+                        let rect = match handle.stored_rect.read() {
+                            Ok(r) => *r,
+                            Err(_) => continue,
+                        };
+                        let _ = handle.window.set_position(PhysicalPosition::new(
+                            main_pos.x + rect.x,
+                            main_pos.y + rect.y,
+                        ));
+                        let _ = handle.window.set_size(LogicalSize::new(
+                            rect.w as f64,
+                            rect.h as f64,
+                        ));
+                    }
+                }
+                _ => {}
+            }
+        });
+        log::info!("[pkg_webview] parent-window event listener installed");
+    }
+
     pub fn statuses(&self) -> Vec<WebviewPaneStatus> {
         let g = match self.panes.read() {
             Ok(g) => g,
             Err(_) => return Vec::new(),
         };
         g.iter()
-            .map(|((pkg_id, pane_id), h)| WebviewPaneStatus {
-                pkg_id: pkg_id.clone(),
-                pane_id: pane_id.clone(),
-                webview_label: h.label.clone(),
-                current_url: h.current_url.read().ok().and_then(|c| c.clone()),
-                partition: h.partition.clone(),
+            .map(|((pkg_id, pane_id), h)| {
+                let live_position = h
+                    .window
+                    .outer_position()
+                    .ok()
+                    .map(|p| [p.x as i32, p.y as i32]);
+                let live_size = h.window.outer_size().ok().map(|s| [s.width, s.height]);
+                let stored_rect = h.stored_rect.read().ok().map(|r| *r).unwrap_or(PaneRect {
+                    x: 0,
+                    y: 0,
+                    w: 0,
+                    h: 0,
+                });
+                WebviewPaneStatus {
+                    pkg_id: pkg_id.clone(),
+                    pane_id: pane_id.clone(),
+                    webview_label: h.label.clone(),
+                    current_url: h.current_url.read().ok().and_then(|c| c.clone()),
+                    partition: h.partition.clone(),
+                    stored_rect,
+                    live_position,
+                    live_size,
+                }
             })
             .collect()
     }
@@ -312,9 +474,6 @@ impl Registry for WebviewPanesRegistry {
     }
 
     fn register(&self, pkg: &Package) -> Result<()> {
-        // Cache the capability so `create` doesn't need to walk back to
-        // the manifest each time. Absent block → all-false defaults, which
-        // means subsequent `create` rejects with a clear error.
         let cap = pkg
             .manifest
             .capabilities
@@ -333,10 +492,6 @@ impl Registry for WebviewPanesRegistry {
     }
 
     fn unregister(&self, pkg_id: &str) -> Result<()> {
-        // Drop every active webview owned by this pkg. Cookie partition
-        // data on disk is intentionally NOT removed — a re-install of the
-        // same pkg picks up the same logged-in sessions, same as
-        // uninstall/reinstall behavior in normal browsers.
         let keys: Vec<_> = self
             .panes
             .read()
@@ -388,7 +543,9 @@ fn partition_dir(app: &AppHandle, pkg_id: &str, partition: &str) -> Result<PathB
     Ok(base.join("webjars").join(pkg_slug).join(partition))
 }
 
-// macOS `data_store_identifier` is applied inline in `create()` under
-// `#[cfg(target_os = "macos")]` — see the create method body. A separate
-// helper was tried but ran into WebviewBuilder generics (parameterized over
-// the Tauri Runtime), and inlining keeps the type chain clean.
+// `LogicalPosition` import kept for set_rect's macOS-friendly logical-size
+// path; the kernel mixes logical sizes (FE-friendly) with physical positions
+// (Tauri's outer_position contract) which is the boundary translation
+// `set_position(PhysicalPosition)` + `set_size(LogicalSize)` formalizes.
+#[allow(dead_code)]
+fn _logical_position_used(_: LogicalPosition<f64>) {}
