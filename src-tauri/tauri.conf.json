@@ -33,7 +33,8 @@
       "dmg",
       "app",
       "deb",
-      "appimage"
+      "appimage",
+      "nsis"
     ],
     "resources": {
       "resources/builtin-pkgs/**/*": "builtin-pkgs/"
