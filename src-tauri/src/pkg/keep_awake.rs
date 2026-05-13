@@ -38,35 +38,33 @@ mod macos {
 
     /// Single retained `NSObject` token returned by `beginActivityWithOptions`.
     /// Drop calls `endActivity` against the same `NSProcessInfo`.
-    ///
-    /// `beginActivityWithOptions_reason` returns `Retained<ProtocolObject<dyn
-    /// NSObjectProtocol>>` per the objc2-foundation 0.2 binding, but
-    /// `endActivity` strictly wants `&NSObject`. We cast the returned handle
-    /// to `Retained<NSObject>` at construction so the drop site can pass
-    /// `&self.0` directly. The cast is sound because every Objective-C
-    /// object IS an NSObject at the runtime level — the protocol-object
-    /// wrapper is purely a type-system convenience.
     pub(super) struct ActivityToken(Retained<NSObject>);
+
+    // SAFETY: NSProcessInfo activity tokens are opaque `id`s the Cocoa
+    // runtime can hand back to `endActivity:` from any thread (Apple's docs:
+    // "These methods are thread safe."). The shared-ownership singleton in
+    // `acquire()` lives on a static `Weak<ActivityToken>` which requires the
+    // wrapped type to be Sync, so we attest it here.
+    unsafe impl Send for ActivityToken {}
+    unsafe impl Sync for ActivityToken {}
 
     impl ActivityToken {
         pub(super) fn begin(reason: &str) -> Self {
-            // `.UserInitiated` is the Apple-documented answer for "we're doing
-            // work; don't nap us." It bundles SuddenTerminationDisabled and
-            // AutomaticTerminationDisabled too — both desired while a browser
-            // automation flow is mid-step.
+            // `NSActivityUserInitiated` is the Apple-documented answer for
+            // "we're doing work; don't nap us." It bundles
+            // SuddenTerminationDisabled and AutomaticTerminationDisabled too
+            // — both desired while a browser automation flow is mid-step.
             //
-            // Intentionally NOT adding `.IdleSystemSleepDisabled` — that
-            // prevents the whole machine from sleeping, which is user-hostile.
-            // App Nap inhibition is the precise tool for our case; system
-            // sleep stays under the user's control.
-            let opts = NSActivityOptions::UserInitiated;
+            // Intentionally NOT layering `NSActivityIdleSystemSleepDisabled`
+            // on top — that prevents the whole machine from sleeping, which
+            // is user-hostile. App Nap inhibition is the precise tool for our
+            // case; system sleep stays under the user's control.
+            let opts = NSActivityOptions::NSActivityUserInitiated;
             let pi = NSProcessInfo::processInfo();
             let ns_reason = NSString::from_str(reason);
-            let proto_token = pi.beginActivityWithOptions_reason(opts, &ns_reason);
-            // SAFETY: the runtime object behind a `ProtocolObject<dyn
-            // NSObjectProtocol>` always inherits from NSObject; the cast is
-            // a zero-cost retype.
-            let token: Retained<NSObject> = unsafe { Retained::cast(proto_token) };
+            // SAFETY: NSProcessInfo singleton methods are thread-safe per
+            // Apple's docs. The returned token is retained for us.
+            let token = unsafe { pi.beginActivityWithOptions_reason(opts, &ns_reason) };
             log::debug!("[keep_awake.macos] beginActivity .UserInitiated reason={reason:?}");
             ActivityToken(token)
         }
@@ -76,6 +74,7 @@ mod macos {
         fn drop(&mut self) {
             // SAFETY: endActivity takes the same token beginActivity returned;
             // we retained it via the typed binding so the pointer is valid.
+            // `&self.0` auto-derefs `&Retained<NSObject>` to `&NSObject`.
             unsafe { NSProcessInfo::processInfo().endActivity(&self.0) };
             log::debug!("[keep_awake.macos] endActivity");
         }
