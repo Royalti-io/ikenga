@@ -241,6 +241,25 @@ Commit `2de5db9` (Rust side); FE half is a separate follow-up commit.
 - Route resolver branch on `kind: "webview"` in `routes/pkg/$pkgId/$.tsx` — same FE commit.
 - Smoke test pkg (`pkgs/test-webview/`) drafted; runs after FE lands.
 
+### Phase 1 — final per-OS architecture (2026-05-13)
+
+After multiple Linux smoke tests, `pkg/webview.rs` was rewritten one more time as a **`cfg`-gated `PaneSurface` enum** so each OS uses the path it can actually do well:
+
+| OS | Surface | Mechanism |
+|---|---|---|
+| **macOS** | In-window child webview | `Window::add_child(WebviewBuilder, pos, size)` — Tauri PR #11616 fixed multi-webview rendering on WKWebView in Nov 2024. True embed; behaves like an iframe but isn't subject to CSP `frame-ancestors`. |
+| **Windows** | In-window child webview | Same `add_child` path as macOS. WebView2 composes the child into the host HWND at the requested rect. |
+| **Linux WebKitGTK** | Borderless top-level `WebviewWindow`, parented to main, manually tracked via `on_window_event(Moved/Resized)` | `add_child` is broken on Linux (Tauri #10420 / #13071 / #11170 — wry's GTK box layout silently ignores explicit position+size). Wry docs explicitly mark `build_as_child` as "Linux X11 only" and the X11 path is broken too. No upstream fix in flight as of May 2026. |
+
+**The split is invisible to callers**: `PaneSurface::{InWindow(Webview), TopLevel(WebviewWindow)}` is wrapped in a thin shim that delegates `navigate / eval / close / position / size / kind`. The Tauri commands and the FE host don't know which path is active. The `WebviewPaneStatus.surface_kind` field surfaces the active variant for debug.
+
+**Smoke test result (Linux X11/XWayland, 2026-05-13)**: kernel logged `screen_pos=(333,148) size=(961,734)`, `xwininfo` confirmed matching `Tauri App` window at exactly those coords. Architecture works end-to-end. Visual UX caveats:
+- On Linux the child is a separate top-level X11 window, parented and tracked, but appears as a free-floating rectangle (not "embedded inside the pane"). Documented limitation.
+- Wayland positioning is silently ignored at the protocol level — launch with `GDK_BACKEND=x11` to use XWayland.
+- macOS / Windows untested in this session — the `add_child` path is community-validated for those platforms.
+
+**Long-term Linux fix** (deferred, see separate research session): vendor or upstream-PR a wry change that uses `GtkOverlay`/`GtkFixed` instead of `GtkBox` as the child-webview container. Discussion #1178 has the recipe; nobody has merged it. ~few hundred LOC, well-bounded.
+
 ### Findings — Linux WebKitGTK (2026-05-12)
 
 Run on Linux 6.17 / WebKitGTK (`libwebkit2gtk-4.1`) on a ThinkPad T490s. 60s runs at 500ms cadence, 5s per-ping timeout. Same dev binary (`bun run tauri dev`) across all four rows.
