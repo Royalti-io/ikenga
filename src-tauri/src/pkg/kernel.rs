@@ -555,6 +555,82 @@ impl Kernel {
         Ok(())
     }
 
+    /// Discover pkgs that exist on disk under `pkgs_dir()` but aren't yet
+    /// tracked in `pkg_installed`. Used to pick up CLI-installed pkgs the
+    /// user dropped in while the shell was offline — same pattern as
+    /// `install_builtins`, but scans the runtime data dir and records the
+    /// source as `Local` (the CLI doesn't currently write provenance to
+    /// disk; a future `.source.json` sidecar would let this stamp
+    /// `Registry { url }` instead).
+    ///
+    /// Idempotent — re-running on an already-tracked install path is a no-op.
+    /// Failures on individual entries log and continue.
+    pub fn install_from_pkgs_dir(&self) -> Result<()> {
+        let dir = self.pkgs_dir()?;
+        if !dir.is_dir() {
+            return Ok(());
+        }
+        let entries = std::fs::read_dir(&dir)
+            .with_context(|| format!("read {}", dir.display()))?;
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+            // Skip the installer's own staging/backup directories.
+            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                if name.starts_with('.') {
+                    continue;
+                }
+            }
+            let manifest_path = path.join("manifest.json");
+            if !manifest_path.exists() {
+                continue;
+            }
+            // Cheap pre-read of the id; skip if already-installed (the
+            // path-equal replay inside install_from_path is also idempotent,
+            // but checking here avoids re-reading the full manifest).
+            let id_opt = std::fs::read_to_string(&manifest_path)
+                .ok()
+                .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+                .and_then(|v| v.get("id").and_then(|s| s.as_str().map(String::from)));
+            let id = match id_opt {
+                Some(id) => id,
+                None => {
+                    log::warn!(
+                        "[pkg_kernel] pkgs-dir entry at {} has no id — skipping",
+                        path.display()
+                    );
+                    continue;
+                }
+            };
+            let already_installed = self
+                .installed
+                .read()
+                .map(|g| g.contains_key(&id))
+                .unwrap_or(false);
+            if already_installed {
+                log::debug!(
+                    "[pkg_kernel] pkgs-dir entry `{id}` already tracked — skipping"
+                );
+                continue;
+            }
+            let path_str = path.display().to_string();
+            match self.install_from_path(&path, InstallSource::Local { path: path_str }) {
+                Ok(s) => log::info!(
+                    "[pkg_kernel] discovered pkgs-dir pkg `{}` v{} (CLI install)",
+                    s.id,
+                    s.version
+                ),
+                Err(e) => log::warn!(
+                    "[pkg_kernel] register pkgs-dir entry at {} failed (continuing): {e:#}",
+                    path.display()
+                ),
+            }
+        }
+        Ok(())
+    }
+
     /// Boot-time replay: read every enabled `pkg_installed` row, reconstruct
     /// the Package from disk, and replay register against every registry. A
     /// package whose `install_path` is missing or whose manifest no longer

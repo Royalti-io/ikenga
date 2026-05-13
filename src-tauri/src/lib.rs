@@ -210,6 +210,7 @@ pub fn run() {
             // runs outside any tokio runtime.
             let iyke_state = Arc::new(IykeState::new());
             let iyke_rpc = IykeRpc::new();
+            let browser_rpc = iyke::BrowserRpc::new();
             let local_data_dir = app
                 .path()
                 .app_local_data_dir()
@@ -221,8 +222,16 @@ pub fn run() {
             // kernel further down — register/unregister mutate it live.
             let iyke_routes_reg = Arc::new(pkg::registries::IykeRoutesRegistry::new());
 
+            // Webview-panes registry: tracks pkg-owned child webviews; cleanup
+            // runs on uninstall so pkgs can't leave orphan browser surfaces
+            // behind. Constructed before iyke::start so the pkg-browser HTTP
+            // bridge handlers can hold an Arc to it via an Extension layer.
+            let webview_panes_reg = Arc::new(pkg::webview::WebviewPanesRegistry::new());
+
             let iyke_state_for_start = iyke_state.clone();
             let iyke_rpc_for_start = iyke_rpc.clone();
+            let browser_rpc_for_start = browser_rpc.clone();
+            let webview_panes_for_start = webview_panes_reg.clone();
             let app_handle_for_iyke = app.handle().clone();
             let pending_for_iyke = screenshot_pending.clone();
             let iyke_routes_for_start = iyke_routes_reg.clone();
@@ -230,6 +239,8 @@ pub fn run() {
                 iyke::start(
                     iyke_state_for_start,
                     iyke_rpc_for_start,
+                    browser_rpc_for_start,
+                    webview_panes_for_start,
                     control_path,
                     app_handle_for_iyke,
                     pending_for_iyke,
@@ -241,6 +252,7 @@ pub fn run() {
 
             app.manage(iyke_state);
             app.manage(iyke_rpc);
+            app.manage(browser_rpc);
             let runtime_state: IykeRuntimeState = Arc::new(Mutex::new(Some(runtime)));
             app.manage(runtime_state);
 
@@ -261,10 +273,10 @@ pub fn run() {
             let claude_assets_reg = Arc::new(pkg::registries::ClaudeAssetsRegistry::new());
             let mcp_reg = Arc::new(pkg::registries::McpRegistry::new());
             let queries_reg = Arc::new(pkg::registries::QueriesRegistry::new());
-            // Webview-panes: tracks pkg-owned child webviews; cleanup runs on
-            // uninstall so pkgs can't leave orphan browser surfaces behind.
-            // Cookie partitions on disk survive (re-install picks up logins).
-            let webview_panes_reg = Arc::new(pkg::webview::WebviewPanesRegistry::new());
+            // `webview_panes_reg` was already constructed above (before iyke::start)
+            // so the HTTP bridge handlers can hold an Arc to it. It also feeds the
+            // kernel registry list further down — same Arc, so cookie-partition
+            // cleanup on uninstall still flows through `Registry::unregister`.
             // Sidecar supervisor: itself a Registry, owns long-lived MCP
             // children for any pkg with `mcp[].lifecycle = "long-lived"`.
             // Held separately as an Arc so `pkg_mcp_call` can dispatch to it
@@ -355,6 +367,13 @@ pub fn run() {
                     }
                 }
                 None => log::info!("[pkg_kernel] no builtin-pkgs/ found in resource_dir or CARGO_MANIFEST_DIR/resources"),
+            }
+            // Pick up pkgs that landed in <app_data_dir>/pkgs/ while the shell
+            // was offline — typically CLI-installed pkgs (`ikenga add ...`).
+            // Idempotent: already-tracked entries are skipped. Runs after the
+            // boot replay + builtin install so it only sees genuinely new dirs.
+            if let Err(e) = kernel.install_from_pkgs_dir() {
+                log::warn!("[pkg_kernel] pkgs-dir discovery failed (continuing): {e:#}");
             }
             app.manage(KernelState(kernel));
             app.manage(PkgSettingsState(settings_reg));
