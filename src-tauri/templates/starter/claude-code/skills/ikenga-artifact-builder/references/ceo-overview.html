@@ -11,7 +11,7 @@
       - kpis           (supabase, interval 1h)         — exec-level numbers
       - agent_runs     (mcp,      interval 5m)         — recent agent diary entries
       - notifications  (sql,      manual)              — unread items
-      - recent_docs    (file,     watch)               — .company/ edits
+      - recent_docs    (file,     watch)               — notes/ edits
       - calendar       (mcp,      interval 15m)        — today + upcoming
       - team_signals   (fetch,    interval 30m)        — channel activity
     Tests narrative + structured signals + cross-links between artifacts.
@@ -61,7 +61,7 @@
       },
       "team_signals": {
         "type": "fetch",
-        "url": "https://api.royalti.io/internal/mattermost/digest",
+        "url": "https://api.example.com/internal/digest",
         "refresh": { "mode": "interval", "every": "30m" }
       }
     },
@@ -85,7 +85,7 @@
       "open_issues": 8, "open_issues_critical": 2
     },
     "agent_runs": [
-      { "id": "r1", "agent": "rex", "cycle": "342", "status": "success",
+      { "id": "r1", "agent": "research-bot", "cycle": "342", "status": "success",
         "topic": "weekly-pipeline-review", "action": "analyzed-deals",
         "result": "3 deals stuck in negotiation > 14 days",
         "severity": "info", "ts": "2026-05-10T13:42:00Z",
@@ -106,29 +106,29 @@
         "result": "1 P0 ticket opened: DDEX delivery 422 errors",
         "severity": "critical", "ts": "2026-05-10T07:34:00Z",
         "followup": "@oncall paged" },
-      { "id": "r5", "agent": "rex", "cycle": "341", "status": "success",
+      { "id": "r5", "agent": "research-bot", "cycle": "341", "status": "success",
         "topic": "investor-prep", "action": "drafted-update",
         "result": "May investor letter ready for review",
         "severity": "info", "ts": "2026-05-09T22:00:00Z",
         "followup": "review by EOD Tue" }
     ],
     "notifications": [
-      { "id": 1, "type": "mention", "from": "Sarah K.",  "subject": "Need your call on Q3 budget assumptions", "ts": "2026-05-10T14:22:00Z" },
+      { "id": 1, "type": "mention", "from": "Jamie",     "subject": "Need your call on Q3 budget assumptions", "ts": "2026-05-10T14:22:00Z" },
       { "id": 2, "type": "system",  "from": "DDEX",      "subject": "12 releases delivered to Spotify", "ts": "2026-05-10T13:00:00Z" },
-      { "id": 3, "type": "mention", "from": "Tom",       "subject": "Reviewed the migration plan — 2 questions inline", "ts": "2026-05-10T10:18:00Z" },
+      { "id": 3, "type": "mention", "from": "Casey",     "subject": "Reviewed the migration plan — 2 questions inline", "ts": "2026-05-10T10:18:00Z" },
       { "id": 4, "type": "system",  "from": "Cron",      "subject": "Nightly accounting refresh: success (3.4s)", "ts": "2026-05-10T08:00:00Z" }
     ],
     "recent_docs": [
-      { "path": ".company/strategy/q3-okrs-draft.md",       "title": "Q3 OKRs draft",            "author": "Ned",      "edited_at": "2026-05-10T15:30:00Z" },
-      { "path": ".company/strategy/may-investor-update.md", "title": "May investor update",      "author": "rex",      "edited_at": "2026-05-09T22:05:00Z" },
-      { "path": ".company/research/competitor-analysis.md", "title": "Competitor analysis 2026", "author": "Sarah K.", "edited_at": "2026-05-10T11:45:00Z" },
-      { "path": ".company/technical/plans/2026-05-10-ikenga-artifacts.md", "title": "Ikenga artifacts plan", "author": "Ned", "edited_at": "2026-05-10T16:10:00Z" }
+      { "path": "notes/strategy/q3-okrs-draft.md",       "title": "Q3 OKRs draft",            "author": "Alex",         "edited_at": "2026-05-10T15:30:00Z" },
+      { "path": "notes/strategy/may-investor-update.md", "title": "May investor update",      "author": "research-bot", "edited_at": "2026-05-09T22:05:00Z" },
+      { "path": "notes/research/competitor-analysis.md", "title": "Competitor analysis 2026", "author": "Jamie",        "edited_at": "2026-05-10T11:45:00Z" },
+      { "path": "notes/plans/2026-05-10-artifacts.md",   "title": "Artifacts plan",           "author": "Alex",         "edited_at": "2026-05-10T16:10:00Z" }
     ],
     "calendar": [
-      { "id": "e1", "title": "Board prep — May",       "start": "2026-05-10T16:00:00Z", "duration_min": 60, "attendees": ["Ned", "Sarah K.", "Tom"], "location": "Virtual" },
-      { "id": "e2", "title": "DDEX P0 standup",        "start": "2026-05-10T17:30:00Z", "duration_min": 15, "attendees": ["Ned", "oncall"],          "location": "Virtual" },
-      { "id": "e3", "title": "Investor update call",   "start": "2026-05-11T14:00:00Z", "duration_min": 45, "attendees": ["Ned", "Lisa (Acme VC)"],  "location": "Virtual" },
-      { "id": "e4", "title": "Engineering 1:1 — Tom",  "start": "2026-05-11T16:00:00Z", "duration_min": 30, "attendees": ["Ned", "Tom"] }
+      { "id": "e1", "title": "Board prep — May",        "start": "2026-05-10T16:00:00Z", "duration_min": 60, "attendees": ["Alex", "Jamie", "Casey"], "location": "Virtual" },
+      { "id": "e2", "title": "DDEX P0 standup",         "start": "2026-05-10T17:30:00Z", "duration_min": 15, "attendees": ["Alex", "oncall"],          "location": "Virtual" },
+      { "id": "e3", "title": "Investor update call",    "start": "2026-05-11T14:00:00Z", "duration_min": 45, "attendees": ["Alex", "Lisa (Acme VC)"],  "location": "Virtual" },
+      { "id": "e4", "title": "Engineering 1:1 — Casey", "start": "2026-05-11T16:00:00Z", "duration_min": 30, "attendees": ["Alex", "Casey"] }
     ],
     "team_signals": {
       "active_users": 14, "total_users": 18,
@@ -494,7 +494,7 @@
                 <section className="rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900">
                   <div className="flex items-baseline justify-between p-4 pb-3 border-b border-neutral-200 dark:border-neutral-800">
                     <h2 className="font-semibold">Recent docs</h2>
-                    <span className="text-xs text-neutral-500">.company/</span>
+                    <span className="text-xs text-neutral-500">notes/</span>
                   </div>
                   <ul className="divide-y divide-neutral-100 dark:divide-neutral-800/60">
                     {(docs || []).map((d) => <DocRow key={d.path} d={d} />)}

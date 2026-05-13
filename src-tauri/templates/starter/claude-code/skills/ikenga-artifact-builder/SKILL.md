@@ -232,7 +232,7 @@ Read-only. Bind parameters via `params`. Outside Ikenga: mock.
 ```json
 {
   "type": "fetch",
-  "url": "https://api.royalti.io/fx/today",
+  "url": "https://api.example.com/fx/today",
   "method": "GET",
   "headers": {},
   "refresh": { "mode": "interval", "every": "1h" }
