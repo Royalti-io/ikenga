@@ -34,6 +34,7 @@ import { Route as OnboardingIndexRouteImport } from './routes/onboarding/index'
 import { Route as ClaudeIndexRouteImport } from './routes/claude/index'
 import { Route as SettingsTelemetryRouteImport } from './routes/settings/telemetry'
 import { Route as SettingsStorageRouteImport } from './routes/settings/storage'
+import { Route as SettingsSecretsRouteImport } from './routes/settings/secrets'
 import { Route as SettingsProjectsRouteImport } from './routes/settings/projects'
 import { Route as SettingsPackagesRouteImport } from './routes/settings/packages'
 import { Route as SettingsOnboardingRouteImport } from './routes/settings/onboarding'
@@ -188,6 +189,11 @@ const SettingsTelemetryRoute = SettingsTelemetryRouteImport.update({
 const SettingsStorageRoute = SettingsStorageRouteImport.update({
   id: '/storage',
   path: '/storage',
+  getParentRoute: () => SettingsRouteRoute,
+} as any)
+const SettingsSecretsRoute = SettingsSecretsRouteImport.update({
+  id: '/secrets',
+  path: '/secrets',
   getParentRoute: () => SettingsRouteRoute,
 } as any)
 const SettingsProjectsRoute = SettingsProjectsRouteImport.update({
@@ -385,6 +391,7 @@ export interface FileRoutesByFullPath {
   '/settings/onboarding': typeof SettingsOnboardingRoute
   '/settings/packages': typeof SettingsPackagesRoute
   '/settings/projects': typeof SettingsProjectsRoute
+  '/settings/secrets': typeof SettingsSecretsRoute
   '/settings/storage': typeof SettingsStorageRoute
   '/settings/telemetry': typeof SettingsTelemetryRoute
   '/claude/': typeof ClaudeIndexRoute
@@ -437,6 +444,7 @@ export interface FileRoutesByTo {
   '/settings/onboarding': typeof SettingsOnboardingRoute
   '/settings/packages': typeof SettingsPackagesRoute
   '/settings/projects': typeof SettingsProjectsRoute
+  '/settings/secrets': typeof SettingsSecretsRoute
   '/settings/storage': typeof SettingsStorageRoute
   '/settings/telemetry': typeof SettingsTelemetryRoute
   '/claude': typeof ClaudeIndexRoute
@@ -495,6 +503,7 @@ export interface FileRoutesById {
   '/settings/onboarding': typeof SettingsOnboardingRoute
   '/settings/packages': typeof SettingsPackagesRoute
   '/settings/projects': typeof SettingsProjectsRoute
+  '/settings/secrets': typeof SettingsSecretsRoute
   '/settings/storage': typeof SettingsStorageRoute
   '/settings/telemetry': typeof SettingsTelemetryRoute
   '/claude/': typeof ClaudeIndexRoute
@@ -554,6 +563,7 @@ export interface FileRouteTypes {
     | '/settings/onboarding'
     | '/settings/packages'
     | '/settings/projects'
+    | '/settings/secrets'
     | '/settings/storage'
     | '/settings/telemetry'
     | '/claude/'
@@ -606,6 +616,7 @@ export interface FileRouteTypes {
     | '/settings/onboarding'
     | '/settings/packages'
     | '/settings/projects'
+    | '/settings/secrets'
     | '/settings/storage'
     | '/settings/telemetry'
     | '/claude'
@@ -663,6 +674,7 @@ export interface FileRouteTypes {
     | '/settings/onboarding'
     | '/settings/packages'
     | '/settings/projects'
+    | '/settings/secrets'
     | '/settings/storage'
     | '/settings/telemetry'
     | '/claude/'
@@ -876,6 +888,13 @@ declare module '@tanstack/react-router' {
       path: '/storage'
       fullPath: '/settings/storage'
       preLoaderRoute: typeof SettingsStorageRouteImport
+      parentRoute: typeof SettingsRouteRoute
+    }
+    '/settings/secrets': {
+      id: '/settings/secrets'
+      path: '/secrets'
+      fullPath: '/settings/secrets'
+      preLoaderRoute: typeof SettingsSecretsRouteImport
       parentRoute: typeof SettingsRouteRoute
     }
     '/settings/projects': {
@@ -1172,6 +1191,7 @@ interface SettingsRouteRouteChildren {
   SettingsOnboardingRoute: typeof SettingsOnboardingRoute
   SettingsPackagesRoute: typeof SettingsPackagesRoute
   SettingsProjectsRoute: typeof SettingsProjectsRoute
+  SettingsSecretsRoute: typeof SettingsSecretsRoute
   SettingsStorageRoute: typeof SettingsStorageRoute
   SettingsTelemetryRoute: typeof SettingsTelemetryRoute
   SettingsIndexRoute: typeof SettingsIndexRoute
@@ -1186,6 +1206,7 @@ const SettingsRouteRouteChildren: SettingsRouteRouteChildren = {
   SettingsOnboardingRoute: SettingsOnboardingRoute,
   SettingsPackagesRoute: SettingsPackagesRoute,
   SettingsProjectsRoute: SettingsProjectsRoute,
+  SettingsSecretsRoute: SettingsSecretsRoute,
   SettingsStorageRoute: SettingsStorageRoute,
   SettingsTelemetryRoute: SettingsTelemetryRoute,
   SettingsIndexRoute: SettingsIndexRoute,

@@ -24,7 +24,7 @@ use std::sync::Arc;
 use serde::Serialize;
 use tauri::{AppHandle, State};
 
-use crate::commands::secrets::{read_secret, SecretsLock};
+use crate::commands::secrets::{read_secret_scoped, Scope, SecretsLock};
 use crate::pkg_content::PkgContentServer;
 
 pub struct PkgContentState(pub Arc<PkgContentServer>);
@@ -83,20 +83,35 @@ pub async fn pkg_content_html(
     let supabase = match server.0.supabase_capability(&pkg_id) {
         None => None,
         Some(required) => {
-            let url = read_secret(&app, &secrets_lock, "VITE_SUPABASE_URL")
-                .unwrap_or_else(|e| {
-                    log::warn!("[pkg_content] vault read VITE_SUPABASE_URL failed: {e}");
-                    None
-                });
-            let anon = read_secret(&app, &secrets_lock, "VITE_SUPABASE_ANON_KEY")
-                .unwrap_or_else(|e| {
-                    log::warn!("[pkg_content] vault read VITE_SUPABASE_ANON_KEY failed: {e}");
-                    None
-                });
+            // Phase 7: shared Supabase keys live at Workspace scope.
+            // read_secret_scoped falls through to the legacy unscoped key
+            // when the scoped row is missing — so user vaults populated
+            // before Phase 7 keep working.
+            let url = read_secret_scoped(
+                &app,
+                &secrets_lock,
+                &Scope::Workspace,
+                "VITE_SUPABASE_URL",
+            )
+            .unwrap_or_else(|e| {
+                log::warn!("[pkg_content] vault read VITE_SUPABASE_URL failed: {e}");
+                None
+            });
+            let anon = read_secret_scoped(
+                &app,
+                &secrets_lock,
+                &Scope::Workspace,
+                "VITE_SUPABASE_ANON_KEY",
+            )
+            .unwrap_or_else(|e| {
+                log::warn!("[pkg_content] vault read VITE_SUPABASE_ANON_KEY failed: {e}");
+                None
+            });
             match (url, anon) {
-                (Some(u), Some(k)) if !u.is_empty() && !k.is_empty() => {
-                    Some(SupabaseHostConfig { url: u, anon_key: k })
-                }
+                (Some(u), Some(k)) if !u.is_empty() && !k.is_empty() => Some(SupabaseHostConfig {
+                    url: u,
+                    anon_key: k,
+                }),
                 _ => {
                     if required {
                         return Err(format!(
@@ -121,10 +136,7 @@ pub async fn pkg_content_html(
 }
 
 #[tauri::command]
-pub fn pkg_content_revoke(
-    server: State<'_, PkgContentState>,
-    token: String,
-) -> Result<(), String> {
+pub fn pkg_content_revoke(server: State<'_, PkgContentState>, token: String) -> Result<(), String> {
     server.0.revoke(&token);
     Ok(())
 }

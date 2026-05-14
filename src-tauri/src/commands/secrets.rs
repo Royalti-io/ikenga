@@ -41,6 +41,11 @@ use crate::vault_key;
 
 const CLIENT_NAME: &[u8] = b"pa";
 const MANIFEST_KEY: &[u8] = b"__manifest";
+/// Phase 7 — scope-tagged manifest. Stored alongside `__manifest` so legacy
+/// readers (anything tracking unscoped names) keep working during the
+/// deprecation window. Values are fully-qualified scoped names —
+/// `workspace::KEY`, `project::<id>::KEY`, `pkg::<id>::KEY`.
+const MANIFEST_V2_KEY: &[u8] = b"__manifest_v2";
 
 /// App-managed cache + serialization lock for Stronghold. The wrapped
 /// `Stronghold` instance is opened lazily on first use (or eagerly during
@@ -92,9 +97,7 @@ fn ensure_open<R: Runtime>(
     // (no-op if the in-memory map already has it — shouldn't on a fresh
     // instance, but cheap), then `load_client` (snapshot → memory), and only
     // `create_client` when the snapshot has no such client at all.
-    if stronghold.get_client(CLIENT_NAME).is_err()
-        && stronghold.load_client(CLIENT_NAME).is_err()
-    {
+    if stronghold.get_client(CLIENT_NAME).is_err() && stronghold.load_client(CLIENT_NAME).is_err() {
         stronghold
             .create_client(CLIENT_NAME)
             .map_err(|e| format!("stronghold create_client: {e}"))?;
@@ -115,7 +118,9 @@ fn with_stronghold<R: Runtime, F, T>(
 where
     F: FnOnce(&Stronghold) -> Result<T, String>,
 {
-    let mut guard = state.lock().map_err(|e| format!("secrets lock poisoned: {e}"))?;
+    let mut guard = state
+        .lock()
+        .map_err(|e| format!("secrets lock poisoned: {e}"))?;
     ensure_open(app, &mut guard)?;
     let sh = guard.as_ref().expect("ensure_open populated the slot");
     let result = f(sh)?;
@@ -125,6 +130,74 @@ where
         }
     }
     Ok(result)
+}
+
+// ─── Phase 7: vault scope partitioning ──────────────────────────────────
+//
+// Vault keys are namespaced by Scope to keep secrets from leaking across
+// projects / pkgs. The on-disk Stronghold remains one snapshot — the
+// namespacing is at the key-name level. Existing un-namespaced keys
+// continue to work via the legacy fallback path on read.
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Scope {
+    /// Workspace-level — intentionally cross-project (rare, e.g. shared
+    /// connector tokens).
+    Workspace,
+    /// Project-level — defaults for new secrets are this scope with the
+    /// active project's id.
+    Project { id: String },
+    /// Pkg-level — pkg-supplied capability resolvers default here, with
+    /// the pkg's own id.
+    Pkg { id: String },
+}
+
+impl Scope {
+    pub fn project(id: impl Into<String>) -> Self {
+        Self::Project { id: id.into() }
+    }
+    pub fn pkg(id: impl Into<String>) -> Self {
+        Self::Pkg { id: id.into() }
+    }
+}
+
+/// Fully-qualify a key under a scope. Used by every scoped read/write
+/// against Stronghold. The result is the literal key stored in the vault.
+pub fn vault_key(scope: &Scope, key: &str) -> String {
+    match scope {
+        Scope::Workspace => format!("workspace::{key}"),
+        Scope::Project { id } => format!("project::{id}::{key}"),
+        Scope::Pkg { id } => format!("pkg::{id}::{key}"),
+    }
+}
+
+/// Parse a fully-qualified vault entry back into `(scope, key)`. Returns
+/// `None` for legacy unscoped entries (no `::` prefix matching a known
+/// scope). Used by the Settings UI and the dump-resolver to walk the
+/// namespace without re-parsing strings repeatedly.
+pub fn parse_scoped(fqk: &str) -> Option<(Scope, String)> {
+    if let Some(rest) = fqk.strip_prefix("workspace::") {
+        return Some((Scope::Workspace, rest.to_string()));
+    }
+    if let Some(rest) = fqk.strip_prefix("project::") {
+        // project::<id>::<key>
+        if let Some((id, key)) = rest.split_once("::") {
+            if !id.is_empty() && !key.is_empty() {
+                return Some((Scope::project(id), key.to_string()));
+            }
+        }
+        return None;
+    }
+    if let Some(rest) = fqk.strip_prefix("pkg::") {
+        if let Some((id, key)) = rest.split_once("::") {
+            if !id.is_empty() && !key.is_empty() {
+                return Some((Scope::pkg(id), key.to_string()));
+            }
+        }
+        return None;
+    }
+    None
 }
 
 fn read_manifest(stronghold: &Stronghold) -> Result<BTreeSet<String>, String> {
@@ -154,6 +227,37 @@ fn write_manifest(stronghold: &Stronghold, keys: &BTreeSet<String>) -> Result<()
     store
         .insert(MANIFEST_KEY.to_vec(), json.into_bytes(), None)
         .map_err(|e| format!("manifest insert: {e}"))?;
+    Ok(())
+}
+
+/// Read the v2 (scoped) manifest. Returns fully-qualified names.
+fn read_manifest_v2(stronghold: &Stronghold) -> Result<BTreeSet<String>, String> {
+    let client = stronghold
+        .get_client(CLIENT_NAME)
+        .map_err(|e| format!("get_client: {e}"))?;
+    let store = client.store();
+    match store.get(MANIFEST_V2_KEY) {
+        Ok(Some(bytes)) => {
+            let s = String::from_utf8(bytes).map_err(|e| format!("manifest_v2 utf8: {e}"))?;
+            let v: Vec<String> =
+                serde_json::from_str(&s).map_err(|e| format!("manifest_v2 json: {e}"))?;
+            Ok(v.into_iter().collect())
+        }
+        Ok(None) => Ok(BTreeSet::new()),
+        Err(e) => Err(format!("manifest_v2 get: {e}")),
+    }
+}
+
+fn write_manifest_v2(stronghold: &Stronghold, keys: &BTreeSet<String>) -> Result<(), String> {
+    let client = stronghold
+        .get_client(CLIENT_NAME)
+        .map_err(|e| format!("get_client: {e}"))?;
+    let store = client.store();
+    let v: Vec<&String> = keys.iter().collect();
+    let json = serde_json::to_string(&v).map_err(|e| format!("manifest_v2 serialize: {e}"))?;
+    store
+        .insert(MANIFEST_V2_KEY.to_vec(), json.into_bytes(), None)
+        .map_err(|e| format!("manifest_v2 insert: {e}"))?;
     Ok(())
 }
 
@@ -347,6 +451,333 @@ pub fn read_secret(
     })
 }
 
+// ─── Scope-aware variants (Phase 7) ──────────────────────────────────────────
+
+/// Scoped read with legacy fallback. Resolution order:
+///   1. `vault_key(scope, key)` — the new partitioned key.
+///   2. The literal `key` — legacy unscoped value, deprecation-warned on
+///      first hit per process.
+/// Returns `None` only when neither exists.
+pub fn read_secret_scoped(
+    app: &AppHandle,
+    lock: &SecretsLock,
+    scope: &Scope,
+    key: &str,
+) -> Result<Option<String>, String> {
+    if key.as_bytes() == MANIFEST_KEY || key.as_bytes() == MANIFEST_V2_KEY {
+        return Ok(None);
+    }
+    with_stronghold(app, &lock.0, false, |sh| {
+        let client = sh
+            .get_client(CLIENT_NAME)
+            .map_err(|e| format!("get_client: {e}"))?;
+        let store = client.store();
+        let scoped = vault_key(scope, key);
+        match store.get(scoped.as_bytes()) {
+            Ok(Some(bytes)) => {
+                let s = String::from_utf8(bytes).map_err(|e| format!("utf8: {e}"))?;
+                return Ok(Some(s));
+            }
+            Ok(None) => {}
+            Err(e) => return Err(format!("scoped get: {e}")),
+        }
+        match store.get(key.as_bytes()) {
+            Ok(Some(bytes)) => {
+                let s = String::from_utf8(bytes).map_err(|e| format!("utf8: {e}"))?;
+                log::warn!(
+                    "vault: legacy unscoped key `{key}` read (deprecation: migrate to `{scoped}`)"
+                );
+                Ok(Some(s))
+            }
+            Ok(None) => Ok(None),
+            Err(e) => Err(format!("legacy get: {e}")),
+        }
+    })
+}
+
+pub fn scoped_set_locked_pub(
+    app: &AppHandle,
+    lock: &SecretsLock,
+    scope: &Scope,
+    key: &str,
+    value: &str,
+) -> Result<(), String> {
+    scoped_set_locked(app, &lock.0, scope, key, value)?;
+    let _ = dump_to_runtime_file_locked(app, &lock.0);
+    Ok(())
+}
+
+pub fn scoped_delete_locked_pub(
+    app: &AppHandle,
+    lock: &SecretsLock,
+    scope: &Scope,
+    key: &str,
+) -> Result<(), String> {
+    scoped_delete_locked(app, &lock.0, scope, key)?;
+    let _ = dump_to_runtime_file_locked(app, &lock.0);
+    Ok(())
+}
+
+// ─── Manifest vault.keys glob parsing (Phase 7) ─────────────────────────
+//
+// Pkgs declare which secrets they're allowed to read via
+// `permissions.vault.keys` — a list of key-name globs. Phase 7 extends
+// the syntax: a bare entry binds to the pkg's own scope; an explicit
+// `scope=<workspace|project>:` prefix declares a cross-scope grant.
+//
+// Examples:
+//   "MY_API_KEY"                  → matches  pkg::<this-pkg>::MY_API_KEY
+//   "scope=workspace:SHARED_KEY"  → matches  workspace::SHARED_KEY
+//   "scope=project:STRIPE_KEY"    → matches  project::<active>::STRIPE_KEY
+//
+// `*` and `?` are glob wildcards. We use a small in-house matcher rather
+// than pulling in a crate.
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum VaultKeyPatternScope {
+    Pkg,       // default — bind to the requesting pkg's own scope
+    Workspace, // cross-scope: read from workspace
+    Project,   // cross-scope: read from the active project
+}
+
+#[derive(Debug, Clone)]
+pub struct VaultKeyPattern {
+    pub scope: VaultKeyPatternScope,
+    pub glob: String, // bare key glob (no scope prefix)
+}
+
+pub fn parse_vault_key_pattern(pattern: &str) -> VaultKeyPattern {
+    if let Some(rest) = pattern.strip_prefix("scope=workspace:") {
+        VaultKeyPattern {
+            scope: VaultKeyPatternScope::Workspace,
+            glob: rest.to_string(),
+        }
+    } else if let Some(rest) = pattern.strip_prefix("scope=project:") {
+        VaultKeyPattern {
+            scope: VaultKeyPatternScope::Project,
+            glob: rest.to_string(),
+        }
+    } else {
+        VaultKeyPattern {
+            scope: VaultKeyPatternScope::Pkg,
+            glob: pattern.to_string(),
+        }
+    }
+}
+
+/// Minimal glob match — supports `*` (any sequence) and `?` (one char).
+/// `[]` character classes and `**` are intentionally out of scope; the
+/// vault key namespace is flat and short.
+pub fn glob_match(glob: &str, name: &str) -> bool {
+    let gb = glob.as_bytes();
+    let nb = name.as_bytes();
+    fn rec(g: &[u8], n: &[u8]) -> bool {
+        if g.is_empty() {
+            return n.is_empty();
+        }
+        match g[0] {
+            b'*' => {
+                // Greedy: try matching zero or more chars.
+                let rest = &g[1..];
+                let mut i = 0;
+                loop {
+                    if rec(rest, &n[i..]) {
+                        return true;
+                    }
+                    if i == n.len() {
+                        return false;
+                    }
+                    i += 1;
+                }
+            }
+            b'?' => !n.is_empty() && rec(&g[1..], &n[1..]),
+            c => !n.is_empty() && n[0] == c && rec(&g[1..], &n[1..]),
+        }
+    }
+    rec(gb, nb)
+}
+
+/// Read a secret on behalf of a pkg, enforcing its declared
+/// `permissions.vault.keys` globs. Returns `Err` when no declared
+/// pattern matches `key` in any allowed scope. Returns `Ok(None)` when
+/// a pattern matched but the value is absent in the vault.
+///
+/// `active_project_id` is the resolved project to use for project-scoped
+/// patterns. Pass the pkg's own project_id when the pkg is project-scoped,
+/// otherwise the currently-active project.
+pub fn read_secret_for_pkg(
+    app: &AppHandle,
+    lock: &SecretsLock,
+    pkg_id: &str,
+    declared: &[String],
+    key: &str,
+    active_project_id: &str,
+) -> Result<Option<String>, String> {
+    // Walk every declared pattern; the first whose glob matches `key`
+    // gets to do the read against its resolved scope.
+    for raw in declared {
+        let pat = parse_vault_key_pattern(raw);
+        if !glob_match(&pat.glob, key) {
+            continue;
+        }
+        let scope = match pat.scope {
+            VaultKeyPatternScope::Pkg => Scope::pkg(pkg_id),
+            VaultKeyPatternScope::Workspace => Scope::Workspace,
+            VaultKeyPatternScope::Project => Scope::project(active_project_id),
+        };
+        return read_secret_scoped(app, lock, &scope, key);
+    }
+    Err(format!(
+        "pkg `{pkg_id}` not permitted to read vault key `{key}` (no matching vault.keys pattern)"
+    ))
+}
+
+pub fn scoped_list_locked_pub(
+    app: &AppHandle,
+    lock: &SecretsLock,
+    scope: &Scope,
+) -> Result<Vec<String>, String> {
+    scoped_list_locked(app, &lock.0, scope)
+}
+
+fn scoped_set_locked(
+    app: &AppHandle,
+    state: &Arc<Mutex<Option<Stronghold>>>,
+    scope: &Scope,
+    key: &str,
+    value: &str,
+) -> Result<(), String> {
+    if key.as_bytes() == MANIFEST_KEY || key.as_bytes() == MANIFEST_V2_KEY || key.is_empty() {
+        return Err("invalid key".into());
+    }
+    with_stronghold(app, state, true, |sh| {
+        let client = sh
+            .get_client(CLIENT_NAME)
+            .map_err(|e| format!("get_client: {e}"))?;
+        let store = client.store();
+        let scoped = vault_key(scope, key);
+        store
+            .insert(scoped.as_bytes().to_vec(), value.as_bytes().to_vec(), None)
+            .map_err(|e| format!("store insert: {e}"))?;
+        let mut m2 = read_manifest_v2(sh)?;
+        m2.insert(scoped);
+        write_manifest_v2(sh, &m2)?;
+        Ok(())
+    })
+}
+
+fn scoped_delete_locked(
+    app: &AppHandle,
+    state: &Arc<Mutex<Option<Stronghold>>>,
+    scope: &Scope,
+    key: &str,
+) -> Result<(), String> {
+    if key.as_bytes() == MANIFEST_KEY || key.as_bytes() == MANIFEST_V2_KEY {
+        return Err("invalid key".into());
+    }
+    with_stronghold(app, state, true, |sh| {
+        let client = sh
+            .get_client(CLIENT_NAME)
+            .map_err(|e| format!("get_client: {e}"))?;
+        let store = client.store();
+        let scoped = vault_key(scope, key);
+        store
+            .delete(scoped.as_bytes())
+            .map_err(|e| format!("store delete: {e}"))?;
+        let mut m2 = read_manifest_v2(sh)?;
+        m2.remove(&scoped);
+        write_manifest_v2(sh, &m2)?;
+        Ok(())
+    })
+}
+
+fn scoped_list_locked(
+    app: &AppHandle,
+    state: &Arc<Mutex<Option<Stronghold>>>,
+    scope: &Scope,
+) -> Result<Vec<String>, String> {
+    with_stronghold(app, state, false, |sh| {
+        let m2 = read_manifest_v2(sh)?;
+        let mut out: Vec<String> = Vec::new();
+        for fqk in m2 {
+            if let Some((sc, key)) = parse_scoped(&fqk) {
+                if &sc == scope {
+                    out.push(key);
+                }
+            }
+        }
+        out.sort();
+        Ok(out)
+    })
+}
+
+#[tauri::command]
+pub async fn secrets_get_scoped(
+    app: AppHandle,
+    lock: State<'_, SecretsLock>,
+    scope: Scope,
+    key: String,
+) -> Result<Option<String>, String> {
+    let state = lock.0.clone();
+    tokio::task::spawn_blocking(move || {
+        // SecretsLock isn't State<>-shaped here; reconstruct a transient
+        // one so we can reuse the public read_secret_scoped helper.
+        let l = SecretsLock(state);
+        read_secret_scoped(&app, &l, &scope, &key)
+    })
+    .await
+    .map_err(|e| format!("join: {e}"))?
+}
+
+#[tauri::command]
+pub async fn secrets_set_scoped(
+    app: AppHandle,
+    lock: State<'_, SecretsLock>,
+    scope: Scope,
+    key: String,
+    value: String,
+) -> Result<(), String> {
+    let state = lock.0.clone();
+    let app_for_dump = app.clone();
+    tokio::task::spawn_blocking(move || -> Result<(), String> {
+        scoped_set_locked(&app, &state, &scope, &key, &value)?;
+        let _ = dump_to_runtime_file_locked(&app_for_dump, &state);
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("join: {e}"))?
+}
+
+#[tauri::command]
+pub async fn secrets_delete_scoped(
+    app: AppHandle,
+    lock: State<'_, SecretsLock>,
+    scope: Scope,
+    key: String,
+) -> Result<(), String> {
+    let state = lock.0.clone();
+    let app_for_dump = app.clone();
+    tokio::task::spawn_blocking(move || -> Result<(), String> {
+        scoped_delete_locked(&app, &state, &scope, &key)?;
+        let _ = dump_to_runtime_file_locked(&app_for_dump, &state);
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("join: {e}"))?
+}
+
+#[tauri::command]
+pub async fn secrets_list_keys_scoped(
+    app: AppHandle,
+    lock: State<'_, SecretsLock>,
+    scope: Scope,
+) -> Result<Vec<String>, String> {
+    let state = lock.0.clone();
+    tokio::task::spawn_blocking(move || scoped_list_locked(&app, &state, &scope))
+        .await
+        .map_err(|e| format!("join: {e}"))?
+}
+
 // ─── Backup helpers (phase 2) ────────────────────────────────────────────────
 
 /// Enumerate the entire vault as `key → value` pairs. Used by the backup
@@ -448,33 +879,99 @@ fn shell_escape(value: &str) -> String {
     out
 }
 
-/// Dump every vault key/value into the runtime env-vault file using the
-/// shared cached Stronghold. Called from the app startup hook (via
-/// `dump_to_runtime_file`) and after every successful write inside the
-/// commands here (via `dump_to_runtime_file_locked`, on the same blocking
-/// thread that holds the lock).
+/// Resolve the active project id without forcing every caller to await
+/// the projects table. Uses `tauri::async_runtime::block_on` since we're
+/// invoked from sync contexts (`std::thread::spawn` at boot, `spawn_blocking`
+/// for command-driven re-dumps). Falls back to `"default"` on any failure
+/// so the dump can still proceed with workspace + legacy values.
+fn resolve_active_project_blocking<R: Runtime>(app: &AppHandle<R>) -> String {
+    use crate::commands::db::PaDb;
+    use crate::commands::projects::get_active_project_id;
+
+    let Some(db) = app.try_state::<std::sync::Arc<PaDb>>() else {
+        return "default".to_string();
+    };
+    let db = db.inner().clone();
+    tauri::async_runtime::block_on(async move {
+        match db.ensure_pool().await {
+            Ok(pool) => get_active_project_id(&pool)
+                .await
+                .unwrap_or_else(|_| "default".to_string()),
+            Err(_) => "default".to_string(),
+        }
+    })
+}
+
+/// Dump vault key/values into the runtime env-vault file using the
+/// shared cached Stronghold. The dumped file is what sidecars + per-call
+/// MCP children pick up via dotenv — so the file contains *resolved*
+/// values for the active project, not scope-prefixed key names.
+///
+/// Resolution cascade per name:
+///   1. `project::<active_id>::NAME` — active project's value.
+///   2. `workspace::NAME` — cross-project fallback.
+///   3. legacy unscoped `NAME` — pre-Phase-7 entries.
+///
+/// Pkg-scoped values (`pkg::<id>::*`) are intentionally NOT dumped —
+/// those resolve at command-handling time inside the kernel where we
+/// know the caller's pkg id, not in the shared sidecar env file.
 fn dump_to_runtime_file_locked<R: Runtime>(
     app: &AppHandle<R>,
     state: &Arc<Mutex<Option<Stronghold>>>,
 ) -> Result<PathBuf, String> {
+    let active_pid = resolve_active_project_blocking(app);
     with_stronghold(app, state, false, |sh| {
-        let manifest = read_manifest(sh)?;
+        let m_legacy = read_manifest(sh)?;
+        let m_v2 = read_manifest_v2(sh)?;
         let client = sh
             .get_client(CLIENT_NAME)
             .map_err(|e| format!("get_client: {e}"))?;
         let store = client.store();
 
+        // Collect every visible key NAME from the union of:
+        //   - legacy (unscoped) manifest
+        //   - v2 entries whose scope is Workspace or Project(active)
+        let mut names: BTreeSet<String> = BTreeSet::new();
+        for k in &m_legacy {
+            names.insert(k.clone());
+        }
+        for fqk in &m_v2 {
+            if let Some((scope, key)) = parse_scoped(fqk) {
+                match &scope {
+                    Scope::Workspace => {
+                        names.insert(key);
+                    }
+                    Scope::Project { id } if id == &active_pid => {
+                        names.insert(key);
+                    }
+                    _ => {}
+                }
+            }
+        }
+
         let mut body = String::from("# Auto-generated by ikenga-desktop. Do not edit.\n");
-        for k in &manifest {
-            let bytes = match store.get(k.as_bytes()) {
-                Ok(Some(b)) => b,
-                _ => continue,
-            };
-            let val = match String::from_utf8(bytes) {
-                Ok(v) => v,
-                Err(_) => continue,
-            };
-            body.push_str(k);
+        for name in &names {
+            // Cascade: project → workspace → legacy. First hit wins.
+            let candidates: [String; 3] = [
+                format!("project::{active_pid}::{name}"),
+                format!("workspace::{name}"),
+                name.clone(),
+            ];
+            let mut value: Option<String> = None;
+            for fqk in &candidates {
+                match store.get(fqk.as_bytes()) {
+                    Ok(Some(b)) => match String::from_utf8(b) {
+                        Ok(v) => {
+                            value = Some(v);
+                            break;
+                        }
+                        Err(_) => continue,
+                    },
+                    _ => continue,
+                }
+            }
+            let Some(val) = value else { continue };
+            body.push_str(name);
             body.push('=');
             body.push_str(&shell_escape(&val));
             body.push('\n');
@@ -486,8 +983,7 @@ fn dump_to_runtime_file_locked<R: Runtime>(
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
-                let _ =
-                    std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700));
+                let _ = std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700));
             }
         }
         std::fs::write(&path, body).map_err(|e| format!("write runtime: {e}"))?;
@@ -517,4 +1013,78 @@ pub fn dump_to_runtime_file<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, S
 pub fn cleanup_runtime_file() {
     let path = runtime_env_vault_path();
     let _ = std::fs::remove_file(path);
+}
+
+// ─── Tests (Phase 7) ───────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn vault_key_formats_each_scope() {
+        assert_eq!(vault_key(&Scope::Workspace, "K"), "workspace::K");
+        assert_eq!(
+            vault_key(&Scope::project("alpha"), "K"),
+            "project::alpha::K"
+        );
+        assert_eq!(vault_key(&Scope::pkg("com.x.y"), "K"), "pkg::com.x.y::K");
+    }
+
+    #[test]
+    fn parse_scoped_roundtrips_each_variant() {
+        assert_eq!(
+            parse_scoped("workspace::ABC"),
+            Some((Scope::Workspace, "ABC".to_string()))
+        );
+        assert_eq!(
+            parse_scoped("project::alpha::ABC"),
+            Some((Scope::project("alpha"), "ABC".to_string()))
+        );
+        assert_eq!(
+            parse_scoped("pkg::com.x.y::ABC"),
+            Some((Scope::pkg("com.x.y"), "ABC".to_string()))
+        );
+    }
+
+    #[test]
+    fn parse_scoped_returns_none_for_legacy_or_malformed() {
+        assert_eq!(parse_scoped("LEGACY_KEY"), None);
+        assert_eq!(parse_scoped("project::"), None);
+        assert_eq!(parse_scoped("project::onlyid"), None);
+        assert_eq!(parse_scoped("pkg::"), None);
+    }
+
+    #[test]
+    fn vault_key_pattern_parses_explicit_scopes() {
+        let p = parse_vault_key_pattern("MY_KEY");
+        assert_eq!(p.scope, VaultKeyPatternScope::Pkg);
+        assert_eq!(p.glob, "MY_KEY");
+
+        let p = parse_vault_key_pattern("scope=workspace:SHARED");
+        assert_eq!(p.scope, VaultKeyPatternScope::Workspace);
+        assert_eq!(p.glob, "SHARED");
+
+        let p = parse_vault_key_pattern("scope=project:STRIPE_KEY");
+        assert_eq!(p.scope, VaultKeyPatternScope::Project);
+        assert_eq!(p.glob, "STRIPE_KEY");
+    }
+
+    #[test]
+    fn glob_match_basic_wildcards() {
+        assert!(glob_match("FOO_*", "FOO_BAR"));
+        assert!(glob_match("FOO_*", "FOO_"));
+        assert!(!glob_match("FOO_*", "BAR_FOO"));
+        assert!(glob_match("?_BAR", "X_BAR"));
+        assert!(!glob_match("?_BAR", "XX_BAR"));
+        assert!(glob_match("EXACT", "EXACT"));
+        assert!(!glob_match("EXACT", "EXAC"));
+    }
+
+    #[test]
+    fn glob_match_stars_in_middle() {
+        assert!(glob_match("A*Z", "AZ"));
+        assert!(glob_match("A*Z", "AmiddleZ"));
+        assert!(!glob_match("A*Z", "B"));
+    }
 }

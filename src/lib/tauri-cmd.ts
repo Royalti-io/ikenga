@@ -207,6 +207,36 @@ export async function secretsListKeys(): Promise<string[]> {
 	return invoke('secrets_list_keys');
 }
 
+// ─── Phase 7 — scoped secrets ─────────────────────────────────────────────
+
+/** Vault scope discriminator matching Rust's `commands::secrets::Scope`.
+ *  Serde tags this enum with `kind` and snake-cases the variants, so the
+ *  wire shape is `{ kind: "workspace" } | { kind: "project", id } | ...`. */
+export type VaultScope =
+	| { kind: 'workspace' }
+	| { kind: 'project'; id: string }
+	| { kind: 'pkg'; id: string };
+
+export async function secretsGetScoped(scope: VaultScope, key: string): Promise<string | null> {
+	return invoke('secrets_get_scoped', { scope, key });
+}
+
+export async function secretsSetScoped(
+	scope: VaultScope,
+	key: string,
+	value: string
+): Promise<void> {
+	return invoke('secrets_set_scoped', { scope, key, value });
+}
+
+export async function secretsDeleteScoped(scope: VaultScope, key: string): Promise<void> {
+	return invoke('secrets_delete_scoped', { scope, key });
+}
+
+export async function secretsListKeysScoped(scope: VaultScope): Promise<string[]> {
+	return invoke('secrets_list_keys_scoped', { scope });
+}
+
 export type VaultStatus = {
 	available: boolean;
 	keychainBackend: string;

@@ -357,8 +357,7 @@ impl State {
     }
 }
 
-type PendingMap =
-    Arc<StdMutex<HashMap<u64, oneshot::Sender<std::result::Result<Value, String>>>>>;
+type PendingMap = Arc<StdMutex<HashMap<u64, oneshot::Sender<std::result::Result<Value, String>>>>>;
 
 struct ActiveChild {
     pid: u32,
@@ -717,13 +716,12 @@ impl SupervisedSidecar {
                     first_crash_at,
                     ..
                 } => {
-                    let (next_retries, next_first) = if now.duration_since(*first_crash_at)
-                        > CRASH_WINDOW
-                    {
-                        (1, now)
-                    } else {
-                        (retries + 1, *first_crash_at)
-                    };
+                    let (next_retries, next_first) =
+                        if now.duration_since(*first_crash_at) > CRASH_WINDOW {
+                            (1, now)
+                        } else {
+                            (retries + 1, *first_crash_at)
+                        };
                     State::Crashed {
                         retries: next_retries,
                         first_crash_at: next_first,
@@ -830,6 +828,26 @@ impl SupervisedSidecar {
                     pkg_project.as_deref(),
                 )
                 .await;
+                // Phase 7: layer workspace + project `.env` files BEFORE
+                // the manifest-declared env, so the manifest can still
+                // override either. workspace.env lives in app_data_dir;
+                // project files live at project root. Process env is
+                // already inherited by `Command::new`.
+                if let Some(app) = self.app.as_ref() {
+                    let app_data = {
+                        use tauri::Manager;
+                        app.path().app_data_dir().ok()
+                    };
+                    let ws_env = app_data.as_ref().map(|d| d.join("workspace.env"));
+                    let root_path = root.as_ref().map(std::path::PathBuf::from);
+                    let layered = crate::env_files::build_layered_env(
+                        ws_env.as_deref(),
+                        root_path.as_deref(),
+                    );
+                    if !layered.is_empty() {
+                        cmd.envs(layered);
+                    }
+                }
                 if let Some(id) = id {
                     cmd.env("IKENGA_PROJECT_ID", id);
                 }
@@ -880,7 +898,10 @@ impl SupervisedSidecar {
                 },
             }))?;
             init_msg.push(b'\n');
-            stdin.write_all(&init_msg).await.context("write initialize")?;
+            stdin
+                .write_all(&init_msg)
+                .await
+                .context("write initialize")?;
             stdin.flush().await.ok();
 
             let mut reader = BufReader::new(stdout);
@@ -913,9 +934,7 @@ impl SupervisedSidecar {
         tauri::async_runtime::spawn(async move {
             while let Some(buf) = stdin_rx.recv().await {
                 if let Err(e) = writer_stdin.write_all(&buf).await {
-                    log::warn!(
-                        "[pkg_lifecycle.{pkg_id_for_writer}] stdin write failed: {e}"
-                    );
+                    log::warn!("[pkg_lifecycle.{pkg_id_for_writer}] stdin write failed: {e}");
                     break;
                 }
                 let _ = writer_stdin.flush().await;

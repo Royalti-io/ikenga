@@ -19,7 +19,7 @@ use std::sync::Arc;
 
 use serde::Serialize;
 use serde_json::Value;
-use tauri::State;
+use tauri::{AppHandle, State};
 
 use crate::commands::db::PaDb;
 use crate::commands::pkg::KernelState;
@@ -45,6 +45,7 @@ async fn build_pkg_env_overlay(
     db: &Arc<PaDb>,
     pkg_id: &str,
     kernel: &crate::pkg::Kernel,
+    app: &AppHandle,
 ) -> HashMap<String, String> {
     let mut env = HashMap::new();
     let pkg_project = kernel.installed_summary(pkg_id).and_then(|s| s.project_id);
@@ -52,6 +53,21 @@ async fn build_pkg_env_overlay(
         return env;
     };
     let (id, root) = resolve_project_env_ctx(&pool, pkg_project.as_deref()).await;
+    // Phase 7: layer workspace + project `.env` files. Map order doesn't
+    // matter for the consumer (HashMap insertion order is irrelevant);
+    // we add layered first, then overwrite with IKENGA_PROJECT_* so the
+    // kernel-supplied identity always wins over `.env` declarations.
+    {
+        use tauri::Manager;
+        let app_data = app.path().app_data_dir().ok();
+        let ws_env = app_data.as_ref().map(|d| d.join("workspace.env"));
+        let root_path = root.as_ref().map(std::path::PathBuf::from);
+        let layered =
+            crate::env_files::build_layered_env(ws_env.as_deref(), root_path.as_deref());
+        for (k, v) in layered {
+            env.insert(k, v);
+        }
+    }
     if let Some(id) = id {
         env.insert("IKENGA_PROJECT_ID".to_string(), id);
     }
@@ -70,6 +86,7 @@ pub struct PkgMcpCallResult {
 
 #[tauri::command]
 pub async fn pkg_mcp_call(
+    app: AppHandle,
     kernel: State<'_, KernelState>,
     supervisor: State<'_, SidecarSupervisorState>,
     db: State<'_, Arc<PaDb>>,
@@ -117,7 +134,11 @@ pub async fn pkg_mcp_call(
         }
     };
 
-    let lifecycle = if server.is_long_lived() { "long-lived" } else { "per-call" };
+    let lifecycle = if server.is_long_lived() {
+        "long-lived"
+    } else {
+        "per-call"
+    };
     log::info!(
         "[pkg_mcp_call] pkg={pkg_id} tool={tool} server={} cmd={} lifecycle={lifecycle}",
         server.name,
@@ -142,7 +163,7 @@ pub async fn pkg_mcp_call(
         // inject IKENGA_PROJECT_ID/ROOT fresh on every call so it always
         // reflects the *current* active project (workspace pkgs) or its
         // own (project pkgs).
-        let extra_env = build_pkg_env_overlay(&db, &pkg_id, &kernel.0).await;
+        let extra_env = build_pkg_env_overlay(&db, &pkg_id, &kernel.0, &app).await;
         mcp_runtime::call_tool(&install_path, server, &tool, args, &extra_env).await
     };
 
@@ -171,10 +192,7 @@ pub fn pkg_supervisor_restart(
     supervisor: State<'_, SidecarSupervisorState>,
     pkg_id: String,
 ) -> Result<bool, String> {
-    supervisor
-        .0
-        .restart(&pkg_id)
-        .map_err(|e| format!("{e:#}"))
+    supervisor.0.restart(&pkg_id).map_err(|e| format!("{e:#}"))
 }
 
 // ── Debug-only: bind/release a port for smoke tests ──────────────────────

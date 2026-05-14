@@ -23,6 +23,7 @@ pub mod memory;
 pub mod pkg_dispatch;
 pub mod projects;
 pub mod rpc;
+pub mod secrets;
 pub mod server;
 pub mod sessions;
 pub mod state;

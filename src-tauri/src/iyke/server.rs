@@ -41,6 +41,7 @@ use super::handlers::{
 };
 use super::layout::{get_layout, post_layout_reset};
 use super::mcp::{get_mcp_list, post_mcp_restart};
+use super::secrets::{get_secret, get_secret_list, post_secret_delete, post_secret_set};
 use super::memory::{
     get_kv_get, get_kv_list, get_lock_status, get_scratchpad_list, get_scratchpad_read,
     get_timer_list, get_todo_list, post_agent_register, post_kv_delete, post_kv_set,
@@ -171,6 +172,10 @@ pub async fn serve(
         .route("/iyke/mcp/restart", post(post_mcp_restart))
         .route("/iyke/layout/get", get(get_layout))
         .route("/iyke/layout/reset", post(post_layout_reset))
+        .route("/iyke/secret/get", get(get_secret))
+        .route("/iyke/secret/list", get(get_secret_list))
+        .route("/iyke/secret/set", post(post_secret_set))
+        .route("/iyke/secret/delete", post(post_secret_delete))
         // Memory primitives (Phase 1 — DESIGN.md §4-6).
         .route("/iyke/scratchpad/write", post(post_scratchpad_write))
         .route("/iyke/scratchpad/append", post(post_scratchpad_append))

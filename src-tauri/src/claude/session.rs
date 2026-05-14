@@ -29,7 +29,7 @@ use std::process::Stdio;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::{broadcast, Mutex};
@@ -403,6 +403,24 @@ pub async fn spawn_streaming(
     }
     if let Some(ref pd) = project_dir {
         command.env("CLAUDE_PROJECT_DIR", pd);
+    }
+    // Phase 7 (projects-first-class): layer workspace + project `.env`
+    // files into the claude child env. Process env is already inherited
+    // by `Command::new` so we only add the additive layers — workspace
+    // first, then project's `.env`, then `.env.local` (last wins). The
+    // project root is whatever the session was spawned with (`cwd`),
+    // resolved through tilde-expansion above.
+    {
+        let app_data = app.path().app_data_dir().ok();
+        let ws_env = app_data.as_ref().map(|d| d.join("workspace.env"));
+        let project_root = std::path::Path::new(&resolved_cwd);
+        let layered = crate::env_files::build_layered_env(
+            ws_env.as_deref(),
+            Some(project_root),
+        );
+        if !layered.is_empty() {
+            command.envs(layered);
+        }
     }
     // Phase 8: forks seed `resume_session_id` with the SOURCE thread's
     // `claude_session_id` at fork time (see `acp::server::handle_fork_session`),

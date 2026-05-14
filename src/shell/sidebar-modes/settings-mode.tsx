@@ -3,6 +3,7 @@ import {
 	FolderKanban,
 	HardDrive,
 	Info,
+	KeyRound,
 	Package,
 	Palette,
 	Plug,
@@ -39,7 +40,10 @@ const NAV: NavSection[] = [
 	},
 	{
 		label: 'Integrations',
-		items: [{ to: '/settings/integrations', label: 'Integrations', Icon: Plug }],
+		items: [
+			{ to: '/settings/integrations', label: 'Integrations', Icon: Plug },
+			{ to: '/settings/secrets', label: 'Secrets', Icon: KeyRound },
+		],
 	},
 	{
 		label: 'Storage',

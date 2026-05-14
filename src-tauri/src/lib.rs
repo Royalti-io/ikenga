@@ -2,6 +2,7 @@ pub mod acp;
 mod agent_detect;
 pub mod claude;
 mod commands;
+pub mod env_files;
 mod fs_roots;
 mod fs_watch;
 mod iyke;
@@ -43,7 +44,8 @@ use commands::{
     project_create, project_get_active, project_list, project_set_active, project_update, pty_kill,
     pty_resize, pty_spawn, pty_write, screenshot_capture_done, screenshot_capture_failed,
     screenshot_get_config, screenshot_pane, screenshot_set_dir, screenshot_window, secrets_delete,
-    secrets_get, secrets_list_keys, secrets_set, secrets_vault_status, set_dock_badge,
+    secrets_delete_scoped, secrets_get, secrets_get_scoped, secrets_list_keys,
+    secrets_list_keys_scoped, secrets_set, secrets_set_scoped, secrets_vault_status, set_dock_badge,
     settings_clear_all, settings_get, settings_get_all, settings_set, spike_grant_fs_read,
     spike_setup_test_file, KernelState, PkgContentState, PkgSettingsState, SidecarSupervisorState,
     SidecarsRegistryState, WebviewPanesState,
@@ -461,6 +463,34 @@ pub fn run() {
                 });
             }
 
+            // Phase 7 (projects-first-class): re-dump the runtime env-vault
+            // file on every project switch so sidecars and per-call MCP
+            // children see the active project's resolved secrets cascade
+            // on next spawn. The dump itself is sync + Stronghold-locked,
+            // so we hop it onto a background thread to keep the Tauri
+            // event-loop responsive (same reasoning as the boot-time dump
+            // below).
+            {
+                use tauri::Listener;
+                let app_for_secrets = app.handle().clone();
+                app_for_secrets
+                    .clone()
+                    .listen("projects.active-changed", move |_evt| {
+                        let app_for_dump = app_for_secrets.clone();
+                        std::thread::spawn(move || {
+                            match commands::secrets::dump_to_runtime_file(&app_for_dump) {
+                                Ok(path) => log::info!(
+                                    "env-vault re-dumped after project switch -> {}",
+                                    path.display()
+                                ),
+                                Err(e) => log::warn!(
+                                    "env-vault re-dump after project switch skipped: {e}"
+                                ),
+                            }
+                        });
+                    });
+            }
+
             // Phase 0.5 background-execution spike state. Debug builds only.
             // See commands/bg_spike.rs.
             #[cfg(debug_assertions)]
@@ -557,6 +587,11 @@ pub fn run() {
             secrets_delete,
             secrets_list_keys,
             secrets_vault_status,
+            // secrets — Phase 7 scoped variants
+            secrets_get_scoped,
+            secrets_set_scoped,
+            secrets_delete_scoped,
+            secrets_list_keys_scoped,
             // settings_kv (durable mirror for Zustand-backed prefs)
             settings_get,
             settings_set,
