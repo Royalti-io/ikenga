@@ -37,7 +37,7 @@ use agent_client_protocol::schema::{
     SessionId, SessionNotification, StopReason, ToolCallId, ToolCallUpdate, ToolCallUpdateFields,
 };
 use serde_json::Value;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::{oneshot, Mutex as TokioMutex};
 
@@ -181,11 +181,45 @@ impl AcpServer {
     /// user opens but never types into.
     pub async fn handle_new_session(
         &self,
-        _app: AppHandle,
+        app: AppHandle,
         req: NewSessionRequest,
     ) -> Result<NewSessionResponse, String> {
         let thread_id = resolve_thread_id(req.meta.as_ref());
-        let cwd = req.cwd.to_string_lossy().into_owned();
+
+        // Phase 3 (projects-first-class): every new session is attached to a
+        // project. The frontend threads its active project id via
+        // `_meta.projectId`; pure-ACP peers that omit it inherit the
+        // shell's current active project. The project's `root_path`, when
+        // set, overrides the ACP request's `cwd` so chats spawned from the
+        // /sessions page or the engine adapter consistently land in the
+        // project's working dir even if the caller forgot to thread it
+        // through. Falls back to req.cwd, then $HOME.
+        let pool = app
+            .state::<std::sync::Arc<crate::commands::db::PaDb>>()
+            .ensure_pool()
+            .await
+            .map_err(|e| e.to_string())?;
+        let project_id = match resolve_project_id(req.meta.as_ref()) {
+            Some(p) => p,
+            None => crate::commands::projects::get_active_project_id(&pool).await?,
+        };
+        let project = crate::commands::projects::get_project(&pool, &project_id).await?;
+
+        let req_cwd = req.cwd.to_string_lossy().into_owned();
+        let cwd = project
+            .as_ref()
+            .and_then(|p| p.root_path.clone())
+            .filter(|s| !s.is_empty())
+            .or_else(|| {
+                if req_cwd.is_empty() {
+                    None
+                } else {
+                    Some(req_cwd.clone())
+                }
+            })
+            .or_else(|| std::env::var("HOME").ok())
+            .unwrap_or_else(|| "/".to_string());
+
         // Phase 3 ignores `mcp_servers` — claude already wires its own MCP
         // via `--mcp-config`. Phase 9 will translate ACP-declared servers
         // into a generated config file.
@@ -632,6 +666,19 @@ fn resolve_thread_id(meta: Option<&serde_json::Map<String, serde_json::Value>>) 
         .unwrap_or_else(|| format!("{}", uuid::Uuid::new_v4()))
 }
 
+/// Pull `_meta.projectId` off a new-session request. Mirrors
+/// `resolve_thread_id` exactly so the projects-first-class extension
+/// rides along the same `_meta` envelope without touching the schema crate.
+/// Empty-string projectId is treated as "absent" so a callsite that always
+/// includes the field but with no value transparently falls back to the
+/// shell's active project.
+fn resolve_project_id(meta: Option<&serde_json::Map<String, serde_json::Value>>) -> Option<String> {
+    meta.and_then(|m| m.get("projectId"))
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
 /// Tauri-friendly wrapper around the server.
 pub type AcpServerState = Arc<AcpServer>;
 
@@ -671,6 +718,40 @@ mod tests {
         let id = resolve_thread_id(None);
         assert_eq!(id.len(), 36);
         assert!(id.contains('-'));
+    }
+
+    #[test]
+    fn resolve_project_id_honors_meta() {
+        // Phase 3 of projects-first-class: the frontend threads its active
+        // project id through `_meta.projectId` so the new session picks up
+        // the project's root_path as its cwd. Missing/empty falls back to
+        // the shell's active project (verified at the integration layer).
+        let mut meta = serde_json::Map::new();
+        meta.insert(
+            "projectId".into(),
+            serde_json::Value::String("music-2026".into()),
+        );
+        assert_eq!(
+            resolve_project_id(Some(&meta)),
+            Some("music-2026".to_string())
+        );
+    }
+
+    #[test]
+    fn resolve_project_id_returns_none_for_empty_string() {
+        // Treat "" as absent so a callsite that always emits the field
+        // (with no value) falls through to the active-project lookup.
+        let mut meta = serde_json::Map::new();
+        meta.insert("projectId".into(), serde_json::Value::String("".into()));
+        assert_eq!(resolve_project_id(Some(&meta)), None);
+    }
+
+    #[test]
+    fn resolve_project_id_returns_none_when_absent() {
+        // No `_meta` at all → fall through to the active project.
+        assert_eq!(resolve_project_id(None), None);
+        let meta = serde_json::Map::new();
+        assert_eq!(resolve_project_id(Some(&meta)), None);
     }
 
     #[test]

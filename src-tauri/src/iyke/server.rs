@@ -50,6 +50,7 @@ use super::projects::{
     get_project_active, get_project_list, post_project_archive, post_project_create,
     post_project_set_active, post_project_update,
 };
+use super::sessions::{get_session_list, post_session_move};
 use super::state::IykeState;
 use super::IykeRpc;
 use crate::commands::ScreenshotPending;
@@ -143,6 +144,9 @@ pub async fn serve(
         .route("/iyke/project/archive", post(post_project_archive))
         .route("/iyke/project/set-active", post(post_project_set_active))
         .route("/iyke/project/active", get(get_project_active))
+        // Chat sessions (Phase 3 of projects-first-class plan).
+        .route("/iyke/session/list", get(get_session_list))
+        .route("/iyke/session/move", post(post_session_move))
         // Memory primitives (Phase 1 — DESIGN.md §4-6).
         .route("/iyke/scratchpad/write", post(post_scratchpad_write))
         .route("/iyke/scratchpad/append", post(post_scratchpad_append))

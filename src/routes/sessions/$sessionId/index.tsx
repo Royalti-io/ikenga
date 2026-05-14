@@ -1,13 +1,19 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, createFileRoute, redirect, useNavigate } from '@tanstack/react-router';
-import { useQuery } from '@tanstack/react-query';
-import { AlertCircle, ArrowLeft, Loader2, Terminal } from 'lucide-react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { AlertCircle, ArrowLeft, FolderKanban, Loader2, Terminal } from 'lucide-react';
 
 import { detectAgentSlug, sessionsListQueryOptions } from '@/lib/queries/sessions';
 import { shortPath, loadHome } from '@/lib/home';
 
 import '../sessions.css';
-import { acpForkSession, acpLoadSession } from '@/lib/tauri-cmd';
+import {
+	Popover,
+	PopoverContent,
+	PopoverTrigger,
+} from '@/components/ui/popover';
+import { acpForkSession, acpLoadSession, chatThreadMove } from '@/lib/tauri-cmd';
+import { useShellStore } from '@/lib/shell/shell-store';
 import { createTerminalSession } from '@/terminal/single-terminal';
 import { buildClaudeWrappedCmd } from '@/terminal/claude-wrap';
 import { usePaneStore } from '@/lib/panes/pane-store';
@@ -68,6 +74,40 @@ function SessionDetailPage() {
 	// placeholder→real navigate dance.
 	const { loading, error } = useThread(threadId);
 	const claudeSessionId = useChatStore((s) => s.threads[threadId]?.thread.claudeSessionId ?? null);
+	const threadProjectId = useChatStore(
+		(s) => s.threads[threadId]?.thread.projectId ?? null
+	);
+	const projects = useShellStore((s) => s.projects);
+	const threadProject = projects.find((p) => p.id === threadProjectId);
+	const queryClient = useQueryClient();
+	const [moveBusy, setMoveBusy] = useState(false);
+	const [moveOpen, setMoveOpen] = useState(false);
+
+	async function handleMoveProject(nextProjectId: string) {
+		if (moveBusy || nextProjectId === threadProjectId) {
+			setMoveOpen(false);
+			return;
+		}
+		setMoveBusy(true);
+		try {
+			await chatThreadMove(threadId, nextProjectId);
+			// Mirror locally so the chip reflects the new project without
+			// waiting for a refetch round-trip.
+			const t = useChatStore.getState().threads[threadId];
+			if (t) {
+				useChatStore.getState().upsertThread(
+					{ ...t.thread, projectId: nextProjectId },
+					t.events
+				);
+			}
+			await queryClient.invalidateQueries({ queryKey: ['project-scoped'] });
+			setMoveOpen(false);
+		} catch (e) {
+			console.warn('chatThreadMove:', e);
+		} finally {
+			setMoveBusy(false);
+		}
+	}
 
 	const { data: list } = useQuery(sessionsListQueryOptions(null));
 	const summary = useMemo(
@@ -116,6 +156,61 @@ function SessionDetailPage() {
 									{agent}
 								</span>
 							)}
+							<Popover open={moveOpen} onOpenChange={setMoveOpen}>
+								<PopoverTrigger asChild>
+									<button
+										type="button"
+										className="inline-flex items-center gap-1.5 rounded-md border border-input bg-background px-2 py-0.5 text-xs hover:bg-accent"
+										title="Change project"
+										disabled={moveBusy}
+									>
+										<FolderKanban className="h-3 w-3" />
+										{threadProject?.color && (
+											<span
+												aria-hidden
+												style={{
+													display: 'inline-block',
+													width: 8,
+													height: 8,
+													borderRadius: 999,
+													background: threadProject.color,
+												}}
+											/>
+										)}
+										<span>
+											{threadProject?.display_name ?? (threadProjectId || 'No project')}
+										</span>
+									</button>
+								</PopoverTrigger>
+								<PopoverContent align="start" className="w-64 p-1">
+									{projects
+										.filter((p) => !p.archived_at)
+										.map((p) => (
+											<button
+												key={p.id}
+												type="button"
+												onClick={() => handleMoveProject(p.id)}
+												disabled={moveBusy}
+												className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-accent disabled:opacity-50 ${p.id === threadProjectId ? 'bg-accent/50' : ''}`}
+											>
+												{p.color && (
+													<span
+														aria-hidden
+														style={{
+															display: 'inline-block',
+															width: 8,
+															height: 8,
+															borderRadius: 999,
+															background: p.color,
+														}}
+													/>
+												)}
+												<span className="flex-1">{p.display_name}</span>
+												{p.id === threadProjectId && <span aria-hidden>✓</span>}
+											</button>
+										))}
+								</PopoverContent>
+							</Popover>
 						</div>
 						<div className="ses-det-meta">
 							{summary?.projectDir && <code>{shortPath(summary.projectDir)}</code>}

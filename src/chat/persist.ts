@@ -20,6 +20,7 @@ interface ChatThreadRow {
 	updated_at: number;
 	claude_session_id: string | null;
 	project_dir: string | null;
+	project_id: string | null;
 	pty_id: string | null;
 }
 
@@ -32,6 +33,7 @@ function rowToThread(r: ChatThreadRow): ChatThread {
 		model: r.model,
 		claudeSessionId: r.claude_session_id,
 		ptyId: r.pty_id,
+		projectId: r.project_id,
 		createdAt: r.created_at,
 		updatedAt: r.updated_at,
 	};
@@ -42,7 +44,7 @@ export async function findThreadByClaudeSessionId(
 ): Promise<ChatThread | null> {
 	const rows = await dbQuery<ChatThreadRow>(
 		`SELECT id, adapter, title, cwd, model, created_at, updated_at,
-            claude_session_id, project_dir, pty_id
+            claude_session_id, project_dir, project_id, pty_id
        FROM chat_threads
       WHERE claude_session_id = ?
       LIMIT 1`,
@@ -54,7 +56,7 @@ export async function findThreadByClaudeSessionId(
 export async function findThreadById(id: string): Promise<ChatThread | null> {
 	const rows = await dbQuery<ChatThreadRow>(
 		`SELECT id, adapter, title, cwd, model, created_at, updated_at,
-            claude_session_id, project_dir, pty_id
+            claude_session_id, project_dir, project_id, pty_id
        FROM chat_threads WHERE id = ? LIMIT 1`,
 		[id]
 	);
@@ -68,14 +70,19 @@ export interface CreateThreadInput {
 	claudeSessionId: string | null;
 	model: string | null;
 	title: string | null;
+	/** Phase 3 of projects-first-class: every new thread is attached to a
+	 *  project. Callers pass the shell's active project id (from
+	 *  `useShellStore`). Nullable so legacy/test callsites don't break, but
+	 *  the production callers always supply it. */
+	projectId: string | null;
 }
 
 export async function createThread(input: CreateThreadInput): Promise<void> {
 	const now = Date.now();
 	await dbExec(
 		`INSERT OR IGNORE INTO chat_threads
-       (id, adapter, claude_session_id, project_dir, cwd, model, title, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (id, adapter, claude_session_id, project_dir, cwd, model, title, project_id, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		[
 			input.id,
 			input.adapterId,
@@ -84,6 +91,7 @@ export async function createThread(input: CreateThreadInput): Promise<void> {
 			input.cwd,
 			input.model,
 			input.title,
+			input.projectId,
 			now,
 			now,
 		]
@@ -92,7 +100,9 @@ export async function createThread(input: CreateThreadInput): Promise<void> {
 
 export async function updateThreadMeta(
 	id: string,
-	fields: Partial<Pick<ChatThread, 'title' | 'model' | 'claudeSessionId' | 'ptyId' | 'cwd'>>
+	fields: Partial<
+		Pick<ChatThread, 'title' | 'model' | 'claudeSessionId' | 'ptyId' | 'cwd' | 'projectId'>
+	>
 ): Promise<void> {
 	const sets: string[] = [];
 	const params: (string | number | null)[] = [];
@@ -115,6 +125,10 @@ export async function updateThreadMeta(
 	if ('cwd' in fields) {
 		sets.push('project_dir = ?', 'cwd = ?');
 		params.push(fields.cwd ?? null, fields.cwd ?? null);
+	}
+	if ('projectId' in fields) {
+		sets.push('project_id = ?');
+		params.push(fields.projectId ?? null);
 	}
 	if (sets.length === 0) return;
 	sets.push('updated_at = ?');

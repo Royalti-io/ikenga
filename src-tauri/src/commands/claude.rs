@@ -20,8 +20,10 @@
 //!    `ChatEvent`s for the chat-view replay path.
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
+use sqlx::Row;
 use tauri::{AppHandle, State};
 
 use crate::claude::{
@@ -33,6 +35,7 @@ use crate::claude::{
         cancel_streaming, send_tool_result, send_user_message, SessionOpts, SessionsState,
     },
 };
+use crate::commands::db::PaDb;
 
 #[derive(Deserialize, Default)]
 #[serde(default)]
@@ -302,5 +305,117 @@ fn locate_jsonl_for_session(session_id: &str) -> Option<PathBuf> {
         }
     }
     None
+}
+
+// ─── Phase 3 (projects-first-class): project-scoped session listing ───────────
+//
+// The /sessions list filters by the active project by default. Mirrors the
+// iyke bridge endpoint at /iyke/session/list so the in-app FE and the
+// external mcp-iyke surface read from the same SQL.
+
+const CHAT_THREADS_DEFAULT_LIMIT: i64 = 50;
+const CHAT_THREADS_MAX_LIMIT: i64 = 200;
+
+#[derive(Serialize)]
+pub struct ChatThreadSummary {
+    pub id: String,
+    pub title: Option<String>,
+    pub cwd: Option<String>,
+    pub project_id: Option<String>,
+    pub claude_session_id: Option<String>,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[tauri::command]
+pub async fn chat_threads_list_by_project(
+    db: State<'_, Arc<PaDb>>,
+    #[allow(non_snake_case)] projectId: Option<String>,
+    #[allow(non_snake_case)] includeAll: Option<bool>,
+    limit: Option<i64>,
+) -> Result<Vec<ChatThreadSummary>, String> {
+    let pool = db.ensure_pool().await?;
+    let lim = limit
+        .unwrap_or(CHAT_THREADS_DEFAULT_LIMIT)
+        .clamp(1, CHAT_THREADS_MAX_LIMIT);
+    let include_all = includeAll.unwrap_or(false);
+
+    let project_filter: Option<String> = if include_all {
+        None
+    } else if let Some(p) = projectId.filter(|s| !s.is_empty()) {
+        Some(p)
+    } else {
+        Some(crate::commands::projects::get_active_project_id(&pool).await?)
+    };
+
+    let rows = match project_filter.as_deref() {
+        Some(pid) => sqlx::query(
+            "SELECT id, title, cwd, project_id, claude_session_id, created_at, updated_at
+             FROM chat_threads
+             WHERE project_id = ?
+             ORDER BY updated_at DESC
+             LIMIT ?",
+        )
+        .bind(pid)
+        .bind(lim)
+        .fetch_all(&pool)
+        .await,
+        None => sqlx::query(
+            "SELECT id, title, cwd, project_id, claude_session_id, created_at, updated_at
+             FROM chat_threads
+             ORDER BY updated_at DESC
+             LIMIT ?",
+        )
+        .bind(lim)
+        .fetch_all(&pool)
+        .await,
+    }
+    .map_err(|e| format!("list chat_threads: {e}"))?;
+
+    Ok(rows
+        .iter()
+        .map(|r| ChatThreadSummary {
+            id: r.get("id"),
+            title: r.get("title"),
+            cwd: r.get("cwd"),
+            project_id: r.get("project_id"),
+            claude_session_id: r.get("claude_session_id"),
+            created_at: r.get("created_at"),
+            updated_at: r.get("updated_at"),
+        })
+        .collect())
+}
+
+/// Reattribute a chat thread to a different project. Metadata-only — the
+/// in-memory `Session` and any live claude subprocess keep the cwd they
+/// were spawned with; only `chat_threads.project_id` changes.
+#[tauri::command]
+pub async fn chat_thread_move(
+    db: State<'_, Arc<PaDb>>,
+    #[allow(non_snake_case)] threadId: String,
+    #[allow(non_snake_case)] projectId: String,
+) -> Result<(), String> {
+    let pool = db.ensure_pool().await?;
+    let target = crate::commands::projects::get_project(&pool, &projectId)
+        .await?
+        .ok_or_else(|| format!("project not found: {projectId}"))?;
+    if target.archived_at.is_some() {
+        return Err(format!("project is archived: {projectId}"));
+    }
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0);
+    let res = sqlx::query("UPDATE chat_threads SET project_id = ?, updated_at = ? WHERE id = ?")
+        .bind(&projectId)
+        .bind(now)
+        .bind(&threadId)
+        .execute(&pool)
+        .await
+        .map_err(|e| format!("move chat thread: {e}"))?;
+    if res.rows_affected() == 0 {
+        return Err(format!("thread not found: {threadId}"));
+    }
+    Ok(())
 }
 

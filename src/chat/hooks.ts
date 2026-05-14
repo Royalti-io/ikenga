@@ -10,6 +10,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { defaultCwd } from '@/lib/shell/default-cwd';
+import { useShellStore } from '@/lib/shell/shell-store';
 import { claudeReadJsonl, type ChatEvent } from '@/lib/tauri-cmd';
 import {
 	appendUserTurn,
@@ -109,6 +110,7 @@ export function useThread(threadId: string | null): {
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
 	const upsertThread = useChatStore((s) => s.upsertThread);
+	const activeProjectId = useShellStore((s) => s.activeProjectId);
 
 	useEffect(() => {
 		if (!threadId) {
@@ -150,6 +152,7 @@ export function useThread(threadId: string | null): {
 						claudeSessionId: null,
 						model: meta.model,
 						title,
+						projectId: activeProjectId,
 					});
 					thread = (await findThreadById(threadId)) ?? {
 						id: threadId,
@@ -159,6 +162,7 @@ export function useThread(threadId: string | null): {
 						model: meta.model,
 						claudeSessionId: null,
 						ptyId: null,
+						projectId: activeProjectId,
 						createdAt: Date.now(),
 						updatedAt: Date.now(),
 					};
@@ -189,7 +193,11 @@ export function useThread(threadId: string | null): {
 				// persisted under the legacy 'cli' adapter still resolve to it.
 				try {
 					const adapter = getAdapter(thread.adapterId);
-					await adapter.attach?.(threadId, thread.cwd || defaultCwd());
+					await adapter.attach?.(
+						threadId,
+						thread.cwd || defaultCwd(),
+						thread.projectId ?? activeProjectId
+					);
 				} catch (e) {
 					console.warn('adapter.attach failed:', e);
 				}
@@ -203,7 +211,7 @@ export function useThread(threadId: string | null): {
 		return () => {
 			cancelled = true;
 		};
-	}, [threadId, upsertThread]);
+	}, [threadId, upsertThread, activeProjectId]);
 
 	// JSONL reconciler: while the thread is live, poll JSONL every 2s for
 	// canonical events the live subscription may have missed (e.g. during

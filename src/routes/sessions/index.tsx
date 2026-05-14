@@ -1,23 +1,27 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, createFileRoute, useNavigate, useSearch } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { AlertCircle, Loader2, MessageSquare, Plus, Search, Terminal } from 'lucide-react';
+import { AlertCircle, FolderKanban, Loader2, MessageSquare, Plus, Search, Terminal } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import {
-	detectAgentSlug,
-	sessionsListQueryOptions,
-	type SessionSummary,
+	Popover,
+	PopoverContent,
+	PopoverTrigger,
+} from '@/components/ui/popover';
+import {
+	chatThreadsByProjectQueryOptions,
+	type ChatThreadSummary,
 } from '@/lib/queries/sessions';
+import { useShellStore } from '@/lib/shell/shell-store';
 import { useThreadBadges } from '@/lib/shell/thread-badges-store';
 import { shortPath } from '@/lib/home';
 import { NewSessionDialog } from '@/shell/sessions/new-session-dialog';
 
 import './sessions.css';
 
-function formatRelative(iso: string | null): string {
-	if (!iso) return '—';
-	const ts = new Date(iso).getTime();
+function formatRelative(ts: number | null | undefined): string {
+	if (!ts) return '—';
 	if (Number.isNaN(ts)) return '—';
 	const ms = Date.now() - ts;
 	const seconds = Math.floor(ms / 1000);
@@ -28,17 +32,19 @@ function formatRelative(iso: string | null): string {
 	if (hours < 24) return `${hours}h ago`;
 	const days = Math.floor(hours / 24);
 	if (days < 30) return `${days}d ago`;
-	return new Date(iso).toLocaleDateString();
+	return new Date(ts).toLocaleDateString();
 }
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 50;
 
 function SessionRow({
-	session,
+	thread,
+	projectColor,
 	badgeCount,
 	onClearBadge,
 }: {
-	session: SessionSummary;
+	thread: ChatThreadSummary;
+	projectColor: string | null;
 	/** Phase 9: count of unread ACP user-attention pings (claude
 	 *  `Notification` hooks + tool-approval requests) accumulated while the
 	 *  user was elsewhere. Rendered as an orange dot + numeric count next
@@ -47,32 +53,44 @@ function SessionRow({
 	onClearBadge: () => void;
 }) {
 	const navigate = useNavigate();
-	const agent = detectAgentSlug(session);
-	const hasTitle = !!session.title && session.title.trim().length > 0;
-	const fallback = `${session.sessionId.slice(0, 8)}…${session.sessionId.slice(-4)}`;
+	const hasTitle = !!thread.title && thread.title.trim().length > 0;
+	const fallback = `${thread.id.slice(0, 8)}…${thread.id.slice(-4)}`;
 
 	function handleRowClick(e: React.MouseEvent<HTMLTableRowElement>) {
 		const target = e.target as HTMLElement;
 		if (target.closest('a')) return;
 		if (badgeCount > 0) onClearBadge();
-		navigate({ to: '/sessions/$sessionId', params: { sessionId: session.sessionId } });
+		navigate({ to: '/sessions/$sessionId', params: { sessionId: thread.id } });
 	}
 
 	return (
 		<tr onClick={handleRowClick}>
 			<td>
-				<div className="title-cell">
+				<div className="title-cell" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+					{projectColor && (
+						<span
+							aria-hidden
+							style={{
+								display: 'inline-block',
+								width: 8,
+								height: 8,
+								borderRadius: 999,
+								background: projectColor,
+								flexShrink: 0,
+							}}
+						/>
+					)}
 					<Link
 						to="/sessions/$sessionId"
-						params={{ sessionId: session.sessionId }}
+						params={{ sessionId: thread.id }}
 						className="truncate"
-						title={hasTitle ? session.title! : `Session ${session.sessionId}`}
+						title={hasTitle ? thread.title! : `Thread ${thread.id}`}
 						style={{ color: 'var(--fg)', textDecoration: 'none' }}
 						onClick={() => {
 							if (badgeCount > 0) onClearBadge();
 						}}
 					>
-						{hasTitle ? session.title : <span className="session-id-fb">{fallback}</span>}
+						{hasTitle ? thread.title : <span className="session-id-fb">{fallback}</span>}
 					</Link>
 					{badgeCount > 0 && (
 						<span
@@ -99,29 +117,13 @@ function SessionRow({
 						</span>
 					)}
 				</div>
-				<div style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
-					{agent && (
-						<span className="agent-badge">
-							<span className="dot" />
-							{agent}
-						</span>
-					)}
-				</div>
 			</td>
 			<td>
-				<div className="muted" title={session.projectDir}>
-					{shortPath(session.projectDir)}
+				<div className="muted" title={thread.cwd ?? ''}>
+					{thread.cwd ? shortPath(thread.cwd) : '—'}
 				</div>
 			</td>
-			<td>
-				{session.model ? (
-					<span className="model-badge">{session.model.replace('claude-', '')}</span>
-				) : (
-					<span className="muted">—</span>
-				)}
-			</td>
-			<td className="num muted">{session.messageCount}</td>
-			<td className="muted">{formatRelative(session.lastMessageAt ?? session.startedAt)}</td>
+			<td className="muted">{formatRelative(thread.updated_at)}</td>
 		</tr>
 	);
 }
@@ -129,16 +131,15 @@ function SessionRow({
 function SessionsPage() {
 	const navigate = useNavigate();
 	const search = useSearch({ from: '/sessions/' }) as { new?: string };
-	const [projectFilter, setProjectFilter] = useState<string>('');
-	const [agentFilter, setAgentFilter] = useState<string>('');
 	const [searchTerm, setSearch] = useState('');
 	const [newDialogOpen, setNewDialogOpen] = useState(false);
+	const [includeAll, setIncludeAll] = useState(false);
 	const [limit, setLimit] = useState(PAGE_SIZE);
 
-	// Phase 9: per-thread "needs your attention" counts surfaced by the ACP
-	// notify bridge. TODO(phase-10): also render this badge in the chat-pane
-	// tab strip, the command palette session picker, and the activity-bar
-	// pin (for any chat thread the user pinned).
+	const activeProjectId = useShellStore((s) => s.activeProjectId);
+	const projects = useShellStore((s) => s.projects);
+	const activeProject = projects.find((p) => p.id === activeProjectId);
+
 	const badgeCounts = useThreadBadges((s) => s.counts);
 	const clearBadge = useThreadBadges((s) => s.clear);
 
@@ -149,45 +150,28 @@ function SessionsPage() {
 		}
 	}, [search.new, newDialogOpen, navigate]);
 
-	const { data, isLoading, isFetching, error } = useQuery(sessionsListQueryOptions(null, limit));
+	const { data, isLoading, isFetching, error } = useQuery(
+		chatThreadsByProjectQueryOptions(activeProjectId, includeAll, limit)
+	);
 	const hasMore = !!data && data.length >= limit;
 
-	const projects = useMemo(() => {
-		if (!data) return [] as string[];
-		const set = new Set<string>();
-		for (const s of data) {
-			if (s.projectDir) set.add(s.projectDir);
-		}
-		return Array.from(set).sort();
-	}, [data]);
-
-	const agents = useMemo(() => {
-		if (!data) return [] as string[];
-		const set = new Set<string>();
-		for (const s of data) {
-			const a = detectAgentSlug(s);
-			if (a) set.add(a);
-		}
-		return Array.from(set).sort();
-	}, [data]);
+	const projectColorById = useMemo(() => {
+		const map = new Map<string, string | null>();
+		for (const p of projects) map.set(p.id, p.color);
+		return map;
+	}, [projects]);
 
 	const filtered = useMemo(() => {
-		if (!data) return [] as SessionSummary[];
+		if (!data) return [] as ChatThreadSummary[];
 		const q = searchTerm.trim().toLowerCase();
-		return data.filter((s) => {
-			if (projectFilter && s.projectDir !== projectFilter) return false;
-			if (agentFilter) {
-				const a = detectAgentSlug(s);
-				if (agentFilter === 'unassigned' ? a !== null : a !== agentFilter) return false;
-			}
-			if (!q) return true;
-			return (
+		if (!q) return data;
+		return data.filter(
+			(s) =>
 				(s.title?.toLowerCase().includes(q) ?? false) ||
-				s.sessionId.toLowerCase().includes(q) ||
-				s.projectDir.toLowerCase().includes(q)
-			);
-		});
-	}, [data, projectFilter, agentFilter, searchTerm]);
+				s.id.toLowerCase().includes(q) ||
+				(s.cwd?.toLowerCase().includes(q) ?? false)
+		);
+	}, [data, searchTerm]);
 
 	return (
 		<div className="flex h-full flex-col p-5">
@@ -205,8 +189,8 @@ function SessionsPage() {
 							)}
 						</h2>
 						<div className="sub">
-							Claude Code sessions across all projects under
-							<code>~/.claude/projects</code>. Click a row to inspect; resume to continue.
+							Chat threads in the {includeAll ? 'workspace' : 'active project'}. Click a row
+							to inspect; ⌘⇧N for a new session.
 						</div>
 					</div>
 					<Button size="sm" onClick={() => setNewDialogOpen(true)}>
@@ -221,34 +205,79 @@ function SessionsPage() {
 				</div>
 
 				<div className="ses-filterbar">
+					<Popover>
+						<PopoverTrigger asChild>
+							<button
+								type="button"
+								className="inline-flex items-center gap-1.5 rounded-md border border-input bg-background px-2.5 py-1 text-xs hover:bg-accent"
+							>
+								<FolderKanban className="h-3 w-3" />
+								{includeAll ? (
+									<span>All projects</span>
+								) : (
+									<>
+										{activeProject?.color && (
+											<span
+												aria-hidden
+												style={{
+													display: 'inline-block',
+													width: 8,
+													height: 8,
+													borderRadius: 999,
+													background: activeProject.color,
+												}}
+											/>
+										)}
+										<span>{activeProject?.display_name ?? activeProjectId}</span>
+									</>
+								)}
+							</button>
+						</PopoverTrigger>
+						<PopoverContent align="start" className="w-64 p-1">
+							<button
+								type="button"
+								onClick={() => setIncludeAll(true)}
+								className={`flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-xs hover:bg-accent ${includeAll ? 'bg-accent/50' : ''}`}
+							>
+								<span>All projects</span>
+								{includeAll && <span aria-hidden>✓</span>}
+							</button>
+							<div className="my-1 border-t" />
+							{projects
+								.filter((p) => !p.archived_at)
+								.map((p) => (
+									<button
+										key={p.id}
+										type="button"
+										onClick={() => setIncludeAll(false)}
+										className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-accent ${!includeAll && p.id === activeProjectId ? 'bg-accent/50' : ''}`}
+									>
+										{p.color && (
+											<span
+												aria-hidden
+												style={{
+													display: 'inline-block',
+													width: 8,
+													height: 8,
+													borderRadius: 999,
+													background: p.color,
+												}}
+											/>
+										)}
+										<span>{p.display_name}</span>
+									</button>
+								))}
+						</PopoverContent>
+					</Popover>
 					<div className="input-search-wrap">
 						<Search />
 						<input
 							type="text"
 							value={searchTerm}
 							onChange={(e) => setSearch(e.target.value)}
-							placeholder="Search title, session id, project…"
+							placeholder="Search title, thread id, dir…"
 						/>
 					</div>
-					<span className="label">Project</span>
-					<select value={projectFilter} onChange={(e) => setProjectFilter(e.target.value)}>
-						<option value="">All projects</option>
-						{projects.map((p) => (
-							<option key={p} value={p}>
-								{shortPath(p)}
-							</option>
-						))}
-					</select>
-					<span className="label">Agent</span>
-					<select value={agentFilter} onChange={(e) => setAgentFilter(e.target.value)}>
-						<option value="">All agents</option>
-						{agents.map((a) => (
-							<option key={a} value={a}>
-								{a}
-							</option>
-						))}
-						<option value="unassigned">(unassigned)</option>
-					</select>
 					<div className="spacer" />
 					<span className="label">
 						{filtered.length} of {data?.length ?? 0}
@@ -259,7 +288,7 @@ function SessionsPage() {
 					{isLoading && (
 						<div className="flex items-center gap-2 p-5 text-sm text-muted-foreground">
 							<Loader2 className="h-4 w-4 animate-spin" />
-							Scanning sessions…
+							Loading threads…
 						</div>
 					)}
 					{error instanceof Error && (
@@ -284,23 +313,23 @@ function SessionsPage() {
 									<thead>
 										<tr>
 											<th>Title</th>
-											<th style={{ width: 240 }}>Project</th>
-											<th style={{ width: 120 }}>Model</th>
-											<th className="num" style={{ width: 70 }}>
-												# msgs
-											</th>
+											<th style={{ width: 280 }}>Working dir</th>
 											<th style={{ width: 140 }}>Last activity</th>
 										</tr>
 									</thead>
 									<tbody>
-										{filtered.map((s) => {
-											const badgeCount = badgeCounts[s.sessionId] ?? 0;
+										{filtered.map((thread) => {
+											const badgeCount = badgeCounts[thread.id] ?? 0;
+											const color = thread.project_id
+												? projectColorById.get(thread.project_id) ?? null
+												: null;
 											return (
 												<SessionRow
-													key={s.sessionId}
-													session={s}
+													key={thread.id}
+													thread={thread}
+													projectColor={color}
 													badgeCount={badgeCount}
-													onClearBadge={() => clearBadge(s.sessionId)}
+													onClearBadge={() => clearBadge(thread.id)}
 												/>
 											);
 										})}
@@ -337,11 +366,7 @@ function SessionsPage() {
 				</div>
 			</div>
 
-			<NewSessionDialog
-				open={newDialogOpen}
-				onOpenChange={setNewDialogOpen}
-				defaultProjects={projects}
-			/>
+			<NewSessionDialog open={newDialogOpen} onOpenChange={setNewDialogOpen} />
 		</div>
 	);
 }

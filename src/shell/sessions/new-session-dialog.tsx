@@ -48,6 +48,10 @@ export function NewSessionDialog({
 	// input becomes blank and the user types one in).
 	const fileRoots = useShellStore((s) => s.fileRoots);
 	const projects = defaultProjects.length > 0 ? defaultProjects : fileRoots;
+	const activeProjectId = useShellStore((s) => s.activeProjectId);
+	const shellProjects = useShellStore((s) => s.projects);
+	const activeProject = shellProjects.find((p) => p.id === activeProjectId);
+	const [projectId, setProjectId] = useState<string>(activeProjectId);
 	const [project, setProject] = useState<string>(projects[0] ?? '');
 	const [prompt, setPrompt] = useState('');
 	const [mode, setMode] = useState<Mode>(defaultMode);
@@ -56,12 +60,18 @@ export function NewSessionDialog({
 
 	useEffect(() => {
 		if (open) {
-			setProject(projects[0] ?? '');
+			// Pre-fill the working dir with the active project's root_path when
+			// it's set; otherwise fall back to the first configured file root.
+			// User can override either via the project picker (rebinds to a
+			// different project's root) or by editing the dir directly.
+			const root = activeProject?.root_path ?? null;
+			setProject(root ?? projects[0] ?? '');
+			setProjectId(activeProjectId);
 			setPrompt(presetPrompt ?? '');
 			setMode(defaultMode);
 			setErr(null);
 		}
-	}, [open, projects, presetPrompt, defaultMode]);
+	}, [open, projects, presetPrompt, defaultMode, activeProject?.root_path, activeProjectId]);
 
 	async function handleStartChat() {
 		if (!project) return;
@@ -76,6 +86,7 @@ export function NewSessionDialog({
 				claudeSessionId: null,
 				model: null,
 				title: prompt.trim().slice(0, 80) || null,
+				projectId,
 			});
 			await sessionEnsure(threadId, project, {});
 			onOpenChange(false);
@@ -119,6 +130,50 @@ export function NewSessionDialog({
 				</DialogHeader>
 
 				<div className="space-y-4 py-2">
+					<div className="flex items-center gap-2 text-xs">
+						<span className="text-muted-foreground">Project:</span>
+						<span className="inline-flex items-center gap-1.5 rounded-md border border-input bg-background px-2 py-0.5">
+							{(() => {
+								const selected = shellProjects.find((p) => p.id === projectId);
+								return (
+									<>
+										{selected?.color && (
+											<span
+												aria-hidden
+												style={{
+													display: 'inline-block',
+													width: 8,
+													height: 8,
+													borderRadius: 999,
+													background: selected.color,
+												}}
+											/>
+										)}
+										<span>{selected?.display_name ?? projectId}</span>
+									</>
+								);
+							})()}
+						</span>
+						<select
+							value={projectId}
+							onChange={(e) => {
+								const next = e.target.value;
+								setProjectId(next);
+								const np = shellProjects.find((p) => p.id === next);
+								if (np?.root_path) setProject(np.root_path);
+							}}
+							className="rounded-md border border-input bg-background px-2 py-0.5 text-xs"
+							aria-label="Change project"
+						>
+							{shellProjects
+								.filter((p) => !p.archived_at)
+								.map((p) => (
+									<option key={p.id} value={p.id}>
+										{p.display_name}
+									</option>
+								))}
+						</select>
+					</div>
 					<div className="grid grid-cols-2 gap-2">
 						<ModeChoice
 							active={mode === 'chat'}

@@ -31,6 +31,7 @@ use commands::{
     activity_sections_update,
     backup_delete, backup_export, backup_import, backup_list,
     claude_config_load, claude_config_read_file, claude_config_unwatch, claude_config_watch,
+    chat_thread_move, chat_threads_list_by_project,
     claude_list_sessions, claude_read_jsonl, db_exec, db_query, fs_exists,
     fs_list, fs_mime, fs_read, fs_rename, fs_roots_add, fs_roots_list, fs_roots_remove,
     fs_roots_reset, fs_trash,
@@ -519,6 +520,8 @@ pub fn run() {
             claude_list_sessions,
             claude_read_jsonl,
             // chat sessions (thread_id-keyed)
+            chat_threads_list_by_project,
+            chat_thread_move,
             session_ensure,
             session_send,
             session_tool_result,

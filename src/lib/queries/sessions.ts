@@ -1,9 +1,11 @@
 import { queryOptions } from '@tanstack/react-query';
 
 import {
+	chatThreadsListByProject,
 	claudeListSessions,
 	claudeReadJsonl,
 	type ChatEvent,
+	type ChatThreadSummary,
 	type SessionSummary,
 } from '@/lib/tauri-cmd';
 import { queryKeys } from '@/lib/query-keys';
@@ -26,6 +28,34 @@ export function sessionsListQueryOptions(projectDir?: string | null, limit?: num
 		staleTime: 30_000,
 	});
 }
+
+/**
+ * Phase 3 (projects-first-class): list `chat_threads` rows scoped by the
+ * active project. Distinct from `sessionsListQueryOptions` which scans
+ * `~/.claude/projects/<slug>/*.jsonl` on disk — that view is the legacy
+ * surface for "all sessions Claude has ever seen on this machine"; the
+ * thread view is the canonical "what threads belong to this project".
+ *
+ * Key prefix `project-scoped` so a `projects.active-changed` listener
+ * can invalidate every project-scoped query in one shot.
+ */
+export function chatThreadsByProjectQueryOptions(
+	projectId: string | null,
+	includeAll = false,
+	limit?: number | null
+) {
+	return queryOptions({
+		queryKey: [
+			'project-scoped',
+			'chat-threads',
+			{ projectId, includeAll, limit: limit ?? null },
+		] as const,
+		queryFn: () => chatThreadsListByProject(projectId, includeAll, limit),
+		staleTime: 10_000,
+	});
+}
+
+export type { ChatThreadSummary };
 
 export function sessionDetailQueryOptions(sessionId: string) {
 	return queryOptions({

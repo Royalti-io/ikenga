@@ -42,8 +42,9 @@ pub use backup::{backup_delete, backup_export, backup_import, backup_list};
 #[cfg(debug_assertions)]
 pub use bg_spike::{bg_spike_reply, bg_spike_run, new_state as new_bg_spike_state};
 pub use claude::{
-    claude_list_sessions, claude_read_jsonl, session_cancel, session_destroy,
-    session_destroy_all, session_ensure, session_send, session_tool_result,
+    chat_thread_move, chat_threads_list_by_project, claude_list_sessions, claude_read_jsonl,
+    session_cancel, session_destroy, session_destroy_all, session_ensure, session_send,
+    session_tool_result,
 };
 pub use claude_config::{
     claude_config_load, claude_config_read_file, claude_config_unwatch, claude_config_watch,

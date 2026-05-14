@@ -452,6 +452,43 @@ export async function sessionDestroyAll(): Promise<void> {
 	return invoke('session_destroy_all');
 }
 
+// ─── Chat threads scoped by project (Phase 3 of projects-first-class) ─────────
+//
+// Wire format mirrors `commands::claude::ChatThreadSummary` exactly — snake_case
+// over the JSON wire because the Rust struct is serde-default. The /sessions
+// page reads this list filtered by the shell's active project; the session-
+// detail page calls `chatThreadMove` to retag a thread without restarting the
+// claude subprocess (metadata-only — the captured cwd stays put).
+
+export interface ChatThreadSummary {
+	id: string;
+	title: string | null;
+	cwd: string | null;
+	project_id: string | null;
+	claude_session_id: string | null;
+	created_at: number;
+	updated_at: number;
+}
+
+export async function chatThreadsListByProject(
+	projectId: string | null,
+	includeAll = false,
+	limit?: number | null
+): Promise<ChatThreadSummary[]> {
+	return invoke<ChatThreadSummary[]>('chat_threads_list_by_project', {
+		projectId,
+		includeAll,
+		limit: limit ?? null,
+	});
+}
+
+/** Reattribute a chat thread to a different project. Metadata-only —
+ *  the in-memory `Session` and any live claude child keep the cwd they
+ *  were spawned with. */
+export async function chatThreadMove(threadId: string, projectId: string): Promise<void> {
+	return invoke('chat_thread_move', { threadId, projectId });
+}
+
 /** Pass `null` or omit `projectDir` to list sessions across all project
  *  slugs under `~/.claude/projects/`. `limit` caps the number of summaries
  *  returned (sorted newest-first); omit for "all sessions" (slow with 9k+

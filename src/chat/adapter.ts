@@ -53,6 +53,12 @@ export interface ChatThread {
 	/** When the adapter currently has a live PTY for this thread. Cleared when
 	 *  the PTY exits or the app cold-starts. */
 	ptyId: string | null;
+	/** Phase 3 of projects-first-class: every thread is attached to a
+	 *  project (nullable for legacy rows backfilled to NULL when the
+	 *  parent project is archived). The /sessions list filters by the
+	 *  active project's id; the session-detail page renders a move
+	 *  popover that calls `chatThreadMove`. */
+	projectId: string | null;
 	createdAt: number;
 	updatedAt: number;
 }
@@ -72,8 +78,11 @@ export interface ChatAdapter {
 	init(ctx: AdapterContext): Promise<void>;
 	/** Attach the adapter's live subscription for a thread. Idempotent; safe
 	 *  to call from a hook on every mount. v1 adapter has this; the interface
-	 *  marks it optional so future adapters (SDK, Pencil) can declare it lazy. */
-	attach?(threadId: string, cwd: string): Promise<void>;
+	 *  marks it optional so future adapters (SDK, Pencil) can declare it lazy.
+	 *  Phase 3 (projects-first-class): `projectId` threads through to the
+	 *  Rust ACP server via `_meta.projectId` so cwd resolution uses the
+	 *  project's root_path. */
+	attach?(threadId: string, cwd: string, projectId?: string | null): Promise<void>;
 	/** Begin a turn. The store drains the iterable and updates UI state.
 	 *  Returns a `streamId` usable for `cancel()`. */
 	send(input: ChatInput): { streamId: string; iterable: AsyncIterable<ChatEvent> };

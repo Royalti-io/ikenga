@@ -176,14 +176,19 @@ class AcpAdapterImpl implements ChatAdapter {
 
 	/** Ensure the ACP session row exists and a subscription is attached.
 	 *  Idempotent; safe to call from a hook on every mount. */
-	async attach(threadId: string, cwd: string): Promise<void> {
+	async attach(threadId: string, cwd: string, projectId?: string | null): Promise<void> {
 		if (this.streams.has(threadId)) return;
 		if (!this.sessioned.has(threadId)) {
 			// `acp_new_session` is idempotent on the Rust side via the threadId
 			// key: it returns the existing modes state if the thread already
 			// exists. The child stays lazy — spawn happens on the first prompt.
+			// Phase 3 (projects-first-class): thread the active project's id via
+			// `_meta.projectId` so the Rust side can resolve the cwd to the
+			// project's root_path when the caller's cwd is empty/wrong.
 			try {
-				await acpNewSession({ cwd, mcpServers: [], _meta: { threadId } });
+				const meta: Record<string, unknown> = { threadId };
+				if (projectId) meta.projectId = projectId;
+				await acpNewSession({ cwd, mcpServers: [], _meta: meta });
 				this.sessioned.add(threadId);
 			} catch (e) {
 				// If the Rust side decides the thread already has a different cwd
