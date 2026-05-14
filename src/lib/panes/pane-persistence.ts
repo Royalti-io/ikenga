@@ -95,6 +95,10 @@ function isViewLive(view: PaneView, liveTerminalIds: Set<string>): boolean {
 	switch (view.kind) {
 		case 'route':
 		case 'artifact':
+		case 'scratchpad':
+			// Scratchpad tabs hydrate on mount via /iyke/scratchpad/read.
+			// If the underlying scratchpad was deleted, the view shows a
+			// "not found" state but the tab itself stays restorable.
 			return true;
 		case 'terminal':
 			return liveTerminalIds.has(view.sessionId);

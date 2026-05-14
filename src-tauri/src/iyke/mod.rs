@@ -121,6 +121,7 @@ pub async fn start(
     app_handle: AppHandle,
     screenshot_pending: crate::commands::ScreenshotPending,
     iyke_routes: Arc<crate::pkg::registries::IykeRoutesRegistry>,
+    timer_scheduler: memory::TimerScheduler,
 ) -> Result<IykeRuntime> {
     let token = auth::random_token_hex(32);
 
@@ -134,6 +135,7 @@ pub async fn start(
         app_handle,
         screenshot_pending,
         iyke_routes,
+        timer_scheduler,
     )
     .await
     .context("start iyke server")?;

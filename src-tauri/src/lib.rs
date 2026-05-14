@@ -192,6 +192,16 @@ pub fn run() {
             // iyke_locks. 30s cadence; cheap.
             iyke::memory::spawn_lock_sweeper(pa_db.clone());
 
+            // Phase 1: timer firing loop. Shares a `TimerScheduler` notify
+            // handle with the iyke axum router so timer/schedule and
+            // timer/cancel wake the loop without polling.
+            let timer_scheduler = iyke::memory::TimerScheduler::new();
+            iyke::memory::spawn_timer_fire_loop(
+                pa_db.clone(),
+                timer_scheduler.clone(),
+                app.handle().clone(),
+            );
+
             // Phase 2 of staged-restore: replay the decrypted secrets blob
             // (if present) into Stronghold. Runs after SecretsLock is in
             // state (registered via .manage() above on the Builder) and
@@ -249,6 +259,7 @@ pub fn run() {
             let app_handle_for_iyke = app.handle().clone();
             let pending_for_iyke = screenshot_pending.clone();
             let iyke_routes_for_start = iyke_routes_reg.clone();
+            let timer_scheduler_for_start = timer_scheduler.clone();
             let runtime = tauri::async_runtime::block_on(async move {
                 iyke::start(
                     iyke_state_for_start,
@@ -260,6 +271,7 @@ pub fn run() {
                     app_handle_for_iyke,
                     pending_for_iyke,
                     iyke_routes_for_start,
+                    timer_scheduler_for_start,
                 )
                 .await
             })

@@ -10,7 +10,9 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as UiroutesSmokeRouteImport } from './routes/uiroutes-smoke'
+import { Route as TodosRouteImport } from './routes/todos'
 import { Route as SettingsSmokeRouteImport } from './routes/settings-smoke'
+import { Route as ScratchpadsRouteImport } from './routes/scratchpads'
 import { Route as PkgSmokeRouteImport } from './routes/pkg-smoke'
 import { Route as PkgKernelStatusRouteImport } from './routes/pkg-kernel-status'
 import { Route as PermsSmokeRouteImport } from './routes/perms-smoke'
@@ -67,9 +69,19 @@ const UiroutesSmokeRoute = UiroutesSmokeRouteImport.update({
   path: '/uiroutes-smoke',
   getParentRoute: () => rootRouteImport,
 } as any)
+const TodosRoute = TodosRouteImport.update({
+  id: '/todos',
+  path: '/todos',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SettingsSmokeRoute = SettingsSmokeRouteImport.update({
   id: '/settings-smoke',
   path: '/settings-smoke',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ScratchpadsRoute = ScratchpadsRouteImport.update({
+  id: '/scratchpads',
+  path: '/scratchpads',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PkgSmokeRoute = PkgSmokeRouteImport.update({
@@ -339,7 +351,9 @@ export interface FileRoutesByFullPath {
   '/perms-smoke': typeof PermsSmokeRoute
   '/pkg-kernel-status': typeof PkgKernelStatusRoute
   '/pkg-smoke': typeof PkgSmokeRoute
+  '/scratchpads': typeof ScratchpadsRoute
   '/settings-smoke': typeof SettingsSmokeRoute
+  '/todos': typeof TodosRoute
   '/uiroutes-smoke': typeof UiroutesSmokeRoute
   '/pkg/$pkgId': typeof PkgPkgIdRouteRouteWithChildren
   '/claude/commands': typeof ClaudeCommandsRoute
@@ -389,7 +403,9 @@ export interface FileRoutesByTo {
   '/perms-smoke': typeof PermsSmokeRoute
   '/pkg-kernel-status': typeof PkgKernelStatusRoute
   '/pkg-smoke': typeof PkgSmokeRoute
+  '/scratchpads': typeof ScratchpadsRoute
   '/settings-smoke': typeof SettingsSmokeRoute
+  '/todos': typeof TodosRoute
   '/uiroutes-smoke': typeof UiroutesSmokeRoute
   '/claude/commands': typeof ClaudeCommandsRoute
   '/claude/hooks': typeof ClaudeHooksRoute
@@ -443,7 +459,9 @@ export interface FileRoutesById {
   '/perms-smoke': typeof PermsSmokeRoute
   '/pkg-kernel-status': typeof PkgKernelStatusRoute
   '/pkg-smoke': typeof PkgSmokeRoute
+  '/scratchpads': typeof ScratchpadsRoute
   '/settings-smoke': typeof SettingsSmokeRoute
+  '/todos': typeof TodosRoute
   '/uiroutes-smoke': typeof UiroutesSmokeRoute
   '/pkg/$pkgId': typeof PkgPkgIdRouteRouteWithChildren
   '/claude/commands': typeof ClaudeCommandsRoute
@@ -499,7 +517,9 @@ export interface FileRouteTypes {
     | '/perms-smoke'
     | '/pkg-kernel-status'
     | '/pkg-smoke'
+    | '/scratchpads'
     | '/settings-smoke'
+    | '/todos'
     | '/uiroutes-smoke'
     | '/pkg/$pkgId'
     | '/claude/commands'
@@ -549,7 +569,9 @@ export interface FileRouteTypes {
     | '/perms-smoke'
     | '/pkg-kernel-status'
     | '/pkg-smoke'
+    | '/scratchpads'
     | '/settings-smoke'
+    | '/todos'
     | '/uiroutes-smoke'
     | '/claude/commands'
     | '/claude/hooks'
@@ -602,7 +624,9 @@ export interface FileRouteTypes {
     | '/perms-smoke'
     | '/pkg-kernel-status'
     | '/pkg-smoke'
+    | '/scratchpads'
     | '/settings-smoke'
+    | '/todos'
     | '/uiroutes-smoke'
     | '/pkg/$pkgId'
     | '/claude/commands'
@@ -657,7 +681,9 @@ export interface RootRouteChildren {
   PermsSmokeRoute: typeof PermsSmokeRoute
   PkgKernelStatusRoute: typeof PkgKernelStatusRoute
   PkgSmokeRoute: typeof PkgSmokeRoute
+  ScratchpadsRoute: typeof ScratchpadsRoute
   SettingsSmokeRoute: typeof SettingsSmokeRoute
+  TodosRoute: typeof TodosRoute
   UiroutesSmokeRoute: typeof UiroutesSmokeRoute
   PkgPkgIdRouteRoute: typeof PkgPkgIdRouteRouteWithChildren
   PackagesBrowseRoute: typeof PackagesBrowseRoute
@@ -672,11 +698,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof UiroutesSmokeRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/todos': {
+      id: '/todos'
+      path: '/todos'
+      fullPath: '/todos'
+      preLoaderRoute: typeof TodosRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/settings-smoke': {
       id: '/settings-smoke'
       path: '/settings-smoke'
       fullPath: '/settings-smoke'
       preLoaderRoute: typeof SettingsSmokeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/scratchpads': {
+      id: '/scratchpads'
+      path: '/scratchpads'
+      fullPath: '/scratchpads'
+      preLoaderRoute: typeof ScratchpadsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/pkg-smoke': {
@@ -1164,7 +1204,9 @@ const rootRouteChildren: RootRouteChildren = {
   PermsSmokeRoute: PermsSmokeRoute,
   PkgKernelStatusRoute: PkgKernelStatusRoute,
   PkgSmokeRoute: PkgSmokeRoute,
+  ScratchpadsRoute: ScratchpadsRoute,
   SettingsSmokeRoute: SettingsSmokeRoute,
+  TodosRoute: TodosRoute,
   UiroutesSmokeRoute: UiroutesSmokeRoute,
   PkgPkgIdRouteRoute: PkgPkgIdRouteRouteWithChildren,
   PackagesBrowseRoute: PackagesBrowseRoute,

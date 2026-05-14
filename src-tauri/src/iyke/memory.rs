@@ -6,15 +6,39 @@
 //! time (DESIGN.md §1 amendment for the projects-first-class plan).
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::{extract::Query, http::StatusCode, Extension, Json};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::{Row, SqlitePool};
+use tauri::{AppHandle, Emitter};
+use tokio::sync::Notify;
 use uuid::Uuid;
 
 use crate::commands::db::PaDb;
 use crate::commands::projects::get_active_project_id;
+
+/// Wake handle for the timer firing loop. When a new timer is scheduled
+/// or an existing one cancelled, the request handler calls `notify_one`
+/// so the loop re-reads the next-pending row without waiting for its
+/// 30s poll fallback.
+#[derive(Clone, Default)]
+pub struct TimerScheduler {
+    notify: Arc<Notify>,
+}
+
+impl TimerScheduler {
+    pub fn new() -> Self {
+        Self::default()
+    }
+    fn wake(&self) {
+        self.notify.notify_one();
+    }
+    async fn wait(&self) {
+        self.notify.notified().await;
+    }
+}
 
 const MAX_SCRATCHPAD_BYTES: usize = 1_000_000;
 const MAX_KV_VALUE_BYTES: usize = 64_000;
@@ -844,6 +868,312 @@ pub async fn post_todo_update(
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// Timers
+// ═══════════════════════════════════════════════════════════════════════
+
+const TIMER_TITLE_MAX: usize = 300;
+const TIMER_BODY_MAX: usize = 4_000;
+const TIMER_MAX_DELAY_MS: i64 = 365 * 24 * 60 * 60 * 1000; // 1 year
+const TIMER_INBOX_TTL_MS: i64 = 24 * 60 * 60 * 1000;
+
+#[derive(Deserialize)]
+pub struct TimerScheduleBody {
+    pub scope: Option<String>,
+    pub title: String,
+    pub body: Option<String>,
+    pub agent_id: Option<String>,
+    /// Absolute epoch-ms wall-clock fire time. Mutually exclusive with delay_ms.
+    pub fire_at: Option<i64>,
+    /// Relative delay in milliseconds from "now". Mutually exclusive with fire_at.
+    pub delay_ms: Option<i64>,
+}
+
+pub async fn post_timer_schedule(
+    Extension(db): Extension<Arc<PaDb>>,
+    Extension(sched): Extension<TimerScheduler>,
+    Json(body): Json<TimerScheduleBody>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    if body.title.is_empty() || body.title.chars().count() > TIMER_TITLE_MAX {
+        return Err(err(StatusCode::BAD_REQUEST, "title length".to_string()));
+    }
+    if let Some(b) = &body.body {
+        if b.len() > TIMER_BODY_MAX {
+            return Err(err(StatusCode::PAYLOAD_TOO_LARGE, "body > 4 KB".to_string()));
+        }
+    }
+    let now = now_ms();
+    let fire_at = match (body.fire_at, body.delay_ms) {
+        (Some(_), Some(_)) => {
+            return Err(err(
+                StatusCode::BAD_REQUEST,
+                "pass either fire_at or delay_ms, not both".to_string(),
+            ));
+        }
+        (Some(f), None) => f,
+        (None, Some(d)) => {
+            if d < 0 {
+                return Err(err(StatusCode::BAD_REQUEST, "delay_ms < 0".to_string()));
+            }
+            now.saturating_add(d)
+        }
+        (None, None) => {
+            return Err(err(
+                StatusCode::BAD_REQUEST,
+                "must pass fire_at or delay_ms".to_string(),
+            ));
+        }
+    };
+    if fire_at - now > TIMER_MAX_DELAY_MS {
+        return Err(err(StatusCode::BAD_REQUEST, "fire_at > 1 year out".to_string()));
+    }
+    let pool = db
+        .ensure_pool()
+        .await
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let scope = resolve_scope(&pool, body.scope).await?;
+    let id = Uuid::new_v4().to_string();
+    sqlx::query(
+        "INSERT INTO iyke_timers (id, scope, fire_at, agent_id, title, body, status, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)",
+    )
+    .bind(&id)
+    .bind(&scope)
+    .bind(fire_at)
+    .bind(&body.agent_id)
+    .bind(&body.title)
+    .bind(&body.body)
+    .bind(now)
+    .execute(&pool)
+    .await
+    .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("timer schedule: {e}")))?;
+
+    // Wake the firing loop so it re-reads "next pending" and doesn't wait
+    // out a stale sleep tied to a later timer.
+    sched.wake();
+
+    Ok(Json(json!({
+        "id": id,
+        "scope": scope,
+        "fire_at": fire_at,
+        "agent_id": body.agent_id,
+    })))
+}
+
+#[derive(Deserialize)]
+pub struct TimerCancelBody {
+    pub id: String,
+}
+
+pub async fn post_timer_cancel(
+    Extension(db): Extension<Arc<PaDb>>,
+    Extension(sched): Extension<TimerScheduler>,
+    Json(body): Json<TimerCancelBody>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let pool = db
+        .ensure_pool()
+        .await
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let res = sqlx::query(
+        "UPDATE iyke_timers SET status = 'cancelled' WHERE id = ? AND status = 'pending'",
+    )
+    .bind(&body.id)
+    .execute(&pool)
+    .await
+    .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("timer cancel: {e}")))?;
+    sched.wake();
+    Ok(Json(json!({ "cancelled": res.rows_affected() > 0 })))
+}
+
+#[derive(Deserialize)]
+pub struct TimerListQuery {
+    pub scope: Option<String>,
+    pub status: Option<String>,
+}
+
+pub async fn get_timer_list(
+    Extension(db): Extension<Arc<PaDb>>,
+    Query(q): Query<TimerListQuery>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let pool = db
+        .ensure_pool()
+        .await
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let scope = resolve_scope(&pool, q.scope).await?;
+    let rows = if let Some(s) = q.status.filter(|s| !s.is_empty()) {
+        sqlx::query(
+            "SELECT id, scope, fire_at, agent_id, title, body, status, created_at, fired_at
+             FROM iyke_timers WHERE scope = ? AND status = ? ORDER BY fire_at ASC",
+        )
+        .bind(&scope)
+        .bind(&s)
+        .fetch_all(&pool)
+        .await
+    } else {
+        sqlx::query(
+            "SELECT id, scope, fire_at, agent_id, title, body, status, created_at, fired_at
+             FROM iyke_timers WHERE scope = ? ORDER BY fire_at ASC",
+        )
+        .bind(&scope)
+        .fetch_all(&pool)
+        .await
+    }
+    .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("timer list: {e}")))?;
+    let timers: Vec<Value> = rows
+        .iter()
+        .map(|r| {
+            json!({
+                "id": r.get::<String, _>("id"),
+                "scope": r.get::<String, _>("scope"),
+                "fire_at": r.get::<i64, _>("fire_at"),
+                "agent_id": r.get::<Option<String>, _>("agent_id"),
+                "title": r.get::<String, _>("title"),
+                "body": r.get::<Option<String>, _>("body"),
+                "status": r.get::<String, _>("status"),
+                "created_at": r.get::<i64, _>("created_at"),
+                "fired_at": r.get::<Option<i64>, _>("fired_at"),
+            })
+        })
+        .collect();
+    Ok(Json(json!({ "scope": scope, "timers": timers })))
+}
+
+/// One firing-loop iteration. Returns the fired timer's id when one
+/// actually fired, otherwise None. Public for tests.
+pub async fn fire_due_timer(pool: &SqlitePool, app: Option<&AppHandle>) -> Option<String> {
+    let now = now_ms();
+    // SELECT first, then UPDATE the row to 'fired'. We use a
+    // "claim" via UPDATE..RETURNING semantics by checking rows_affected
+    // on a conditional update — that way concurrent loop iterations
+    // (shouldn't happen, but cheap to be safe) can't double-fire.
+    let row = sqlx::query_as::<_, (String, String, Option<String>, String, Option<String>)>(
+        "SELECT id, scope, agent_id, title, body
+         FROM iyke_timers
+         WHERE status = 'pending' AND fire_at <= ?
+         ORDER BY fire_at ASC LIMIT 1",
+    )
+    .bind(now)
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten()?;
+    let (id, scope, agent_id, title, body) = row;
+
+    let updated = sqlx::query(
+        "UPDATE iyke_timers SET status = 'fired', fired_at = ?
+         WHERE id = ? AND status = 'pending'",
+    )
+    .bind(now)
+    .bind(&id)
+    .execute(pool)
+    .await
+    .ok()?;
+    if updated.rows_affected() == 0 {
+        // Lost the race; let the next iteration try again.
+        return None;
+    }
+
+    // Deliver to the agent inbox if attributed. Source of "synthetic
+    // events delivered on the agent's next tool call".
+    if let Some(aid) = &agent_id {
+        let payload = json!({
+            "timer_id": id,
+            "scope": scope,
+            "title": title,
+            "body": body,
+            "fire_at": now,
+        });
+        let _ = sqlx::query(
+            "INSERT INTO iyke_agent_inbox (id, agent_id, kind, payload, created_at)
+             VALUES (?, ?, 'timer-fired', ?, ?)",
+        )
+        .bind(Uuid::new_v4().to_string())
+        .bind(aid)
+        .bind(payload.to_string())
+        .bind(now)
+        .execute(pool)
+        .await;
+    }
+
+    // Emit Tauri event so the FE can fire OS notifications via
+    // tauri-plugin-notification (mirrors acp-notify-bridge.ts).
+    if let Some(handle) = app {
+        let _ = handle.emit(
+            "iyke://timer-fired",
+            json!({
+                "id": id,
+                "scope": scope,
+                "title": title,
+                "body": body,
+                "agent_id": agent_id,
+                "fired_at": now,
+            }),
+        );
+    }
+
+    Some(id)
+}
+
+/// 24-hour TTL sweeper for the agent inbox. Called once per firing-loop
+/// iteration after a timer fires; cheap enough to inline.
+async fn sweep_inbox(pool: &SqlitePool) {
+    let cutoff = now_ms() - TIMER_INBOX_TTL_MS;
+    let _ = sqlx::query("DELETE FROM iyke_agent_inbox WHERE created_at < ?")
+        .bind(cutoff)
+        .execute(pool)
+        .await;
+}
+
+pub fn spawn_timer_fire_loop(db: Arc<PaDb>, sched: TimerScheduler, app_handle: AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        loop {
+            let pool = match db.ensure_pool().await {
+                Ok(p) => p,
+                Err(_) => {
+                    tokio::time::sleep(Duration::from_secs(5)).await;
+                    continue;
+                }
+            };
+
+            // Find the next pending timer.
+            let next: Option<(String, i64)> = sqlx::query_as(
+                "SELECT id, fire_at FROM iyke_timers
+                 WHERE status = 'pending' ORDER BY fire_at ASC LIMIT 1",
+            )
+            .fetch_optional(&pool)
+            .await
+            .ok()
+            .flatten();
+
+            match next {
+                None => {
+                    // No pending timers: wait for a scheduler wake or a
+                    // long fallback poll. The fallback covers the case
+                    // where wake signals are lost (shouldn't happen but
+                    // cheap insurance).
+                    tokio::select! {
+                        _ = sched.wait() => continue,
+                        _ = tokio::time::sleep(Duration::from_secs(30)) => continue,
+                    }
+                }
+                Some((_id, fire_at)) => {
+                    let wait_ms = (fire_at - now_ms()).max(0) as u64;
+                    if wait_ms > 0 {
+                        // A new schedule/cancel can shift the next fire
+                        // time — wake out of the sleep on notify.
+                        tokio::select! {
+                            _ = sched.wait() => continue,
+                            _ = tokio::time::sleep(Duration::from_millis(wait_ms)) => {}
+                        }
+                    }
+                    let _ = fire_due_timer(&pool, Some(&app_handle)).await;
+                    sweep_inbox(&pool).await;
+                }
+            }
+        }
+    });
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // Locks sweeper (spawned once from lib.rs)
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -862,4 +1192,166 @@ pub fn spawn_lock_sweeper(db: Arc<PaDb>) {
                 .await;
         }
     });
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Tests
+// ═══════════════════════════════════════════════════════════════════════
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sqlx::sqlite::SqlitePoolOptions;
+
+    async fn fresh_pool() -> SqlitePool {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        // Minimal schema slice from 0016_iyke_memory.sql — only the tables
+        // the timer fire path touches.
+        for stmt in [
+            "CREATE TABLE iyke_agents (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                model TEXT,
+                metadata TEXT NOT NULL DEFAULT '{}',
+                registered_at INTEGER NOT NULL,
+                last_seen_at INTEGER NOT NULL
+            )",
+            "CREATE TABLE iyke_timers (
+                id TEXT PRIMARY KEY,
+                scope TEXT NOT NULL,
+                fire_at INTEGER NOT NULL,
+                agent_id TEXT,
+                title TEXT NOT NULL,
+                body TEXT,
+                status TEXT NOT NULL DEFAULT 'pending',
+                created_at INTEGER NOT NULL,
+                fired_at INTEGER
+            )",
+            "CREATE TABLE iyke_agent_inbox (
+                id TEXT PRIMARY KEY,
+                agent_id TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                created_at INTEGER NOT NULL
+            )",
+        ] {
+            sqlx::query(stmt).execute(&pool).await.unwrap();
+        }
+        pool
+    }
+
+    async fn insert_pending_timer(
+        pool: &SqlitePool,
+        id: &str,
+        scope: &str,
+        fire_at: i64,
+        agent_id: Option<&str>,
+        title: &str,
+    ) {
+        let now = now_ms();
+        sqlx::query(
+            "INSERT INTO iyke_timers
+             (id, scope, fire_at, agent_id, title, body, status, created_at)
+             VALUES (?, ?, ?, ?, ?, NULL, 'pending', ?)",
+        )
+        .bind(id)
+        .bind(scope)
+        .bind(fire_at)
+        .bind(agent_id)
+        .bind(title)
+        .bind(now)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn fire_due_timer_marks_fired_and_returns_id() {
+        let pool = fresh_pool().await;
+        let past = now_ms() - 1000;
+        insert_pending_timer(&pool, "t1", "project:default", past, None, "test").await;
+
+        let fired = fire_due_timer(&pool, None).await;
+        assert_eq!(fired.as_deref(), Some("t1"));
+
+        let row: (String, Option<i64>) =
+            sqlx::query_as("SELECT status, fired_at FROM iyke_timers WHERE id = 't1'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(row.0, "fired");
+        assert!(row.1.is_some());
+    }
+
+    #[tokio::test]
+    async fn fire_due_timer_returns_none_for_future_only() {
+        let pool = fresh_pool().await;
+        let future = now_ms() + 60_000;
+        insert_pending_timer(&pool, "t2", "project:default", future, None, "future").await;
+
+        let fired = fire_due_timer(&pool, None).await;
+        assert!(fired.is_none());
+
+        let status: String = sqlx::query_scalar("SELECT status FROM iyke_timers WHERE id = 't2'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(status, "pending");
+    }
+
+    #[tokio::test]
+    async fn fire_due_timer_writes_agent_inbox_when_attributed() {
+        let pool = fresh_pool().await;
+        // Agent row required by FK on iyke_agent_inbox in the real
+        // schema. The minimal test schema drops the FK constraint, but
+        // we still write a registered row so the inbox payload is
+        // realistic.
+        sqlx::query(
+            "INSERT INTO iyke_agents (id, name, model, metadata, registered_at, last_seen_at)
+             VALUES ('a1', 'tester', NULL, '{}', 0, 0)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let past = now_ms() - 100;
+        insert_pending_timer(&pool, "t3", "project:default", past, Some("a1"), "ping").await;
+
+        let fired = fire_due_timer(&pool, None).await;
+        assert_eq!(fired.as_deref(), Some("t3"));
+
+        let (count, kind): (i64, String) = sqlx::query_as(
+            "SELECT COUNT(*), COALESCE(MAX(kind), '') FROM iyke_agent_inbox WHERE agent_id = 'a1'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(count, 1);
+        assert_eq!(kind, "timer-fired");
+    }
+
+    #[tokio::test]
+    async fn fire_due_timer_does_not_double_fire() {
+        let pool = fresh_pool().await;
+        let past = now_ms() - 100;
+        insert_pending_timer(&pool, "t4", "project:default", past, None, "once").await;
+
+        let first = fire_due_timer(&pool, None).await;
+        let second = fire_due_timer(&pool, None).await;
+        assert_eq!(first.as_deref(), Some("t4"));
+        assert!(second.is_none());
+    }
+
+    #[test]
+    fn scope_validation_round_trip() {
+        assert!(validate_scope("workspace").is_ok());
+        assert!(validate_scope("project:default").is_ok());
+        assert!(validate_scope("pkg:com.ikenga.iyke").is_ok());
+        assert!(validate_scope("nope").is_err());
+        assert!(validate_scope("project:").is_err());
+    }
 }

@@ -1,0 +1,106 @@
+// Phase 1 (projects-first-class): OS-notification bridge for the
+// `iyke://timer-fired` Tauri event.
+//
+// The Rust firing loop (`iyke/memory.rs::spawn_timer_fire_loop`) emits
+// `iyke://timer-fired` when a pending timer's wall-clock fire_at is
+// reached. The FE listener forwards the payload to tauri-plugin-
+// notification — same surface acp-notify-bridge uses. Idempotent:
+// repeated calls share a single refcounted listener so React StrictMode
+// double-mount + HMR don't duplicate notifications.
+
+import { listen } from '@tauri-apps/api/event';
+import {
+	isPermissionGranted,
+	requestPermission,
+	sendNotification,
+} from '@tauri-apps/plugin-notification';
+
+type Unsubscribe = () => void;
+
+export interface IykeTimerFiredPayload {
+	id: string;
+	scope: string;
+	title: string;
+	body: string | null;
+	agent_id: string | null;
+	fired_at: number;
+}
+
+let activeBridge: { unsubscribe: Unsubscribe; refCount: number } | null = null;
+
+export function startIykeTimerBridge(): Unsubscribe {
+	if (activeBridge) {
+		activeBridge.refCount += 1;
+		return makeRefCountedUnsubscribe();
+	}
+
+	let unlisten: Unsubscribe | null = null;
+	let disposed = false;
+
+	void ensureNotificationPermission();
+
+	void listen<IykeTimerFiredPayload>('iyke://timer-fired', (e) => handleTimerFired(e.payload))
+		.then((un) => {
+			if (disposed) {
+				un();
+				return;
+			}
+			unlisten = un;
+		});
+
+	activeBridge = {
+		refCount: 1,
+		unsubscribe: () => {
+			disposed = true;
+			if (unlisten) {
+				unlisten();
+				unlisten = null;
+			}
+			activeBridge = null;
+		},
+	};
+
+	return makeRefCountedUnsubscribe();
+}
+
+function makeRefCountedUnsubscribe(): Unsubscribe {
+	let called = false;
+	return () => {
+		if (called) return;
+		called = true;
+		if (!activeBridge) return;
+		activeBridge.refCount -= 1;
+		if (activeBridge.refCount <= 0) {
+			activeBridge.unsubscribe();
+		}
+	};
+}
+
+export function handleTimerFired(payload: IykeTimerFiredPayload): void {
+	void fireOsNotification(payload);
+}
+
+async function fireOsNotification(payload: IykeTimerFiredPayload): Promise<void> {
+	try {
+		const granted = await isPermissionGranted();
+		if (!granted) {
+			const result = await requestPermission();
+			if (result !== 'granted') return;
+		}
+		sendNotification({
+			title: payload.title,
+			body: payload.body ?? '',
+		});
+	} catch (e) {
+		console.warn('[iyke-timer-bridge] sendNotification failed', e);
+	}
+}
+
+async function ensureNotificationPermission(): Promise<void> {
+	try {
+		const granted = await isPermissionGranted();
+		if (!granted) await requestPermission();
+	} catch (e) {
+		console.warn('[iyke-timer-bridge] permission probe failed', e);
+	}
+}

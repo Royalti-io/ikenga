@@ -14,6 +14,7 @@ import {
 	MessageSquare,
 	Terminal as TerminalIcon,
 	Settings,
+	FileText,
 	FolderOpen,
 	FolderKanban,
 	RefreshCw,
@@ -326,6 +327,8 @@ function viewLabelShort(view: PaneView): string {
 			return `Chat · ${view.sessionId.slice(0, 8)}`;
 		case 'artifact':
 			return `Artifact ${view.path}`;
+		case 'scratchpad':
+			return `Scratchpad ${view.name}`;
 	}
 }
 
@@ -447,6 +450,8 @@ function iconForView(view: PaneView): typeof Inbox {
 			return MessageSquare;
 		case 'artifact':
 			return FolderOpen;
+		case 'scratchpad':
+			return FileText;
 	}
 }
 

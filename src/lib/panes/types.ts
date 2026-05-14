@@ -8,6 +8,7 @@ export type PaneView = (
 	| { kind: 'terminal'; sessionId: string }
 	| { kind: 'chat'; sessionId: string }
 	| { kind: 'artifact'; path: string }
+	| { kind: 'scratchpad'; scope: string; name: string }
 ) & { pinned?: boolean };
 
 export type PaneDirection = 'horizontal' | 'vertical';

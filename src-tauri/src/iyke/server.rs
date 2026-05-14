@@ -41,9 +41,10 @@ use super::handlers::{
 use super::pkg_dispatch::pkg_dispatch;
 use super::memory::{
     get_kv_get, get_kv_list, get_lock_status, get_scratchpad_list, get_scratchpad_read,
-    get_todo_list, post_agent_register, post_kv_delete, post_kv_set, post_lock_acquire,
-    post_lock_release, post_lock_renew, post_scratchpad_append, post_scratchpad_delete,
-    post_scratchpad_write, post_todo_complete, post_todo_create, post_todo_update,
+    get_timer_list, get_todo_list, post_agent_register, post_kv_delete, post_kv_set,
+    post_lock_acquire, post_lock_release, post_lock_renew, post_scratchpad_append,
+    post_scratchpad_delete, post_scratchpad_write, post_timer_cancel, post_timer_schedule,
+    post_todo_complete, post_todo_create, post_todo_update, TimerScheduler,
 };
 use super::projects::{
     get_project_active, get_project_list, post_project_archive, post_project_create,
@@ -66,6 +67,7 @@ pub async fn serve(
     app_handle: AppHandle,
     screenshot_pending: ScreenshotPending,
     iyke_routes: Arc<IykeRoutesRegistry>,
+    timer_scheduler: TimerScheduler,
 ) -> Result<(String, u16, oneshot::Sender<()>)> {
     // Bind first so we can thread the live port into handlers that need to
     // bake it into in-page eval closures (pkg-browser reply fetch).
@@ -158,6 +160,9 @@ pub async fn serve(
         .route("/iyke/todo/update", post(post_todo_update))
         .route("/iyke/todo/list", get(get_todo_list))
         .route("/iyke/todo/complete", post(post_todo_complete))
+        .route("/iyke/timer/schedule", post(post_timer_schedule))
+        .route("/iyke/timer/cancel", post(post_timer_cancel))
+        .route("/iyke/timer/list", get(get_timer_list))
         // Catch-all for package-installed routes. The dispatcher reads the
         // method+path off the request and consults `IykeRoutesRegistry`.
         .route("/pkg/*path", get(pkg_dispatch).post(pkg_dispatch))
@@ -183,6 +188,7 @@ pub async fn serve(
         .layer(Extension(app_handle))
         .layer(Extension(screenshot_pending))
         .layer(Extension(iyke_routes))
+        .layer(Extension(timer_scheduler))
         .layer(
             CorsLayer::new()
                 .allow_origin(Any)

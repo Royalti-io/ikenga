@@ -3,6 +3,7 @@ import { RouteView } from './views/route-view';
 import { TerminalView } from './views/terminal-view';
 import { ChatView } from './views/chat-view';
 import { ArtifactView } from './views/artifact-view';
+import { ScratchpadView } from './views/scratchpad-view';
 
 interface PaneBodyProps {
 	paneId: string;
@@ -19,6 +20,8 @@ export function PaneBody({ paneId, view }: PaneBodyProps) {
 			return <ChatView sessionId={view.sessionId} />;
 		case 'artifact':
 			return <ArtifactView path={view.path} paneId={paneId} />;
+		case 'scratchpad':
+			return <ScratchpadView scope={view.scope} name={view.name} />;
 	}
 }
 
@@ -37,6 +40,8 @@ export function viewLabel(view: PaneView): string {
 			const name = view.path.split('/').filter(Boolean).pop();
 			return name ?? 'Artifact';
 		}
+		case 'scratchpad':
+			return view.name;
 	}
 }
 
@@ -50,5 +55,7 @@ export function viewSubtitle(view: PaneView): string {
 			return `session: ${view.sessionId}`;
 		case 'artifact':
 			return view.path;
+		case 'scratchpad':
+			return view.scope;
 	}
 }

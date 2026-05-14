@@ -24,5 +24,7 @@ export function viewWorkspace(view: PaneView): IkengaWorkspace {
 			return 'sessions';
 		case 'artifact':
 			return 'files';
+		case 'scratchpad':
+			return 'app';
 	}
 }
