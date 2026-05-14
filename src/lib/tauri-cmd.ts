@@ -1338,6 +1338,76 @@ export async function pkgSupervisorRestart(pkgId: string): Promise<boolean> {
 	return invoke<boolean>('pkg_supervisor_restart', { pkgId });
 }
 
+// ── Phase 9: pkg trust gating ─────────────────────────────────────────────
+
+export interface PkgTrustPermsSummary {
+	shell_execute: string[];
+	fs_write_outside_sandbox: string[];
+	net: string[];
+	vault_keys: string[];
+}
+
+export type PkgTrustChangeReason =
+	| { kind: 'never' }
+	| { kind: 'permissions_changed'; prior_version: string; added: string[]; removed: string[] }
+	| { kind: 'revoked' };
+
+export type PkgTrustState =
+	| 'auto_trusted'
+	| 'auto_granted'
+	| 'granted'
+	| 'needs_approval';
+
+export interface PkgTrustEntry {
+	pkg_id: string;
+	version: string;
+	state: PkgTrustState;
+	perms: PkgTrustPermsSummary;
+	last_granted_at_ms: number | null;
+	change_reason: PkgTrustChangeReason | null;
+	auto_trusted: boolean;
+}
+
+export interface PkgTrustPreview {
+	pkg_id: string;
+	version: string;
+	perms: PkgTrustPermsSummary;
+}
+
+/**
+ * List trust state for every installed pkg. Includes auto-trusted
+ * builtins and skill-pack-only auto-grants alongside explicit grants and
+ * pending approvals. Used by Settings → Pkgs Trust column.
+ */
+export async function pkgTrustList(): Promise<PkgTrustEntry[]> {
+	return invoke<PkgTrustEntry[]>('pkg_trust_list');
+}
+
+/**
+ * Per-pkg sensitive perms summary, fetched lazily when the Review dialog
+ * opens. Returns the same shape as the `perms` field on a list entry.
+ */
+export async function pkgTrustPreview(pkgId: string): Promise<PkgTrustPreview> {
+	return invoke<PkgTrustPreview>('pkg_trust_preview', { pkgId });
+}
+
+/**
+ * Approve the pkg's *current* manifest sensitive-perms set. The version
+ * string defends against a manifest update racing the dialog open; mismatch
+ * rejects with an error so the FE can re-open with fresh data.
+ */
+export async function pkgTrustGrant(pkgId: string, version: string): Promise<void> {
+	await invoke<void>('pkg_trust_grant', { pkgId, version });
+}
+
+/**
+ * Revoke an existing trust grant. Subsequent MCP tools/call against this
+ * pkg returns the structured `trust_required` error until re-granted.
+ */
+export async function pkgTrustRevoke(pkgId: string): Promise<void> {
+	await invoke<void>('pkg_trust_revoke', { pkgId });
+}
+
 /**
  * Debug-only: pre-bind a port so the smoke route can verify the supervised
  * sidecar transitions to Blocked when its dev-server child sees EADDRINUSE.

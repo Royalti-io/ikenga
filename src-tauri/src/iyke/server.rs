@@ -41,6 +41,7 @@ use super::handlers::{
 };
 use super::layout::{get_layout, post_layout_reset};
 use super::mcp::{get_mcp_list, post_mcp_restart};
+use super::trust::{get_trust_list, get_trust_preview, post_trust_grant, post_trust_revoke};
 use super::secrets::{get_secret, get_secret_list, post_secret_delete, post_secret_set};
 use super::memory::{
     get_kv_get, get_kv_list, get_lock_status, get_scratchpad_list, get_scratchpad_read,
@@ -170,6 +171,12 @@ pub async fn serve(
         // MCP supervisor + per-project resolved set (Phase 5).
         .route("/iyke/mcp/list", get(get_mcp_list))
         .route("/iyke/mcp/restart", post(post_mcp_restart))
+        // Trust gating (Phase 9). Grant is human-only; the MCP tools
+        // surface read-only status only.
+        .route("/iyke/trust/list", get(get_trust_list))
+        .route("/iyke/trust/grant", post(post_trust_grant))
+        .route("/iyke/trust/revoke", post(post_trust_revoke))
+        .route("/iyke/trust/preview/:pkg_id", get(get_trust_preview))
         .route("/iyke/layout/get", get(get_layout))
         .route("/iyke/layout/reset", post(post_layout_reset))
         .route("/iyke/secret/get", get(get_secret))

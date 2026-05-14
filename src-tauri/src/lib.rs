@@ -54,7 +54,8 @@ use commands::{
 use commands::{bg_spike_reply, bg_spike_run, new_bg_spike_state};
 use commands::{
     session_cancel, session_destroy, session_destroy_all, session_ensure, session_send,
-    session_tool_result, supabase_config_clear, supabase_config_get, supabase_config_set,
+    pkg_trust_grant, pkg_trust_list, pkg_trust_preview, pkg_trust_revoke, session_tool_result,
+    supabase_config_clear, supabase_config_get, supabase_config_set,
     viewer_port, viewer_serve, viewer_stop, IykeRuntimeState, ScreenshotConfigState,
     ScreenshotConfigStateRef, ScreenshotPending, SecretsLock,
 };
@@ -608,6 +609,11 @@ pub fn run() {
             supabase_config_get,
             supabase_config_set,
             supabase_config_clear,
+            // trust gating (Phase 9)
+            pkg_trust_list,
+            pkg_trust_preview,
+            pkg_trust_grant,
+            pkg_trust_revoke,
             // db
             db_query,
             db_exec,

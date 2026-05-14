@@ -27,6 +27,7 @@ pub mod secrets;
 pub mod settings_kv;
 pub mod spike;
 pub mod supabase_config;
+pub mod trust;
 pub mod viewer;
 
 pub use acp::{
@@ -91,6 +92,7 @@ pub use secrets::{
 pub use settings_kv::{settings_clear_all, settings_get, settings_get_all, settings_set};
 pub use spike::{spike_grant_fs_read, spike_setup_test_file};
 pub use supabase_config::{supabase_config_clear, supabase_config_get, supabase_config_set};
+pub use trust::{pkg_trust_grant, pkg_trust_list, pkg_trust_preview, pkg_trust_revoke};
 pub use viewer::{viewer_port, viewer_serve, viewer_stop};
 
 use std::path::{Path, PathBuf};

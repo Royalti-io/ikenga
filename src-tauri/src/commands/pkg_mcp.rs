@@ -123,6 +123,62 @@ pub async fn pkg_mcp_call(
         });
     }
 
+    // Phase 9: trust gating. Both per-call AND supervised tools/call paths
+    // are gated here — the supervised path's child still boots (lifecycle
+    // events keep flowing), but every tools/call against an untrusted pkg
+    // returns the structured `trust_required` error so calling agents can
+    // surface "approve via Settings → Pkgs". Built-ins and pkgs without
+    // sensitive perms are auto-trusted; this branch only fires for
+    // sideloaded / registry pkgs that declared shell.execute or fs.write
+    // outside their $pkg_data sandbox.
+    let trust_state = {
+        use tauri::Manager;
+        let app_data = match app.path().app_data_dir() {
+            Ok(p) => p,
+            Err(e) => {
+                return Ok(PkgMcpCallResult {
+                    ok: false,
+                    error: Some(format!("app_data_dir: {e}")),
+                    result: None,
+                });
+            }
+        };
+        let source = kernel
+            .0
+            .installed_summary(&pkg_id)
+            .map(|s| s.source)
+            .unwrap_or(crate::pkg::source::InstallSource::Local {
+                path: install_path.display().to_string(),
+            });
+        let pool = match db.ensure_pool().await {
+            Ok(p) => p,
+            Err(e) => {
+                return Ok(PkgMcpCallResult {
+                    ok: false,
+                    error: Some(format!("db pool: {e}")),
+                    result: None,
+                });
+            }
+        };
+        match crate::pkg::trust::evaluate(&pool, &pkg, &source, &app_data).await {
+            Ok(s) => s,
+            Err(e) => {
+                return Ok(PkgMcpCallResult {
+                    ok: false,
+                    error: Some(format!("trust evaluate: {e:#}")),
+                    result: None,
+                });
+            }
+        }
+    };
+    if !trust_state.is_allowed() {
+        return Ok(PkgMcpCallResult {
+            ok: false,
+            error: Some(format!("{}", crate::pkg::trust::trust_required_error(&pkg_id))),
+            result: None,
+        });
+    }
+
     let server = match mcp_runtime::pick_server(&pkg.manifest.mcp, "") {
         Ok(s) => s,
         Err(e) => {

@@ -46,7 +46,6 @@ pub struct Manifest {
     pub targets: Vec<String>, // rust target triples, empty = host-agnostic (skill packs)
 
     // ── Capability blocks (all optional) ────────────────────────────────────
-
     /// Path inside the package dir to a folder of Claude Code skills.
     /// Installer copies to `~/.claude/skills/<pkg>/`.
     #[serde(default)]
@@ -247,6 +246,19 @@ pub struct McpServer {
     /// session state (preview servers, watchers, render workers).
     #[serde(default)]
     pub lifecycle: Option<String>,
+
+    /// Phase 9: glob patterns relative to the package dir. The supervisor
+    /// restarts the long-lived child when any matched file changes (250 ms
+    /// debounce). Empty = no watcher. Per-call entries ignore this.
+    #[serde(default)]
+    pub restart_when_changed: Vec<String>,
+
+    /// Phase 9: auto-restart on unexpected exit. Defaults to true (existing
+    /// supervisor behavior). Set false for one-shot tools that should run
+    /// once and transition to Stopped instead of looping. Per-call entries
+    /// ignore this — they're already one-shot by definition.
+    #[serde(default = "default_auto_restart")]
+    pub auto_restart: bool,
 }
 
 impl McpServer {
@@ -269,10 +281,26 @@ pub struct SidecarSpec {
     /// Communication mode the sidecar speaks on stdio.
     #[serde(default = "default_stdio")]
     pub stdio: String, // "json" | "raw"
+
+    /// Phase 9: glob patterns relative to the package dir. The supervisor
+    /// restarts the sidecar when any matched file changes (250 ms debounce).
+    /// Empty = no watcher.
+    #[serde(default)]
+    pub restart_when_changed: Vec<String>,
+
+    /// Phase 9: auto-restart on unexpected exit. Defaults to true (existing
+    /// behavior). Set false for one-shot tools that should run once and
+    /// transition to Stopped instead of looping through the strike budget.
+    #[serde(default = "default_auto_restart")]
+    pub auto_restart: bool,
 }
 
 fn default_stdio() -> String {
     "json".into()
+}
+
+fn default_auto_restart() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -396,8 +424,8 @@ pub struct IykeBlock {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IykeRoute {
-    pub method: String, // "GET" | "POST"
-    pub path: String,   // must start with /pkg/<id>/
+    pub method: String,  // "GET" | "POST"
+    pub path: String,    // must start with /pkg/<id>/
     pub handler: String, // "sidecar:<name> <subcommand>" | "event:<name>"
 }
 
@@ -509,10 +537,7 @@ impl Package {
             .with_context(|| format!("canonicalize {}", joined.display()))?;
         let install_canon = self.install_path.canonicalize()?;
         if !canonical.starts_with(&install_canon) {
-            return Err(anyhow!(
-                "manifest path `{}` escapes install dir",
-                rel
-            ));
+            return Err(anyhow!("manifest path `{}` escapes install dir", rel));
         }
         Ok(canonical)
     }
@@ -563,6 +588,8 @@ mod tests {
             name: "wrong-prefix".into(),
             bin: "bin/x".into(),
             stdio: "json".into(),
+            restart_when_changed: vec![],
+            auto_restart: true,
         });
         assert!(Package::validate(&m).is_err());
     }
@@ -581,9 +608,15 @@ mod tests {
         let m: Manifest = serde_json::from_str(json).expect("parse");
         let ui = m.ui.expect("ui block present");
         let csp = ui.csp.expect("csp parsed");
-        assert_eq!(csp.get("script-src").unwrap(), &vec!["'self'".to_string(), "'unsafe-inline'".to_string()]);
+        assert_eq!(
+            csp.get("script-src").unwrap(),
+            &vec!["'self'".to_string(), "'unsafe-inline'".to_string()]
+        );
         let perms = ui.permissions.expect("permissions parsed");
-        assert_eq!(perms.get("clipboard-read").unwrap(), &vec!["'self'".to_string()]);
+        assert_eq!(
+            perms.get("clipboard-read").unwrap(),
+            &vec!["'self'".to_string()]
+        );
     }
 
     #[test]
@@ -677,7 +710,10 @@ mod tests {
             engine.onboarding.required_vault_keys,
             vec!["ANTHROPIC_API_KEY".to_string()]
         );
-        assert_eq!(engine.onboarding.auth_command.as_deref(), Some("claude login"));
+        assert_eq!(
+            engine.onboarding.auth_command.as_deref(),
+            Some("claude login")
+        );
         assert!(engine.onboarding.docs_url.is_some());
     }
 
@@ -769,7 +805,10 @@ mod tests {
             }
         }"#;
         let result: Result<Manifest, _> = serde_json::from_str(json);
-        assert!(result.is_err(), "expected error on unknown capability field");
+        assert!(
+            result.is_err(),
+            "expected error on unknown capability field"
+        );
     }
 
     #[test]
@@ -779,7 +818,46 @@ mod tests {
             name: "pa-com-royalti-test-main".into(),
             bin: "bin/x".into(),
             stdio: "json".into(),
+            restart_when_changed: vec![],
+            auto_restart: true,
         });
         assert!(Package::validate(&m).is_ok());
+    }
+
+    #[test]
+    fn sidecar_spec_defaults_restart_when_changed_and_auto_restart() {
+        // Phase 9: legacy manifests without these fields stay valid; defaults
+        // are empty globs + auto_restart=true (existing supervisor behavior).
+        let json = r#"{
+            "id": "com.royalti.legacysidecar",
+            "name": "T", "version": "0.1.0", "ikenga_api": "1",
+            "sidecars": [{"name": "pa-com-royalti-legacysidecar-main", "bin": "bin/x"}]
+        }"#;
+        let m: Manifest = serde_json::from_str(json).expect("parse");
+        let s = &m.sidecars[0];
+        assert_eq!(s.stdio, "json");
+        assert!(s.restart_when_changed.is_empty());
+        assert!(s.auto_restart);
+    }
+
+    #[test]
+    fn sidecar_spec_parses_restart_when_changed_and_auto_restart() {
+        let json = r#"{
+            "id": "com.royalti.watchsidecar",
+            "name": "T", "version": "0.1.0", "ikenga_api": "1",
+            "sidecars": [{
+                "name": "pa-com-royalti-watchsidecar-main",
+                "bin": "bin/x",
+                "restart_when_changed": ["src/**/*.ts", "config.toml"],
+                "auto_restart": false
+            }]
+        }"#;
+        let m: Manifest = serde_json::from_str(json).expect("parse");
+        let s = &m.sidecars[0];
+        assert_eq!(
+            s.restart_when_changed,
+            vec!["src/**/*.ts".to_string(), "config.toml".to_string()]
+        );
+        assert!(!s.auto_restart);
     }
 }

@@ -9,14 +9,26 @@ import {
 	pkgPreviewManifest,
 	pkgSetEnabled,
 	pkgSetScope,
+	pkgTrustGrant,
+	pkgTrustList,
+	pkgTrustRevoke,
 	pkgUninstall,
 	type PkgInstalledSummary,
 	type PkgManifestPreview,
 	type PkgScopeWire,
+	type PkgTrustEntry,
 } from '@/lib/tauri-cmd';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+} from '@/components/ui/dialog';
 import {
 	DropdownMenu,
 	DropdownMenuContent,
@@ -125,6 +137,40 @@ export function PackagesPage() {
 		queryFn: pkgKernelStatus,
 		refetchOnWindowFocus: false,
 	});
+
+	// Phase 9 — trust gating. List comes back small (one entry per installed
+	// pkg) so we just refetch alongside `pkg` queries.
+	const trustList = useQuery({
+		queryKey: ['pkg', 'trust-list'],
+		queryFn: pkgTrustList,
+		refetchOnWindowFocus: false,
+	});
+	const trustByPkg = useMemo(() => {
+		const out = new Map<string, PkgTrustEntry>();
+		for (const t of trustList.data ?? []) out.set(t.pkg_id, t);
+		return out;
+	}, [trustList.data]);
+
+	const grantMut = useMutation({
+		mutationFn: ({ pkgId, version }: { pkgId: string; version: string }) =>
+			pkgTrustGrant(pkgId, version),
+		onSuccess: async () => {
+			setError(null);
+			await qc.refetchQueries({ queryKey: ['pkg'] });
+		},
+		onError: (e) => setError((e as Error).message ?? String(e)),
+	});
+	const revokeMut = useMutation({
+		mutationFn: (pkgId: string) => pkgTrustRevoke(pkgId),
+		onSuccess: async () => {
+			setError(null);
+			await qc.refetchQueries({ queryKey: ['pkg'] });
+		},
+		onError: (e) => setError((e as Error).message ?? String(e)),
+	});
+
+	// Open-Review dialog state. Holds the trust entry under review; null = closed.
+	const [reviewing, setReviewing] = useState<PkgTrustEntry | null>(null);
 
 	const installPaths = (status.data?.installed ?? []).map((p) => p.install_path);
 	const manifests = useQuery({
@@ -273,6 +319,9 @@ export function PackagesPage() {
 							onToggle={handleToggle}
 							onUninstall={handleUninstall}
 							onSetScope={(pkgId, scope) => setScopeMut.mutate({ pkgId, scope })}
+							trustByPkg={trustByPkg}
+							onReviewTrust={setReviewing}
+							onRevokeTrust={(pkgId) => revokeMut.mutate(pkgId)}
 						/>
 						<PkgGroup
 							title="Engine"
@@ -287,6 +336,9 @@ export function PackagesPage() {
 							onToggle={handleToggle}
 							onUninstall={handleUninstall}
 							onSetScope={(pkgId, scope) => setScopeMut.mutate({ pkgId, scope })}
+							trustByPkg={trustByPkg}
+							onReviewTrust={setReviewing}
+							onRevokeTrust={(pkgId) => revokeMut.mutate(pkgId)}
 						/>
 						<PkgGroup
 							title="Installed"
@@ -301,10 +353,26 @@ export function PackagesPage() {
 							onToggle={handleToggle}
 							onUninstall={handleUninstall}
 							onSetScope={(pkgId, scope) => setScopeMut.mutate({ pkgId, scope })}
+							trustByPkg={trustByPkg}
+							onReviewTrust={setReviewing}
+							onRevokeTrust={(pkgId) => revokeMut.mutate(pkgId)}
 						/>
 					</div>
 				</div>
 			</div>
+
+			{reviewing && (
+				<TrustReviewDialog
+					entry={reviewing}
+					onClose={() => setReviewing(null)}
+					onApprove={async () => {
+						const t = reviewing;
+						setReviewing(null);
+						await grantMut.mutateAsync({ pkgId: t.pkg_id, version: t.version });
+					}}
+					busy={grantMut.isPending}
+				/>
+			)}
 		</div>
 	);
 }
@@ -332,6 +400,9 @@ function PkgGroup({
 	onToggle,
 	onUninstall,
 	onSetScope,
+	trustByPkg,
+	onReviewTrust,
+	onRevokeTrust,
 }: {
 	title: string;
 	tag: string;
@@ -345,6 +416,9 @@ function PkgGroup({
 	onToggle: (row: PkgRow) => void;
 	onUninstall: (row: PkgRow) => void;
 	onSetScope: (pkgId: string, scope: PkgScopeWire | null) => void;
+	trustByPkg: Map<string, PkgTrustEntry>;
+	onReviewTrust: (entry: PkgTrustEntry) => void;
+	onRevokeTrust: (pkgId: string) => void;
 }) {
 	if (items.length === 0) return null;
 	return (
@@ -372,6 +446,9 @@ function PkgGroup({
 							onToggle={() => onToggle(row)}
 							onUninstall={() => onUninstall(row)}
 							onSetScope={(scope) => onSetScope(row.installed.id, scope)}
+							trust={trustByPkg.get(row.installed.id) ?? null}
+							onReviewTrust={onReviewTrust}
+							onRevokeTrust={onRevokeTrust}
 						/>
 					);
 				})}
@@ -389,6 +466,9 @@ function PkgRowItem({
 	onToggle,
 	onUninstall,
 	onSetScope,
+	trust,
+	onReviewTrust,
+	onRevokeTrust,
 }: {
 	row: PkgRow;
 	busy: boolean;
@@ -398,6 +478,9 @@ function PkgRowItem({
 	onToggle: () => void;
 	onUninstall: () => void;
 	onSetScope: (scope: PkgScopeWire | null) => void;
+	trust: PkgTrustEntry | null;
+	onReviewTrust: (entry: PkgTrustEntry) => void;
+	onRevokeTrust: (pkgId: string) => void;
 }) {
 	const { installed, manifest, manifestError } = row;
 	const name = manifest?.name ?? installed.id;
@@ -464,6 +547,7 @@ function PkgRowItem({
 			</div>
 
 			<div className="flex shrink-0 items-center gap-3">
+				<TrustChip trust={trust} onReview={onReviewTrust} />
 				<span
 					className="inline-flex min-w-[56px] items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider text-muted-foreground"
 					title={`scope: ${scope}`}
@@ -510,6 +594,18 @@ function PkgRowItem({
 							Move to {activeProjectName}
 						</DropdownMenuItem>
 						<DropdownMenuSeparator />
+						{trust?.state === 'granted' && (
+							<DropdownMenuItem
+								disabled={busy}
+								onSelect={(e) => {
+									e.preventDefault();
+									onRevokeTrust(installed.id);
+								}}
+								title="Revoke trust — MCP tools/call against this pkg will be blocked until re-approved"
+							>
+								Revoke trust
+							</DropdownMenuItem>
+						)}
 						<DropdownMenuItem
 							variant="destructive"
 							disabled={busy || isBuiltIn}
@@ -525,6 +621,139 @@ function PkgRowItem({
 				</DropdownMenu>
 			</div>
 		</div>
+	);
+}
+
+function TrustChip({
+	trust,
+	onReview,
+}: {
+	trust: PkgTrustEntry | null;
+	onReview: (entry: PkgTrustEntry) => void;
+}) {
+	// No trust entry yet (still loading or kernel listing miss) — render
+	// nothing rather than a misleading state.
+	if (!trust) return null;
+	const base =
+		'inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider';
+	if (trust.state === 'auto_trusted') {
+		return (
+			<span
+				className={`${base} border border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-300`}
+				title="Built-in pkg shipped with the shell — auto-trusted"
+			>
+				built-in
+			</span>
+		);
+	}
+	if (trust.state === 'auto_granted') {
+		return (
+			<span
+				className={`${base} border border-border bg-muted text-muted-foreground`}
+				title="No sensitive permissions declared — auto-granted on install"
+			>
+				no perms
+			</span>
+		);
+	}
+	if (trust.state === 'granted') {
+		return (
+			<span
+				className={`${base} border border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-300`}
+				title={`Approved v${trust.version}`}
+			>
+				approved v{trust.version}
+			</span>
+		);
+	}
+	// needs_approval
+	const reason = trust.change_reason?.kind ?? 'never';
+	const tip =
+		reason === 'permissions_changed'
+			? 'Permissions changed since last approval — re-review'
+			: reason === 'revoked'
+				? 'Trust was revoked — re-approve to re-enable MCP calls'
+				: 'Sensitive permissions declared but never approved';
+	return (
+		<button
+			type="button"
+			onClick={() => onReview(trust)}
+			className={`${base} border border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-300 dark:hover:bg-amber-950/50`}
+			title={tip}
+		>
+			review… ›
+		</button>
+	);
+}
+
+function TrustReviewDialog({
+	entry,
+	onClose,
+	onApprove,
+	busy,
+}: {
+	entry: PkgTrustEntry;
+	onClose: () => void;
+	onApprove: () => void;
+	busy: boolean;
+}) {
+	const reasonLine =
+		entry.change_reason?.kind === 'permissions_changed'
+			? `Permissions changed since v${entry.change_reason.prior_version}.`
+			: entry.change_reason?.kind === 'revoked'
+				? 'Trust was previously revoked.'
+				: 'This package has not been approved before.';
+	return (
+		<Dialog open onOpenChange={(open) => !open && onClose()}>
+			<DialogContent className="sm:max-w-lg">
+				<DialogHeader>
+					<DialogTitle>Approve “{entry.pkg_id}” v{entry.version}</DialogTitle>
+					<DialogDescription>{reasonLine} This package wants to:</DialogDescription>
+				</DialogHeader>
+				<PermsList perms={entry.perms} />
+				<DialogFooter>
+					<Button variant="ghost" onClick={onClose} disabled={busy}>
+						Deny
+					</Button>
+					<Button onClick={onApprove} disabled={busy}>
+						{busy ? 'Approving…' : 'Approve'}
+					</Button>
+				</DialogFooter>
+			</DialogContent>
+		</Dialog>
+	);
+}
+
+function PermsList({ perms }: { perms: PkgTrustEntry['perms'] }) {
+	const sections: Array<{ label: string; entries: string[] }> = [
+		{ label: 'Run shell commands matching', entries: perms.shell_execute },
+		{ label: 'Write files matching', entries: perms.fs_write_outside_sandbox },
+		{ label: 'Make network requests to', entries: perms.net },
+		{ label: 'Read vault keys matching', entries: perms.vault_keys },
+	];
+	const populated = sections.filter((s) => s.entries.length > 0);
+	if (populated.length === 0) {
+		return (
+			<p className="text-xs text-muted-foreground">
+				No sensitive permissions declared. (You should not normally see this dialog.)
+			</p>
+		);
+	}
+	return (
+		<ul className="space-y-3 text-sm">
+			{populated.map((s) => (
+				<li key={s.label}>
+					<div className="text-xs font-medium text-muted-foreground">{s.label}:</div>
+					<ul className="mt-1 list-disc pl-5 font-mono text-[11.5px] text-foreground">
+						{s.entries.map((e) => (
+							<li key={e} className="break-all">
+								{e}
+							</li>
+						))}
+					</ul>
+				</li>
+			))}
+		</ul>
 	);
 }
 

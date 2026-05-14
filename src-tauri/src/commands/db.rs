@@ -173,6 +173,11 @@ async fn ensure_schema(pool: &sqlx::SqlitePool) -> Result<(), String> {
             "0017_claude_asset_preferences",
             include_str!("../../migrations/0017_claude_asset_preferences.sql"),
         ),
+        (
+            18,
+            "0018_pkg_trust_versioning",
+            include_str!("../../migrations/0018_pkg_trust_versioning.sql"),
+        ),
     ];
 
     for (id, name, sql) in migrations {
@@ -227,7 +232,12 @@ async fn bootstrap_default_project(pool: &sqlx::SqlitePool) -> Result<(), String
     .await
     .map_err(|e| format!("seed default project: {e}"))?;
 
-    for table in ["chat_threads", "pkg_installed", "layout_state", "browser_sessions"] {
+    for table in [
+        "chat_threads",
+        "pkg_installed",
+        "layout_state",
+        "browser_sessions",
+    ] {
         let sql = format!("UPDATE {table} SET project_id = 'default' WHERE project_id IS NULL");
         sqlx::query(&sql)
             .execute(pool)
@@ -238,9 +248,7 @@ async fn bootstrap_default_project(pool: &sqlx::SqlitePool) -> Result<(), String
     // Phase 4: promote any legacy `claudeProjectRoots` entries to first-class
     // `projects` rows. Idempotent (settings_kv-gated). Errors are logged but
     // never block boot — a bad row shouldn't lock the user out.
-    if let Err(e) =
-        crate::commands::projects::claude_roots_to_projects_migration_v1(pool).await
-    {
+    if let Err(e) = crate::commands::projects::claude_roots_to_projects_migration_v1(pool).await {
         log::warn!("[claude-roots-migration] failed: {e}");
     }
 
@@ -343,9 +351,7 @@ pub async fn db_query(
         let mut obj = Map::new();
         for (i, col) in row.columns().iter().enumerate() {
             let name = col.name().to_string();
-            let raw = row
-                .try_get_raw(i)
-                .map_err(|e| format!("get_raw: {e}"))?;
+            let raw = row.try_get_raw(i).map_err(|e| format!("get_raw: {e}"))?;
             let val = if raw.is_null() {
                 Value::Null
             } else {

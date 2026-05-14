@@ -341,6 +341,14 @@ enum State {
     Parked {
         last_err: String,
     },
+    /// Phase 9: terminal state for one-shot sidecars (`auto_restart=false`)
+    /// that exited cleanly OR crashed without auto-restart enabled.
+    /// Distinct from Parked (which is "circuit broken after 3 strikes" — a
+    /// failure mode). Stopped is the *expected* end state for a tool that
+    /// ran once and is done. Operator restart via `restart()` re-spawns.
+    Stopped {
+        reason: String,
+    },
     ShuttingDown,
 }
 
@@ -352,6 +360,7 @@ impl State {
             State::Crashed { .. } => "crashed",
             State::Blocked { .. } => "blocked",
             State::Parked { .. } => "parked",
+            State::Stopped { .. } => "stopped",
             State::ShuttingDown => "shuttingdown",
         }
     }
@@ -364,6 +373,11 @@ struct ActiveChild {
     stdin_tx: mpsc::Sender<Vec<u8>>,
     pending: PendingMap,
     started_at: Instant,
+    /// Phase 9: file-watcher handle for `restart_when_changed`. Held here so
+    /// it lives exactly as long as the active cycle — when the child exits
+    /// (clean or crash) the read loop drops `ActiveChild` and the watcher
+    /// torn down with it. None when the manifest declared no globs.
+    _restart_watcher: Option<crate::pkg::file_watcher::WatcherHandle>,
 }
 
 pub struct SupervisedSidecar {
@@ -448,6 +462,13 @@ impl SupervisedSidecar {
             State::Parked { last_err } => LifecycleKind::Error {
                 reason: last_err.clone(),
             },
+            // Phase 9: surface as a non-error "ready" alternate? No — pkgs
+            // expecting the supervisor's three-state surface read this as
+            // an end state, and Error{reason} carries the explanation. The
+            // FE differentiates Parked vs Stopped via `pkg_kernel_status`.
+            State::Stopped { reason } => LifecycleKind::Error {
+                reason: reason.clone(),
+            },
             State::ShuttingDown => return,
         };
         let payload = LifecycleEvent {
@@ -509,6 +530,7 @@ impl SupervisedSidecar {
             } => (*retries, Some(last_err.clone())),
             State::Blocked { last_err, .. } => (0, Some(last_err.clone())),
             State::Parked { last_err } => (MAX_RETRIES, Some(last_err.clone())),
+            State::Stopped { reason } => (0, Some(reason.clone())),
             _ => (0, None),
         };
         SidecarStatus {
@@ -683,12 +705,18 @@ impl SupervisedSidecar {
     /// For Parked pkgs the supervisor task already exited, so we have to
     /// re-spawn it; restart() takes a self-Arc to allow that.
     pub fn restart(self: &Arc<Self>) {
-        let was_terminal = matches!(self.current_state(), State::Parked { .. });
+        // Phase 9: Stopped is a second terminal state (one-shot finished
+        // cleanly with auto_restart=false). The operator-restart path is
+        // identical — re-launch a fresh supervisor task.
+        let was_terminal = matches!(
+            self.current_state(),
+            State::Parked { .. } | State::Stopped { .. }
+        );
         // Kick is harmless if no-one is sleeping.
         self.restart_kick.notify_waiters();
-        // If Parked, the supervisor loop already returned; we have to
-        // launch a fresh task. Reset state under the lock first so the
-        // new task sees Spawning, not Parked.
+        // If Parked or Stopped, the supervisor loop already returned; we have
+        // to launch a fresh task. Reset state under the lock first so the
+        // new task sees Spawning, not the terminal label.
         if was_terminal {
             self.set_state(State::Spawning);
             self.clear_blocked_signal();
@@ -751,6 +779,22 @@ impl SupervisedSidecar {
     }
 
     fn decide_next(&self) -> NextAction {
+        // Phase 9: when the manifest declares auto_restart=false, *any*
+        // exit path (clean exit OR crash) terminates the loop with
+        // Stopped instead of cycling through the strike budget. Decided
+        // before the strike accounting so a one-shot's clean exit is never
+        // mislabeled as a "crash".
+        if !self.server.auto_restart {
+            let reason = match self.current_state() {
+                State::Crashed { last_err, .. } => {
+                    format!("auto_restart=false; child exited with: {last_err}")
+                }
+                _ => "auto_restart=false; one-shot complete".to_string(),
+            };
+            self.set_state(State::Stopped { reason });
+            return NextAction::Stop;
+        }
+
         let action_and_park = {
             let state = self.state.lock().expect("state lock poisoned");
             match &*state {
@@ -959,6 +1003,51 @@ impl SupervisedSidecar {
             let _ = crash_tx.send(());
         });
 
+        // Phase 9: spin up the file watcher iff the manifest declared globs.
+        // Holding it on ActiveChild ties its lifetime to this run cycle.
+        let restart_watcher = if !self.server.restart_when_changed.is_empty() {
+            // The kick callback has to break out of any pending sleep AND
+            // re-spawn from terminal states. Walk through `restart()` on a
+            // fresh handle obtained via the supervisor lookup so we don't
+            // try to reach back through `self` (it's `&self` here, not
+            // `Arc<Self>`).
+            let pkg_id = self.pkg_id.clone();
+            let app = self.app.clone();
+            match crate::pkg::file_watcher::spawn(
+                self.install_path.clone(),
+                self.server.restart_when_changed.clone(),
+                move || {
+                    log::info!(
+                        "[pkg_lifecycle] `{pkg_id}` restart_when_changed match → restart"
+                    );
+                    // Lookup the supervised handle via the global supervisor
+                    // and invoke its operator-restart entry point. If the
+                    // app is gone (shutdown) just no-op.
+                    if let Some(app) = app.as_ref() {
+                        use tauri::Manager;
+                        if let Some(sup) =
+                            app.try_state::<crate::commands::pkg_mcp::SidecarSupervisorState>()
+                        {
+                            if let Some(handle) = sup.0.get(&pkg_id) {
+                                handle.restart();
+                            }
+                        }
+                    }
+                },
+            ) {
+                Ok(h) => Some(h),
+                Err(e) => {
+                    log::warn!(
+                        "[pkg_lifecycle] `{}` failed to start file watcher: {e:#}",
+                        self.pkg_id
+                    );
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
         // Install ActiveChild and flip state to Running.
         {
             let mut active = self.active.lock().expect("active lock poisoned");
@@ -967,6 +1056,7 @@ impl SupervisedSidecar {
                 stdin_tx,
                 pending,
                 started_at: Instant::now(),
+                _restart_watcher: restart_watcher,
             });
         }
 
@@ -1151,6 +1241,8 @@ mod tests {
             args: vec![],
             env: HashMap::new(),
             lifecycle: lifecycle.map(String::from),
+            restart_when_changed: vec![],
+            auto_restart: true,
         });
         Package {
             manifest: m,
@@ -1199,6 +1291,8 @@ mod tests {
                 args: vec![],
                 env: HashMap::new(),
                 lifecycle: Some("long-lived".into()),
+                restart_when_changed: vec![],
+                auto_restart: true,
             },
             PathBuf::from("/tmp"),
         );
@@ -1233,6 +1327,8 @@ mod tests {
                 args: vec![],
                 env: HashMap::new(),
                 lifecycle: Some("long-lived".into()),
+                restart_when_changed: vec![],
+                auto_restart: true,
             },
             PathBuf::from("/tmp"),
         );
@@ -1258,6 +1354,65 @@ mod tests {
         assert_eq!(snap.restarts, 0);
     }
 
+    #[test]
+    fn auto_restart_false_clean_exit_transitions_to_stopped() {
+        // Phase 9: a one-shot tool with auto_restart=false that exited cleanly
+        // (or crashed once) must end at Stopped, NOT cycle through the strike
+        // budget. decide_next short-circuits before the strike accounting.
+        let sidecar = SupervisedSidecar::new(
+            "x".into(),
+            McpServer {
+                name: "t".into(),
+                command: "/bin/true".into(),
+                args: vec![],
+                env: HashMap::new(),
+                lifecycle: Some("long-lived".into()),
+                restart_when_changed: vec![],
+                auto_restart: false,
+            },
+            PathBuf::from("/tmp"),
+        );
+        sidecar.note_crash_after_run("clean exit".into());
+        match sidecar.decide_next() {
+            NextAction::Stop => {}
+            other => panic!("expected Stop, got {other:?}"),
+        }
+        match sidecar.current_state() {
+            State::Stopped { ref reason } => {
+                assert!(reason.contains("auto_restart=false"));
+                assert!(reason.contains("clean exit"));
+            }
+            other => panic!("expected Stopped, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn restart_from_stopped_resets_to_spawning() {
+        // Phase 9: operator restart of a Stopped one-shot must work the same
+        // way as restart from Parked — re-launch a fresh supervisor task.
+        let sidecar = Arc::new(SupervisedSidecar::new(
+            "x".into(),
+            McpServer {
+                name: "t".into(),
+                command: "/bin/true".into(),
+                args: vec![],
+                env: HashMap::new(),
+                lifecycle: Some("long-lived".into()),
+                restart_when_changed: vec![],
+                auto_restart: false,
+            },
+            PathBuf::from("/tmp"),
+        ));
+        sidecar.set_state(State::Stopped {
+            reason: "test".into(),
+        });
+        sidecar.restart();
+        match sidecar.current_state() {
+            State::Spawning => {}
+            other => panic!("expected Spawning after restart from Stopped, got {other:?}"),
+        }
+    }
+
     #[tokio::test]
     async fn supervisor_restart_clears_blocked_state() {
         let sidecar = Arc::new(SupervisedSidecar::new(
@@ -1268,6 +1423,8 @@ mod tests {
                 args: vec![],
                 env: HashMap::new(),
                 lifecycle: Some("long-lived".into()),
+                restart_when_changed: vec![],
+                auto_restart: true,
             },
             PathBuf::from("/tmp"),
         ));
