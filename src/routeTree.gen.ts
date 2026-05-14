@@ -53,6 +53,7 @@ import { Route as OnboardingConnectorsRouteImport } from './routes/onboarding/co
 import { Route as OnboardingAppearanceRouteImport } from './routes/onboarding/appearance'
 import { Route as OnboardingAgentRouteImport } from './routes/onboarding/agent'
 import { Route as ClaudeSkillsRouteImport } from './routes/claude/skills'
+import { Route as ClaudeRuntimeMcpsRouteImport } from './routes/claude/runtime-mcps'
 import { Route as ClaudeMcpsRouteImport } from './routes/claude/mcps'
 import { Route as ClaudeHooksRouteImport } from './routes/claude/hooks'
 import { Route as ClaudeCommandsRouteImport } from './routes/claude/commands'
@@ -284,6 +285,11 @@ const ClaudeSkillsRoute = ClaudeSkillsRouteImport.update({
   path: '/skills',
   getParentRoute: () => ClaudeRouteRoute,
 } as any)
+const ClaudeRuntimeMcpsRoute = ClaudeRuntimeMcpsRouteImport.update({
+  id: '/runtime-mcps',
+  path: '/runtime-mcps',
+  getParentRoute: () => ClaudeRouteRoute,
+} as any)
 const ClaudeMcpsRoute = ClaudeMcpsRouteImport.update({
   id: '/mcps',
   path: '/mcps',
@@ -359,6 +365,7 @@ export interface FileRoutesByFullPath {
   '/claude/commands': typeof ClaudeCommandsRoute
   '/claude/hooks': typeof ClaudeHooksRoute
   '/claude/mcps': typeof ClaudeMcpsRoute
+  '/claude/runtime-mcps': typeof ClaudeRuntimeMcpsRoute
   '/claude/skills': typeof ClaudeSkillsRoute
   '/onboarding/agent': typeof OnboardingAgentRoute
   '/onboarding/appearance': typeof OnboardingAppearanceRoute
@@ -410,6 +417,7 @@ export interface FileRoutesByTo {
   '/claude/commands': typeof ClaudeCommandsRoute
   '/claude/hooks': typeof ClaudeHooksRoute
   '/claude/mcps': typeof ClaudeMcpsRoute
+  '/claude/runtime-mcps': typeof ClaudeRuntimeMcpsRoute
   '/claude/skills': typeof ClaudeSkillsRoute
   '/onboarding/agent': typeof OnboardingAgentRoute
   '/onboarding/appearance': typeof OnboardingAppearanceRoute
@@ -467,6 +475,7 @@ export interface FileRoutesById {
   '/claude/commands': typeof ClaudeCommandsRoute
   '/claude/hooks': typeof ClaudeHooksRoute
   '/claude/mcps': typeof ClaudeMcpsRoute
+  '/claude/runtime-mcps': typeof ClaudeRuntimeMcpsRoute
   '/claude/skills': typeof ClaudeSkillsRoute
   '/onboarding/agent': typeof OnboardingAgentRoute
   '/onboarding/appearance': typeof OnboardingAppearanceRoute
@@ -525,6 +534,7 @@ export interface FileRouteTypes {
     | '/claude/commands'
     | '/claude/hooks'
     | '/claude/mcps'
+    | '/claude/runtime-mcps'
     | '/claude/skills'
     | '/onboarding/agent'
     | '/onboarding/appearance'
@@ -576,6 +586,7 @@ export interface FileRouteTypes {
     | '/claude/commands'
     | '/claude/hooks'
     | '/claude/mcps'
+    | '/claude/runtime-mcps'
     | '/claude/skills'
     | '/onboarding/agent'
     | '/onboarding/appearance'
@@ -632,6 +643,7 @@ export interface FileRouteTypes {
     | '/claude/commands'
     | '/claude/hooks'
     | '/claude/mcps'
+    | '/claude/runtime-mcps'
     | '/claude/skills'
     | '/onboarding/agent'
     | '/onboarding/appearance'
@@ -999,6 +1011,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ClaudeSkillsRouteImport
       parentRoute: typeof ClaudeRouteRoute
     }
+    '/claude/runtime-mcps': {
+      id: '/claude/runtime-mcps'
+      path: '/runtime-mcps'
+      fullPath: '/claude/runtime-mcps'
+      preLoaderRoute: typeof ClaudeRuntimeMcpsRouteImport
+      parentRoute: typeof ClaudeRouteRoute
+    }
     '/claude/mcps': {
       id: '/claude/mcps'
       path: '/mcps'
@@ -1076,6 +1095,7 @@ interface ClaudeRouteRouteChildren {
   ClaudeCommandsRoute: typeof ClaudeCommandsRoute
   ClaudeHooksRoute: typeof ClaudeHooksRoute
   ClaudeMcpsRoute: typeof ClaudeMcpsRoute
+  ClaudeRuntimeMcpsRoute: typeof ClaudeRuntimeMcpsRoute
   ClaudeSkillsRoute: typeof ClaudeSkillsRoute
   ClaudeIndexRoute: typeof ClaudeIndexRoute
 }
@@ -1084,6 +1104,7 @@ const ClaudeRouteRouteChildren: ClaudeRouteRouteChildren = {
   ClaudeCommandsRoute: ClaudeCommandsRoute,
   ClaudeHooksRoute: ClaudeHooksRoute,
   ClaudeMcpsRoute: ClaudeMcpsRoute,
+  ClaudeRuntimeMcpsRoute: ClaudeRuntimeMcpsRoute,
   ClaudeSkillsRoute: ClaudeSkillsRoute,
   ClaudeIndexRoute: ClaudeIndexRoute,
 }

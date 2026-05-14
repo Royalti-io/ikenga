@@ -9,7 +9,16 @@ import {
 import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState, createContext, useContext } from 'react';
 import { open as shellOpen } from '@tauri-apps/plugin-shell';
-import { Bot, FileText, Folder, Plug, RefreshCcw, Terminal as TermIcon, Zap } from 'lucide-react';
+import {
+	Activity,
+	Bot,
+	FileText,
+	Folder,
+	Plug,
+	RefreshCcw,
+	Terminal as TermIcon,
+	Zap,
+} from 'lucide-react';
 
 import {
 	claudeConfigQueryOptions,
@@ -33,6 +42,7 @@ const TABS = [
 	{ to: '/claude/commands', label: 'Commands', icon: TermIcon, key: 'commands' as const },
 	{ to: '/claude/hooks', label: 'Hooks', icon: FileText, key: 'hooks' as const },
 	{ to: '/claude/mcps', label: 'MCP', icon: Plug, key: 'mcps' as const },
+	{ to: '/claude/runtime-mcps', label: 'Runtime', icon: Activity, key: 'runtime' as const },
 ];
 
 export const Route = createFileRoute('/claude')({
@@ -100,6 +110,7 @@ function ClaudeLayout() {
 	};
 
 	const path = useLocation({ select: (l) => l.pathname });
+	const isRuntimeRoute = path === '/claude/runtime-mcps';
 
 	return (
 		<div className="flex h-full flex-col p-3">
@@ -111,8 +122,11 @@ function ClaudeLayout() {
 				/>
 				<ModeToggle mode={browserMode} onChange={setBrowserMode} />
 				{browserMode === 'roots' && <Tabs path={path} counts={counts} />}
+				{browserMode === 'layered' && (
+					<Tabs path={path} counts={counts} only={['runtime']} />
+				)}
 				<div className="min-h-0 flex-1">
-					{browserMode === 'layered' ? (
+					{browserMode === 'layered' && !isRuntimeRoute ? (
 						<LayeredView />
 					) : (
 						<Ctx.Provider value={ctx}>
@@ -232,16 +246,22 @@ function Header({
 function Tabs({
 	path,
 	counts,
+	only,
 }: {
 	path: string;
 	counts: { agents: number; skills: number; commands: number; hooks: number; mcps: number } | null;
+	only?: ReadonlyArray<(typeof TABS)[number]['key']>;
 }) {
 	const navigate = useNavigate();
+	const visible = only ? TABS.filter((t) => only.includes(t.key)) : TABS;
 	return (
 		<div className="ccfg-tabs">
-			{TABS.map((t) => {
+			{visible.map((t) => {
 				const isOn = t.exact ? path === t.to : path.startsWith(t.to);
-				const count = counts ? counts[t.key] : undefined;
+				const count =
+					counts && t.key !== 'runtime'
+						? counts[t.key as Exclude<typeof t.key, 'runtime'>]
+						: undefined;
 				const Icon = t.icon;
 				return (
 					<button
