@@ -19,12 +19,11 @@ use tower_http::cors::{Any, CorsLayer};
 
 use super::auth::{require_token, AuthState};
 use super::browser_handlers::{
-    get_browser_list, post_browser_back, post_browser_click, post_browser_close,
-    post_browser_eval, post_browser_fill, post_browser_focus, post_browser_forward,
-    post_browser_goto, post_browser_open, post_browser_pause, post_browser_press_key,
-    post_browser_read_text, post_browser_reload, post_browser_reply, post_browser_resume,
-    post_browser_screenshot, post_browser_select, post_browser_snapshot,
-    post_browser_wait_for, BrowserPort,
+    get_browser_list, post_browser_back, post_browser_click, post_browser_close, post_browser_eval,
+    post_browser_fill, post_browser_focus, post_browser_forward, post_browser_goto,
+    post_browser_open, post_browser_pause, post_browser_press_key, post_browser_read_text,
+    post_browser_reload, post_browser_reply, post_browser_resume, post_browser_screenshot,
+    post_browser_select, post_browser_snapshot, post_browser_wait_for, BrowserPort,
 };
 use super::browser_rpc::BrowserRpc;
 use super::browser_sessions::{
@@ -34,15 +33,14 @@ use super::browser_sessions::{
 use super::claude::{
     get_claude_asset_pins, get_claude_assets_list, post_claude_asset_pin, post_claude_asset_unpin,
 };
-use super::mcp::{get_mcp_list, post_mcp_restart};
-use crate::commands::db::PaDb;
 use super::handlers::{
     get_dom, get_iframe_state, get_logs, get_network, get_pkg_list, get_query_cache, get_state,
     post_click, post_close, post_devtools, post_focus, post_go, post_iframe_message, post_key,
     post_mode, post_open, post_pkg_install, post_pkg_scope_set, post_pkg_uninstall, post_refresh,
     post_resize, post_screenshot_pane, post_screenshot_window, post_split, post_type, post_wait,
 };
-use super::pkg_dispatch::pkg_dispatch;
+use super::layout::{get_layout, post_layout_reset};
+use super::mcp::{get_mcp_list, post_mcp_restart};
 use super::memory::{
     get_kv_get, get_kv_list, get_lock_status, get_scratchpad_list, get_scratchpad_read,
     get_timer_list, get_todo_list, post_agent_register, post_kv_delete, post_kv_set,
@@ -50,6 +48,7 @@ use super::memory::{
     post_scratchpad_delete, post_scratchpad_write, post_timer_cancel, post_timer_schedule,
     post_todo_complete, post_todo_create, post_todo_update, TimerScheduler,
 };
+use super::pkg_dispatch::pkg_dispatch;
 use super::projects::{
     get_project_active, get_project_list, post_project_archive, post_project_create,
     post_project_set_active, post_project_update,
@@ -57,6 +56,7 @@ use super::projects::{
 use super::sessions::{get_session_list, post_session_move, post_session_start};
 use super::state::IykeState;
 use super::IykeRpc;
+use crate::commands::db::PaDb;
 use crate::commands::ScreenshotPending;
 use crate::pkg::registries::IykeRoutesRegistry;
 use crate::pkg::webview::WebviewPanesRegistry;
@@ -137,10 +137,19 @@ pub async fn serve(
         .route("/iyke/browser/pause", post(post_browser_pause))
         .route("/iyke/browser/resume", post(post_browser_resume))
         // Named sessions (Phase 4).
-        .route("/iyke/browser/session/create", post(post_browser_session_create))
+        .route(
+            "/iyke/browser/session/create",
+            post(post_browser_session_create),
+        )
         .route("/iyke/browser/session/list", get(get_browser_session_list))
-        .route("/iyke/browser/session/delete", post(post_browser_session_delete))
-        .route("/iyke/browser/session/resolve", post(post_browser_session_resolve))
+        .route(
+            "/iyke/browser/session/delete",
+            post(post_browser_session_delete),
+        )
+        .route(
+            "/iyke/browser/session/resolve",
+            post(post_browser_session_resolve),
+        )
         // Projects (Phase 0 of projects-first-class plan).
         .route("/iyke/project/list", get(get_project_list))
         .route("/iyke/project/create", post(post_project_create))
@@ -160,6 +169,8 @@ pub async fn serve(
         // MCP supervisor + per-project resolved set (Phase 5).
         .route("/iyke/mcp/list", get(get_mcp_list))
         .route("/iyke/mcp/restart", post(post_mcp_restart))
+        .route("/iyke/layout/get", get(get_layout))
+        .route("/iyke/layout/reset", post(post_layout_reset))
         // Memory primitives (Phase 1 — DESIGN.md §4-6).
         .route("/iyke/scratchpad/write", post(post_scratchpad_write))
         .route("/iyke/scratchpad/append", post(post_scratchpad_append))
@@ -221,8 +232,8 @@ pub async fn serve(
     let (tx, rx) = oneshot::channel::<()>();
 
     tokio::spawn(async move {
-        let server = axum::serve(listener, app.into_make_service())
-            .with_graceful_shutdown(async move {
+        let server =
+            axum::serve(listener, app.into_make_service()).with_graceful_shutdown(async move {
                 let _ = rx.await;
             });
         if let Err(e) = server.await {

@@ -17,13 +17,14 @@ pub mod browser_rpc;
 pub mod browser_sessions;
 pub mod claude;
 pub mod handlers;
+pub mod layout;
 pub mod mcp;
 pub mod memory;
 pub mod pkg_dispatch;
 pub mod projects;
 pub mod rpc;
-pub mod sessions;
 pub mod server;
+pub mod sessions;
 pub mod state;
 
 use std::path::{Path, PathBuf};
@@ -102,7 +103,10 @@ impl Drop for IykeRuntime {
             match std::fs::remove_file(&self.control_path) {
                 Ok(()) => log::info!("iyke: removed {}", self.control_path.display()),
                 Err(e) => {
-                    log::warn!("iyke: failed to remove {}: {e}", self.control_path.display())
+                    log::warn!(
+                        "iyke: failed to remove {}: {e}",
+                        self.control_path.display()
+                    )
                 }
             }
         }
@@ -168,12 +172,7 @@ struct ControlFile<'a> {
     identifier: &'static str,
 }
 
-fn write_control_file(
-    path: &Path,
-    port: u16,
-    token: &str,
-    started_at_unix_ms: u128,
-) -> Result<()> {
+fn write_control_file(path: &Path, port: u16, token: &str, started_at_unix_ms: u128) -> Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).context("create control file parent dir")?;
     }

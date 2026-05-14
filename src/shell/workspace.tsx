@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 import { ActivityBar } from './activity-bar';
 import { Sidebar } from './sidebar';
@@ -8,11 +8,17 @@ import { useDockStore } from './dock/dock-store';
 import { CommandPalette, useCommandPalette } from './command-palette';
 import { ConnectorBanner } from './connector-banner';
 import { UpdaterBanner } from './updater-banner';
-import { debounce, loadLayoutState, saveLayoutState } from '@/lib/layout-state';
 import { useIykeBridge } from '@/lib/iyke/bridge';
 import { useIykeControlListener } from '@/lib/iyke/control-listener';
 import { useIykeShellSync } from '@/lib/iyke/use-iyke-shell-sync';
 import { useProjectsSync } from '@/lib/shell/use-projects-sync';
+import { useProjectLayoutSwap } from '@/lib/shell/project-layout-swap';
+import { useShellStore } from '@/lib/shell/shell-store';
+import {
+	loadPanelSizes,
+	persistPanelSizes,
+	registerPanelSizesSetter,
+} from '@/lib/shell/panel-sizes';
 import { useScreenshotListener } from '@/lib/use-screenshot-listener';
 import { usePreloadViewers } from '@/lib/use-preload-viewers';
 import { dumpBootTimings, mark } from '@/lib/boot-timing';
@@ -22,15 +28,11 @@ import { useRouterPaneSync } from '@/lib/panes/router-pane-sync';
 import { useTerminalStore } from '@/terminal/session-store';
 import { createTerminalSession } from '@/terminal/single-terminal';
 
-const LAYOUT_KEY = 'workspace.panels';
-// [sidebar, content]. The right SidePane is gone — terminal/chat/file
-// views live as pane tabs now.
-const DEFAULT_SIZES: [number, number] = [16, 84];
-
 export function Workspace() {
 	const [initialSizes, setInitialSizes] = useState<[number, number] | null>(null);
 	const [navHidden, setNavHidden] = useState(false);
 	const palette = useCommandPalette();
+	const activeProjectId = useShellStore((s) => s.activeProjectId);
 
 	// Iyke (phase 11): mirror sidebar mode + focused pane's route into the
 	// Rust-side control bridge so external CLI/MCP callers see what the
@@ -56,6 +58,10 @@ export function Workspace() {
 	// Tauri events and invalidate any `'project-scoped'` TanStack Query so
 	// later phases' per-project data swaps automatically on switch.
 	useProjectsSync();
+	// Phase 6: on project switch, snapshot the outgoing project's layout
+	// (pane tree + files explorer + panel sizes) and apply the incoming
+	// project's saved snapshot. Mounted exactly once at workspace level.
+	useProjectLayoutSwap();
 	// Warm the lazy artifact viewer chunks during idle so the first
 	// PDF/XLSX/code file open isn't a cold fetch.
 	usePreloadViewers();
@@ -68,16 +74,12 @@ export function Workspace() {
 		mark('boot:workspace-mount');
 	}, []);
 
-	// Hydrate persisted sizes once on mount.
+	// Hydrate persisted sizes once on mount (keyed by active project).
 	useEffect(() => {
 		let cancelled = false;
-		loadLayoutState<[number, number]>(LAYOUT_KEY, DEFAULT_SIZES).then((sizes) => {
+		loadPanelSizes(activeProjectId).then((sizes) => {
 			if (!cancelled) {
-				// Migrate old 3-tuple persisted layouts (sidebar/content/sidepane)
-				// into the new 2-tuple layout.
-				const next: [number, number] =
-					(sizes as unknown as number[]).length === 2 ? (sizes as [number, number]) : DEFAULT_SIZES;
-				setInitialSizes(next);
+				setInitialSizes(sizes);
 				// Workspace is now interactive — log the cold-start trace.
 				// Microtask delay so the mark lands after React commits.
 				queueMicrotask(() => {
@@ -89,19 +91,22 @@ export function Workspace() {
 		return () => {
 			cancelled = true;
 		};
+		// Boot-time read only — re-mounting on project switch is the
+		// orchestrator's job (`applyPanelSizes`). The `useEffect` intentionally
+		// runs once.
+		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 
+	// Register a setter so `project-layout-swap` can push a loaded
+	// snapshot into local React state when the user switches projects.
+	useEffect(() => registerPanelSizesSetter(setInitialSizes), []);
+
 	// Persist on layout change (debounced to avoid hammering SQLite while
-	// the user is mid-drag).
-	const persist = useMemo(
-		() =>
-			debounce((sizes: number[]) => {
-				if (sizes.length === 2) {
-					void saveLayoutState(LAYOUT_KEY, sizes);
-				}
-			}, 500),
-		[]
-	);
+	// the user is mid-drag). Project-scoped — the active project at write
+	// time is the one credited with the new sizes.
+	const persist = (sizes: number[]) => {
+		persistPanelSizes(useShellStore.getState().activeProjectId, sizes);
+	};
 
 	// Rehydrate terminal sessions, then the pane tree, then start
 	// persisting pane-tree changes. Order matters: pane-persistence
@@ -151,15 +156,22 @@ export function Workspace() {
 				);
 			}
 			if (cancelled) return;
-			const snapshot = await raceTimeout(loadPaneTree(), 2000, 'loadPaneTree');
+			const snapshot = await raceTimeout(
+				loadPaneTree(useShellStore.getState().activeProjectId),
+				2000,
+				'loadPaneTree'
+			);
 			if (cancelled) return;
 			if (snapshot) usePaneStore.getState().hydrate(snapshot);
 			unsubPersist = usePaneStore.subscribe((state) => {
-				persistPaneTree({
-					root: state.root,
-					focusedId: state.focusedId,
-					closedHistory: state.closedHistory,
-				});
+				persistPaneTree(
+					{
+						root: state.root,
+						focusedId: state.focusedId,
+						closedHistory: state.closedHistory,
+					},
+					useShellStore.getState().activeProjectId
+				);
 			});
 		})();
 		return () => {

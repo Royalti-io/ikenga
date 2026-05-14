@@ -5,9 +5,14 @@
 // the tree was scrolled.
 
 import { create } from 'zustand';
-import { debounce, loadLayoutState, saveLayoutState } from '@/lib/layout-state';
+import {
+	debounce,
+	deleteScopedLayoutState,
+	migrateLegacyKey,
+	saveScopedLayoutState,
+} from '@/lib/layout-state';
 
-const STORAGE_KEY = 'files.explorer.v1';
+export const STORAGE_KEY = 'files.explorer.v1';
 
 interface Persisted {
 	expanded: string[];
@@ -28,7 +33,15 @@ interface FilesState {
 	 * dirs, so it stays cheap until the user clicks one. Default off. */
 	showIgnored: boolean;
 	hydrated: boolean;
-	hydrate: () => Promise<void>;
+	/** Project id of the currently-hydrated snapshot, or null pre-hydrate. */
+	hydratedProjectId: string | null;
+	hydrate: (projectId: string) => Promise<void>;
+	/** Replace state from a saved snapshot (used by the project-layout-swap
+	 *  orchestrator). Marks the store as hydrated for the new project. */
+	applySnapshot: (projectId: string, data: Persisted) => void;
+	/** Capture the current state as a plain `Persisted` object for the swap
+	 *  orchestrator to save under the outgoing project's key. */
+	snapshot: () => Persisted;
 	toggle: (path: string) => void;
 	expand: (path: string) => void;
 	collapse: (path: string) => void;
@@ -42,11 +55,38 @@ interface FilesState {
 	prune: (paths: string[]) => void;
 }
 
-const persist = debounce((data: Persisted) => {
-	void saveLayoutState(STORAGE_KEY, data);
+const persist = debounce((projectId: string, data: Persisted) => {
+	void saveScopedLayoutState(STORAGE_KEY, projectId, data);
 }, 250);
 
-function snapshot(s: FilesState): Persisted {
+/** Flush + force-save the current files-store state under `projectId`.
+ *  Used by the project-layout-swap orchestrator before switching. */
+export async function saveFilesStoreNow(
+	projectId: string,
+	data: Persisted
+): Promise<void> {
+	persist.flush();
+	await saveScopedLayoutState(STORAGE_KEY, projectId, data);
+}
+
+export function flushFilesStorePersist(): void {
+	persist.flush();
+}
+
+export async function resetFilesStore(projectId: string): Promise<void> {
+	await deleteScopedLayoutState(STORAGE_KEY, projectId);
+}
+
+/** Read a project's persisted files-explorer snapshot without applying
+ *  it to the live store. Used by the project-layout-swap orchestrator
+ *  to pre-fetch the incoming project's state before the atomic swap. */
+export async function loadFilesStateFor(projectId: string): Promise<Persisted> {
+	return migrateLegacyKey<Persisted>(STORAGE_KEY, projectId, EMPTY_PERSISTED);
+}
+
+export type FilesPersisted = Persisted;
+
+function snapshotOf(s: FilesState): Persisted {
 	return {
 		expanded: [...s.expanded],
 		selectedPath: s.selectedPath,
@@ -56,6 +96,30 @@ function snapshot(s: FilesState): Persisted {
 	};
 }
 
+const EMPTY_PERSISTED: Persisted = {
+	expanded: [],
+	selectedPath: null,
+	scrollTop: 0,
+	showHidden: false,
+	showIgnored: false,
+};
+
+function persistedFromState(s: Pick<FilesState,
+	'expanded' | 'selectedPath' | 'scrollTop' | 'showHidden' | 'showIgnored'
+>): Persisted {
+	return snapshotOf(s as FilesState);
+}
+
+function projectIdFromStore(get: () => FilesState): string | null {
+	return get().hydratedProjectId;
+}
+
+function persistCurrent(get: () => FilesState): void {
+	const pid = projectIdFromStore(get);
+	if (!pid) return;
+	persist(pid, persistedFromState(get()));
+}
+
 export const useFilesStore = create<FilesState>((set, get) => ({
 	expanded: new Set<string>(),
 	selectedPath: null,
@@ -63,16 +127,11 @@ export const useFilesStore = create<FilesState>((set, get) => ({
 	showHidden: false,
 	showIgnored: false,
 	hydrated: false,
+	hydratedProjectId: null,
 
-	hydrate: async () => {
-		if (get().hydrated) return;
-		const data = await loadLayoutState<Persisted>(STORAGE_KEY, {
-			expanded: [],
-			selectedPath: null,
-			scrollTop: 0,
-			showHidden: false,
-			showIgnored: false,
-		});
+	hydrate: async (projectId: string) => {
+		if (get().hydrated && get().hydratedProjectId === projectId) return;
+		const data = await migrateLegacyKey<Persisted>(STORAGE_KEY, projectId, EMPTY_PERSISTED);
 		set({
 			expanded: new Set(data.expanded ?? []),
 			selectedPath: data.selectedPath ?? null,
@@ -80,15 +139,30 @@ export const useFilesStore = create<FilesState>((set, get) => ({
 			showHidden: data.showHidden ?? false,
 			showIgnored: data.showIgnored ?? false,
 			hydrated: true,
+			hydratedProjectId: projectId,
 		});
 	},
+
+	applySnapshot: (projectId, data) => {
+		set({
+			expanded: new Set(data.expanded ?? []),
+			selectedPath: data.selectedPath ?? null,
+			scrollTop: data.scrollTop ?? 0,
+			showHidden: data.showHidden ?? false,
+			showIgnored: data.showIgnored ?? false,
+			hydrated: true,
+			hydratedProjectId: projectId,
+		});
+	},
+
+	snapshot: () => persistedFromState(get()),
 
 	toggle: (path) => {
 		const next = new Set(get().expanded);
 		if (next.has(path)) next.delete(path);
 		else next.add(path);
 		set({ expanded: next });
-		persist(snapshot(get()));
+		persistCurrent(get);
 	},
 
 	expand: (path) => {
@@ -96,7 +170,7 @@ export const useFilesStore = create<FilesState>((set, get) => ({
 		const next = new Set(get().expanded);
 		next.add(path);
 		set({ expanded: next });
-		persist(snapshot(get()));
+		persistCurrent(get);
 	},
 
 	collapse: (path) => {
@@ -104,39 +178,39 @@ export const useFilesStore = create<FilesState>((set, get) => ({
 		const next = new Set(get().expanded);
 		next.delete(path);
 		set({ expanded: next });
-		persist(snapshot(get()));
+		persistCurrent(get);
 	},
 
 	setSelected: (selectedPath) => {
 		set({ selectedPath });
-		persist(snapshot(get()));
+		persistCurrent(get);
 	},
 
 	setScrollTop: (scrollTop) => {
 		set({ scrollTop });
-		persist(snapshot(get()));
+		persistCurrent(get);
 	},
 
 	setShowHidden: (showHidden) => {
 		if (get().showHidden === showHidden) return;
 		set({ showHidden });
-		persist(snapshot(get()));
+		persistCurrent(get);
 	},
 
 	setShowIgnored: (showIgnored) => {
 		if (get().showIgnored === showIgnored) return;
 		set({ showIgnored });
-		persist(snapshot(get()));
+		persistCurrent(get);
 	},
 
 	toggleShowHidden: () => {
 		set({ showHidden: !get().showHidden });
-		persist(snapshot(get()));
+		persistCurrent(get);
 	},
 
 	toggleShowIgnored: () => {
 		set({ showIgnored: !get().showIgnored });
-		persist(snapshot(get()));
+		persistCurrent(get);
 	},
 
 	prune: (paths) => {
@@ -154,6 +228,6 @@ export const useFilesStore = create<FilesState>((set, get) => ({
 		}
 		if (!changed) return;
 		set({ expanded: next });
-		persist(snapshot(get()));
+		persistCurrent(get);
 	},
 }));

@@ -8,7 +8,9 @@
 import { useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
-import { Archive, FolderOpen, FolderPlus, Pencil, Plus } from 'lucide-react';
+import { Archive, FolderOpen, FolderPlus, Pencil, Plus, RotateCcw } from 'lucide-react';
+
+import { iykeLayoutReset } from '@/lib/iyke/layout';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -76,6 +78,19 @@ function ProjectsPage() {
 		try {
 			await projectArchive(project.id);
 			await refreshProjects();
+			setError(null);
+		} catch (e) {
+			setError((e as Error).message);
+		}
+	}
+
+	async function handleResetLayout(project: Project) {
+		const ok = window.confirm(
+			`Reset saved pane layout for "${project.display_name}"? The next time you switch to this project, it will adopt whatever pane arrangement is currently visible. Chats, files, and other state are not affected.`
+		);
+		if (!ok) return;
+		try {
+			await iykeLayoutReset(project.id);
 			setError(null);
 		} catch (e) {
 			setError((e as Error).message);
@@ -177,6 +192,16 @@ function ProjectsPage() {
 											aria-label={`Edit ${p.display_name}`}
 										>
 											<Pencil className="h-3.5 w-3.5" />
+										</Button>
+										<Button
+											variant="ghost"
+											size="sm"
+											onClick={() => void handleResetLayout(p)}
+											disabled={p.archived_at != null}
+											aria-label={`Reset layout for ${p.display_name}`}
+											title="Reset saved pane layout for this project"
+										>
+											<RotateCcw className="h-3.5 w-3.5" />
 										</Button>
 										<Button
 											variant="ghost"

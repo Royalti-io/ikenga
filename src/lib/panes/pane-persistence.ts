@@ -1,6 +1,8 @@
 // Pane-tree persistence. Stored as a versioned blob in the SQLite
-// `layout_state` kv at key `workspace.pane-tree`, alongside the existing
-// `workspace.panels` (sidebar/content sizes) entry.
+// `layout_state` kv at key `workspace.pane-tree.${projectId}`, alongside
+// the existing `workspace.panels.${projectId}` (sidebar/content sizes)
+// entry. Phase 6 (projects-first-class) scopes layout per project via
+// key suffix; pre-Phase-6 un-suffixed rows migrate on first load.
 //
 // Hydrate semantics: tabs whose backing session is gone are dropped.
 // Terminal tabs require an entry in `useTerminalStore` (which must be
@@ -13,12 +15,19 @@
 // collapses; if the whole tree is empty, we fall back to a single
 // route('/') leaf.
 
-import { loadLayoutState, saveLayoutState, debounce } from '@/lib/layout-state';
+import {
+	deleteScopedLayoutState,
+	debounce,
+	migrateLegacyKey,
+	saveScopedLayoutState,
+} from '@/lib/layout-state';
 import { useTerminalStore } from '@/terminal/session-store';
 import { findLeaf, getLeafIdsInOrder, makeLeaf } from './pane-reducer';
 import type { PaneId, PaneNode, PaneView } from './types';
 
-const STORE_KEY = 'workspace.pane-tree';
+/** Un-suffixed key — legacy pre-Phase-6 storage. Scoped writes are
+ *  `${STORE_KEY}.${projectId}`. */
+export const STORE_KEY = 'workspace.pane-tree';
 const VERSION = 1 as const;
 export const MAX_CLOSED_HISTORY = 10;
 
@@ -48,8 +57,12 @@ function defaultSnapshot(): PaneTreeSnapshot {
  * Read the persisted tree, validate sessions, return a clean snapshot.
  * Caller must have rehydrated `useTerminalStore` first or every
  * terminal tab will be considered stale.
+ *
+ * `projectId` scopes the persisted blob. First call after upgrade picks
+ * up the legacy un-suffixed row via `migrateLegacyKey` and copies it
+ * under the scoped key.
  */
-export async function loadPaneTree(): Promise<PaneTreeSnapshot> {
+export async function loadPaneTree(projectId: string): Promise<PaneTreeSnapshot> {
 	const fallback: PersistedPaneTree = {
 		version: VERSION,
 		...buildDefault(),
@@ -58,7 +71,7 @@ export async function loadPaneTree(): Promise<PaneTreeSnapshot> {
 
 	let blob: PersistedPaneTree;
 	try {
-		blob = await loadLayoutState<PersistedPaneTree>(STORE_KEY, fallback);
+		blob = await migrateLegacyKey<PersistedPaneTree>(STORE_KEY, projectId, fallback);
 	} catch (err) {
 		console.warn('[pane-persistence] load failed, using default', err);
 		return defaultSnapshot();
@@ -144,10 +157,38 @@ export function filterTreeViews(node: PaneNode, keep: (v: PaneView) => boolean):
 	return { ...node, children, sizes: equalSizes(children.length) };
 }
 
-const persistDebounced = debounce((blob: PersistedPaneTree) => {
-	void saveLayoutState(STORE_KEY, blob);
+const persistDebounced = debounce((projectId: string, blob: PersistedPaneTree) => {
+	void saveScopedLayoutState(STORE_KEY, projectId, blob);
 }, 500);
 
-export function persistPaneTree(snapshot: PaneTreeSnapshot): void {
-	persistDebounced({ version: VERSION, ...snapshot });
+export function persistPaneTree(snapshot: PaneTreeSnapshot, projectId: string): void {
+	persistDebounced(projectId, { version: VERSION, ...snapshot });
+}
+
+/** Flush any pending debounced write. Used by the project-layout-swap
+ *  orchestrator before switching projects so the outgoing project doesn't
+ *  lose its last edits.
+ */
+export function flushPaneTreePersist(): void {
+	persistDebounced.flush();
+}
+
+/** Save a snapshot synchronously under a specific project id. Used by
+ *  the swap orchestrator to snapshot the outgoing project's state
+ *  before applying the incoming one.
+ */
+export async function savePaneTreeNow(
+	snapshot: PaneTreeSnapshot,
+	projectId: string
+): Promise<void> {
+	flushPaneTreePersist();
+	await saveScopedLayoutState(STORE_KEY, projectId, {
+		version: VERSION,
+		...snapshot,
+	} satisfies PersistedPaneTree);
+}
+
+/** Erase a project's saved pane tree. Backs the "Reset layout" surface. */
+export async function resetPaneTree(projectId: string): Promise<void> {
+	await deleteScopedLayoutState(STORE_KEY, projectId);
 }

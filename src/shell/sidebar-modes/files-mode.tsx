@@ -460,6 +460,7 @@ function RootSection({ rootPath }: RootSectionProps) {
 
 export function FilesMode() {
 	const fileRoots = useShellStore((s) => s.fileRoots);
+	const activeProjectId = useShellStore((s) => s.activeProjectId);
 	const hydrated = useFilesStore((s) => s.hydrated);
 	const hydrate = useFilesStore((s) => s.hydrate);
 	const storedScrollTop = useFilesStore((s) => s.scrollTop);
@@ -472,8 +473,8 @@ export function FilesMode() {
 	const scrollerRef = useRef<HTMLDivElement | null>(null);
 
 	useEffect(() => {
-		void hydrate();
-	}, [hydrate]);
+		void hydrate(activeProjectId);
+	}, [hydrate, activeProjectId]);
 
 	// Cmd+. (Mac) / Ctrl+. (Linux/Windows) → toggle hidden files. Matches the
 	// Finder convention. Bare `.` (no modifier) is left alone so users can

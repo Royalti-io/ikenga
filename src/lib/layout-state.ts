@@ -108,14 +108,119 @@ export async function saveLayoutState(key: string, value: unknown): Promise<void
 	}
 }
 
-/** Tiny debounce — avoids pulling in lodash for this single use. */
+/** Tiny debounce — avoids pulling in lodash for this single use.
+ *
+ * Returns the debounced function plus a `flush` helper that fires any
+ * pending call synchronously (used by the project-layout-swap orchestrator
+ * so an outgoing project doesn't lose its last edits to debounce delay).
+ */
 export function debounce<A extends unknown[]>(
 	fn: (...args: A) => void,
 	delay: number
-): (...args: A) => void {
+): ((...args: A) => void) & { flush: () => void } {
 	let timer: ReturnType<typeof setTimeout> | null = null;
-	return (...args: A) => {
+	let pending: A | null = null;
+	const debounced = ((...args: A) => {
 		if (timer) clearTimeout(timer);
-		timer = setTimeout(() => fn(...args), delay);
+		pending = args;
+		timer = setTimeout(() => {
+			timer = null;
+			const a = pending!;
+			pending = null;
+			fn(...a);
+		}, delay);
+	}) as ((...args: A) => void) & { flush: () => void };
+	debounced.flush = () => {
+		if (timer) {
+			clearTimeout(timer);
+			timer = null;
+		}
+		if (pending) {
+			const a = pending;
+			pending = null;
+			fn(...a);
+		}
 	};
+	return debounced;
+}
+
+// ─── Project-scoped layout state ──────────────────────────────────────
+//
+// Phase 6 (projects-first-class) scopes pane tree, files-explorer, and
+// workspace panel sizes per project by suffixing the kv key with
+// `.${projectId}`. The `project_id` column on `layout_state` stays
+// unused for these keys — using suffixed keys keeps load/save signatures
+// trivial and means the localStorage fallback (which has no SQL schema)
+// works unchanged.
+
+export function scopedKey(key: string, projectId: string): string {
+	return `${key}.${projectId}`;
+}
+
+export function loadScopedLayoutState<T>(
+	key: string,
+	projectId: string,
+	fallback: T
+): Promise<T> {
+	return loadLayoutState(scopedKey(key, projectId), fallback);
+}
+
+export function saveScopedLayoutState(
+	key: string,
+	projectId: string,
+	value: unknown
+): Promise<void> {
+	return saveLayoutState(scopedKey(key, projectId), value);
+}
+
+/**
+ * One-time migration helper: if a scoped key has no value but a legacy
+ * un-suffixed value exists, copy the legacy value into the scoped key
+ * and return it. Used on first hydrate after a user upgrades from a
+ * pre-Phase-6 build (where everything was stored under the un-suffixed
+ * key). Subsequent loads find the scoped row directly.
+ */
+export async function migrateLegacyKey<T>(
+	key: string,
+	projectId: string,
+	fallback: T
+): Promise<T> {
+	const scoped = scopedKey(key, projectId);
+	const sentinel = Symbol('missing');
+	const existing = (await loadLayoutState<T | typeof sentinel>(scoped, sentinel)) as
+		| T
+		| typeof sentinel;
+	if (existing !== sentinel) return existing as T;
+	const legacy = (await loadLayoutState<T | typeof sentinel>(key, sentinel)) as
+		| T
+		| typeof sentinel;
+	if (legacy === sentinel) return fallback;
+	// Copy under scoped key for next time; don't await — best-effort.
+	void saveLayoutState(scoped, legacy);
+	return legacy as T;
+}
+
+/**
+ * Erase a scoped layout key. Used by the "Reset layout for this project"
+ * surface. Deletes both the SQLite row and the localStorage shadow.
+ */
+export async function deleteScopedLayoutState(key: string, projectId: string): Promise<void> {
+	const scoped = scopedKey(key, projectId);
+	try {
+		localStorage.removeItem(LS_PREFIX + scoped);
+	} catch {
+		// ignore
+	}
+	const db = await getDb();
+	if (!db) return;
+	try {
+		await withTimeout(
+			db.execute('DELETE FROM layout_state WHERE key = ?', [scoped]),
+			SQL_TIMEOUT_MS,
+			'sqlite DELETE'
+		);
+	} catch (err) {
+		// eslint-disable-next-line no-console
+		console.warn('[layout-state] delete via sqlite failed', { scoped, err });
+	}
 }
