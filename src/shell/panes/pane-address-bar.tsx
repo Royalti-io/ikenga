@@ -8,7 +8,7 @@
 // history entry. `bumpKey()` re-mounts the leaf so refresh resets viewer
 // state. Invalid input rings the input red briefly without navigating.
 
-import { ArrowLeft, ArrowRight, RefreshCw } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Pin as PinGlyph, RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { cn } from '@/components/ui/utils';
 import { Input } from '@/components/ui/input';
@@ -16,6 +16,8 @@ import { getPaneAddress, parsePaneAddress } from '@/lib/panes/pane-address';
 import { resolveArtifactAddress } from '@/lib/panes/pane-address-resolver';
 import type { PaneId, PaneView } from '@/lib/panes/types';
 import { usePaneHistory } from '@/lib/panes/use-pane-history';
+import { usePinsStore } from '@/lib/shell/pins-store';
+import { PinArtifactDialog } from './pin-artifact-dialog';
 
 interface PaneAddressBarProps {
 	paneId: PaneId;
@@ -71,6 +73,15 @@ export function PaneAddressBar({ paneId, view }: PaneAddressBarProps) {
 		replace(resolved);
 	}, [draft, address, replace, bumpKey, flashInvalid]);
 
+	// Pin button is artifact-only and lights up amber when this exact path
+	// is already pinned (so the user knows clicking again would be a dup).
+	// Future: clicking when already pinned could open an edit dialog;
+	// today it's hidden entirely to avoid suggesting a dup-create.
+	const pinForCurrentPath = usePinsStore((s) =>
+		view.kind === 'artifact' ? s.pins.find((p) => p.target === view.path) ?? null : null
+	);
+	const [pinDialogOpen, setPinDialogOpen] = useState(false);
+
 	return (
 		<div className="flex shrink-0 items-center gap-0.5 border-b border-border bg-background px-1.5 py-1">
 			<NavButton onClick={() => back()} disabled={!canGoBack} title="Back" aria-label="Back">
@@ -114,6 +125,32 @@ export function PaneAddressBar({ paneId, view }: PaneAddressBarProps) {
 					invalid && 'border-destructive ring-2 ring-destructive/40'
 				)}
 			/>
+			{view.kind === 'artifact' && (
+				<>
+					<NavButton
+						onClick={() => setPinDialogOpen(true)}
+						disabled={pinForCurrentPath !== null}
+						title={
+							pinForCurrentPath
+								? `Already pinned as "${pinForCurrentPath.label}"`
+								: 'Pin to activity bar'
+						}
+						aria-label="Pin to activity bar"
+					>
+						<PinGlyph
+							className={cn(
+								'h-3.5 w-3.5',
+								pinForCurrentPath && 'fill-current text-amber-500'
+							)}
+						/>
+					</NavButton>
+					<PinArtifactDialog
+						open={pinDialogOpen}
+						onOpenChange={setPinDialogOpen}
+						path={view.path}
+					/>
+				</>
+			)}
 		</div>
 	);
 }

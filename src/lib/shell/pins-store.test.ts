@@ -18,6 +18,12 @@ vi.mock('@/lib/tauri-cmd', () => {
 			if (args.sectionId && !state.sections.some((s) => s.id === args.sectionId)) {
 				throw new Error(`section '${args.sectionId}' does not exist`);
 			}
+			// Mirror the host's manifest_id uniqueness check so store tests
+			// can exercise the duplicate path (otherwise the FE would accept
+			// the add and the host would reject it on the real call).
+			if (args.manifestId && state.pins.some((p) => p.manifestId === args.manifestId)) {
+				throw new Error(`manifest_id '${args.manifestId}' is already pinned`);
+			}
 			const sortOrder = state.pins.filter((p) =>
 				(args.sectionId ?? null) === null ? p.sectionId === null : p.sectionId === args.sectionId
 			).length;
@@ -31,6 +37,8 @@ vi.mock('@/lib/tauri-cmd', () => {
 				sectionId: args.sectionId ?? null,
 				sortOrder,
 				createdAt: '2026-05-10T00:00:00Z',
+				manifestId: args.manifestId ?? null,
+				lastOpenedAt: null,
 			};
 			state.pins.push(pin);
 			return pin;
@@ -91,7 +99,13 @@ vi.mock('@/lib/tauri-cmd', () => {
 });
 
 import * as cmd from '@/lib/tauri-cmd';
-import { fuzzyMatchSection, slugifySectionId, usePinsStore } from './pins-store';
+import {
+	dispatchPinSelection,
+	fuzzyMatchSection,
+	slugifySectionId,
+	usePinsStore,
+	type PinDispatchTarget,
+} from './pins-store';
 
 const resetMockState = (cmd as unknown as { __resetMockState: () => void }).__resetMockState;
 
@@ -303,5 +317,84 @@ describe('pins store — section removal re-parents pins', () => {
 		const after = usePinsStore.getState().pins.find((p) => p.id === a.id);
 		expect(after?.sectionId).toBeNull();
 		expect(usePinsStore.getState().sections).toHaveLength(0);
+	});
+});
+
+describe('dispatchPinSelection', () => {
+	function makeStore(): PinDispatchTarget & {
+		navigateFocused: ReturnType<typeof vi.fn>;
+		placeView: ReturnType<typeof vi.fn>;
+	} {
+		return {
+			focusedId: 'leaf-1',
+			navigateFocused: vi.fn(),
+			placeView: vi.fn(() => true),
+		};
+	}
+
+	const basePin = {
+		id: 'p',
+		label: 'X',
+		iconLucide: null,
+		iconEmoji: null,
+		sectionId: null,
+		sortOrder: 0,
+		createdAt: '2026-05-15T00:00:00Z',
+		manifestId: null,
+		lastOpenedAt: null,
+	};
+
+	it('navigates the focused pane for route pins', () => {
+		const store = makeStore();
+		dispatchPinSelection({ ...basePin, kind: 'route', target: '/inbox' }, store);
+		expect(store.navigateFocused).toHaveBeenCalledWith('/inbox');
+		expect(store.placeView).not.toHaveBeenCalled();
+	});
+
+	it('navigates the focused pane for pkg-route pins', () => {
+		const store = makeStore();
+		dispatchPinSelection(
+			{ ...basePin, kind: 'pkg-route', target: '/pkg/com.example/foo' },
+			store
+		);
+		expect(store.navigateFocused).toHaveBeenCalledWith('/pkg/com.example/foo');
+		expect(store.placeView).not.toHaveBeenCalled();
+	});
+
+	it('places an artifact view for artifact pins', () => {
+		const store = makeStore();
+		dispatchPinSelection(
+			{ ...basePin, kind: 'artifact', target: '/home/me/cfo.html' },
+			store
+		);
+		expect(store.placeView).toHaveBeenCalledWith(
+			'leaf-1',
+			{ kind: 'artifact', path: '/home/me/cfo.html' },
+			'append'
+		);
+		expect(store.navigateFocused).not.toHaveBeenCalled();
+	});
+
+	it('places an artifact view for file pins', () => {
+		const store = makeStore();
+		dispatchPinSelection({ ...basePin, kind: 'file', target: '/notes.md' }, store);
+		expect(store.placeView).toHaveBeenCalledWith(
+			'leaf-1',
+			{ kind: 'artifact', path: '/notes.md' },
+			'append'
+		);
+	});
+
+	it('places an artifact view for external (URL) pins', () => {
+		const store = makeStore();
+		dispatchPinSelection(
+			{ ...basePin, kind: 'external', target: 'https://example.com/dash' },
+			store
+		);
+		expect(store.placeView).toHaveBeenCalledWith(
+			'leaf-1',
+			{ kind: 'artifact', path: 'https://example.com/dash' },
+			'append'
+		);
 	});
 });

@@ -17,7 +17,12 @@ import { useShellStore, type ActivityMode, type CoreMode } from '@/lib/shell/she
 import { usePaneStore } from '@/lib/panes/pane-store';
 import { useIkengaStore, type IkengaMode, type IkengaWorkspace } from '@/lib/ikenga/theme-store';
 import { cn } from '@/components/ui/utils';
-import { useActivityBarPins, usePinsStore, type Pin } from '@/lib/shell/pins-store';
+import {
+	dispatchPinSelection,
+	useActivityBarPins,
+	usePinsStore,
+	type Pin,
+} from '@/lib/shell/pins-store';
 import { useUpdatesAvailable } from '@/lib/registry/use-updates-available';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import type { Project } from '@/lib/tauri-cmd';
@@ -97,12 +102,7 @@ export function ActivityBar() {
 	}
 
 	function handleSelectPin(pin: Pin) {
-		// v0: route + pkg-route navigate the focused pane; artifact / file /
-		// external are not yet wired through here. The viewer + open-in-pane
-		// flows for those land alongside the pin entry-point work.
-		if (pin.kind === 'route' || pin.kind === 'pkg-route') {
-			usePaneStore.getState().navigateFocused(pin.target);
-		}
+		dispatchPinSelection(pin, usePaneStore.getState());
 	}
 
 	useEffect(() => {

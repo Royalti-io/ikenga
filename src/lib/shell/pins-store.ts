@@ -44,7 +44,9 @@ export interface PinsState {
 
 	/** Add a pin. Throws if `sectionId` references a missing section —
 	 *  callers should create the section first via `createSection` (or
-	 *  pass `null` for section-less pins). */
+	 *  pass `null` for section-less pins). Pass `manifestId` for artifact
+	 *  pins so `ikenga://artifact/<id>` resolves back to this pin; the host
+	 *  rejects duplicates with a clear error. */
 	addPin: (args: {
 		kind: PinKind;
 		target: string;
@@ -52,6 +54,7 @@ export interface PinsState {
 		iconLucide?: string | null;
 		iconEmoji?: string | null;
 		sectionId?: string | null;
+		manifestId?: string | null;
 	}) => Promise<Pin>;
 
 	removePin: (id: string) => Promise<void>;
@@ -216,6 +219,32 @@ export const usePinsStore = create<PinsState>((set, get) => ({
 		}
 	},
 }));
+
+/** Minimal pane-store surface this module needs to dispatch a pin click.
+ *  Defined here (instead of importing the real store) so tests can pass
+ *  in a shape-only stub without touching pane internals. */
+export interface PinDispatchTarget {
+	focusedId: string;
+	navigateFocused: (path: string) => void;
+	placeView: (
+		dstLeafId: string,
+		view: { kind: 'artifact'; path: string },
+		mode: 'append'
+	) => boolean;
+}
+
+/** Dispatch a pin selection to the pane store. Route + pkg-route navigate
+ *  the focused leaf; artifact / file / external place the path as an
+ *  artifact view (the auto-router picks the renderer by MIME at mount).
+ *  Pure with respect to the inputs — extracted from the ActivityBar so it
+ *  can be unit-tested without rendering. */
+export function dispatchPinSelection(pin: Pin, store: PinDispatchTarget): void {
+	if (pin.kind === 'route' || pin.kind === 'pkg-route') {
+		store.navigateFocused(pin.target);
+		return;
+	}
+	store.placeView(store.focusedId, { kind: 'artifact', path: pin.target }, 'append');
+}
 
 /** Selector hook returning pins grouped by section, plus a loose group for
  *  section-less pins. Consumers iterate `sections` to render headers in
