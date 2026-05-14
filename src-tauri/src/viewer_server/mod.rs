@@ -396,3 +396,180 @@ fn random_token_hex(n_bytes: usize) -> String {
     rand::thread_rng().fill_bytes(&mut buf);
     hex::encode(buf)
 }
+
+#[cfg(test)]
+mod tests {
+    //! Integration tests for the inject middlewares. Mounts a real `ServeDir`
+    //! over a tempdir, wires the same middleware stack as `start()`, and uses
+    //! `tower::ServiceExt::oneshot` to drive a request without binding a
+    //! socket. The assertions cover the load-bearing properties of the
+    //! artifact-bridge injection: marker presence, position relative to
+    //! `<head>`, ordering against the per-artifact inline polyfill, and
+    //! pass-through for non-HTML responses.
+    //!
+    //! These exist because the only other way to verify the middleware is
+    //! to launch a full Tauri shell + viewer iframe, which is not available
+    //! in CI and is awkward to drive locally when another shell is running.
+    use super::*;
+    use axum::body::Body;
+    use axum::http::{Method, Request, StatusCode};
+    use std::fs;
+    use tower::util::ServiceExt;
+
+    /// Build the same router shape as `ViewerServerManager::start` so we
+    /// exercise the real middleware ordering. Pass `root` as the only mount.
+    fn router_for(token: &str, root: PathBuf) -> Router {
+        let mounts: Arc<DashMap<String, Mount>> = Arc::new(DashMap::new());
+        mounts.insert(token.to_string(), Mount { root });
+        Router::new()
+            .route("/__viewer/:token/*path", any(serve_handler))
+            .route("/__viewer/:token", any(serve_handler_root))
+            .layer(middleware::from_fn(inject_artifact_bridge))
+            .layer(middleware::from_fn(inject_iyke_bridge))
+            .layer(middleware::from_fn(inject_security_headers))
+            .with_state(mounts)
+    }
+
+    /// Smallest viable artifact: declares an `id`, the inline polyfill
+    /// pattern from the skill template, and the `||` guard that hands off to
+    /// the host-injected bridge. Mirrors `hello-world.html` minus the React
+    /// noise that's irrelevant to the middleware.
+    const TINY_ARTIFACT: &str = r#"<!doctype html>
+<html><head>
+  <title>Tiny</title>
+  <script type="application/json" id="ikenga-manifest">{"id":"tiny"}</script>
+  <script>
+  window.__ikenga_bridge_polyfill__ = window.__ikenga_bridge_polyfill__ || (function(){return{init:function(){return Promise.resolve({})}}})();
+  </script>
+</head><body>hi</body></html>
+"#;
+
+    /// 1. Bridge bundle is injected into HTML responses.
+    /// 2. The marker (and so the bundle) lands AFTER `<head>` and BEFORE the
+    ///    inline polyfill — which is the load-bearing ordering: the bundle
+    ///    populates `__ikenga_bridge_polyfill__` before the page's inline
+    ///    `polyfill = polyfill || (…)` IIFE evaluates, so the IIFE sees a
+    ///    truthy left-hand side and short-circuits.
+    #[tokio::test]
+    async fn artifact_bridge_injected_before_inline_polyfill() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("a.html"), TINY_ARTIFACT).unwrap();
+
+        let token = "tok_a";
+        let app = router_for(token, dir.path().to_path_buf());
+
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri(format!("/__viewer/{token}/a.html"))
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let body = to_bytes(resp.into_body(), 64 * 1024).await.unwrap();
+        let html = std::str::from_utf8(&body).unwrap();
+
+        assert!(
+            html.contains(ARTIFACT_INJECT_MARKER),
+            "expected artifact-bridge marker in served HTML, got:\n{html}",
+        );
+
+        let head_close = html.find("<head").and_then(|i| html[i..].find('>').map(|j| i + j + 1));
+        let marker_at = html.find(ARTIFACT_INJECT_MARKER).unwrap();
+        let polyfill_at = html.find("__ikenga_bridge_polyfill__ = ").unwrap();
+
+        assert!(
+            head_close.unwrap() <= marker_at,
+            "bridge marker must land after the <head> opening tag",
+        );
+        assert!(
+            marker_at < polyfill_at,
+            "bridge bundle must run before the inline polyfill IIFE so the `|| (…)` guard short-circuits",
+        );
+    }
+
+    /// Non-HTML responses (e.g. JSON data files served alongside an
+    /// artifact) must pass through unchanged. Without this guard the
+    /// middleware would corrupt every static asset.
+    #[tokio::test]
+    async fn non_html_passes_through() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("data.json"), r#"{"ok":true}"#).unwrap();
+
+        let token = "tok_b";
+        let app = router_for(token, dir.path().to_path_buf());
+
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri(format!("/__viewer/{token}/data.json"))
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let body = to_bytes(resp.into_body(), 4 * 1024).await.unwrap();
+        let text = std::str::from_utf8(&body).unwrap();
+        assert_eq!(text, r#"{"ok":true}"#);
+        assert!(!text.contains(ARTIFACT_INJECT_MARKER));
+    }
+
+    /// If the response already carries the marker, the middleware must not
+    /// inject a second copy. Defensive — the layer order shouldn't allow
+    /// double-flow today, but two `<script>` blobs in `<head>` would silently
+    /// blow up parsing on some artifacts.
+    #[tokio::test]
+    async fn double_inject_is_idempotent() {
+        let dir = tempfile::tempdir().unwrap();
+        let pre_injected = format!(
+            "<!doctype html><html><head>{ARTIFACT_INJECT_MARKER}\n<script>/* host */</script></head><body>hi</body></html>",
+        );
+        fs::write(dir.path().join("p.html"), &pre_injected).unwrap();
+
+        let token = "tok_c";
+        let app = router_for(token, dir.path().to_path_buf());
+
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri(format!("/__viewer/{token}/p.html"))
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let body = to_bytes(resp.into_body(), 64 * 1024).await.unwrap();
+        let html = std::str::from_utf8(&body).unwrap();
+        assert_eq!(
+            html.matches(ARTIFACT_INJECT_MARKER).count(),
+            1,
+            "marker should appear exactly once after pass-through",
+        );
+    }
+
+    /// CSP header is present on viewer responses. Picked one canary header
+    /// instead of asserting the full policy string so a future widen of the
+    /// CSP allowlist doesn't churn this test.
+    #[tokio::test]
+    async fn csp_header_present() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("a.html"), TINY_ARTIFACT).unwrap();
+
+        let token = "tok_d";
+        let app = router_for(token, dir.path().to_path_buf());
+
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri(format!("/__viewer/{token}/a.html"))
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        let csp = resp
+            .headers()
+            .get(header::CONTENT_SECURITY_POLICY)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        assert!(
+            csp.contains("script-src") && csp.contains("cdn.jsdelivr.net"),
+            "CSP must allow the canonical artifact CDN; got: {csp}",
+        );
+    }
+}
