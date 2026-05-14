@@ -34,6 +34,7 @@ use super::browser_sessions::{
 use super::claude::{
     get_claude_asset_pins, get_claude_assets_list, post_claude_asset_pin, post_claude_asset_unpin,
 };
+use super::mcp::{get_mcp_list, post_mcp_restart};
 use crate::commands::db::PaDb;
 use super::handlers::{
     get_dom, get_iframe_state, get_logs, get_network, get_pkg_list, get_query_cache, get_state,
@@ -53,7 +54,7 @@ use super::projects::{
     get_project_active, get_project_list, post_project_archive, post_project_create,
     post_project_set_active, post_project_update,
 };
-use super::sessions::{get_session_list, post_session_move};
+use super::sessions::{get_session_list, post_session_move, post_session_start};
 use super::state::IykeState;
 use super::IykeRpc;
 use crate::commands::ScreenshotPending;
@@ -150,11 +151,15 @@ pub async fn serve(
         // Chat sessions (Phase 3 of projects-first-class plan).
         .route("/iyke/session/list", get(get_session_list))
         .route("/iyke/session/move", post(post_session_move))
+        .route("/iyke/session/start", post(post_session_start))
         // Claude config (Phase 4 — 4-tier discovery + pins).
         .route("/iyke/claude/assets", get(get_claude_assets_list))
         .route("/iyke/claude/asset/pin", post(post_claude_asset_pin))
         .route("/iyke/claude/asset/unpin", post(post_claude_asset_unpin))
         .route("/iyke/claude/asset/pins", get(get_claude_asset_pins))
+        // MCP supervisor + per-project resolved set (Phase 5).
+        .route("/iyke/mcp/list", get(get_mcp_list))
+        .route("/iyke/mcp/restart", post(post_mcp_restart))
         // Memory primitives (Phase 1 — DESIGN.md §4-6).
         .route("/iyke/scratchpad/write", post(post_scratchpad_write))
         .route("/iyke/scratchpad/append", post(post_scratchpad_append))

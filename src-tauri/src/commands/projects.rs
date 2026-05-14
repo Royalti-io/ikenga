@@ -313,6 +313,29 @@ pub async fn get_active_project_id(pool: &SqlitePool) -> Result<String, String> 
     Ok(row.map(|(v,)| v).unwrap_or_else(|| DEFAULT_PROJECT_ID.to_string()))
 }
 
+/// Phase 5: resolve `(IKENGA_PROJECT_ID, IKENGA_PROJECT_ROOT)` for an MCP
+/// child spawn. Workspace-scoped pkgs pass `None` and pick up the current
+/// active project; project-scoped pkgs pass their own project id. Either
+/// component may be `None` (missing project row, no root_path) — callers
+/// skip the env var rather than injecting an empty string.
+pub async fn resolve_project_env_ctx(
+    pool: &SqlitePool,
+    pkg_project_id: Option<&str>,
+) -> (Option<String>, Option<String>) {
+    let effective_id = match pkg_project_id {
+        Some(id) => id.to_string(),
+        None => match get_active_project_id(pool).await {
+            Ok(id) => id,
+            Err(_) => return (None, None),
+        },
+    };
+    let root = match get_project(pool, &effective_id).await {
+        Ok(Some(p)) => p.root_path,
+        _ => None,
+    };
+    (Some(effective_id), root)
+}
+
 // ─── One-time migration: claudeProjectRoots → projects ────────────────────
 //
 // Pre-Phase-0-of-projects-first-class, the /claude config browser tracked a

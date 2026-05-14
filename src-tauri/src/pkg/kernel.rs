@@ -827,6 +827,14 @@ impl Kernel {
             .unwrap_or_default()
     }
 
+    /// Look up a single installed summary by id without cloning the whole
+    /// map. Phase 5 of projects-first-class uses this to find an MCP child's
+    /// own project scope (workspace or `project:<id>`) before spawning, so
+    /// it can inject the matching `IKENGA_PROJECT_ID` env.
+    pub fn installed_summary(&self, pkg_id: &str) -> Option<InstalledSummary> {
+        self.installed.read().ok().and_then(|g| g.get(pkg_id).cloned())
+    }
+
     /// Phase 2 reconciler. For each installed pkg, ensure its registry
     /// contribution + sidecar match its scope vs the active project:
     /// - workspace (project_id None) → always live.

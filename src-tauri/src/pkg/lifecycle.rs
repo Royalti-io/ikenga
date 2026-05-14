@@ -148,6 +148,12 @@ pub struct SidecarSupervisor {
     /// AppHandle for emitting lifecycle events. None in unit tests where no
     /// Tauri app is running — emit becomes a no-op.
     app: Option<AppHandle>,
+    /// Phase 5 (projects-first-class): DB handle for resolving each
+    /// supervised pkg's project context (own scope + active-project
+    /// fallback) at spawn time, so `IKENGA_PROJECT_ID` + `IKENGA_PROJECT_ROOT`
+    /// can be injected as env on the child. `None` in unit tests where no
+    /// DB exists — env injection becomes a no-op.
+    pa_db: Option<Arc<crate::commands::db::PaDb>>,
 }
 
 impl SidecarSupervisor {
@@ -159,7 +165,15 @@ impl SidecarSupervisor {
         Self {
             children: RwLock::new(HashMap::new()),
             app: Some(app),
+            pa_db: None,
         }
+    }
+
+    /// Builder-style hook for the Phase 5 project-context env injection.
+    /// Called from `lib.rs::setup` once `PaDb` is constructed.
+    pub fn with_db(mut self, db: Arc<crate::commands::db::PaDb>) -> Self {
+        self.pa_db = Some(db);
+        self
     }
 
     /// Look up a supervised pkg's handle. Returns None if the pkg is not
@@ -209,6 +223,7 @@ impl SidecarSupervisor {
             server,
             install_path,
             self.app.clone(),
+            self.pa_db.clone(),
         ));
 
         {
@@ -378,12 +393,20 @@ pub struct SupervisedSidecar {
     /// Tauri AppHandle for emitting `pkg://lifecycle` events. None in unit
     /// tests; emit becomes a no-op when absent.
     app: Option<AppHandle>,
+    /// Phase 5 (projects-first-class): DB handle for resolving the pkg's
+    /// own scope (workspace vs project-pkg) + the active-project fallback
+    /// at spawn time. Read once per spawn so `IKENGA_PROJECT_ID` reflects
+    /// the *current* active project for workspace-scoped pkgs (i.e. when
+    /// the user switches projects, a workspace MCP that respawns after a
+    /// crash picks up the new active id). `None` in unit tests; env
+    /// injection becomes a no-op.
+    pa_db: Option<Arc<crate::commands::db::PaDb>>,
 }
 
 impl SupervisedSidecar {
     #[cfg(test)]
     fn new(pkg_id: String, server: McpServer, install_path: PathBuf) -> Self {
-        Self::new_with_app(pkg_id, server, install_path, None)
+        Self::new_with_app(pkg_id, server, install_path, None, None)
     }
 
     fn new_with_app(
@@ -391,6 +414,7 @@ impl SupervisedSidecar {
         server: McpServer,
         install_path: PathBuf,
         app: Option<AppHandle>,
+        pa_db: Option<Arc<crate::commands::db::PaDb>>,
     ) -> Self {
         Self {
             pkg_id,
@@ -403,6 +427,7 @@ impl SupervisedSidecar {
             restart_kick: Notify::new(),
             blocked_signal: Arc::new(StdMutex::new(None)),
             app,
+            pa_db,
         }
     }
 
@@ -782,6 +807,38 @@ impl SupervisedSidecar {
         let mut cmd = Command::new(crate::runtime::resolve_command(&self.server.command));
         cmd.args(&self.server.args);
         cmd.current_dir(&self.install_path);
+
+        // Phase 5 (projects-first-class): inject IKENGA_PROJECT_ID +
+        // IKENGA_PROJECT_ROOT before the manifest-declared env so a pkg
+        // can still override either (rare but possible). Looked up per
+        // spawn — workspace-scoped pkgs see the current active project,
+        // project-scoped pkgs see their own. DB-less in unit tests; the
+        // env vars are simply omitted in that case.
+        if let Some(db) = self.pa_db.as_ref() {
+            if let Ok(pool) = db.ensure_pool().await {
+                let pkg_project = sqlx::query_scalar::<_, Option<String>>(
+                    "SELECT project_id FROM pkg_installed WHERE id = ?",
+                )
+                .bind(&self.pkg_id)
+                .fetch_optional(&pool)
+                .await
+                .ok()
+                .flatten()
+                .flatten();
+                let (id, root) = crate::commands::projects::resolve_project_env_ctx(
+                    &pool,
+                    pkg_project.as_deref(),
+                )
+                .await;
+                if let Some(id) = id {
+                    cmd.env("IKENGA_PROJECT_ID", id);
+                }
+                if let Some(root) = root {
+                    cmd.env("IKENGA_PROJECT_ROOT", root);
+                }
+            }
+        }
+
         for (k, v) in &self.server.env {
             cmd.env(k, v);
         }

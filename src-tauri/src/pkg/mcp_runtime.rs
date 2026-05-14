@@ -41,15 +41,23 @@ const CALL_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Run the full handshake + tools/call against a package's MCP server and
 /// return the JSON-RPC `result` payload from the `tools/call` response.
+///
+/// `extra_env` is layered onto the child env BEFORE the manifest entries so
+/// a pkg can still override (e.g. set `PATH`); Phase 5 of projects-first-
+/// class threads `IKENGA_PROJECT_ID` + `IKENGA_PROJECT_ROOT` through here.
 pub async fn call_tool(
     install_path: &Path,
     server: &McpServer,
     tool: &str,
     args: Value,
+    extra_env: &HashMap<String, String>,
 ) -> Result<Value> {
     let mut cmd = Command::new(crate::runtime::resolve_command(&server.command));
     cmd.args(&server.args);
     cmd.current_dir(install_path);
+    for (k, v) in extra_env {
+        cmd.env(k, v);
+    }
     for (k, v) in &server.env {
         cmd.env(k, v);
     }
@@ -206,5 +214,3 @@ pub fn pick_server<'a>(servers: &'a [McpServer], name: &str) -> Result<&'a McpSe
         .ok_or_else(|| anyhow!("no mcp server named `{name}`"))
 }
 
-#[allow(dead_code)]
-fn _quiet_unused(_: &HashMap<String, String>) {} // keep imports tidy

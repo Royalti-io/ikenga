@@ -108,6 +108,19 @@ pub struct Session {
     /// flag — `send_user_message` snapshots this into `opts.permission_mode`
     /// before spawning.
     pub current_mode: Mutex<AcpSessionMode>,
+    /// Phase 5: per-session CLAUDE_CONFIG_DIR. When set, `spawn_streaming`
+    /// passes it to the child via env. The dir is built by
+    /// `claude::discovery::build_session_config_dir` at `handle_new_session`
+    /// time and contains symlinks to the resolved 4-tier skills / agents /
+    /// commands / hooks plus a merged `.mcp.json`. Sessions created through
+    /// non-ACP paths (legacy `commands/claude.rs`, fork, load) leave this
+    /// `None` and spawn without an overlay.
+    pub claude_config_dir: Mutex<Option<String>>,
+    /// Phase 5: per-session CLAUDE_PROJECT_DIR — the project's `root_path`
+    /// for the project this session is attached to. Used by claude skills
+    /// + commands that reference `${CLAUDE_PROJECT_DIR}` even when cwd has
+    /// been changed by an `--add-dir`.
+    pub claude_project_dir: Mutex<Option<String>>,
 }
 
 impl Session {
@@ -126,7 +139,23 @@ impl Session {
             pty_id: Mutex::new(None),
             events,
             current_mode: Mutex::new(initial_mode),
+            claude_config_dir: Mutex::new(None),
+            claude_project_dir: Mutex::new(None),
         }
+    }
+
+    /// Phase 5: set the spawn-time overlay for this session. Called from
+    /// `acp::server::handle_new_session` after resolving the project +
+    /// running discovery, before the first `spawn_streaming`. Idempotent —
+    /// re-calling overwrites, which is fine for the resume path (load /
+    /// fork) once those wire it in too.
+    pub async fn set_claude_spawn_overlay(
+        &self,
+        config_dir: Option<String>,
+        project_dir: Option<String>,
+    ) {
+        *self.claude_config_dir.lock().await = config_dir;
+        *self.claude_project_dir.lock().await = project_dir;
     }
 }
 
@@ -282,6 +311,8 @@ pub async fn spawn_streaming(
         .unwrap_or_else(|_| cwd.clone());
 
     let opts = session.opts.lock().await.clone();
+    let config_dir = session.claude_config_dir.lock().await.clone();
+    let project_dir = session.claude_project_dir.lock().await.clone();
 
     let mut command = Command::new("claude");
     command
@@ -314,6 +345,31 @@ pub async fn spawn_streaming(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
+    // Phase 5 (projects-first-class): redirect claude's user-config
+    // discovery into the session-local overlay dir built by
+    // `claude::discovery::build_session_config_dir`. The overlay contains
+    // symlinks to the resolved 4-tier skills/agents/commands plus a merged
+    // `.mcp.json` covering personal + workspace + project + project_pkg
+    // MCPs with pin resolution applied. When the overlay has MCPs we add
+    // `--mcp-config <path> --strict-mcp-config` so claude uses only the
+    // merged set and skips its own personal+project discovery (which
+    // would otherwise re-add the same servers and double-count them).
+    // CLAUDE_PROJECT_DIR is set for `${CLAUDE_PROJECT_DIR}` references in
+    // skills + commands that need the project root even when claude's own
+    // cwd has been moved by `--add-dir`.
+    if let Some(ref dir) = config_dir {
+        command.env("CLAUDE_CONFIG_DIR", dir);
+        let mcp_path = std::path::Path::new(dir).join(".mcp.json");
+        if mcp_path.exists() {
+            command
+                .arg("--mcp-config")
+                .arg(&mcp_path)
+                .arg("--strict-mcp-config");
+        }
+    }
+    if let Some(ref pd) = project_dir {
+        command.env("CLAUDE_PROJECT_DIR", pd);
+    }
     // Phase 8: forks seed `resume_session_id` with the SOURCE thread's
     // `claude_session_id` at fork time (see `acp::server::handle_fork_session`),
     // so the first prompt on a forked thread resumes against the source's

@@ -9,12 +9,17 @@
 //! NOT respawn the claude subprocess. The cwd captured at session-spawn
 //! time stays whatever it was; only the row's project_id changes.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
+use agent_client_protocol::schema::{Meta, NewSessionRequest};
 use axum::{extract::Query, http::StatusCode, Extension, Json};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use sqlx::Row;
+use tauri::{AppHandle, Manager};
 
+use crate::acp::server::AcpServerState;
 use crate::commands::db::PaDb;
 use crate::commands::projects::{get_active_project_id, get_project};
 
@@ -150,6 +155,85 @@ pub async fn post_session_move(
         ));
     }
     Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+#[derive(Deserialize)]
+pub struct StartBody {
+    pub project_id: String,
+    #[serde(default)]
+    pub initial_prompt: Option<String>,
+    /// Optional cwd override. If omitted the ACP server uses the project's
+    /// `root_path` (or $HOME as a final fallback). Almost always omitted —
+    /// the point of starting a session "in a project" is to inherit its
+    /// root.
+    #[serde(default)]
+    pub cwd: Option<String>,
+}
+
+/// Phase 5 carry-forward (`iyke_session_start_in_project` from the
+/// Phase 3 spec). Mints a thread id, validates the project, and invokes
+/// the in-process `AcpServerState::handle_new_session` — same code path
+/// the Tauri command `acp_new_session` uses, so all Phase 3+4+5 wiring
+/// (project resolution, claude config-dir overlay, env vars) applies.
+/// Returns the thread id; sending the initial prompt is the caller's job
+/// (use `acp_prompt` or the FE composer once the user navigates to
+/// `/sessions/$threadId`).
+pub async fn post_session_start(
+    Extension(db): Extension<Arc<PaDb>>,
+    Extension(app): Extension<AppHandle>,
+    Json(body): Json<StartBody>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let pool = db.ensure_pool().await.map_err(map_err)?;
+    let project = get_project(&pool, &body.project_id)
+        .await
+        .map_err(map_err)?
+        .ok_or_else(|| err(StatusCode::NOT_FOUND, format!("project not found: {}", body.project_id)))?;
+    if project.archived_at.is_some() {
+        return Err(err(
+            StatusCode::BAD_REQUEST,
+            format!("project is archived: {}", body.project_id),
+        ));
+    }
+
+    // Mint a thread id (uuid v4). The ACP server expects the caller to
+    // supply one via `_meta.threadId`; the FE's new-session composer
+    // mints them too. Use the timestamp+random formulation that
+    // `iyke::auth::random_token_hex` provides if it exists, otherwise
+    // a uuid.
+    let thread_id = uuid::Uuid::new_v4().to_string();
+
+    let cwd = body
+        .cwd
+        .clone()
+        .or_else(|| project.root_path.clone())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| std::env::var("HOME").unwrap_or_else(|_| "/".to_string()));
+
+    // Build the NewSessionRequest with _meta.projectId + _meta.threadId
+    // so the server's `resolve_project_id` + `resolve_thread_id` pick
+    // them up. mcp_servers stays empty — Phase 5's per-session overlay
+    // dir + CLAUDE_CONFIG_DIR injection takes care of the merged MCP set.
+    let meta_value = serde_json::json!({
+        "threadId": thread_id,
+        "projectId": body.project_id,
+    });
+    let meta: Option<Meta> = serde_json::from_value(meta_value).ok();
+    let mut req = NewSessionRequest::new(PathBuf::from(&cwd));
+    req.meta = meta;
+
+    let state = app.state::<AcpServerState>();
+    state
+        .handle_new_session(app.clone(), req)
+        .await
+        .map_err(map_err)?;
+
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "thread_id": thread_id,
+        "project_id": body.project_id,
+        "cwd": cwd,
+        "initial_prompt": body.initial_prompt,
+    })))
 }
 
 fn now_ms() -> i64 {

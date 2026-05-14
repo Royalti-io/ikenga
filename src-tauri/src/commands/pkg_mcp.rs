@@ -14,21 +14,52 @@
 //! errors so the iframe can render them as MCP tool errors instead of the
 //! whole bridge tearing down.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use serde::Serialize;
 use serde_json::Value;
 use tauri::State;
 
+use crate::commands::db::PaDb;
 use crate::commands::pkg::KernelState;
+use crate::commands::projects::resolve_project_env_ctx;
 use crate::pkg::manifest::Package;
 use crate::pkg::mcp_runtime;
 use crate::pkg::SidecarSupervisor;
 
 /// State wrapper for the kernel-owned sidecar supervisor. Stored alongside
 /// `KernelState` so commands can dispatch long-lived MCP calls without going
-/// through the kernel snapshot.
+/// through the kernel snapshot. Clone-friendly so the iyke bridge can
+/// layer it as an axum `Extension` (Phase 5 `iyke_mcp_list` /
+/// `iyke_mcp_restart`).
+#[derive(Clone)]
 pub struct SidecarSupervisorState(pub Arc<SidecarSupervisor>);
+
+/// Phase 5 helper: build the env overlay for an MCP child spawn. Resolves
+/// the pkg's scope from the kernel snapshot and fetches the matching
+/// project's root. Workspace-scoped pkgs (project_id=None) fall back to the
+/// active project. Returns an empty map if the lookups all miss — callers
+/// just don't inject the env (parity with pre-Phase-5 behavior).
+async fn build_pkg_env_overlay(
+    db: &Arc<PaDb>,
+    pkg_id: &str,
+    kernel: &crate::pkg::Kernel,
+) -> HashMap<String, String> {
+    let mut env = HashMap::new();
+    let pkg_project = kernel.installed_summary(pkg_id).and_then(|s| s.project_id);
+    let Ok(pool) = db.ensure_pool().await else {
+        return env;
+    };
+    let (id, root) = resolve_project_env_ctx(&pool, pkg_project.as_deref()).await;
+    if let Some(id) = id {
+        env.insert("IKENGA_PROJECT_ID".to_string(), id);
+    }
+    if let Some(root) = root {
+        env.insert("IKENGA_PROJECT_ROOT".to_string(), root);
+    }
+    env
+}
 
 #[derive(Serialize)]
 pub struct PkgMcpCallResult {
@@ -41,6 +72,7 @@ pub struct PkgMcpCallResult {
 pub async fn pkg_mcp_call(
     kernel: State<'_, KernelState>,
     supervisor: State<'_, SidecarSupervisorState>,
+    db: State<'_, Arc<PaDb>>,
     pkg_id: String,
     tool: String,
     args: Value,
@@ -93,7 +125,11 @@ pub async fn pkg_mcp_call(
     );
 
     let result = if server.is_long_lived() {
-        // Supervised path: reuse the kernel-managed long-lived child.
+        // Supervised path: reuse the kernel-managed long-lived child. The
+        // env vars for IKENGA_PROJECT_ID/ROOT were applied at spawn time
+        // by the supervisor; we don't re-inject them per call (workspace
+        // pkgs spawned under project A keep that env even when the user
+        // switches to project B — known limitation, see Phase 5 doc).
         match supervisor.0.get(&pkg_id) {
             Some(sup) => sup.call_tool(&tool, args).await,
             None => Err(anyhow::anyhow!(
@@ -102,8 +138,12 @@ pub async fn pkg_mcp_call(
             )),
         }
     } else {
-        // Per-call path: spawn-handshake-call-reap on every invocation.
-        mcp_runtime::call_tool(&install_path, server, &tool, args).await
+        // Per-call path: spawn-handshake-call-reap on every invocation. We
+        // inject IKENGA_PROJECT_ID/ROOT fresh on every call so it always
+        // reflects the *current* active project (workspace pkgs) or its
+        // own (project pkgs).
+        let extra_env = build_pkg_env_overlay(&db, &pkg_id, &kernel.0).await;
+        mcp_runtime::call_tool(&install_path, server, &tool, args, &extra_env).await
     };
 
     match result {

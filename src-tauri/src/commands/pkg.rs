@@ -17,6 +17,9 @@ use crate::pkg::registries::SettingsRegistry;
 use crate::pkg::{DiscoveredPkg, InstallSource, InstalledSummary, Kernel, KernelStatus};
 
 /// State wrapper so the kernel can be stored in Tauri state behind an Arc.
+/// Derives Clone so the same wrapper can be layered as an axum Extension
+/// in the iyke bridge (Phase 5 of projects-first-class — `iyke_mcp_list`).
+#[derive(Clone)]
 pub struct KernelState(pub Arc<Kernel>);
 
 /// Standalone handle on the settings registry so `pkg_settings_*` commands

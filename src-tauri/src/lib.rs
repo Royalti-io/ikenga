@@ -310,8 +310,10 @@ pub fn run() {
             // children for any pkg with `mcp[].lifecycle = "long-lived"`.
             // Held separately as an Arc so `pkg_mcp_call` can dispatch to it
             // without going through the kernel snapshot.
-            let sidecar_supervisor =
-                Arc::new(pkg::SidecarSupervisor::with_app(app.handle().clone()));
+            let sidecar_supervisor = Arc::new(
+                pkg::SidecarSupervisor::with_app(app.handle().clone())
+                    .with_db(pa_db.clone()),
+            );
             let pkg_content_server = pkg_content::PkgContentServer::new();
             // Bind the content server before the kernel boots so that
             // boot-replay's `register()` calls find an already-running server
