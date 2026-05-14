@@ -1691,6 +1691,13 @@ export interface ActivityPin {
 	sectionId: string | null;
 	sortOrder: number;
 	createdAt: string;
+	/** Stable artifact id from the manifest. Lookup key for
+	 *  `ikenga://artifact/<id>`. NULL on non-artifact pins and on artifact
+	 *  pins authored without an `id` field. */
+	manifestId: string | null;
+	/** ISO-8601 UTC timestamp of the most recent open. NULL until the pin is
+	 *  first opened via the resolver. */
+	lastOpenedAt: string | null;
 }
 
 export interface ActivitySection {
@@ -1713,6 +1720,10 @@ export async function activityPinsAdd(args: {
 	iconLucide?: string | null;
 	iconEmoji?: string | null;
 	sectionId?: string | null;
+	/** Stable artifact id (from `<script id="ikenga-manifest">`). Required
+	 *  for `ikenga://artifact/<id>` to resolve back to this pin; optional
+	 *  otherwise. */
+	manifestId?: string | null;
 }): Promise<ActivityPin> {
 	return invoke<ActivityPin>('activity_pins_add', {
 		kind: args.kind,
@@ -1721,6 +1732,7 @@ export async function activityPinsAdd(args: {
 		iconLucide: args.iconLucide ?? null,
 		iconEmoji: args.iconEmoji ?? null,
 		sectionId: args.sectionId ?? null,
+		manifestId: args.manifestId ?? null,
 	});
 }
 
@@ -1732,6 +1744,19 @@ export async function activityPinsRemove(id: string): Promise<void> {
  *  section-less group. The Rust side validates non-empty ids. */
 export async function activityPinsReorder(orderedIds: string[], sectionId: string): Promise<void> {
 	return invoke('activity_pins_reorder', { orderedIds, sectionId });
+}
+
+/** Look up a pinned artifact by its manifest id. Returns null when no pin
+ *  claims this id. Read-only — use `activityPinsTouchOpen` to bump recency
+ *  after the artifact actually mounts. */
+export async function activityPinsResolveArtifact(manifestId: string): Promise<ActivityPin | null> {
+	return invoke<ActivityPin | null>('activity_pins_resolve_artifact', { manifestId });
+}
+
+/** Stamp `lastOpenedAt` to "now" for a pin. Fire-and-forget after a
+ *  successful artifact open. */
+export async function activityPinsTouchOpen(pinId: string): Promise<void> {
+	return invoke('activity_pins_touch_open', { pinId });
 }
 
 export async function activitySectionsList(): Promise<ActivitySection[]> {

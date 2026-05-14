@@ -178,6 +178,11 @@ async fn ensure_schema(pool: &sqlx::SqlitePool) -> Result<(), String> {
             "0018_pkg_trust_versioning",
             include_str!("../../migrations/0018_pkg_trust_versioning.sql"),
         ),
+        (
+            19,
+            "0019_artifact_pin_metadata",
+            include_str!("../../migrations/0019_artifact_pin_metadata.sql"),
+        ),
     ];
 
     for (id, name, sql) in migrations {

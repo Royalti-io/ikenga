@@ -56,7 +56,12 @@ export function parsePaneAddress(input: string): PaneView | null {
 	if (raw.startsWith('ikenga://artifact/')) {
 		const rest = raw.slice('ikenga://artifact/'.length);
 		if (!rest) return null;
-		return { kind: 'artifact', path: rest };
+		// Keep the literal `ikenga://artifact/<id>` in the path. The URI is a
+		// pinned-artifact lookup key, not a filesystem path; an async resolver
+		// (`resolveArtifactAddress` in `./pane-address-resolver`) swaps it for
+		// the on-disk path before the artifact pane mounts. Stripping here
+		// would lose the scheme and we'd try to open a file at "<id>".
+		return { kind: 'artifact', path: raw };
 	}
 
 	// Reject other unknown schemes outright — `foo://bar`, `mailto:...`, etc.

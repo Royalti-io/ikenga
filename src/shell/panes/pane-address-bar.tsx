@@ -13,6 +13,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { cn } from '@/components/ui/utils';
 import { Input } from '@/components/ui/input';
 import { getPaneAddress, parsePaneAddress } from '@/lib/panes/pane-address';
+import { resolveArtifactAddress } from '@/lib/panes/pane-address-resolver';
 import type { PaneId, PaneView } from '@/lib/panes/types';
 import { usePaneHistory } from '@/lib/panes/use-pane-history';
 
@@ -45,19 +46,29 @@ export function PaneAddressBar({ paneId, view }: PaneAddressBarProps) {
 		window.setTimeout(() => setInvalid(false), INVALID_FLASH_MS);
 	}, []);
 
-	const submit = useCallback(() => {
-		const next = parsePaneAddress(draft);
-		if (!next) {
+	const submit = useCallback(async () => {
+		const parsed = parsePaneAddress(draft);
+		if (!parsed) {
 			flashInvalid();
+			return;
+		}
+		// `ikenga://artifact/<id>` keeps the literal URI in `path` after
+		// parsing — resolve to the on-disk path before navigating. Other
+		// address shapes pass through unchanged.
+		const { view: resolved, resolved: needed } = await resolveArtifactAddress(parsed);
+		if (!resolved) {
+			// Resolver only returns null when it actually tried (an `ikenga://`
+			// id with no matching pin). Treat that the same as a parse fail.
+			if (needed) flashInvalid();
 			return;
 		}
 		// No-op if it matches the current address exactly (avoid cluttering
 		// history when the user just hits Enter on what's already loaded).
-		if (getPaneAddress(next) === address) {
+		if (getPaneAddress(resolved) === address) {
 			bumpKey();
 			return;
 		}
-		replace(next);
+		replace(resolved);
 	}, [draft, address, replace, bumpKey, flashInvalid]);
 
 	return (

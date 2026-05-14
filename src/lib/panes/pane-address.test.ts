@@ -55,10 +55,13 @@ describe('parsePaneAddress', () => {
 		});
 	});
 
-	it('parses ikenga://artifact/<id> as artifact with the suffix', () => {
+	it('keeps the literal ikenga://artifact/<id> URI for the async resolver', () => {
+		// The parser is sync; rewriting to a real on-disk path needs a Tauri
+		// round-trip and lives in pane-address-resolver.ts. Keep the URI here
+		// so the resolver can detect it downstream.
 		expect(parsePaneAddress('ikenga://artifact/abc-123')).toEqual({
 			kind: 'artifact',
-			path: 'abc-123',
+			path: 'ikenga://artifact/abc-123',
 		});
 	});
 
