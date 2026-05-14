@@ -47,6 +47,7 @@ pub use claude::{
     session_tool_result,
 };
 pub use claude_config::{
+    claude_asset_list_pins, claude_asset_pin, claude_asset_unpin, claude_assets_discover,
     claude_config_load, claude_config_read_file, claude_config_unwatch, claude_config_watch,
 };
 pub use db::{db_exec, db_query};

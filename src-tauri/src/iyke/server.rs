@@ -31,6 +31,9 @@ use super::browser_sessions::{
     get_browser_session_list, post_browser_session_create, post_browser_session_delete,
     post_browser_session_resolve,
 };
+use super::claude::{
+    get_claude_asset_pins, get_claude_assets_list, post_claude_asset_pin, post_claude_asset_unpin,
+};
 use crate::commands::db::PaDb;
 use super::handlers::{
     get_dom, get_iframe_state, get_logs, get_network, get_pkg_list, get_query_cache, get_state,
@@ -147,6 +150,11 @@ pub async fn serve(
         // Chat sessions (Phase 3 of projects-first-class plan).
         .route("/iyke/session/list", get(get_session_list))
         .route("/iyke/session/move", post(post_session_move))
+        // Claude config (Phase 4 — 4-tier discovery + pins).
+        .route("/iyke/claude/assets", get(get_claude_assets_list))
+        .route("/iyke/claude/asset/pin", post(post_claude_asset_pin))
+        .route("/iyke/claude/asset/unpin", post(post_claude_asset_unpin))
+        .route("/iyke/claude/asset/pins", get(get_claude_asset_pins))
         // Memory primitives (Phase 1 — DESIGN.md §4-6).
         .route("/iyke/scratchpad/write", post(post_scratchpad_write))
         .route("/iyke/scratchpad/append", post(post_scratchpad_append))

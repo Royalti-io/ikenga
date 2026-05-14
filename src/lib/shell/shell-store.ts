@@ -204,6 +204,12 @@ interface ShellState {
 	claudeWatchEnabled: boolean;
 	setClaudeWatchEnabled: (enabled: boolean) => void;
 
+	/** Which Claude config browser surface is active. 'layered' uses the
+	 * 4-tier discovery (Phase 4); 'roots' is the legacy 2-tier scan kept
+	 * around as a fallback. UI-only preference, persisted via Zustand. */
+	claudeBrowserMode: 'layered' | 'roots';
+	setClaudeBrowserMode: (mode: 'layered' | 'roots') => void;
+
 	// ─── Onboarding ──────────────────────────────────────────────────────
 	onboarding: OnboardingState;
 	/** Mark the wizard as having started (sets `startedAt` if not already set,
@@ -445,6 +451,11 @@ export const useShellStore = create<ShellState>()(
 			setClaudeWatchEnabled: (claudeWatchEnabled) => {
 				set({ claudeWatchEnabled });
 				kvSet(KV_CLAUDE_WATCH, claudeWatchEnabled);
+			},
+
+			claudeBrowserMode: 'layered',
+			setClaudeBrowserMode: (claudeBrowserMode) => {
+				set({ claudeBrowserMode });
 			},
 
 			// ─── Onboarding actions ────────────────────────────────────────

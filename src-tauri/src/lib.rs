@@ -30,6 +30,7 @@ use commands::{
     activity_sections_create, activity_sections_list, activity_sections_remove,
     activity_sections_update,
     backup_delete, backup_export, backup_import, backup_list,
+    claude_asset_list_pins, claude_asset_pin, claude_asset_unpin, claude_assets_discover,
     claude_config_load, claude_config_read_file, claude_config_unwatch, claude_config_watch,
     chat_thread_move, chat_threads_list_by_project,
     claude_list_sessions, claude_read_jsonl, db_exec, db_query, fs_exists,
@@ -545,6 +546,11 @@ pub fn run() {
             claude_config_watch,
             claude_config_unwatch,
             claude_config_read_file,
+            // claude config — Phase 4 (4-tier discovery + pin CRUD)
+            claude_assets_discover,
+            claude_asset_pin,
+            claude_asset_unpin,
+            claude_asset_list_pins,
             // viewer
             viewer_serve,
             viewer_stop,

@@ -17,6 +17,7 @@
 //! `-Users-jane-work`. We keep the inverse for display.
 
 pub mod artifact_watcher;
+pub mod discovery;
 pub mod event;
 pub mod jsonl_reader;
 pub mod session;

@@ -657,7 +657,7 @@ fn command_from_md(e: MdEntry) -> CommandEntry {
 
 // ─── Hook parsing ───────────────────────────────────────────────────────────
 
-fn parse_hooks_file(path: &Path, scope: Scope, project_root: Option<&str>) -> Result<Vec<HookEntry>> {
+pub(crate) fn parse_hooks_file(path: &Path, scope: Scope, project_root: Option<&str>) -> Result<Vec<HookEntry>> {
     let raw = std::fs::read_to_string(path).context("read settings file")?;
     let json: serde_json::Value = serde_json::from_str(&raw).context("parse settings json")?;
     let hooks_obj = match json.get("hooks") {
@@ -748,7 +748,7 @@ fn resolve_command_path(raw: &str, project_root: Option<&str>) -> Option<PathBuf
 // ─── MCP parsing ────────────────────────────────────────────────────────────
 
 /// Parse a standalone `mcp.json` file (top level is `{ mcpServers: { ... } }`).
-fn parse_mcp_file(path: &Path, scope: Scope, project_root: Option<&str>) -> Result<Vec<McpEntry>> {
+pub(crate) fn parse_mcp_file(path: &Path, scope: Scope, project_root: Option<&str>) -> Result<Vec<McpEntry>> {
     let raw = std::fs::read_to_string(path).context("read mcp file")?;
     let json: serde_json::Value = serde_json::from_str(&raw).context("parse mcp json")?;
     let servers = json.get("mcpServers").or_else(|| json.get("servers"));
@@ -761,7 +761,7 @@ fn parse_mcp_file(path: &Path, scope: Scope, project_root: Option<&str>) -> Resu
 /// Parse `mcpServers` if it appears inside an arbitrary settings JSON file
 /// (settings.local.json, settings.json, ~/.claude.json — anywhere it shows up
 /// at the top level).
-fn parse_mcp_from_settings(
+pub(crate) fn parse_mcp_from_settings(
     path: &Path,
     scope: Scope,
     project_root: Option<&str>,
@@ -840,7 +840,7 @@ fn extract_mcp_servers(
 
 // ─── Markdown / frontmatter parsing ─────────────────────────────────────────
 
-fn parse_md(path: &Path) -> Result<(serde_json::Value, String)> {
+pub(crate) fn parse_md(path: &Path) -> Result<(serde_json::Value, String)> {
     let raw = std::fs::read_to_string(path).context("read md")?;
     Ok(split_frontmatter(&raw))
 }
@@ -1012,6 +1012,188 @@ fn is_under_claude_dir(p: &Path) -> bool {
     })
 }
 
+// ─── Phase 4 — 4-tier discovery + pin CRUD (new surface) ────────────────────
+//
+// These commands sit alongside the legacy `claude_config_*` ones. The FE
+// migrates incrementally — old `/claude` route keeps the legacy ones; new
+// "Claude Config Browser" UI consumes the layered tree.
+
+use crate::claude::discovery::{self, AssetPin, AssetTree};
+use crate::commands::db::PaDb;
+use crate::commands::projects::get_active_project_id;
+
+fn validate_pin_scope(scope: &str) -> Result<(), String> {
+    if scope == "workspace" {
+        return Ok(());
+    }
+    if let Some(id) = scope.strip_prefix("project:") {
+        if id.is_empty() || id.len() > 64 {
+            return Err(format!("invalid project id length in scope {scope:?}"));
+        }
+        let mut chars = id.chars();
+        let first = chars.next().unwrap();
+        if !(first.is_ascii_lowercase() || first.is_ascii_digit()) {
+            return Err(format!("invalid project id in scope {scope:?}"));
+        }
+        for c in chars {
+            if !(c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-') {
+                return Err(format!("invalid project id in scope {scope:?}"));
+            }
+        }
+        return Ok(());
+    }
+    Err(format!(
+        "scope must be 'workspace' or 'project:<id>', got {scope:?}"
+    ))
+}
+
+fn validate_pin_tier(tier: &str) -> Result<(), String> {
+    match tier {
+        "personal" | "workspace_pkg" | "project" | "project_pkg" => Ok(()),
+        _ => Err(format!(
+            "preferred_tier must be one of personal|workspace_pkg|project|project_pkg, got {tier:?}"
+        )),
+    }
+}
+
+fn validate_pin_kind(kind: &str) -> Result<(), String> {
+    match kind {
+        "skill" | "agent" | "command" | "hook" | "mcp" => Ok(()),
+        _ => Err(format!(
+            "asset_kind must be one of skill|agent|command|hook|mcp, got {kind:?}"
+        )),
+    }
+}
+
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+/// Run the 4-tier layered discovery.
+///
+/// `projectId` defaults to the currently-active project. The returned
+/// `AssetTree` lists *all* sources for each asset name; consumers apply
+/// `resolve_preferred` (or the equivalent FE helper) to pick the active one.
+#[tauri::command]
+#[allow(non_snake_case)]
+pub async fn claude_assets_discover(
+    app: AppHandle,
+    db: State<'_, Arc<PaDb>>,
+    projectId: Option<String>,
+) -> Result<AssetTree, String> {
+    let pool = db.ensure_pool().await?;
+    let active = match projectId {
+        Some(id) => id,
+        None => get_active_project_id(&pool).await?,
+    };
+    discovery::discover(&active, &pool, &app).await
+}
+
+/// Insert / update a pin row. `preferredSource` is nullable for the personal
+/// tier (there's only one personal source); for pkg tiers callers should pass
+/// the pkg id so the pin can disambiguate between multiple pkgs declaring the
+/// same asset name.
+#[tauri::command]
+#[allow(non_snake_case)]
+pub async fn claude_asset_pin(
+    db: State<'_, Arc<PaDb>>,
+    scope: String,
+    assetKind: String,
+    assetName: String,
+    preferredTier: String,
+    preferredSource: Option<String>,
+) -> Result<(), String> {
+    validate_pin_scope(&scope)?;
+    validate_pin_kind(&assetKind)?;
+    validate_pin_tier(&preferredTier)?;
+    if assetName.is_empty() || assetName.len() > 256 {
+        return Err(format!(
+            "invalid asset_name length: {} (1..=256)",
+            assetName.len()
+        ));
+    }
+    let pool = db.ensure_pool().await?;
+    sqlx::query(
+        "INSERT INTO claude_asset_preferences
+            (scope, asset_kind, asset_name, preferred_tier, preferred_source, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(scope, asset_kind, asset_name) DO UPDATE SET
+            preferred_tier   = excluded.preferred_tier,
+            preferred_source = excluded.preferred_source,
+            updated_at       = excluded.updated_at",
+    )
+    .bind(&scope)
+    .bind(&assetKind)
+    .bind(&assetName)
+    .bind(&preferredTier)
+    .bind(&preferredSource)
+    .bind(now_ms())
+    .execute(&pool)
+    .await
+    .map_err(|e| format!("upsert pin: {e}"))?;
+    Ok(())
+}
+
+#[tauri::command]
+#[allow(non_snake_case)]
+pub async fn claude_asset_unpin(
+    db: State<'_, Arc<PaDb>>,
+    scope: String,
+    assetKind: String,
+    assetName: String,
+) -> Result<(), String> {
+    validate_pin_scope(&scope)?;
+    validate_pin_kind(&assetKind)?;
+    let pool = db.ensure_pool().await?;
+    sqlx::query(
+        "DELETE FROM claude_asset_preferences
+         WHERE scope = ? AND asset_kind = ? AND asset_name = ?",
+    )
+    .bind(&scope)
+    .bind(&assetKind)
+    .bind(&assetName)
+    .execute(&pool)
+    .await
+    .map_err(|e| format!("delete pin: {e}"))?;
+    Ok(())
+}
+
+#[tauri::command]
+#[allow(non_snake_case)]
+pub async fn claude_asset_list_pins(
+    db: State<'_, Arc<PaDb>>,
+    scope: String,
+) -> Result<Vec<AssetPin>, String> {
+    validate_pin_scope(&scope)?;
+    let pool = db.ensure_pool().await?;
+    use sqlx::Row;
+    let rows = sqlx::query(
+        "SELECT scope, asset_kind, asset_name, preferred_tier, preferred_source, updated_at
+         FROM claude_asset_preferences
+         WHERE scope = ?
+         ORDER BY asset_kind, asset_name",
+    )
+    .bind(&scope)
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| format!("list pins: {e}"))?;
+    let out = rows
+        .into_iter()
+        .map(|r| AssetPin {
+            scope: r.get("scope"),
+            asset_kind: r.get("asset_kind"),
+            asset_name: r.get("asset_name"),
+            preferred_tier: r.get("preferred_tier"),
+            preferred_source: r.get("preferred_source"),
+            updated_at: r.get("updated_at"),
+        })
+        .collect();
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1047,5 +1229,34 @@ mod tests {
         assert!(is_under_claude_dir(Path::new("/x/y/.claude/agents/a.md")));
         assert!(is_under_claude_dir(Path::new("/home/u/.claude/settings.json")));
         assert!(!is_under_claude_dir(Path::new("/x/y/agents/a.md")));
+    }
+
+    #[test]
+    fn pin_scope_validation() {
+        assert!(validate_pin_scope("workspace").is_ok());
+        assert!(validate_pin_scope("project:music-2026").is_ok());
+        assert!(validate_pin_scope("project:default").is_ok());
+        assert!(validate_pin_scope("personal").is_err());
+        assert!(validate_pin_scope("project:").is_err());
+        assert!(validate_pin_scope("project:BadCase").is_err());
+        assert!(validate_pin_scope("workspace:x").is_err());
+    }
+
+    #[test]
+    fn pin_tier_validation() {
+        for t in &["personal", "workspace_pkg", "project", "project_pkg"] {
+            assert!(validate_pin_tier(t).is_ok());
+        }
+        assert!(validate_pin_tier("workspace").is_err());
+        assert!(validate_pin_tier("Personal").is_err());
+    }
+
+    #[test]
+    fn pin_kind_validation() {
+        for k in &["skill", "agent", "command", "hook", "mcp"] {
+            assert!(validate_pin_kind(k).is_ok());
+        }
+        assert!(validate_pin_kind("Skill").is_err());
+        assert!(validate_pin_kind("hooks").is_err());
     }
 }

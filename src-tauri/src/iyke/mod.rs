@@ -15,6 +15,7 @@ pub mod auth;
 pub mod browser_handlers;
 pub mod browser_rpc;
 pub mod browser_sessions;
+pub mod claude;
 pub mod handlers;
 pub mod memory;
 pub mod pkg_dispatch;

@@ -1030,6 +1030,83 @@ export async function claudeConfigListen(
 	};
 }
 
+// ─── Claude config — 4-tier layered discovery (Phase 4) ──────────────────────
+//
+// New surface for the Claude Config Browser UI. Returns *all* sources for each
+// asset name (skill / agent / command / hook / mcp) across the four tiers so
+// the UI can render conflicts and let the user pin a preferred provider.
+//
+// The legacy `claudeConfigLoad` helpers above stay around for the existing
+// `/claude` route until that page migrates.
+
+export type ClaudeAssetTier = 'personal' | 'workspace_pkg' | 'project' | 'project_pkg';
+
+export type ClaudeAssetKind = 'skill' | 'agent' | 'command' | 'hook' | 'mcp';
+
+export interface ClaudeAssetSource {
+	tier: ClaudeAssetTier;
+	/** pkg id, "personal", or "project:<id>". */
+	provider: string;
+	path: string;
+	name: string;
+	kind: ClaudeAssetKind;
+}
+
+export interface ClaudeAssetTree {
+	skills: Record<string, ClaudeAssetSource[]>;
+	agents: Record<string, ClaudeAssetSource[]>;
+	commands: Record<string, ClaudeAssetSource[]>;
+	hooks: Record<string, ClaudeAssetSource[]>;
+	mcps: Record<string, ClaudeAssetSource[]>;
+}
+
+export interface ClaudeAssetPin {
+	scope: string;
+	asset_kind: ClaudeAssetKind;
+	asset_name: string;
+	preferred_tier: ClaudeAssetTier;
+	preferred_source: string | null;
+	updated_at: number;
+}
+
+/** Run the 4-tier discovery for `projectId` (defaults to the active project). */
+export async function claudeAssetsDiscover(
+	projectId?: string | null
+): Promise<ClaudeAssetTree> {
+	return invoke<ClaudeAssetTree>('claude_assets_discover', {
+		projectId: projectId ?? null,
+	});
+}
+
+/** Pin an asset name to a tier (optionally a specific pkg-id provider). */
+export async function claudeAssetPin(
+	scope: string,
+	assetKind: ClaudeAssetKind,
+	assetName: string,
+	preferredTier: ClaudeAssetTier,
+	preferredSource?: string | null
+): Promise<void> {
+	return invoke('claude_asset_pin', {
+		scope,
+		assetKind,
+		assetName,
+		preferredTier,
+		preferredSource: preferredSource ?? null,
+	});
+}
+
+export async function claudeAssetUnpin(
+	scope: string,
+	assetKind: ClaudeAssetKind,
+	assetName: string
+): Promise<void> {
+	return invoke('claude_asset_unpin', { scope, assetKind, assetName });
+}
+
+export async function claudeAssetListPins(scope: string): Promise<ClaudeAssetPin[]> {
+	return invoke<ClaudeAssetPin[]>('claude_asset_list_pins', { scope });
+}
+
 // ─── Iyke (phase 11 — Day 1: read-side state + shell mirror push) ─────────────
 
 export interface IykeEndpoint {

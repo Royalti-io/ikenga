@@ -6,7 +6,8 @@
 
 import { useEffect, useState } from 'react';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
-import { FolderOpen, FolderPlus, RotateCcw, Trash2 } from 'lucide-react';
+import { FolderOpen, FolderPlus, Info, RotateCcw, Trash2 } from 'lucide-react';
+import { Link } from '@tanstack/react-router';
 
 import { Button } from '@/components/ui/button';
 import { cn } from '@/components/ui/utils';
@@ -29,6 +30,23 @@ export function ClaudeProjectRootsSectionBody() {
 
 	return (
 		<div className="space-y-3 px-4 py-3">
+			<div className="flex items-start gap-2 rounded-md border-l-4 border-l-amber-400/70 bg-muted/50 px-3 py-2 text-xs">
+				<Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" />
+				<div>
+					<div className="font-medium text-foreground">Heads up.</div>
+					<p className="text-muted-foreground">
+						Project roots have been replaced by Projects (
+						<Link
+							to="/settings/projects"
+							className="underline decoration-dotted underline-offset-2 hover:text-foreground"
+						>
+							Settings → Projects
+						</Link>
+						). Roots are auto-migrated to projects on first launch; this list is read-only and will be
+						removed in a future release.
+					</p>
+				</div>
+			</div>
 			<p className="text-xs text-muted-foreground">
 				Project roots scanned by the <code>/claude</code> config browser. Each root should contain a{' '}
 				<code>.claude/</code> dir with agents/skills/commands. Personal <code>~/.claude/</code> is

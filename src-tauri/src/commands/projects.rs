@@ -313,6 +313,180 @@ pub async fn get_active_project_id(pool: &SqlitePool) -> Result<String, String> 
     Ok(row.map(|(v,)| v).unwrap_or_else(|| DEFAULT_PROJECT_ID.to_string()))
 }
 
+// ─── One-time migration: claudeProjectRoots → projects ────────────────────
+//
+// Pre-Phase-0-of-projects-first-class, the /claude config browser tracked a
+// flat `claudeProjectRoots: string[]` in shell-store (mirrored to
+// `settings_kv["claude.projectRoots"]` as a JSON array — see
+// `src/lib/shell/shell-store.ts`, `KV_CLAUDE_ROOTS`). Phase 4 promotes those
+// roots to first-class `projects` rows so the layered discovery has
+// somewhere durable to look up tier-3 file roots.
+//
+// The migration is one-shot, gated on `settings_kv["migrations.claude_roots_to_projects.v1"]`.
+// It reads `settings_kv["claude.projectRoots"]` as a JSON array, slugifies
+// each entry's basename, and `create_project`s any root that doesn't already
+// have a matching project. Errors are logged, not propagated — the boot path
+// should never fail because of this.
+
+const CLAUDE_ROOTS_KEY: &str = "claude.projectRoots";
+const ROOTS_MIGRATION_KEY: &str = "migrations.claude_roots_to_projects.v1";
+
+/// One-time migration to populate `projects` from the FE-store `claudeProjectRoots`.
+/// Idempotent — gated on `settings_kv[ROOTS_MIGRATION_KEY] = "done"`.
+///
+/// Best-effort: any error short-circuits the helper and is returned to the
+/// caller; `bootstrap_default_project`'s call site logs and ignores it so a
+/// stray bad row never blocks boot.
+pub async fn claude_roots_to_projects_migration_v1(pool: &SqlitePool) -> Result<(), String> {
+    // Gate.
+    let already: Option<(String,)> = sqlx::query_as("SELECT value FROM settings_kv WHERE key = ?")
+        .bind(ROOTS_MIGRATION_KEY)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| format!("read migration gate: {e}"))?;
+    if matches!(already, Some((ref v,)) if v == "done") {
+        return Ok(());
+    }
+
+    // Read roots blob. May be absent (fresh install) — that's fine, mark done.
+    let roots_row: Option<(String,)> = sqlx::query_as("SELECT value FROM settings_kv WHERE key = ?")
+        .bind(CLAUDE_ROOTS_KEY)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| format!("read claude roots: {e}"))?;
+    let roots: Vec<String> = match roots_row {
+        Some((blob,)) => serde_json::from_str(&blob)
+            .map_err(|e| format!("parse claude.projectRoots blob: {e}"))?,
+        None => Vec::new(),
+    };
+
+    // For each root, dedupe by matching root_path on existing projects.
+    let existing_paths: Vec<(String, Option<String>)> =
+        sqlx::query_as("SELECT id, root_path FROM projects")
+            .fetch_all(pool)
+            .await
+            .map_err(|e| format!("list existing projects: {e}"))?;
+    let existing_set: std::collections::HashSet<String> = existing_paths
+        .iter()
+        .filter_map(|(_, p)| p.clone())
+        .collect();
+    let used_ids: std::collections::HashSet<String> =
+        existing_paths.iter().map(|(id, _)| id.clone()).collect();
+
+    let now = now_ms();
+    let mut next_pos: i64 =
+        sqlx::query_scalar("SELECT COALESCE(MAX(position), -1) + 1 FROM projects")
+            .fetch_one(pool)
+            .await
+            .map_err(|e| format!("next position: {e}"))?;
+
+    let mut taken: std::collections::HashSet<String> = used_ids;
+    for raw in roots {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if existing_set.contains(trimmed) {
+            continue;
+        }
+        // Slug = slugified basename. Falls back to "project-N" if empty.
+        let basename = std::path::Path::new(trimmed)
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or(trimmed);
+        let mut slug = slugify(basename);
+        if slug.is_empty() {
+            slug = format!("project-{next_pos}");
+        }
+        // Append a numeric suffix if collision.
+        let mut candidate = slug.clone();
+        let mut n = 1;
+        while taken.contains(&candidate) {
+            n += 1;
+            candidate = format!("{slug}-{n}");
+        }
+        let display = basename.to_string();
+        let display = if display.chars().count() > 120 {
+            display.chars().take(120).collect()
+        } else {
+            display
+        };
+
+        let res = sqlx::query(
+            "INSERT INTO projects
+                (id, display_name, root_path, icon, color, description, position, is_default, created_at)
+             VALUES (?, ?, ?, NULL, NULL, NULL, ?, 0, ?)",
+        )
+        .bind(&candidate)
+        .bind(&display)
+        .bind(trimmed)
+        .bind(next_pos)
+        .bind(now)
+        .execute(pool)
+        .await;
+        match res {
+            Ok(_) => {
+                log::info!(
+                    "[claude-roots-migration] created project {candidate:?} for root {trimmed:?}"
+                );
+                taken.insert(candidate);
+                next_pos += 1;
+            }
+            Err(e) => {
+                // Don't propagate — one bad row mustn't block the migration.
+                log::warn!(
+                    "[claude-roots-migration] skip {trimmed:?}: insert failed: {e}"
+                );
+            }
+        }
+    }
+
+    sqlx::query(
+        "INSERT INTO settings_kv (key, value, updated_at) VALUES (?, ?, ?)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+    )
+    .bind(ROOTS_MIGRATION_KEY)
+    .bind("done")
+    .bind(now)
+    .execute(pool)
+    .await
+    .map_err(|e| format!("mark migration done: {e}"))?;
+    Ok(())
+}
+
+fn slugify(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut prev_dash = false;
+    for c in input.chars() {
+        let ch = c.to_ascii_lowercase();
+        if ch.is_ascii_lowercase() || ch.is_ascii_digit() {
+            out.push(ch);
+            prev_dash = false;
+        } else if ch == '_' || ch == '-' {
+            out.push(ch);
+            prev_dash = false;
+        } else if ch.is_whitespace() || ch == '/' || ch == '.' {
+            if !prev_dash {
+                out.push('-');
+                prev_dash = true;
+            }
+        } else {
+            // Drop other punctuation.
+        }
+    }
+    // Trim leading non-alphanumeric characters so the slug satisfies the
+    // `^[a-z0-9]` rule enforced by `validate_slug`.
+    let trimmed = out
+        .trim_start_matches(|c: char| !(c.is_ascii_lowercase() || c.is_ascii_digit()))
+        .trim_end_matches('-')
+        .to_string();
+    if trimmed.len() > 64 {
+        trimmed.chars().take(64).collect()
+    } else {
+        trimmed
+    }
+}
+
 pub async fn set_active_project_id(pool: &SqlitePool, id: &str) -> Result<(), String> {
     // Validate the project exists and isn't archived.
     let p = get_project(pool, id)

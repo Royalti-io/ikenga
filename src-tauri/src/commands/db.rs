@@ -168,6 +168,11 @@ async fn ensure_schema(pool: &sqlx::SqlitePool) -> Result<(), String> {
             "0016_iyke_memory",
             include_str!("../../migrations/0016_iyke_memory.sql"),
         ),
+        (
+            17,
+            "0017_claude_asset_preferences",
+            include_str!("../../migrations/0017_claude_asset_preferences.sql"),
+        ),
     ];
 
     for (id, name, sql) in migrations {
@@ -228,6 +233,15 @@ async fn bootstrap_default_project(pool: &sqlx::SqlitePool) -> Result<(), String
             .execute(pool)
             .await
             .map_err(|e| format!("backfill {table}.project_id: {e}"))?;
+    }
+
+    // Phase 4: promote any legacy `claudeProjectRoots` entries to first-class
+    // `projects` rows. Idempotent (settings_kv-gated). Errors are logged but
+    // never block boot — a bad row shouldn't lock the user out.
+    if let Err(e) =
+        crate::commands::projects::claude_roots_to_projects_migration_v1(pool).await
+    {
+        log::warn!("[claude-roots-migration] failed: {e}");
     }
 
     Ok(())

@@ -22,6 +22,7 @@ import { buildClaudeWrappedCmd } from '@/terminal/claude-wrap';
 import { usePaneStore } from '@/lib/panes/pane-store';
 import { NewSessionDialog } from '@/shell/sessions/new-session-dialog';
 import { cn } from '@/components/ui/utils';
+import { LayeredView } from '@/shell/claude-config/layered-view';
 import type { ClaudeCommand } from '@/lib/tauri-cmd';
 
 import '@/shell/claude-config/claude-config.css';
@@ -41,6 +42,8 @@ export const Route = createFileRoute('/claude')({
 function ClaudeLayout() {
 	const projectRoots = useShellStore((s) => s.claudeProjectRoots);
 	const watchEnabled = useShellStore((s) => s.claudeWatchEnabled);
+	const browserMode = useShellStore((s) => s.claudeBrowserMode);
+	const setBrowserMode = useShellStore((s) => s.setClaudeBrowserMode);
 
 	const query = useQuery(claudeConfigQueryOptions(projectRoots));
 	useClaudeConfigWatch(projectRoots, watchEnabled);
@@ -100,17 +103,22 @@ function ClaudeLayout() {
 
 	return (
 		<div className="flex h-full flex-col p-3">
-			<div className="ccfg flex-1 min-h-0">
+			<div className="ccfg flex-1 min-h-0 flex flex-col">
 				<Header
 					counts={counts}
 					onReload={() => router.invalidate({ filter: (m) => m.routeId.startsWith('/claude') })}
 					onOpenDir={handleOpenClaudeDir}
 				/>
-				<Tabs path={path} counts={counts} />
-				<div className="min-h-0">
-					<Ctx.Provider value={ctx}>
-						<Outlet />
-					</Ctx.Provider>
+				<ModeToggle mode={browserMode} onChange={setBrowserMode} />
+				{browserMode === 'roots' && <Tabs path={path} counts={counts} />}
+				<div className="min-h-0 flex-1">
+					{browserMode === 'layered' ? (
+						<LayeredView />
+					) : (
+						<Ctx.Provider value={ctx}>
+							<Outlet />
+						</Ctx.Provider>
+					)}
 				</div>
 			</div>
 			<NewSessionDialog
@@ -119,6 +127,45 @@ function ClaudeLayout() {
 				defaultProjects={projectRoots}
 				presetPrompt={presetPrompt}
 			/>
+		</div>
+	);
+}
+
+function ModeToggle({
+	mode,
+	onChange,
+}: {
+	mode: 'layered' | 'roots';
+	onChange: (m: 'layered' | 'roots') => void;
+}) {
+	return (
+		<div className="flex items-center gap-1 border-b border-[var(--border-soft)] bg-[var(--bg-surface)] px-4 py-1.5">
+			<div
+				className="mr-2 text-[10px] uppercase tracking-wide"
+				style={{ color: 'var(--fg-faint)' }}
+			>
+				View
+			</div>
+			{(
+				[
+					{ id: 'layered' as const, label: 'Layered' },
+					{ id: 'roots' as const, label: 'Project Roots' },
+				]
+			).map((opt) => (
+				<button
+					key={opt.id}
+					type="button"
+					onClick={() => onChange(opt.id)}
+					className={cn(
+						'rounded-[4px] border px-2 py-0.5 text-[11px]',
+						mode === opt.id
+							? 'border-[var(--border)] bg-[var(--bg-raised)] text-[var(--fg)]'
+							: 'border-transparent text-[var(--fg-muted)] hover:bg-[var(--bg-raised)]'
+					)}
+				>
+					{opt.label}
+				</button>
+			))}
 		</div>
 	);
 }

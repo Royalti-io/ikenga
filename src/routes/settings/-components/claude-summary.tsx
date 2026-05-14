@@ -7,7 +7,7 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { ExternalLink, FolderTree } from 'lucide-react';
+import { ExternalLink, FolderTree, Layers } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { claudeConfigQueryOptions } from '@/lib/queries/claude-config';
@@ -45,6 +45,16 @@ export function ClaudeSummarySectionBody() {
 						Settings → Storage
 					</Link>
 					.
+				</p>
+				<p className="text-xs text-muted-foreground">
+					<Link
+						to="/claude"
+						className="inline-flex items-center gap-1 underline decoration-dotted underline-offset-2 hover:text-foreground"
+					>
+						<Layers className="h-3 w-3" />
+						Layered View
+					</Link>
+					{' '}— pkg-aware 4-tier discovery with conflict surfacing and pin controls.
 				</p>
 			</div>
 			<Button asChild variant="outline" size="sm">
