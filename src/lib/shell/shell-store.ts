@@ -5,6 +5,10 @@ import {
 	fsRootsList,
 	fsRootsRemove,
 	fsRootsReset,
+	type Project,
+	projectGetActive,
+	projectList,
+	projectSetActive,
 	settingsGetAll,
 	settingsSet,
 } from '@/lib/tauri-cmd';
@@ -225,6 +229,21 @@ interface ShellState {
 	 * boot from `main.tsx`; safe to call multiple times. Rejects silently
 	 * in non-Tauri test environments. */
 	hydrateSettingsFromRust: () => Promise<void>;
+
+	// ─── Projects (Phase 0 — first-class) ─────────────────────────────────
+	// The Rust side owns the durable list (migration 0015) and the active
+	// project id (settings_kv `shell.activeProjectId`). Persistence is not
+	// duplicated in Zustand — these fields live in memory only, hydrated
+	// at boot from `refreshProjects`.
+	projects: Project[];
+	activeProjectId: string;
+	/** Switch the active project. Updates Rust side first, then refreshes
+	 *  the local list. The Rust emit of `projects.active-changed` is what
+	 *  drives TanStack invalidation in the workspace-level listener. */
+	setActiveProject: (id: string) => Promise<void>;
+	/** Pull the project list + active project id from Rust. Safe to call
+	 *  multiple times; rejects silently in non-Tauri test environments. */
+	refreshProjects: () => Promise<void>;
 }
 
 function clampActiveIndex(idx: number): number {
@@ -541,6 +560,41 @@ export const useShellStore = create<ShellState>()(
 				})),
 
 			resetOnboarding: () => set({ onboarding: createDefaultOnboardingState() }),
+
+			// ─── Projects ─────────────────────────────────────────────────
+			// Boot value is the bootstrap default — Rust always seeds a
+			// `default` row in migration 0015, and the active id is the
+			// same until the user picks something else. `refreshProjects`
+			// at boot replaces both fields with the authoritative copy.
+			projects: [],
+			activeProjectId: 'default',
+			setActiveProject: async (id: string) => {
+				// Optimistic local update so the activity-bar indicator and
+				// any indicator-derived UI flip instantly. Rust emits the
+				// `projects.active-changed` event which the workspace-level
+				// listener uses to invalidate project-scoped queries.
+				const prev = get().activeProjectId;
+				if (prev === id) return;
+				set({ activeProjectId: id });
+				try {
+					await projectSetActive(id);
+				} catch (err) {
+					// Roll back the optimistic flip — but only if nobody
+					// flipped again in the meantime.
+					if (get().activeProjectId === id) {
+						set({ activeProjectId: prev });
+					}
+					throw err;
+				}
+			},
+			refreshProjects: async () => {
+				try {
+					const [list, active] = await Promise.all([projectList(true), projectGetActive()]);
+					set({ projects: list, activeProjectId: active.id });
+				} catch {
+					// Tauri unavailable (test env / pre-setup boot).
+				}
+			},
 
 			hydrateSettingsFromRust: async () => {
 				let all: Record<string, string> = {};

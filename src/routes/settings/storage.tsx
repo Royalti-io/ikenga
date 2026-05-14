@@ -1,9 +1,8 @@
 import { Link, createFileRoute } from '@tanstack/react-router';
-import { Archive } from 'lucide-react';
+import { Archive, FolderKanban } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 
-import { ClaudeProjectRootsSectionBody } from './-components/claude-project-roots';
 import { ClearDataSectionBody } from './-components/clear-data';
 import { FileRootsSectionBody } from './-components/file-roots';
 import { ScreenshotDirSectionBody } from './-components/screenshot-dir';
@@ -41,9 +40,24 @@ function StoragePage() {
 						<FileRootsSectionBody />
 					</SettingGroup>
 
-					{/* ─── Claude project roots ───────────────────────────────── */}
+					{/* ─── Claude project roots — moved to Settings → Projects ─ */}
+					{/* Phase 0 (projects-first-class) replaced the standalone
+					    Claude-project-roots list with first-class Project rows
+					    (icon + color + root path). The underlying component is
+					    still used by the onboarding wizard and isn't deleted
+					    yet — Phase 4 of the migration handles the cleanup. */}
 					<SettingGroup title="Claude project roots">
-						<ClaudeProjectRootsSectionBody />
+						<SettingRow
+							label="Moved to Settings → Projects"
+							desc="Project roots are now first-class projects with icons, colors, and per-project scoping for chats, packages, and todos. The activity-bar indicator and ⌘P switcher live there too."
+						>
+							<Button asChild variant="outline" size="sm">
+								<Link to="/settings/projects">
+									<FolderKanban className="mr-1 h-3.5 w-3.5" />
+									Open Projects
+								</Link>
+							</Button>
+						</SettingRow>
 					</SettingGroup>
 
 					{/* ─── Screenshots ────────────────────────────────────────── */}

@@ -1,0 +1,566 @@
+//! Project CRUD commands. Backed by the `projects` + `project_settings`
+//! tables (migration 0015). The `default` project row is bootstrapped by
+//! `db::bootstrap_default_project` so the active-project id always
+//! resolves to something even on a fresh boot.
+//!
+//! The active project id lives in `settings_kv` at key
+//! `shell.activeProjectId`. `project_set_active` writes that row and
+//! emits a Tauri event `projects.active-changed` so the frontend can
+//! invalidate `project-scoped` TanStack queries.
+//!
+//! Slug validation: `^[a-z0-9][a-z0-9_-]{0,63}$`. The reserved id
+//! `default` cannot be archived (refused at command level).
+//!
+//! Shared helpers (`list_projects`, `create_project`, ...) take an
+//! `&sqlx::SqlitePool` so the iyke bridge can reuse the same logic
+//! without round-tripping through Tauri.
+
+use std::sync::Arc;
+
+use serde::{Deserialize, Serialize};
+use sqlx::{Row, SqlitePool};
+use tauri::{AppHandle, Emitter, State};
+
+use super::db::PaDb;
+
+pub const ACTIVE_PROJECT_KEY: &str = "shell.activeProjectId";
+pub const DEFAULT_PROJECT_ID: &str = "default";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Project {
+    pub id: String,
+    pub display_name: String,
+    pub root_path: Option<String>,
+    pub icon: Option<String>,
+    pub color: Option<String>,
+    pub description: Option<String>,
+    pub position: i64,
+    pub is_default: bool,
+    pub created_at: i64,
+    pub archived_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct ProjectPatch {
+    pub display_name: Option<String>,
+    pub root_path: Option<Option<String>>,
+    pub icon: Option<Option<String>>,
+    pub color: Option<Option<String>>,
+    pub description: Option<Option<String>>,
+    pub position: Option<i64>,
+}
+
+impl Default for ProjectPatch {
+    fn default() -> Self {
+        Self {
+            display_name: None,
+            root_path: None,
+            icon: None,
+            color: None,
+            description: None,
+            position: None,
+        }
+    }
+}
+
+fn now_ms() -> i64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+fn validate_slug(id: &str) -> Result<(), String> {
+    if id.is_empty() || id.len() > 64 {
+        return Err(format!("invalid project id length: {} (1..=64)", id.len()));
+    }
+    let mut chars = id.chars();
+    let first = chars.next().unwrap();
+    if !(first.is_ascii_lowercase() || first.is_ascii_digit()) {
+        return Err(format!(
+            "invalid project id {id:?}: must start with [a-z0-9]"
+        ));
+    }
+    for c in chars {
+        if !(c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-') {
+            return Err(format!(
+                "invalid project id {id:?}: only [a-z0-9_-] allowed after first char"
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn row_to_project(row: &sqlx::sqlite::SqliteRow) -> Project {
+    Project {
+        id: row.get("id"),
+        display_name: row.get("display_name"),
+        root_path: row.get("root_path"),
+        icon: row.get("icon"),
+        color: row.get("color"),
+        description: row.get("description"),
+        position: row.get("position"),
+        is_default: row.get::<i64, _>("is_default") != 0,
+        created_at: row.get("created_at"),
+        archived_at: row.get("archived_at"),
+    }
+}
+
+// ── shared helpers (used by Tauri commands + the iyke bridge) ────────────
+
+pub async fn list_projects(
+    pool: &SqlitePool,
+    include_archived: bool,
+) -> Result<Vec<Project>, String> {
+    let sql = if include_archived {
+        "SELECT id, display_name, root_path, icon, color, description, position, is_default, created_at, archived_at
+         FROM projects
+         ORDER BY position ASC, created_at ASC"
+    } else {
+        "SELECT id, display_name, root_path, icon, color, description, position, is_default, created_at, archived_at
+         FROM projects
+         WHERE archived_at IS NULL
+         ORDER BY position ASC, created_at ASC"
+    };
+    let rows = sqlx::query(sql)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| format!("list projects: {e}"))?;
+    Ok(rows.iter().map(row_to_project).collect())
+}
+
+pub async fn get_project(pool: &SqlitePool, id: &str) -> Result<Option<Project>, String> {
+    let row = sqlx::query(
+        "SELECT id, display_name, root_path, icon, color, description, position, is_default, created_at, archived_at
+         FROM projects WHERE id = ?",
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| format!("get project {id}: {e}"))?;
+    Ok(row.as_ref().map(row_to_project))
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CreateArgs {
+    pub id: String,
+    pub display_name: String,
+    #[serde(default)]
+    pub root_path: Option<String>,
+    #[serde(default)]
+    pub icon: Option<String>,
+    #[serde(default)]
+    pub color: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+}
+
+pub async fn create_project(pool: &SqlitePool, args: CreateArgs) -> Result<Project, String> {
+    validate_slug(&args.id)?;
+    let display = args.display_name.trim();
+    if display.is_empty() || display.chars().count() > 120 {
+        return Err(format!(
+            "invalid display_name length: {} (1..=120)",
+            display.chars().count()
+        ));
+    }
+
+    let next_position: i64 =
+        sqlx::query_scalar("SELECT COALESCE(MAX(position), -1) + 1 FROM projects")
+            .fetch_one(pool)
+            .await
+            .map_err(|e| format!("next position: {e}"))?;
+
+    let now = now_ms();
+    sqlx::query(
+        "INSERT INTO projects
+            (id, display_name, root_path, icon, color, description, position, is_default, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)",
+    )
+    .bind(&args.id)
+    .bind(display)
+    .bind(&args.root_path)
+    .bind(&args.icon)
+    .bind(&args.color)
+    .bind(&args.description)
+    .bind(next_position)
+    .bind(now)
+    .execute(pool)
+    .await
+    .map_err(|e| {
+        if e.to_string().contains("UNIQUE") {
+            format!("project id already exists: {}", args.id)
+        } else {
+            format!("create project: {e}")
+        }
+    })?;
+
+    get_project(pool, &args.id)
+        .await?
+        .ok_or_else(|| "create_project: row vanished after insert".to_string())
+}
+
+pub async fn update_project(
+    pool: &SqlitePool,
+    id: &str,
+    patch: ProjectPatch,
+) -> Result<Project, String> {
+    let mut sets: Vec<String> = Vec::new();
+    let mut display_buf: Option<String> = None;
+    let mut root_buf: Option<Option<String>> = None;
+    let mut icon_buf: Option<Option<String>> = None;
+    let mut color_buf: Option<Option<String>> = None;
+    let mut desc_buf: Option<Option<String>> = None;
+    let mut pos_buf: Option<i64> = None;
+
+    if let Some(name) = patch.display_name {
+        let trimmed = name.trim();
+        if trimmed.is_empty() || trimmed.chars().count() > 120 {
+            return Err(format!(
+                "invalid display_name length: {} (1..=120)",
+                trimmed.chars().count()
+            ));
+        }
+        display_buf = Some(trimmed.to_string());
+        sets.push("display_name = ?".into());
+    }
+    if let Some(v) = patch.root_path {
+        root_buf = Some(v);
+        sets.push("root_path = ?".into());
+    }
+    if let Some(v) = patch.icon {
+        icon_buf = Some(v);
+        sets.push("icon = ?".into());
+    }
+    if let Some(v) = patch.color {
+        color_buf = Some(v);
+        sets.push("color = ?".into());
+    }
+    if let Some(v) = patch.description {
+        desc_buf = Some(v);
+        sets.push("description = ?".into());
+    }
+    if let Some(v) = patch.position {
+        pos_buf = Some(v);
+        sets.push("position = ?".into());
+    }
+
+    if sets.is_empty() {
+        // no-op patch — return current row.
+        return get_project(pool, id)
+            .await?
+            .ok_or_else(|| format!("project not found: {id}"));
+    }
+
+    let sql = format!("UPDATE projects SET {} WHERE id = ?", sets.join(", "));
+    let mut q = sqlx::query(&sql);
+    if let Some(v) = display_buf.as_ref() {
+        q = q.bind(v);
+    }
+    if let Some(v) = root_buf.as_ref() {
+        q = q.bind(v);
+    }
+    if let Some(v) = icon_buf.as_ref() {
+        q = q.bind(v);
+    }
+    if let Some(v) = color_buf.as_ref() {
+        q = q.bind(v);
+    }
+    if let Some(v) = desc_buf.as_ref() {
+        q = q.bind(v);
+    }
+    if let Some(v) = pos_buf {
+        q = q.bind(v);
+    }
+    q = q.bind(id);
+
+    let res = q
+        .execute(pool)
+        .await
+        .map_err(|e| format!("update project {id}: {e}"))?;
+    if res.rows_affected() == 0 {
+        return Err(format!("project not found: {id}"));
+    }
+    get_project(pool, id)
+        .await?
+        .ok_or_else(|| format!("project not found after update: {id}"))
+}
+
+pub async fn archive_project(pool: &SqlitePool, id: &str) -> Result<(), String> {
+    if id == DEFAULT_PROJECT_ID {
+        return Err("cannot archive the Default project".into());
+    }
+    let res = sqlx::query("UPDATE projects SET archived_at = ? WHERE id = ?")
+        .bind(now_ms())
+        .bind(id)
+        .execute(pool)
+        .await
+        .map_err(|e| format!("archive project {id}: {e}"))?;
+    if res.rows_affected() == 0 {
+        return Err(format!("project not found: {id}"));
+    }
+    Ok(())
+}
+
+pub async fn get_active_project_id(pool: &SqlitePool) -> Result<String, String> {
+    let row: Option<(String,)> = sqlx::query_as("SELECT value FROM settings_kv WHERE key = ?")
+        .bind(ACTIVE_PROJECT_KEY)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| format!("read active project id: {e}"))?;
+    Ok(row.map(|(v,)| v).unwrap_or_else(|| DEFAULT_PROJECT_ID.to_string()))
+}
+
+pub async fn set_active_project_id(pool: &SqlitePool, id: &str) -> Result<(), String> {
+    // Validate the project exists and isn't archived.
+    let p = get_project(pool, id)
+        .await?
+        .ok_or_else(|| format!("project not found: {id}"))?;
+    if p.archived_at.is_some() {
+        return Err(format!("project is archived: {id}"));
+    }
+    sqlx::query(
+        "INSERT INTO settings_kv (key, value, updated_at) VALUES (?, ?, ?)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+    )
+    .bind(ACTIVE_PROJECT_KEY)
+    .bind(id)
+    .bind(now_ms())
+    .execute(pool)
+    .await
+    .map_err(|e| format!("set active project id: {e}"))?;
+    Ok(())
+}
+
+// ── Tauri commands ───────────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn project_create(
+    db: State<'_, Arc<PaDb>>,
+    id: String,
+    display_name: String,
+    root_path: Option<String>,
+    icon: Option<String>,
+    color: Option<String>,
+    description: Option<String>,
+) -> Result<Project, String> {
+    let pool = db.ensure_pool().await?;
+    create_project(
+        &pool,
+        CreateArgs {
+            id,
+            display_name,
+            root_path,
+            icon,
+            color,
+            description,
+        },
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn project_update(
+    db: State<'_, Arc<PaDb>>,
+    id: String,
+    patch: ProjectPatch,
+) -> Result<Project, String> {
+    let pool = db.ensure_pool().await?;
+    update_project(&pool, &id, patch).await
+}
+
+#[tauri::command]
+pub async fn project_list(
+    db: State<'_, Arc<PaDb>>,
+    include_archived: Option<bool>,
+) -> Result<Vec<Project>, String> {
+    let pool = db.ensure_pool().await?;
+    list_projects(&pool, include_archived.unwrap_or(false)).await
+}
+
+#[tauri::command]
+pub async fn project_archive(db: State<'_, Arc<PaDb>>, id: String) -> Result<(), String> {
+    let pool = db.ensure_pool().await?;
+    archive_project(&pool, &id).await
+}
+
+#[tauri::command]
+pub async fn project_set_active(
+    app: AppHandle,
+    db: State<'_, Arc<PaDb>>,
+    id: String,
+) -> Result<(), String> {
+    let pool = db.ensure_pool().await?;
+    set_active_project_id(&pool, &id).await?;
+    let _ = app.emit("projects.active-changed", serde_json::json!({ "id": id }));
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn project_get_active(db: State<'_, Arc<PaDb>>) -> Result<Project, String> {
+    let pool = db.ensure_pool().await?;
+    let id = get_active_project_id(&pool).await?;
+    // If the active id points at an archived/missing row, fall back to default.
+    if let Some(p) = get_project(&pool, &id).await? {
+        if p.archived_at.is_none() {
+            return Ok(p);
+        }
+    }
+    get_project(&pool, DEFAULT_PROJECT_ID)
+        .await?
+        .ok_or_else(|| "Default project missing — db bootstrap failed".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sqlx::sqlite::SqlitePoolOptions;
+
+    #[test]
+    fn slug_validation_accepts_valid() {
+        for ok in &["default", "music-2026", "a", "x_y_z", "abc123"] {
+            validate_slug(ok).expect(ok);
+        }
+    }
+
+    #[test]
+    fn slug_validation_rejects_invalid() {
+        for bad in &["", "-bad", "_bad", "Bad", "with space", "with.dot", "with!"] {
+            assert!(validate_slug(bad).is_err(), "should reject {bad:?}");
+        }
+        let long = "a".repeat(65);
+        assert!(validate_slug(&long).is_err());
+    }
+
+    async fn fresh_pool() -> SqlitePool {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        // Minimal schema needed by these tests.
+        sqlx::query(
+            "CREATE TABLE settings_kv (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at INTEGER NOT NULL
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(include_str!("../../migrations/0015_projects.sql"))
+            .execute(&pool)
+            .await
+            .ok(); // sqlx::query runs one stmt; the file has many. Apply each.
+        // The file uses ALTER TABLE on tables that don't exist in this minimal
+        // schema — apply only the CREATE statements.
+        for stmt in [
+            "CREATE TABLE IF NOT EXISTS projects (
+                id TEXT PRIMARY KEY,
+                display_name TEXT NOT NULL,
+                root_path TEXT,
+                icon TEXT,
+                color TEXT,
+                description TEXT,
+                position INTEGER NOT NULL DEFAULT 0,
+                is_default INTEGER NOT NULL DEFAULT 0,
+                created_at INTEGER NOT NULL,
+                archived_at INTEGER
+            )",
+            "CREATE UNIQUE INDEX IF NOT EXISTS projects_default ON projects (is_default) WHERE is_default = 1",
+        ] {
+            sqlx::query(stmt).execute(&pool).await.unwrap();
+        }
+        // Seed default.
+        sqlx::query(
+            "INSERT INTO projects (id, display_name, color, position, is_default, created_at)
+             VALUES ('default', 'Default', '#7c7c7c', 0, 1, 0)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        pool
+    }
+
+    #[tokio::test]
+    async fn create_list_archive_round_trip() {
+        let pool = fresh_pool().await;
+
+        let created = create_project(
+            &pool,
+            CreateArgs {
+                id: "music-2026".into(),
+                display_name: "Music 2026".into(),
+                root_path: Some("/tmp/music".into()),
+                icon: None,
+                color: Some("#4f8cff".into()),
+                description: None,
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(created.id, "music-2026");
+        assert_eq!(created.display_name, "Music 2026");
+        assert!(!created.is_default);
+
+        let listed = list_projects(&pool, false).await.unwrap();
+        assert_eq!(listed.len(), 2, "default + music-2026");
+
+        archive_project(&pool, "music-2026").await.unwrap();
+        let listed_active = list_projects(&pool, false).await.unwrap();
+        assert_eq!(listed_active.len(), 1);
+        let listed_all = list_projects(&pool, true).await.unwrap();
+        assert_eq!(listed_all.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn cannot_archive_default() {
+        let pool = fresh_pool().await;
+        let err = archive_project(&pool, "default").await.unwrap_err();
+        assert!(err.contains("Default"));
+    }
+
+    #[tokio::test]
+    async fn set_active_round_trip() {
+        let pool = fresh_pool().await;
+        create_project(
+            &pool,
+            CreateArgs {
+                id: "music".into(),
+                display_name: "Music".into(),
+                root_path: None,
+                icon: None,
+                color: None,
+                description: None,
+            },
+        )
+        .await
+        .unwrap();
+        // Initially the default is the active id.
+        assert_eq!(get_active_project_id(&pool).await.unwrap(), "default");
+        set_active_project_id(&pool, "music").await.unwrap();
+        assert_eq!(get_active_project_id(&pool).await.unwrap(), "music");
+    }
+
+    #[tokio::test]
+    async fn duplicate_id_rejected() {
+        let pool = fresh_pool().await;
+        let err = create_project(
+            &pool,
+            CreateArgs {
+                id: "default".into(),
+                display_name: "Should fail".into(),
+                root_path: None,
+                icon: None,
+                color: None,
+                description: None,
+            },
+        )
+        .await
+        .unwrap_err();
+        assert!(err.contains("already exists"));
+    }
+}

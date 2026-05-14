@@ -4,16 +4,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import { confirm as confirmDialog } from '@tauri-apps/plugin-dialog';
-import {
-	CheckCircle2,
-	Eye,
-	EyeOff,
-	KeyRound,
-	Pencil,
-	Plus,
-	Trash2,
-	XCircle,
-} from 'lucide-react';
+import { CheckCircle2, Eye, EyeOff, KeyRound, Pencil, Plus, Trash2, XCircle } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -313,4 +304,3 @@ export function EditKeyDialog({
 		</Dialog>
 	);
 }
-

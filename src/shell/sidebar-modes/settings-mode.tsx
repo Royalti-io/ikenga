@@ -1,5 +1,6 @@
 import {
 	Bot,
+	FolderKanban,
 	HardDrive,
 	Info,
 	Package,
@@ -30,6 +31,7 @@ const NAV: NavSection[] = [
 		label: 'Workspace',
 		items: [
 			{ to: '/settings/appearance', label: 'Appearance', Icon: Palette },
+			{ to: '/settings/projects', label: 'Projects', Icon: FolderKanban },
 			{ to: '/settings/agent', label: 'Agent', Icon: Bot },
 			{ to: '/settings/packages', label: 'Packages', Icon: Package },
 			{ to: '/settings/onboarding', label: 'Onboarding', Icon: Sparkles },

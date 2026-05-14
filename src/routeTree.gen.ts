@@ -32,6 +32,7 @@ import { Route as OnboardingIndexRouteImport } from './routes/onboarding/index'
 import { Route as ClaudeIndexRouteImport } from './routes/claude/index'
 import { Route as SettingsTelemetryRouteImport } from './routes/settings/telemetry'
 import { Route as SettingsStorageRouteImport } from './routes/settings/storage'
+import { Route as SettingsProjectsRouteImport } from './routes/settings/projects'
 import { Route as SettingsPackagesRouteImport } from './routes/settings/packages'
 import { Route as SettingsOnboardingRouteImport } from './routes/settings/onboarding'
 import { Route as SettingsIntegrationsRouteImport } from './routes/settings/integrations'
@@ -174,6 +175,11 @@ const SettingsTelemetryRoute = SettingsTelemetryRouteImport.update({
 const SettingsStorageRoute = SettingsStorageRouteImport.update({
   id: '/storage',
   path: '/storage',
+  getParentRoute: () => SettingsRouteRoute,
+} as any)
+const SettingsProjectsRoute = SettingsProjectsRouteImport.update({
+  id: '/projects',
+  path: '/projects',
   getParentRoute: () => SettingsRouteRoute,
 } as any)
 const SettingsPackagesRoute = SettingsPackagesRouteImport.update({
@@ -357,6 +363,7 @@ export interface FileRoutesByFullPath {
   '/settings/integrations': typeof SettingsIntegrationsRoute
   '/settings/onboarding': typeof SettingsOnboardingRoute
   '/settings/packages': typeof SettingsPackagesRoute
+  '/settings/projects': typeof SettingsProjectsRoute
   '/settings/storage': typeof SettingsStorageRoute
   '/settings/telemetry': typeof SettingsTelemetryRoute
   '/claude/': typeof ClaudeIndexRoute
@@ -405,6 +412,7 @@ export interface FileRoutesByTo {
   '/settings/integrations': typeof SettingsIntegrationsRoute
   '/settings/onboarding': typeof SettingsOnboardingRoute
   '/settings/packages': typeof SettingsPackagesRoute
+  '/settings/projects': typeof SettingsProjectsRoute
   '/settings/storage': typeof SettingsStorageRoute
   '/settings/telemetry': typeof SettingsTelemetryRoute
   '/claude': typeof ClaudeIndexRoute
@@ -459,6 +467,7 @@ export interface FileRoutesById {
   '/settings/integrations': typeof SettingsIntegrationsRoute
   '/settings/onboarding': typeof SettingsOnboardingRoute
   '/settings/packages': typeof SettingsPackagesRoute
+  '/settings/projects': typeof SettingsProjectsRoute
   '/settings/storage': typeof SettingsStorageRoute
   '/settings/telemetry': typeof SettingsTelemetryRoute
   '/claude/': typeof ClaudeIndexRoute
@@ -514,6 +523,7 @@ export interface FileRouteTypes {
     | '/settings/integrations'
     | '/settings/onboarding'
     | '/settings/packages'
+    | '/settings/projects'
     | '/settings/storage'
     | '/settings/telemetry'
     | '/claude/'
@@ -562,6 +572,7 @@ export interface FileRouteTypes {
     | '/settings/integrations'
     | '/settings/onboarding'
     | '/settings/packages'
+    | '/settings/projects'
     | '/settings/storage'
     | '/settings/telemetry'
     | '/claude'
@@ -615,6 +626,7 @@ export interface FileRouteTypes {
     | '/settings/integrations'
     | '/settings/onboarding'
     | '/settings/packages'
+    | '/settings/projects'
     | '/settings/storage'
     | '/settings/telemetry'
     | '/claude/'
@@ -812,6 +824,13 @@ declare module '@tanstack/react-router' {
       path: '/storage'
       fullPath: '/settings/storage'
       preLoaderRoute: typeof SettingsStorageRouteImport
+      parentRoute: typeof SettingsRouteRoute
+    }
+    '/settings/projects': {
+      id: '/settings/projects'
+      path: '/projects'
+      fullPath: '/settings/projects'
+      preLoaderRoute: typeof SettingsProjectsRouteImport
       parentRoute: typeof SettingsRouteRoute
     }
     '/settings/packages': {
@@ -1091,6 +1110,7 @@ interface SettingsRouteRouteChildren {
   SettingsIntegrationsRoute: typeof SettingsIntegrationsRoute
   SettingsOnboardingRoute: typeof SettingsOnboardingRoute
   SettingsPackagesRoute: typeof SettingsPackagesRoute
+  SettingsProjectsRoute: typeof SettingsProjectsRoute
   SettingsStorageRoute: typeof SettingsStorageRoute
   SettingsTelemetryRoute: typeof SettingsTelemetryRoute
   SettingsIndexRoute: typeof SettingsIndexRoute
@@ -1104,6 +1124,7 @@ const SettingsRouteRouteChildren: SettingsRouteRouteChildren = {
   SettingsIntegrationsRoute: SettingsIntegrationsRoute,
   SettingsOnboardingRoute: SettingsOnboardingRoute,
   SettingsPackagesRoute: SettingsPackagesRoute,
+  SettingsProjectsRoute: SettingsProjectsRoute,
   SettingsStorageRoute: SettingsStorageRoute,
   SettingsTelemetryRoute: SettingsTelemetryRoute,
   SettingsIndexRoute: SettingsIndexRoute,

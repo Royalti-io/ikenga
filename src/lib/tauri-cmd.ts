@@ -1777,6 +1777,90 @@ export async function scaffoldAgentConfig(
 	});
 }
 
+// ─── Projects (Phase 0 — first-class) ────────────────────────────────────────
+//
+// Projects are top-level scoping containers for sessions, pkgs, layout state,
+// memory, etc. Migration 0015 introduces the `projects` + `project_settings`
+// tables; a Default project ships in the seed and cannot be archived. The
+// active project id is mirrored in `settings_kv` under `shell.activeProjectId`
+// (Rust-owned). Switches emit a Tauri event `projects.active-changed` so
+// project-scoped queries can invalidate.
+//
+// Wire format mirrors `src-tauri/src/commands/projects.rs` exactly: snake_case
+// over the JSON wire because the Rust struct is serde-default. Keep these
+// types snake_case in TS too — there is no boundary translation.
+
+export interface Project {
+	id: string;
+	display_name: string;
+	root_path: string | null;
+	icon: string | null;
+	color: string | null;
+	description: string | null;
+	position: number;
+	is_default: boolean;
+	created_at: number;
+	archived_at: number | null;
+}
+
+export interface ProjectCreateArgs {
+	id: string;
+	display_name: string;
+	root_path?: string | null;
+	icon?: string | null;
+	color?: string | null;
+	description?: string | null;
+}
+
+export interface ProjectPatch {
+	display_name?: string | null;
+	root_path?: string | null;
+	icon?: string | null;
+	color?: string | null;
+	description?: string | null;
+	position?: number | null;
+}
+
+export async function projectCreate(args: ProjectCreateArgs): Promise<Project> {
+	return invoke<Project>('project_create', {
+		id: args.id,
+		displayName: args.display_name,
+		rootPath: args.root_path ?? null,
+		icon: args.icon ?? null,
+		color: args.color ?? null,
+		description: args.description ?? null,
+	});
+}
+
+export async function projectUpdate(id: string, patch: ProjectPatch): Promise<Project> {
+	return invoke<Project>('project_update', { id, patch });
+}
+
+export async function projectList(includeArchived = false): Promise<Project[]> {
+	return invoke<Project[]>('project_list', { includeArchived });
+}
+
+export async function projectArchive(id: string): Promise<void> {
+	return invoke('project_archive', { id });
+}
+
+export async function projectSetActive(id: string): Promise<void> {
+	return invoke('project_set_active', { id });
+}
+
+export async function projectGetActive(): Promise<Project> {
+	return invoke<Project>('project_get_active');
+}
+
+/** Subscribe to project-switch events. The Rust side emits `projects.active-changed`
+ *  with `{ id }` payload whenever `project_set_active` succeeds. Consumers
+ *  typically just call `queryClient.invalidateQueries({ queryKey: ['project-scoped'] })`. */
+export async function projectListenActiveChanged(
+	callback: (payload: { id: string }) => void
+): Promise<UnlistenFn> {
+	return listen<{ id: string }>('projects.active-changed', (e) => callback(e.payload));
+}
+
 // ─── Phase 0.5 background-execution spike (debug-only) ────────────────────────
 //
 // Pairs with src-tauri/src/commands/bg_spike.rs. The Rust side is gated on

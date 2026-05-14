@@ -46,6 +46,8 @@ use commands::{
     pkg_supervisor_restart,
     pkg_uninstall, pkg_set_enabled, dev_bind_port, dev_release_port,
     pkg_webview_create, pkg_webview_destroy, pkg_webview_navigate, pkg_webview_set_rect,
+    project_archive, project_create, project_get_active, project_list, project_set_active,
+    project_update,
     WebviewPanesState,
     secrets_set, secrets_vault_status, PkgContentState, SidecarsRegistryState, SidecarSupervisorState,
     set_dock_badge, iyke_mcp_info, spike_grant_fs_read, spike_setup_test_file, KernelState, PkgSettingsState,
@@ -185,6 +187,10 @@ pub fn run() {
             let db_path = data_dir.join("pa.db");
             let pa_db = Arc::new(PaDb::new(db_path));
             app.manage(pa_db.clone());
+
+            // Phase 1 (projects-first-class): expire-and-delete sweeper for
+            // iyke_locks. 30s cadence; cheap.
+            iyke::memory::spawn_lock_sweeper(pa_db.clone());
 
             // Phase 2 of staged-restore: replay the decrypted secrets blob
             // (if present) into Stronghold. Runs after SecretsLock is in
@@ -482,6 +488,13 @@ pub fn run() {
             settings_set,
             settings_get_all,
             settings_clear_all,
+            // projects (phase 0 of projects-first-class plan)
+            project_create,
+            project_update,
+            project_list,
+            project_archive,
+            project_set_active,
+            project_get_active,
             // supabase config (URL + anon key manifest)
             supabase_config_get,
             supabase_config_set,

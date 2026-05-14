@@ -15,6 +15,7 @@ import {
 	Terminal as TerminalIcon,
 	Settings,
 	FolderOpen,
+	FolderKanban,
 	RefreshCw,
 	Plus,
 	Layers,
@@ -22,8 +23,9 @@ import {
 	Pin as PinIconGlyph,
 } from 'lucide-react';
 import { fuzzyMatchSection, slugifySectionId, usePinsStore } from '@/lib/shell/pins-store';
+import { useShellStore } from '@/lib/shell/shell-store';
 
-export type PaletteMode = 'all' | 'views' | 'switcher';
+export type PaletteMode = 'all' | 'views' | 'switcher' | 'projects';
 
 interface CommandPaletteProps {
 	open: boolean;
@@ -139,7 +141,9 @@ export function CommandPalette({ open, mode, onOpenChange }: CommandPaletteProps
 			? 'Open in focused pane…'
 			: mode === 'switcher'
 				? 'Switch to open tab…'
-				: 'Type a command or search…';
+				: mode === 'projects'
+					? 'Switch project…'
+					: 'Type a command or search…';
 
 	return (
 		<div
@@ -164,6 +168,8 @@ export function CommandPalette({ open, mode, onOpenChange }: CommandPaletteProps
 
 						{mode === 'switcher' ? (
 							<SwitcherGroup onClose={() => onOpenChange(false)} />
+						) : mode === 'projects' ? (
+							<ProjectsGroup onClose={() => onOpenChange(false)} />
 						) : (
 							<>
 								<Command.Group heading="In focused pane" className="text-xs text-muted-foreground">
@@ -356,6 +362,78 @@ function SwitcherGroup({ onClose }: { onClose: () => void }) {
 				);
 			})}
 		</Command.Group>
+	);
+}
+
+function ProjectsGroup({ onClose }: { onClose: () => void }) {
+	const projects = useShellStore((s) => s.projects);
+	const activeProjectId = useShellStore((s) => s.activeProjectId);
+	const setActiveProject = useShellStore((s) => s.setActiveProject);
+	const navigateFocused = usePaneStore((s) => s.navigateFocused);
+
+	// Active first; archived last. Match the activity-bar indicator order so
+	// the palette and the popover read the same.
+	const sorted = projects.slice().sort((a, b) => {
+		if (a.id === activeProjectId) return -1;
+		if (b.id === activeProjectId) return 1;
+		const aArc = a.archived_at != null ? 1 : 0;
+		const bArc = b.archived_at != null ? 1 : 0;
+		if (aArc !== bArc) return aArc - bArc;
+		if (a.position !== b.position) return a.position - b.position;
+		return a.created_at - b.created_at;
+	});
+
+	function pick(id: string) {
+		onClose();
+		// Defer so the dialog can unmount before the optimistic state flip
+		// triggers a re-render of the activity bar.
+		setTimeout(() => {
+			void setActiveProject(id);
+		}, 0);
+	}
+
+	function openManage() {
+		onClose();
+		setTimeout(() => navigateFocused('/settings/projects'), 0);
+	}
+
+	return (
+		<>
+			<Command.Group heading="Projects" className="text-xs text-muted-foreground">
+				{sorted.map((p) => (
+					<Command.Item
+						key={p.id}
+						value={`${p.display_name} ${p.id} ${p.description ?? ''}`}
+						onSelect={() => pick(p.id)}
+						className="flex cursor-pointer items-center gap-3 rounded-md px-3 py-2 text-sm aria-selected:bg-accent aria-selected:text-accent-foreground"
+					>
+						<span
+							aria-hidden
+							className="inline-block h-3 w-3 shrink-0 rounded-full border border-border"
+							style={{ background: p.color ?? '#7c7c7c' }}
+						/>
+						{p.icon ? (
+							<span className="leading-none">{p.icon}</span>
+						) : (
+							<FolderKanban className="h-4 w-4 shrink-0 text-muted-foreground" />
+						)}
+						<span className="flex-1 truncate">{p.display_name}</span>
+						{p.id === activeProjectId && (
+							<span className="shrink-0 text-[10px] uppercase text-muted-foreground">Active</span>
+						)}
+						{p.archived_at != null && (
+							<span className="shrink-0 text-[10px] uppercase text-muted-foreground">Archived</span>
+						)}
+					</Command.Item>
+				))}
+				{sorted.length === 0 && (
+					<div className="px-3 py-3 text-xs text-muted-foreground">No projects loaded.</div>
+				)}
+			</Command.Group>
+			<Command.Group heading="Manage" className="text-xs text-muted-foreground">
+				<PaletteItem onSelect={openManage} Icon={FolderKanban} label="Open Projects settings…" />
+			</Command.Group>
+		</>
 	);
 }
 

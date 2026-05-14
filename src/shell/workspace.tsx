@@ -12,6 +12,7 @@ import { debounce, loadLayoutState, saveLayoutState } from '@/lib/layout-state';
 import { useIykeBridge } from '@/lib/iyke/bridge';
 import { useIykeControlListener } from '@/lib/iyke/control-listener';
 import { useIykeShellSync } from '@/lib/iyke/use-iyke-shell-sync';
+import { useProjectsSync } from '@/lib/shell/use-projects-sync';
 import { useScreenshotListener } from '@/lib/use-screenshot-listener';
 import { usePreloadViewers } from '@/lib/use-preload-viewers';
 import { dumpBootTimings, mark } from '@/lib/boot-timing';
@@ -51,6 +52,10 @@ export function Workspace() {
 	// DOM-to-PNG renders, and `screenshot://shortcut` events into Tauri
 	// command invocations (resolves "focused pane" client-side).
 	useScreenshotListener();
+	// Phase 0 (projects-first-class): subscribe to `projects.active-changed`
+	// Tauri events and invalidate any `'project-scoped'` TanStack Query so
+	// later phases' per-project data swaps automatically on switch.
+	useProjectsSync();
 	// Warm the lazy artifact viewer chunks during idle so the first
 	// PDF/XLSX/code file open isn't a cold fetch.
 	usePreloadViewers();
@@ -172,7 +177,7 @@ export function Workspace() {
 	//   ⌘⇧W          → close active tab
 	//   ⌘T           → command palette (views mode)
 	//   ⌘⇧T          → reopen last-closed view (depth 10)
-	//   ⌘P           → command palette (quick switcher)
+	//   ⌘P           → command palette (project switcher — Phase 0)
 	//   ⌃T           → new bash terminal in focused pane
 	//   ⌃⇧T          → new claude terminal in focused pane
 	//   ⌃1 .. ⌃6     → focus pane N (DFS leaf order)
@@ -221,9 +226,12 @@ export function Workspace() {
 					return;
 				}
 			}
-			if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'p' && !inEditable) {
+			if (mod && !e.altKey && e.key.toLowerCase() === 'p' && !inEditable) {
+				// ⌘P → project switcher (Phase 0 projects-first-class).
+				// ⌘⇧P keeps the legacy "open tabs" switcher available — both
+				// open the same palette in different modes.
 				e.preventDefault();
-				palette.setOpen(true, 'switcher');
+				palette.setOpen(true, e.shiftKey ? 'switcher' : 'projects');
 				return;
 			}
 			// Don't intercept ⌘W while typing.

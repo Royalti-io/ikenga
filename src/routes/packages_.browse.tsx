@@ -54,7 +54,7 @@ interface RowInfo {
 
 function findInstalledFor(
 	entry: RegistryEntry,
-	installed: PkgInstalledSummary[],
+	installed: PkgInstalledSummary[]
 ): PkgInstalledSummary | undefined {
 	// Same matcher as use-updates-available — see note there about id↔npm-name
 	// mapping. Suffix-match works for today's pkg set.
@@ -221,9 +221,7 @@ function BrowsePage() {
 					</div>
 					<div className="min-h-0 flex-1 overflow-auto">
 						{indexQuery.isLoading && (
-							<div className="px-3 py-4 text-xs text-muted-foreground">
-								Verifying signed index…
-							</div>
+							<div className="px-3 py-4 text-xs text-muted-foreground">Verifying signed index…</div>
 						)}
 						{indexQuery.error && (
 							<div className="m-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-300">
@@ -250,8 +248,7 @@ function BrowsePage() {
 				<div className="min-w-0 flex-1 overflow-auto">
 					{!selected && (
 						<div className="grid h-full place-items-center px-6 text-sm text-muted-foreground">
-							Select a pkg to see its manifest, capabilities, and install
-							options.
+							Select a pkg to see its manifest, capabilities, and install options.
 						</div>
 					)}
 					{selected && (
@@ -303,7 +300,11 @@ function BrowseRowItem({
 					<span className="truncate text-sm font-medium">
 						{row.entry.name.replace(/^@ikenga\//, '')}
 					</span>
-					<StateBadge state={row.state} installedVersion={row.installed?.version} latest={row.entry.latest} />
+					<StateBadge
+						state={row.state}
+						installedVersion={row.installed?.version}
+						latest={row.entry.latest}
+					/>
 				</div>
 				{row.entry.description && (
 					<span className="line-clamp-2 text-[11px] text-muted-foreground">
@@ -426,8 +427,7 @@ function DetailPanel({
 			{installProgress && (
 				<div className="mt-4 rounded border border-border bg-muted/40 px-3 py-2 text-xs">
 					Installed {installProgress.done} of {installProgress.total}
-					{installProgress.done < installProgress.total &&
-						` — ${installProgress.current}…`}
+					{installProgress.done < installProgress.total && ` — ${installProgress.current}…`}
 				</div>
 			)}
 			{installError && (
@@ -447,9 +447,7 @@ function DetailPanel({
 						<dd className="font-mono">
 							v{row.installed.version}
 							{row.installed.source?.kind && (
-								<span className="ml-2 text-muted-foreground/70">
-									({row.installed.source.kind})
-								</span>
+								<span className="ml-2 text-muted-foreground/70">({row.installed.source.kind})</span>
 							)}
 						</dd>
 						<dt className="text-muted-foreground">Path</dt>
@@ -460,12 +458,8 @@ function DetailPanel({
 				)}
 			</dl>
 
-			{loading && (
-				<p className="mt-6 text-xs text-muted-foreground">Loading manifest…</p>
-			)}
-			{error && (
-				<p className="mt-6 text-xs text-red-700">{error.message}</p>
-			)}
+			{loading && <p className="mt-6 text-xs text-muted-foreground">Loading manifest…</p>}
+			{error && <p className="mt-6 text-xs text-red-700">{error.message}</p>}
 
 			{manifest && (
 				<>
@@ -483,9 +477,7 @@ function DetailPanel({
 							{manifest.engine && (
 								<>
 									<dt className="text-muted-foreground">engine</dt>
-									<dd className="font-mono">
-										{(manifest.engine as { id?: string }).id ?? '—'}
-									</dd>
+									<dd className="font-mono">{(manifest.engine as { id?: string }).id ?? '—'}</dd>
 								</>
 							)}
 						</dl>

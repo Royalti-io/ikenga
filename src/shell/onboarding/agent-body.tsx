@@ -155,9 +155,7 @@ export function AgentBody({ onContinue }: AgentBodyProps) {
 			}
 
 			const detail = await fetchPkgDetail(indexUrl, entry);
-			const plan = await resolveInstallPlan(detail, (name) =>
-				fetchPkgDetail(indexUrl, { name })
-			);
+			const plan = await resolveInstallPlan(detail, (name) => fetchPkgDetail(indexUrl, { name }));
 
 			for (const step of plan) {
 				try {

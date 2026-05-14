@@ -158,6 +158,16 @@ async fn ensure_schema(pool: &sqlx::SqlitePool) -> Result<(), String> {
             "0014_browser_sessions",
             include_str!("../../migrations/0014_browser_sessions.sql"),
         ),
+        (
+            15,
+            "0015_projects",
+            include_str!("../../migrations/0015_projects.sql"),
+        ),
+        (
+            16,
+            "0016_iyke_memory",
+            include_str!("../../migrations/0016_iyke_memory.sql"),
+        ),
     ];
 
     for (id, name, sql) in migrations {
@@ -188,6 +198,36 @@ async fn ensure_schema(pool: &sqlx::SqlitePool) -> Result<(), String> {
             .await
             .map_err(|e| format!("record migration {name}: {e}"))?;
         log::info!("applied migration {name}");
+    }
+
+    // Post-migration bootstrap: ensure the Default project exists and
+    // backfill project_id on tables added by 0015. Idempotent.
+    bootstrap_default_project(pool).await?;
+
+    Ok(())
+}
+
+/// Ensure the Default project row exists and backfill project_id columns
+/// added by 0015_projects.sql. Runs after every schema apply; cheap when
+/// already done (INSERT OR IGNORE + UPDATE … WHERE project_id IS NULL).
+async fn bootstrap_default_project(pool: &sqlx::SqlitePool) -> Result<(), String> {
+    let now = now_ms();
+    sqlx::query(
+        "INSERT OR IGNORE INTO projects
+            (id, display_name, root_path, icon, color, description, position, is_default, created_at)
+         VALUES ('default', 'Default', NULL, NULL, '#7c7c7c', NULL, 0, 1, ?)",
+    )
+    .bind(now)
+    .execute(pool)
+    .await
+    .map_err(|e| format!("seed default project: {e}"))?;
+
+    for table in ["chat_threads", "pkg_installed", "layout_state", "browser_sessions"] {
+        let sql = format!("UPDATE {table} SET project_id = 'default' WHERE project_id IS NULL");
+        sqlx::query(&sql)
+            .execute(pool)
+            .await
+            .map_err(|e| format!("backfill {table}.project_id: {e}"))?;
     }
 
     Ok(())

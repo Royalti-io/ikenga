@@ -60,7 +60,7 @@ export function useRegistryIndex() {
  */
 export function useRegistryPkgDetail(
 	indexUrl: string | undefined,
-	entry: RegistryEntry | undefined,
+	entry: RegistryEntry | undefined
 ) {
 	return useQuery({
 		queryKey: registryKeys.detail(entry?.name ?? ''),
@@ -100,10 +100,7 @@ export function useInstallPlanResolver(indexUrl: string | undefined) {
 	};
 
 	return useMutation({
-		mutationFn: async (args: {
-			root: PkgDetail;
-			version?: string;
-		}): Promise<InstallStep[]> => {
+		mutationFn: async (args: { root: PkgDetail; version?: string }): Promise<InstallStep[]> => {
 			return resolveInstallPlan(args.root, getDetail, args.version);
 		},
 	});

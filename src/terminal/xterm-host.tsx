@@ -5,6 +5,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { Pty, type PtySpawnOpts } from './pty-bridge';
+import { createOscObserver, fireOscNotification } from '@/lib/terminal/osc-notify';
 
 export interface TerminalSpec {
 	cwd: string;
@@ -324,9 +325,18 @@ export function XTermHost({ spec, pty, onStatus, onExit, onPtyId }: Props) {
 		let onDataDispose: { dispose: () => void } | null = null;
 		let onResizeDispose: { dispose: () => void } | null = null;
 
+		// OSC notification observer — passive: watches PTY bytes for
+		// supported escape sequences (9, 777, 99) and fires a desktop
+		// notification. xterm.js silently ignores unknown OSCs so we don't
+		// need to strip the bytes.
+		const oscObserver = createOscObserver({ onNotify: (n) => void fireOscNotification(n) });
+
 		function attachToPty(p: Pty, label: string) {
 			// PTY → terminal.
-			const dataHandler = (bytes: Uint8Array) => term.write(bytes);
+			const dataHandler = (bytes: Uint8Array) => {
+				oscObserver.feed(bytes);
+				term.write(bytes);
+			};
 			const exitHandler = (code: number | null) => {
 				// VS Code pattern: keep the canvas mounted, write an inline notice
 				// as the last line so anything the process *did* emit stays visible

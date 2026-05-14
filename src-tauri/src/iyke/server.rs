@@ -39,6 +39,16 @@ use super::handlers::{
     post_screenshot_pane, post_screenshot_window, post_split, post_type, post_wait,
 };
 use super::pkg_dispatch::pkg_dispatch;
+use super::memory::{
+    get_kv_get, get_kv_list, get_lock_status, get_scratchpad_list, get_scratchpad_read,
+    get_todo_list, post_agent_register, post_kv_delete, post_kv_set, post_lock_acquire,
+    post_lock_release, post_lock_renew, post_scratchpad_append, post_scratchpad_delete,
+    post_scratchpad_write, post_todo_complete, post_todo_create, post_todo_update,
+};
+use super::projects::{
+    get_project_active, get_project_list, post_project_archive, post_project_create,
+    post_project_set_active, post_project_update,
+};
 use super::state::IykeState;
 use super::IykeRpc;
 use crate::commands::ScreenshotPending;
@@ -122,6 +132,32 @@ pub async fn serve(
         .route("/iyke/browser/session/list", get(get_browser_session_list))
         .route("/iyke/browser/session/delete", post(post_browser_session_delete))
         .route("/iyke/browser/session/resolve", post(post_browser_session_resolve))
+        // Projects (Phase 0 of projects-first-class plan).
+        .route("/iyke/project/list", get(get_project_list))
+        .route("/iyke/project/create", post(post_project_create))
+        .route("/iyke/project/update", post(post_project_update))
+        .route("/iyke/project/archive", post(post_project_archive))
+        .route("/iyke/project/set-active", post(post_project_set_active))
+        .route("/iyke/project/active", get(get_project_active))
+        // Memory primitives (Phase 1 — DESIGN.md §4-6).
+        .route("/iyke/scratchpad/write", post(post_scratchpad_write))
+        .route("/iyke/scratchpad/append", post(post_scratchpad_append))
+        .route("/iyke/scratchpad/read", get(get_scratchpad_read))
+        .route("/iyke/scratchpad/list", get(get_scratchpad_list))
+        .route("/iyke/scratchpad/delete", post(post_scratchpad_delete))
+        .route("/iyke/kv/set", post(post_kv_set))
+        .route("/iyke/kv/get", get(get_kv_get))
+        .route("/iyke/kv/delete", post(post_kv_delete))
+        .route("/iyke/kv/list", get(get_kv_list))
+        .route("/iyke/lock/acquire", post(post_lock_acquire))
+        .route("/iyke/lock/status", get(get_lock_status))
+        .route("/iyke/lock/release", post(post_lock_release))
+        .route("/iyke/lock/renew", post(post_lock_renew))
+        .route("/iyke/agent/register", post(post_agent_register))
+        .route("/iyke/todo/create", post(post_todo_create))
+        .route("/iyke/todo/update", post(post_todo_update))
+        .route("/iyke/todo/list", get(get_todo_list))
+        .route("/iyke/todo/complete", post(post_todo_complete))
         // Catch-all for package-installed routes. The dispatcher reads the
         // method+path off the request and consults `IykeRoutesRegistry`.
         .route("/pkg/*path", get(pkg_dispatch).post(pkg_dispatch))

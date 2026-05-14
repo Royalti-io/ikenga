@@ -59,6 +59,11 @@ void initDefaultCwd();
 void useShellStore.getState().hydrateSettingsFromRust();
 void useIkengaStore.getState().hydrateAppearanceFromRust();
 
+// Pull the durable projects list + active project id (migration 0015,
+// Phase 0). The Rust side owns the truth; this just seeds the in-memory
+// Zustand mirror for the activity-bar indicator and command palette.
+void useShellStore.getState().refreshProjects();
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
 	<React.StrictMode>
 		<QueryClientProvider client={queryClient}>

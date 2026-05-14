@@ -1,0 +1,865 @@
+//! Memory + coordination bridge endpoints (Phase 1 of
+//! projects-first-class). Implements `pkgs/mcp-iyke/DESIGN.md` §4-6.
+//!
+//! Wire scope is a single string: "workspace" | "pkg:<id>" | "project:<id>".
+//! `scope` omitted on a write resolves to the active project at request
+//! time (DESIGN.md §1 amendment for the projects-first-class plan).
+
+use std::sync::Arc;
+
+use axum::{extract::Query, http::StatusCode, Extension, Json};
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
+use sqlx::{Row, SqlitePool};
+use uuid::Uuid;
+
+use crate::commands::db::PaDb;
+use crate::commands::projects::get_active_project_id;
+
+const MAX_SCRATCHPAD_BYTES: usize = 1_000_000;
+const MAX_KV_VALUE_BYTES: usize = 64_000;
+const NAME_PATTERN_MAX: usize = 120;
+const KV_KEY_MAX: usize = 200;
+const TITLE_MAX: usize = 300;
+const BODY_MAX: usize = 100_000;
+const LOCK_DEFAULT_TTL_MS: i64 = 60_000;
+const LOCK_MAX_TTL_MS: i64 = 600_000;
+const LOCK_WAIT_MAX_MS: u64 = 30_000;
+
+fn err(status: StatusCode, msg: impl Into<String>) -> (StatusCode, String) {
+    (status, msg.into())
+}
+
+fn now_ms() -> i64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+fn validate_name(name: &str) -> Result<(), (StatusCode, String)> {
+    if name.is_empty() || name.len() > NAME_PATTERN_MAX {
+        return Err(err(StatusCode::BAD_REQUEST, format!("name length out of range: {}", name.len())));
+    }
+    let mut chars = name.chars();
+    let first = chars.next().unwrap();
+    if !(first.is_ascii_alphanumeric()) {
+        return Err(err(StatusCode::BAD_REQUEST, "name must start with [a-zA-Z0-9]".to_string()));
+    }
+    for c in chars {
+        if !(c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.') {
+            return Err(err(StatusCode::BAD_REQUEST, "name has invalid chars" .to_string()));
+        }
+    }
+    Ok(())
+}
+
+fn validate_scope(scope: &str) -> Result<(), (StatusCode, String)> {
+    if scope == "workspace" {
+        return Ok(());
+    }
+    if let Some(rest) = scope.strip_prefix("pkg:") {
+        if rest.is_empty() || rest.len() > 128 {
+            return Err(err(StatusCode::BAD_REQUEST, "invalid pkg scope" .to_string()));
+        }
+        return Ok(());
+    }
+    if let Some(rest) = scope.strip_prefix("project:") {
+        if rest.is_empty() || rest.len() > 64 {
+            return Err(err(StatusCode::BAD_REQUEST, "invalid project scope" .to_string()));
+        }
+        return Ok(());
+    }
+    Err(err(StatusCode::BAD_REQUEST, format!("invalid scope: {scope}")))
+}
+
+async fn resolve_scope(pool: &SqlitePool, scope: Option<String>) -> Result<String, (StatusCode, String)> {
+    let s = match scope {
+        Some(s) => s,
+        None => {
+            let active = get_active_project_id(pool)
+                .await
+                .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+            return Ok(format!("project:{active}"));
+        }
+    };
+    validate_scope(&s)?;
+    Ok(s)
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Scratchpads
+// ═══════════════════════════════════════════════════════════════════════
+
+#[derive(Deserialize)]
+pub struct ScratchpadWriteBody {
+    pub scope: Option<String>,
+    pub name: String,
+    pub body: String,
+}
+
+#[derive(Deserialize)]
+pub struct ScratchpadAppendBody {
+    pub scope: Option<String>,
+    pub name: String,
+    pub body: String,
+    #[serde(default = "default_true")]
+    pub with_separator: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+#[derive(Deserialize)]
+pub struct ScopeNameQuery {
+    pub scope: Option<String>,
+    pub name: String,
+}
+
+#[derive(Deserialize)]
+pub struct ScopeOnlyQuery {
+    pub scope: Option<String>,
+}
+
+#[derive(Serialize)]
+struct ScratchpadInfo {
+    id: String,
+    name: String,
+    updated_at: i64,
+    preview: String,
+}
+
+pub async fn post_scratchpad_write(
+    Extension(db): Extension<Arc<PaDb>>,
+    Json(body): Json<ScratchpadWriteBody>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    if body.body.len() > MAX_SCRATCHPAD_BYTES {
+        return Err(err(StatusCode::PAYLOAD_TOO_LARGE, "body > 1 MB" .to_string()));
+    }
+    let pool = db.ensure_pool().await.map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    validate_name(&body.name)?;
+    let scope = resolve_scope(&pool, body.scope).await?;
+    let now = now_ms();
+    let id = Uuid::new_v4().to_string();
+    sqlx::query(
+        "INSERT INTO iyke_scratchpads (id, scope, name, body, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(scope, name) DO UPDATE SET
+             body = excluded.body,
+             updated_at = excluded.updated_at",
+    )
+    .bind(&id)
+    .bind(&scope)
+    .bind(&body.name)
+    .bind(&body.body)
+    .bind(now)
+    .bind(now)
+    .execute(&pool)
+    .await
+    .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("scratchpad write: {e}")))?;
+    let final_id: String = sqlx::query_scalar("SELECT id FROM iyke_scratchpads WHERE scope = ? AND name = ?")
+        .bind(&scope).bind(&body.name).fetch_one(&pool).await
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("scratchpad lookup: {e}")))?;
+    Ok(Json(json!({ "id": final_id, "scope": scope, "updated_at": now })))
+}
+
+pub async fn post_scratchpad_append(
+    Extension(db): Extension<Arc<PaDb>>,
+    Json(body): Json<ScratchpadAppendBody>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let pool = db.ensure_pool().await.map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    validate_name(&body.name)?;
+    let scope = resolve_scope(&pool, body.scope).await?;
+
+    let existing: Option<(String, String)> = sqlx::query_as(
+        "SELECT id, body FROM iyke_scratchpads WHERE scope = ? AND name = ?",
+    )
+    .bind(&scope)
+    .bind(&body.name)
+    .fetch_optional(&pool)
+    .await
+    .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("scratchpad lookup: {e}")))?;
+
+    let now = now_ms();
+    let separator = if body.with_separator {
+        format!("\n\n---\n_{}_\n\n", chrono_like(now))
+    } else {
+        String::new()
+    };
+
+    let (id, new_body) = match existing {
+        Some((id, prev)) => {
+            let combined = format!("{prev}{separator}{}", body.body);
+            if combined.len() > MAX_SCRATCHPAD_BYTES {
+                return Err(err(StatusCode::PAYLOAD_TOO_LARGE, "combined body > 1 MB" .to_string()));
+            }
+            (id, combined)
+        }
+        None => {
+            if body.body.len() > MAX_SCRATCHPAD_BYTES {
+                return Err(err(StatusCode::PAYLOAD_TOO_LARGE, "body > 1 MB" .to_string()));
+            }
+            (Uuid::new_v4().to_string(), body.body.clone())
+        }
+    };
+
+    sqlx::query(
+        "INSERT INTO iyke_scratchpads (id, scope, name, body, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(scope, name) DO UPDATE SET body = excluded.body, updated_at = excluded.updated_at",
+    )
+    .bind(&id)
+    .bind(&scope)
+    .bind(&body.name)
+    .bind(&new_body)
+    .bind(now)
+    .bind(now)
+    .execute(&pool)
+    .await
+    .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("scratchpad append: {e}")))?;
+    Ok(Json(json!({ "id": id, "scope": scope, "updated_at": now })))
+}
+
+fn chrono_like(unix_ms: i64) -> String {
+    // Minimal ISO-8601 UTC without pulling chrono.
+    let secs = unix_ms / 1000;
+    let days = secs / 86_400;
+    let _rem = secs % 86_400;
+    // Cheap approximation: epoch-relative; use the full ms in the body for now.
+    format!("ts={unix_ms} (~{days}d since epoch)")
+}
+
+pub async fn get_scratchpad_read(
+    Extension(db): Extension<Arc<PaDb>>,
+    Query(q): Query<ScopeNameQuery>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let pool = db.ensure_pool().await.map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    validate_name(&q.name)?;
+    let scope = resolve_scope(&pool, q.scope).await?;
+    let row: Option<(String, String, i64)> = sqlx::query_as(
+        "SELECT id, body, updated_at FROM iyke_scratchpads WHERE scope = ? AND name = ?",
+    )
+    .bind(&scope)
+    .bind(&q.name)
+    .fetch_optional(&pool)
+    .await
+    .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("scratchpad read: {e}")))?;
+    match row {
+        Some((id, body, updated_at)) => Ok(Json(json!({
+            "id": id, "scope": scope, "name": q.name, "body": body, "updated_at": updated_at
+        }))),
+        None => Err(err(StatusCode::NOT_FOUND, "scratchpad not found" .to_string())),
+    }
+}
+
+pub async fn get_scratchpad_list(
+    Extension(db): Extension<Arc<PaDb>>,
+    Query(q): Query<ScopeOnlyQuery>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let pool = db.ensure_pool().await.map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let scope = resolve_scope(&pool, q.scope).await?;
+    let rows = sqlx::query(
+        "SELECT id, name, body, updated_at FROM iyke_scratchpads WHERE scope = ? ORDER BY updated_at DESC",
+    )
+    .bind(&scope)
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("scratchpad list: {e}")))?;
+    let scratchpads: Vec<ScratchpadInfo> = rows
+        .iter()
+        .map(|r| {
+            let body: String = r.get("body");
+            let preview: String = body.chars().take(200).collect();
+            ScratchpadInfo {
+                id: r.get("id"),
+                name: r.get("name"),
+                updated_at: r.get("updated_at"),
+                preview,
+            }
+        })
+        .collect();
+    Ok(Json(json!({ "scope": scope, "scratchpads": scratchpads })))
+}
+
+#[derive(Deserialize)]
+pub struct ScratchpadDeleteBody {
+    pub scope: Option<String>,
+    pub name: String,
+}
+
+pub async fn post_scratchpad_delete(
+    Extension(db): Extension<Arc<PaDb>>,
+    Json(body): Json<ScratchpadDeleteBody>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let pool = db.ensure_pool().await.map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let scope = resolve_scope(&pool, body.scope).await?;
+    sqlx::query("DELETE FROM iyke_scratchpads WHERE scope = ? AND name = ?")
+        .bind(&scope)
+        .bind(&body.name)
+        .execute(&pool)
+        .await
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("scratchpad delete: {e}")))?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// KV
+// ═══════════════════════════════════════════════════════════════════════
+
+#[derive(Deserialize)]
+pub struct KvSetBody {
+    pub scope: Option<String>,
+    pub key: String,
+    pub value: Value,
+}
+
+fn validate_kv_key(key: &str) -> Result<(), (StatusCode, String)> {
+    if key.is_empty() || key.len() > KV_KEY_MAX {
+        return Err(err(StatusCode::BAD_REQUEST, "kv key length" .to_string()));
+    }
+    for c in key.chars() {
+        if !(c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == ':' || c == '/' || c == '-') {
+            return Err(err(StatusCode::BAD_REQUEST, "kv key invalid char" .to_string()));
+        }
+    }
+    Ok(())
+}
+
+pub async fn post_kv_set(
+    Extension(db): Extension<Arc<PaDb>>,
+    Json(body): Json<KvSetBody>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    validate_kv_key(&body.key)?;
+    let serialized = serde_json::to_string(&body.value)
+        .map_err(|e| err(StatusCode::BAD_REQUEST, format!("value not JSON: {e}")))?;
+    if serialized.len() > MAX_KV_VALUE_BYTES {
+        return Err(err(StatusCode::PAYLOAD_TOO_LARGE, "value > 64 KB" .to_string()));
+    }
+    let pool = db.ensure_pool().await.map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let scope = resolve_scope(&pool, body.scope).await?;
+    let now = now_ms();
+    sqlx::query(
+        "INSERT INTO iyke_kv (scope, key, value, updated_at) VALUES (?, ?, ?, ?)
+         ON CONFLICT(scope, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+    )
+    .bind(&scope)
+    .bind(&body.key)
+    .bind(&serialized)
+    .bind(now)
+    .execute(&pool)
+    .await
+    .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("kv set: {e}")))?;
+    Ok(Json(json!({ "updated_at": now })))
+}
+
+#[derive(Deserialize)]
+pub struct KvGetQuery {
+    pub scope: Option<String>,
+    pub key: String,
+}
+
+pub async fn get_kv_get(
+    Extension(db): Extension<Arc<PaDb>>,
+    Query(q): Query<KvGetQuery>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    validate_kv_key(&q.key)?;
+    let pool = db.ensure_pool().await.map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let scope = resolve_scope(&pool, q.scope).await?;
+    let row: Option<(String, i64)> = sqlx::query_as(
+        "SELECT value, updated_at FROM iyke_kv WHERE scope = ? AND key = ?",
+    )
+    .bind(&scope)
+    .bind(&q.key)
+    .fetch_optional(&pool)
+    .await
+    .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("kv get: {e}")))?;
+    match row {
+        Some((s, updated_at)) => {
+            let v: Value = serde_json::from_str(&s).unwrap_or(Value::Null);
+            Ok(Json(json!({ "key": q.key, "value": v, "updated_at": updated_at })))
+        }
+        None => Ok(Json(json!({ "key": q.key, "value": Value::Null, "updated_at": Value::Null }))),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct KvDeleteBody {
+    pub scope: Option<String>,
+    pub key: String,
+}
+
+pub async fn post_kv_delete(
+    Extension(db): Extension<Arc<PaDb>>,
+    Json(body): Json<KvDeleteBody>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    validate_kv_key(&body.key)?;
+    let pool = db.ensure_pool().await.map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let scope = resolve_scope(&pool, body.scope).await?;
+    sqlx::query("DELETE FROM iyke_kv WHERE scope = ? AND key = ?")
+        .bind(&scope)
+        .bind(&body.key)
+        .execute(&pool)
+        .await
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("kv delete: {e}")))?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+#[derive(Deserialize)]
+pub struct KvListQuery {
+    pub scope: Option<String>,
+    pub prefix: Option<String>,
+}
+
+pub async fn get_kv_list(
+    Extension(db): Extension<Arc<PaDb>>,
+    Query(q): Query<KvListQuery>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let pool = db.ensure_pool().await.map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let scope = resolve_scope(&pool, q.scope).await?;
+    let rows = if let Some(prefix) = q.prefix.filter(|s| !s.is_empty()) {
+        let like = format!("{prefix}%");
+        sqlx::query(
+            "SELECT key, value, updated_at FROM iyke_kv WHERE scope = ? AND key LIKE ? ORDER BY key",
+        )
+        .bind(&scope)
+        .bind(&like)
+        .fetch_all(&pool)
+        .await
+    } else {
+        sqlx::query("SELECT key, value, updated_at FROM iyke_kv WHERE scope = ? ORDER BY key")
+            .bind(&scope)
+            .fetch_all(&pool)
+            .await
+    }
+    .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("kv list: {e}")))?;
+    let entries: Vec<Value> = rows
+        .iter()
+        .map(|r| {
+            let s: String = r.get("value");
+            let v: Value = serde_json::from_str(&s).unwrap_or(Value::Null);
+            json!({ "key": r.get::<String, _>("key"), "value": v, "updated_at": r.get::<i64, _>("updated_at") })
+        })
+        .collect();
+    Ok(Json(json!({ "scope": scope, "entries": entries })))
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Locks
+// ═══════════════════════════════════════════════════════════════════════
+
+#[derive(Deserialize)]
+pub struct LockAcquireBody {
+    pub scope: Option<String>,
+    pub resource: String,
+    pub holder: String,
+    pub ttl_ms: Option<i64>,
+    pub wait_ms: Option<u64>,
+}
+
+pub async fn post_lock_acquire(
+    Extension(db): Extension<Arc<PaDb>>,
+    Json(body): Json<LockAcquireBody>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let ttl = body.ttl_ms.unwrap_or(LOCK_DEFAULT_TTL_MS).clamp(1000, LOCK_MAX_TTL_MS);
+    let wait = body.wait_ms.unwrap_or(0).min(LOCK_WAIT_MAX_MS);
+    let pool = db.ensure_pool().await.map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let scope = resolve_scope(&pool, body.scope).await?;
+    let start = std::time::Instant::now();
+    loop {
+        let now = now_ms();
+        let res = sqlx::query(
+            "INSERT INTO iyke_locks (scope, resource, holder, acquired_at, expires_at)
+             VALUES (?, ?, ?, ?, ?)
+             ON CONFLICT(scope, resource) DO UPDATE SET
+               holder = excluded.holder,
+               acquired_at = excluded.acquired_at,
+               expires_at = excluded.expires_at
+             WHERE iyke_locks.expires_at < ?",
+        )
+        .bind(&scope)
+        .bind(&body.resource)
+        .bind(&body.holder)
+        .bind(now)
+        .bind(now + ttl)
+        .bind(now)
+        .execute(&pool)
+        .await
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("lock acquire: {e}")))?;
+        if res.rows_affected() > 0 {
+            return Ok(Json(json!({
+                "acquired": true,
+                "scope": scope,
+                "resource": body.resource,
+                "expires_at": now + ttl,
+            })));
+        }
+        let elapsed = start.elapsed().as_millis() as u64;
+        if elapsed >= wait {
+            let row: Option<(String, i64)> = sqlx::query_as(
+                "SELECT holder, expires_at FROM iyke_locks WHERE scope = ? AND resource = ?",
+            )
+            .bind(&scope)
+            .bind(&body.resource)
+            .fetch_optional(&pool)
+            .await
+            .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("lock status: {e}")))?;
+            return Ok(Json(json!({
+                "acquired": false,
+                "held_by": row.as_ref().map(|(h, _)| h.clone()),
+                "expires_at": row.map(|(_, e)| e),
+            })));
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    }
+}
+
+#[derive(Deserialize)]
+pub struct LockStatusQuery {
+    pub scope: Option<String>,
+    pub resource: String,
+}
+
+pub async fn get_lock_status(
+    Extension(db): Extension<Arc<PaDb>>,
+    Query(q): Query<LockStatusQuery>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let pool = db.ensure_pool().await.map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let scope = resolve_scope(&pool, q.scope).await?;
+    let row: Option<(String, i64)> = sqlx::query_as(
+        "SELECT holder, expires_at FROM iyke_locks WHERE scope = ? AND resource = ? AND expires_at > ?",
+    )
+    .bind(&scope)
+    .bind(&q.resource)
+    .bind(now_ms())
+    .fetch_optional(&pool)
+    .await
+    .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("lock status: {e}")))?;
+    Ok(Json(json!({
+        "held": row.is_some(),
+        "holder": row.as_ref().map(|(h, _)| h.clone()),
+        "expires_at": row.map(|(_, e)| e),
+    })))
+}
+
+#[derive(Deserialize)]
+pub struct LockReleaseBody {
+    pub scope: Option<String>,
+    pub resource: String,
+    pub holder: String,
+}
+
+pub async fn post_lock_release(
+    Extension(db): Extension<Arc<PaDb>>,
+    Json(body): Json<LockReleaseBody>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let pool = db.ensure_pool().await.map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let scope = resolve_scope(&pool, body.scope).await?;
+    let res = sqlx::query(
+        "DELETE FROM iyke_locks WHERE scope = ? AND resource = ? AND holder = ?",
+    )
+    .bind(&scope)
+    .bind(&body.resource)
+    .bind(&body.holder)
+    .execute(&pool)
+    .await
+    .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("lock release: {e}")))?;
+    Ok(Json(json!({ "released": res.rows_affected() > 0 })))
+}
+
+#[derive(Deserialize)]
+pub struct LockRenewBody {
+    pub scope: Option<String>,
+    pub resource: String,
+    pub holder: String,
+    pub ttl_ms: Option<i64>,
+}
+
+pub async fn post_lock_renew(
+    Extension(db): Extension<Arc<PaDb>>,
+    Json(body): Json<LockRenewBody>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let ttl = body.ttl_ms.unwrap_or(LOCK_DEFAULT_TTL_MS).clamp(1000, LOCK_MAX_TTL_MS);
+    let pool = db.ensure_pool().await.map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let scope = resolve_scope(&pool, body.scope).await?;
+    let now = now_ms();
+    let res = sqlx::query(
+        "UPDATE iyke_locks SET expires_at = ?
+         WHERE scope = ? AND resource = ? AND holder = ? AND expires_at > ?",
+    )
+    .bind(now + ttl)
+    .bind(&scope)
+    .bind(&body.resource)
+    .bind(&body.holder)
+    .bind(now)
+    .execute(&pool)
+    .await
+    .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("lock renew: {e}")))?;
+    Ok(Json(json!({ "renewed": res.rows_affected() > 0, "expires_at": now + ttl })))
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Agents
+// ═══════════════════════════════════════════════════════════════════════
+
+#[derive(Deserialize)]
+pub struct AgentRegisterBody {
+    pub id: Option<String>,
+    pub name: String,
+    pub model: Option<String>,
+    pub metadata: Option<Value>,
+}
+
+pub async fn post_agent_register(
+    Extension(db): Extension<Arc<PaDb>>,
+    Json(body): Json<AgentRegisterBody>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let pool = db.ensure_pool().await.map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let id = body.id.unwrap_or_else(|| Uuid::new_v4().to_string());
+    let now = now_ms();
+    let meta = body.metadata.map(|v| v.to_string()).unwrap_or_else(|| "{}".to_string());
+    sqlx::query(
+        "INSERT INTO iyke_agents (id, name, model, metadata, registered_at, last_seen_at)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+             name = excluded.name,
+             model = excluded.model,
+             metadata = excluded.metadata,
+             last_seen_at = excluded.last_seen_at",
+    )
+    .bind(&id)
+    .bind(&body.name)
+    .bind(&body.model)
+    .bind(&meta)
+    .bind(now)
+    .bind(now)
+    .execute(&pool)
+    .await
+    .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("agent register: {e}")))?;
+    Ok(Json(json!({ "id": id, "registered_at": now })))
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Todos
+// ═══════════════════════════════════════════════════════════════════════
+
+#[derive(Deserialize)]
+pub struct TodoCreateBody {
+    pub scope: Option<String>,
+    pub title: String,
+    pub body: Option<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    pub assignee: Option<String>,
+    pub blocker_id: Option<String>,
+}
+
+pub async fn post_todo_create(
+    Extension(db): Extension<Arc<PaDb>>,
+    Json(body): Json<TodoCreateBody>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let pool = db.ensure_pool().await.map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let scope = resolve_scope(&pool, body.scope).await?;
+    if body.title.is_empty() || body.title.chars().count() > TITLE_MAX {
+        return Err(err(StatusCode::BAD_REQUEST, "title length" .to_string()));
+    }
+    if let Some(b) = &body.body {
+        if b.len() > BODY_MAX {
+            return Err(err(StatusCode::PAYLOAD_TOO_LARGE, "body > 100 KB" .to_string()));
+        }
+    }
+    let id = Uuid::new_v4().to_string();
+    let now = now_ms();
+    let tags_json = serde_json::to_string(&body.tags).unwrap_or_else(|_| "[]".to_string());
+    sqlx::query(
+        "INSERT INTO iyke_todos (id, scope, title, body, status, tags, blocker_id, assignee, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?, ?)",
+    )
+    .bind(&id)
+    .bind(&scope)
+    .bind(&body.title)
+    .bind(&body.body)
+    .bind(&tags_json)
+    .bind(&body.blocker_id)
+    .bind(&body.assignee)
+    .bind(now)
+    .bind(now)
+    .execute(&pool)
+    .await
+    .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("todo create: {e}")))?;
+    Ok(Json(json!({ "id": id, "scope": scope, "created_at": now })))
+}
+
+#[derive(Deserialize)]
+pub struct TodoListQuery {
+    pub scope: Option<String>,
+    pub status: Option<String>,
+    pub tag: Option<String>,
+    pub assignee: Option<String>,
+}
+
+pub async fn get_todo_list(
+    Extension(db): Extension<Arc<PaDb>>,
+    Query(q): Query<TodoListQuery>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let pool = db.ensure_pool().await.map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let scope = resolve_scope(&pool, q.scope).await?;
+    let mut sql = String::from(
+        "SELECT id, scope, title, body, status, tags, blocker_id, assignee, created_at, updated_at, completed_at
+         FROM iyke_todos WHERE scope = ?",
+    );
+    if q.status.is_some() {
+        sql.push_str(" AND status = ?");
+    }
+    if q.assignee.is_some() {
+        sql.push_str(" AND assignee = ?");
+    }
+    sql.push_str(" ORDER BY created_at DESC");
+    let mut qb = sqlx::query(&sql).bind(&scope);
+    if let Some(s) = &q.status {
+        qb = qb.bind(s);
+    }
+    if let Some(a) = &q.assignee {
+        qb = qb.bind(a);
+    }
+    let rows = qb
+        .fetch_all(&pool)
+        .await
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("todo list: {e}")))?;
+    let mut todos: Vec<Value> = Vec::new();
+    for r in rows.iter() {
+        let tags_raw: String = r.get("tags");
+        let tags: Vec<String> = serde_json::from_str(&tags_raw).unwrap_or_default();
+        if let Some(filter) = &q.tag {
+            if !tags.iter().any(|t| t == filter) {
+                continue;
+            }
+        }
+        todos.push(json!({
+            "id": r.get::<String, _>("id"),
+            "scope": r.get::<String, _>("scope"),
+            "title": r.get::<String, _>("title"),
+            "body": r.get::<Option<String>, _>("body"),
+            "status": r.get::<String, _>("status"),
+            "tags": tags,
+            "blocker_id": r.get::<Option<String>, _>("blocker_id"),
+            "assignee": r.get::<Option<String>, _>("assignee"),
+            "created_at": r.get::<i64, _>("created_at"),
+            "updated_at": r.get::<i64, _>("updated_at"),
+            "completed_at": r.get::<Option<i64>, _>("completed_at"),
+        }));
+    }
+    Ok(Json(json!({ "scope": scope, "todos": todos })))
+}
+
+#[derive(Deserialize)]
+pub struct TodoIdBody {
+    pub id: String,
+}
+
+pub async fn post_todo_complete(
+    Extension(db): Extension<Arc<PaDb>>,
+    Json(body): Json<TodoIdBody>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let pool = db.ensure_pool().await.map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let now = now_ms();
+    let res = sqlx::query(
+        "UPDATE iyke_todos SET status = 'done', completed_at = ?, updated_at = ? WHERE id = ?",
+    )
+    .bind(now)
+    .bind(now)
+    .bind(&body.id)
+    .execute(&pool)
+    .await
+    .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("todo complete: {e}")))?;
+    if res.rows_affected() == 0 {
+        return Err(err(StatusCode::NOT_FOUND, "todo not found" .to_string()));
+    }
+    Ok(Json(json!({ "id": body.id, "completed_at": now })))
+}
+
+#[derive(Deserialize)]
+pub struct TodoUpdateBody {
+    pub id: String,
+    pub status: Option<String>,
+    pub title: Option<String>,
+    pub body: Option<String>,
+    pub assignee: Option<String>,
+    pub blocker_id: Option<String>,
+}
+
+pub async fn post_todo_update(
+    Extension(db): Extension<Arc<PaDb>>,
+    Json(body): Json<TodoUpdateBody>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let pool = db.ensure_pool().await.map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let mut sets: Vec<String> = Vec::new();
+    if body.status.is_some() {
+        sets.push("status = ?" .to_string());
+    }
+    if body.title.is_some() {
+        sets.push("title = ?" .to_string());
+    }
+    if body.body.is_some() {
+        sets.push("body = ?" .to_string());
+    }
+    if body.assignee.is_some() {
+        sets.push("assignee = ?" .to_string());
+    }
+    if body.blocker_id.is_some() {
+        sets.push("blocker_id = ?" .to_string());
+    }
+    if sets.is_empty() {
+        return Err(err(StatusCode::BAD_REQUEST, "no fields to update" .to_string()));
+    }
+    sets.push("updated_at = ?" .to_string());
+    let sql = format!("UPDATE iyke_todos SET {} WHERE id = ?", sets.join(", "));
+    let mut qb = sqlx::query(&sql);
+    if let Some(s) = &body.status {
+        qb = qb.bind(s);
+    }
+    if let Some(t) = &body.title {
+        qb = qb.bind(t);
+    }
+    if let Some(b) = &body.body {
+        qb = qb.bind(b);
+    }
+    if let Some(a) = &body.assignee {
+        qb = qb.bind(a);
+    }
+    if let Some(bk) = &body.blocker_id {
+        qb = qb.bind(bk);
+    }
+    let now = now_ms();
+    qb = qb.bind(now).bind(&body.id);
+    let res = qb
+        .execute(&pool)
+        .await
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("todo update: {e}")))?;
+    if res.rows_affected() == 0 {
+        return Err(err(StatusCode::NOT_FOUND, "todo not found" .to_string()));
+    }
+    Ok(Json(json!({ "id": body.id, "updated_at": now })))
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Locks sweeper (spawned once from lib.rs)
+// ═══════════════════════════════════════════════════════════════════════
+
+pub fn spawn_lock_sweeper(db: Arc<PaDb>) {
+    tauri::async_runtime::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
+        loop {
+            interval.tick().await;
+            let pool = match db.ensure_pool().await {
+                Ok(p) => p,
+                Err(_) => continue,
+            };
+            let _ = sqlx::query("DELETE FROM iyke_locks WHERE expires_at < ?")
+                .bind(now_ms())
+                .execute(&pool)
+                .await;
+        }
+    });
+}

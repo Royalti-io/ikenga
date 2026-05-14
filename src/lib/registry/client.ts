@@ -50,7 +50,7 @@ export async function fetchIndex(signal?: AbortSignal): Promise<FetchedIndex> {
 export async function fetchPkgDetail(
 	indexUrl: string,
 	entry: RegistryEntry | { name: string },
-	signal?: AbortSignal,
+	signal?: AbortSignal
 ): Promise<PkgDetail> {
 	return fetchPkgDetailLib({ indexUrl, entry, signal });
 }
@@ -63,7 +63,7 @@ export async function fetchPkgDetail(
 export async function resolveInstallPlan(
 	root: PkgDetail,
 	getDetail: (name: string) => Promise<PkgDetail>,
-	version?: string,
+	version?: string
 ): Promise<InstallStep[]> {
 	return resolveInstallPlanLib({ root, version, fetchDetail: getDetail });
 }
