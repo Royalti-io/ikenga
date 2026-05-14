@@ -41,6 +41,18 @@ const IYKE_BRIDGE_JS: &str = include_str!("../../resources/iyke-iframe-bridge.js
 /// it today).
 const IYKE_INJECT_MARKER: &str = "<!-- iyke-bridge-injected -->";
 
+/// Ikenga artifact bridge, bundled from `src/lib/artifact/bridge.entry.ts`
+/// via `bun run artifact:bundle`. Sets up `window.__ikenga_host__` and
+/// `window.__ikenga_bridge_polyfill__` so the host-injected runtime takes
+/// over from the per-artifact inline polyfill when the artifact is opened
+/// inside the shell. Outside the shell (claude.ai, file://) the artifact's
+/// own inline polyfill remains the bridge.
+const ARTIFACT_BRIDGE_JS: &str = include_str!("../../resources/artifact-iframe-bridge.js");
+
+/// Marker so the inject middleware doesn't double-inject if the response
+/// somehow flows through twice.
+const ARTIFACT_INJECT_MARKER: &str = "<!-- ikenga-artifact-bridge-injected -->";
+
 /// Cap the buffered body before injection. Anything bigger gets returned
 /// untouched — viewer pages are hand-written HTML, megabyte-sized payloads
 /// would be a data file mislabeled as HTML.
@@ -139,6 +151,7 @@ impl ViewerServerManager {
             // Health probe so the FE can confirm the server is up before
             // mounting an iframe (avoids a flash of "viewer offline").
             .route("/__viewer-health", any(health_handler))
+            .layer(middleware::from_fn(inject_artifact_bridge))
             .layer(middleware::from_fn(inject_iyke_bridge))
             .layer(middleware::from_fn(inject_security_headers))
             .with_state(mounts);
@@ -209,6 +222,87 @@ async fn serve_file(root: &PathBuf, rel_path: &str, mut req: Request<Body>) -> R
     }
 }
 
+/// Inject the Ikenga artifact bridge into every `text/html` response so
+/// host-aware artifacts (per the artifact-studio format defined in the
+/// 2026-05-14 Phase 0 plan) can detect they're inside the shell and swap
+/// their inline polyfill for the host-resolved runtime (data sources,
+/// secret resolution, structured logging).
+///
+/// Unlike `inject_iyke_bridge`, this middleware injects **right after the
+/// `<head>` opening tag** rather than before `</head>`. The artifact bridge
+/// must run before any other script in the document so `window.__ikenga_host__`
+/// is set before per-artifact inline polyfills evaluate (their guard:
+/// `window.__ikenga_bridge_polyfill__ = window.__ikenga_bridge_polyfill__ || (…)`
+/// only takes effect if our IIFE has already populated the polyfill global).
+/// Inserting at `</head>` would put the bridge after the inline polyfill,
+/// defeating the handoff.
+async fn inject_artifact_bridge(req: Request<Body>, next: Next) -> Response {
+    let resp = next.run(req).await;
+    let is_html = resp
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v.to_ascii_lowercase().starts_with("text/html"))
+        .unwrap_or(false);
+    if !is_html {
+        return resp;
+    }
+    let (mut parts, body) = resp.into_parts();
+    let bytes = match to_bytes(body, HTML_INJECT_MAX_BYTES).await {
+        Ok(b) => b,
+        Err(_) => return Response::from_parts(parts, Body::empty()),
+    };
+    let html = match std::str::from_utf8(&bytes) {
+        Ok(s) => s,
+        Err(_) => {
+            // Non-UTF8 — return the original bytes untouched; we don't have
+            // a safe way to splice without knowing the encoding.
+            parts
+                .headers
+                .insert(header::CONTENT_LENGTH, HeaderValue::from(bytes.len()));
+            return Response::from_parts(parts, Body::from(bytes));
+        }
+    };
+    if html.contains(ARTIFACT_INJECT_MARKER) {
+        parts
+            .headers
+            .insert(header::CONTENT_LENGTH, HeaderValue::from(bytes.len()));
+        return Response::from_parts(parts, Body::from(bytes));
+    }
+    // Module scripts are deferred — for the artifact bridge we want
+    // *synchronous* execution before the inline polyfill in <head> sees the
+    // document, so plain `<script>` (no `type="module"`). The bundle is an
+    // IIFE so it's safe to drop into a classic script tag.
+    let script =
+        format!("{ARTIFACT_INJECT_MARKER}\n<script>\n{ARTIFACT_BRIDGE_JS}\n</script>\n");
+    let mut out = String::with_capacity(html.len() + script.len());
+    // Inject right after `<head>` (allowing attributes like `<head class="…">`)
+    // — scan for the opening tag then the `>` that closes it.
+    let head_open = html
+        .find("<head")
+        .and_then(|i| html[i..].find('>').map(|j| i + j + 1));
+    if let Some(insert_at) = head_open {
+        out.push_str(&html[..insert_at]);
+        out.push_str(&script);
+        out.push_str(&html[insert_at..]);
+    } else if let Some(idx) = html.find("<body") {
+        // No <head> — inject just before <body> so it still runs before
+        // any body-script.
+        out.push_str(&html[..idx]);
+        out.push_str(&script);
+        out.push_str(&html[idx..]);
+    } else {
+        // Bare HTML fragment — prepend.
+        out.push_str(&script);
+        out.push_str(html);
+    }
+    let new_bytes = out.into_bytes();
+    parts
+        .headers
+        .insert(header::CONTENT_LENGTH, HeaderValue::from(new_bytes.len()));
+    Response::from_parts(parts, Body::from(new_bytes))
+}
+
 /// Inject the iyke iframe bridge into every `text/html` response so the
 /// parent shell can drive the previewed page (DOM snapshot, click, type,
 /// console/network capture). Same-origin with the page (the sandbox keeps
@@ -235,23 +329,20 @@ async fn inject_iyke_bridge(req: Request<Body>, next: Next) -> Response {
         Err(_) => {
             // Non-UTF8 — return the original bytes untouched; we don't have
             // a safe way to splice without knowing the encoding.
-            parts.headers.insert(
-                header::CONTENT_LENGTH,
-                HeaderValue::from(bytes.len()),
-            );
+            parts
+                .headers
+                .insert(header::CONTENT_LENGTH, HeaderValue::from(bytes.len()));
             return Response::from_parts(parts, Body::from(bytes));
         }
     };
     if html.contains(IYKE_INJECT_MARKER) {
-        parts.headers.insert(
-            header::CONTENT_LENGTH,
-            HeaderValue::from(bytes.len()),
-        );
+        parts
+            .headers
+            .insert(header::CONTENT_LENGTH, HeaderValue::from(bytes.len()));
         return Response::from_parts(parts, Body::from(bytes));
     }
-    let script = format!(
-        "{IYKE_INJECT_MARKER}\n<script type=\"module\">\n{IYKE_BRIDGE_JS}\n</script>\n"
-    );
+    let script =
+        format!("{IYKE_INJECT_MARKER}\n<script type=\"module\">\n{IYKE_BRIDGE_JS}\n</script>\n");
     let mut out = String::with_capacity(html.len() + script.len());
     if let Some(idx) = html.find("</head>") {
         out.push_str(&html[..idx]);
@@ -268,10 +359,9 @@ async fn inject_iyke_bridge(req: Request<Body>, next: Next) -> Response {
         out.push_str(html);
     }
     let new_bytes = out.into_bytes();
-    parts.headers.insert(
-        header::CONTENT_LENGTH,
-        HeaderValue::from(new_bytes.len()),
-    );
+    parts
+        .headers
+        .insert(header::CONTENT_LENGTH, HeaderValue::from(new_bytes.len()));
     Response::from_parts(parts, Body::from(new_bytes))
 }
 
