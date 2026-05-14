@@ -5,7 +5,7 @@
 	"type": "module",
 	"description": "Ikenga — Tauri 2 desktop app (control plane for terminals, chat, viewer)",
 	"scripts": {
-		"dev": "bun run iyke:bundle && vite",
+		"dev": "bun run iyke:bundle && bun run iyke:mcp:build && vite",
 		"build": "bun run iyke:bundle && bun run iyke:mcp:build && vite build",
 		"iyke:bundle": "bun build src/lib/iyke/iframe-bridge.entry.ts --outfile src-tauri/resources/iyke-iframe-bridge.js --target browser --format esm --minify",
 		"iyke:mcp:build": "bash scripts/build-iyke-mcp.sh",

@@ -1,7 +1,7 @@
 {
   "id": "com.ikenga.mcp-iyke",
   "name": "Iyke MCP",
-  "version": "0.1.0",
+  "version": "0.1.3",
   "ikenga_api": "1",
   "kind": "skill",
 
@@ -13,8 +13,8 @@
   "mcp": [
     {
       "name": "iyke",
-      "command": "./bin/iyke-mcp",
-      "args": [],
+      "command": "bun",
+      "args": ["run", "dist/index.js"],
       "lifecycle": "long-lived"
     }
   ],
