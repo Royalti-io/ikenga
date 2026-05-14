@@ -22,10 +22,10 @@ bun run fmt                # biome format --write .
 bun run lint               # biome lint .
 bun run test               # vitest run  (bun run test:watch for watch mode)
 
-# Sidecar binaries (compiled with bun, embedded in Tauri bundle)
-bun run sidecars:build              # builds mbox + video-studio + hyperframes + storyboard
-bun run sidecars:build:copy         # syncs hyperframes-projects then builds
-bun run sync:hyperframes            # sync hyperframes-projects/ from monorepo
+# Bundled-binary prereqs (run automatically by `bun run dev` / `build`)
+bun run bun:fetch                   # fetches pinned Bun for host into resources/bun/
+bun run iyke:bundle                 # bundles the iyke iframe-bridge entry
+bun run iyke:mcp:build              # bundles the mcp-iyke server JS into the builtin pkg dir
 
 # Production builds (unsigned, personal-use install — see README.md)
 bunx tauri build --target x86_64-unknown-linux-gnu && ./scripts/install-linux.sh
@@ -38,7 +38,7 @@ Required env (`.env.local`): `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, opti
 
 ### Two halves: frontend (`src/`) and Rust core (`src-tauri/`)
 
-The frontend is a TanStack Router file-based-routing React app. The Rust core (`src-tauri/src/lib.rs`) wires Tauri commands and owns long-lived state (PTYs, Claude sessions, render jobs, viewer HTTP server, sidecar processes, fs watchers, iyke control bridge). Everything the UI needs from the OS goes through `src/lib/tauri-cmd.ts` — that file is the **cross-team contract**; matching Rust commands live in `src-tauri/src/commands/`.
+The frontend is a TanStack Router file-based-routing React app. The Rust core (`src-tauri/src/lib.rs`) wires Tauri commands and owns long-lived state (PTYs, Claude sessions, viewer HTTP server, pkg kernel + sidecar supervisor, fs watchers, iyke control bridge, child-webview panes). Everything the UI needs from the OS goes through `src/lib/tauri-cmd.ts` — that file is the **cross-team contract**; matching Rust commands live in `src-tauri/src/commands/`.
 
 When adding a Tauri command:
 1. Add the Rust handler in `src-tauri/src/commands/<area>.rs`, re-export from `commands/mod.rs`, register in `lib.rs` `invoke_handler`.
@@ -55,23 +55,23 @@ File-based via TanStack Router. **Do not edit `src/routeTree.gen.ts` by hand** �
 
 ### Data layer
 
-- **Supabase** (`src/lib/supabase.ts`) — same project as `ikenga/`. Reads use anon key; mutations go through the actions sidecar.
+- **Supabase** (`src/lib/supabase.ts`) — Reads use the anon key. The shell exports a runtime env-vault file (`commands/secrets.rs:521`) that an external mutation worker can consume; the actions sidecar from the predecessor `royalti-pa-desktop` is not bundled here.
 - **TanStack Query** for all server state. Query keys centralized in `src/lib/query-keys.ts`, factories in `src/lib/queries/`.
-- **Local SQLite** via `tauri-plugin-sql` for desktop-only state (panel sizes, viewer recents, claude sessions index, render queue, mbox sync, storyboards). Migrations are SQL files in `src-tauri/migrations/0001..0006`, registered in `lib.rs`. **Add new migrations as the next-numbered file and register them in `lib.rs` — never edit existing ones.**
+- **Local SQLite** via `tauri-plugin-sql` for desktop-only state (panel sizes, viewer recents, claude sessions, pkg kernel, chat sessions, browser sessions, …). Migrations are numbered SQL files in `src-tauri/migrations/`, registered in `lib.rs`. **Add new migrations as the next-numbered file and register them in `lib.rs` — never edit existing ones.**
 
-### Sidecars (`sidecars/`)
+### Sidecars and bundled pkgs
 
-Each sidecar is a separate bun project that compiles to a single binary embedded in the Tauri bundle. They are spawned from Rust (`src-tauri/src/commands/`) and speak JSON over stdio.
+There is no `sidecars/` directory in this shell. The predecessor `royalti-pa-desktop` shipped one bun-compiled binary per worker (mbox, actions, video-studio, hyperframes, storyboard, ~80 MB each); Ikenga drops that pattern in favour of pkg-declared workers (per ADR-010).
 
-| Sidecar | Purpose |
+What ships in `src-tauri/resources/builtin-pkgs/` today:
+
+| Builtin pkg | Shape |
 |---|---|
-| `actions/` | All mutations + pollers (Resend, Listmonk, Twenty CRM, email/reply send, fundraising, sequence advance). Replaces the Next.js API routes. Subcommand-based; see `sidecars/actions/README.md`. Some subcommands are inline, others delegate via `tsx` to scripts in `ikenga/scripts/` (the retired Next.js app still hosts them as a shared library). |
-| `mbox/` | Local Thunderbird mbox reader. |
-| `video-studio/` | Remotion-based video studio. |
-| `hyperframes/` | HyperFrames render server. |
-| `storyboard/` | Storyboard editor server (port 3105 in dev). |
+| `com.ikenga.engine-claude-code` | Engine adapter — manifest only; spawns the user's `claude` CLI. |
+| `com.ikenga.iyke` | Skills + commands JSON consumed by the iyke control bridge. |
+| `com.ikenga.mcp-iyke` | MCP server, JS source bundled at build time (`scripts/build-iyke-mcp.sh`). Spawned through Phase G's `runtime::resolve_command` shim against the bundled Bun (`src-tauri/resources/bun/<target>/bun`, fetched per-target by `scripts/fetch-bun.sh`). |
 
-The actions sidecar logs every run to the Supabase `agent_runs` table — visible on `/cron`. Env loads from `PA_ACTIONS_ENV_FILE` → `~/.config/pa-actions/env`.
+Future workers should arrive as **registry pkgs** declaring `command: "bun"` + `args: ["run", "src/index.ts"]`. The kernel's MCP and supervised-sidecar spawn sites both route through `runtime::resolve_command`, so the bundled Bun resolves automatically — no changes needed for new pkgs as long as they declare `bun` (not an absolute path).
 
 ### Claude session integration
 
