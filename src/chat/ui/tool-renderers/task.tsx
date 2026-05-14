@@ -10,40 +10,41 @@ interface TaskInput {
 
 export function TaskRenderer({
 	pair,
-	expanded,
+	density = 'inline',
 	threadId,
 }: {
 	pair: PairedToolCall;
-	expanded: boolean;
+	density?: 'inline' | 'full';
 	threadId: string;
 }) {
 	const input = (pair.use.input ?? {}) as TaskInput;
 	const events = useChatStore((s) => s.threads[threadId]?.events ?? []);
 	const children = findToolChildren(events, pair.use.id);
+	const isFull = density === 'full';
 
 	return (
 		<div className="space-y-2">
 			<div className="flex items-start gap-2 text-xs">
-				<Bot className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground" />
+				<Bot className="mt-0.5 h-3 w-3 shrink-0 text-[var(--chip-carve)]" />
 				<div className="min-w-0 flex-1">
 					{input.subagent_type && (
-						<span className="rounded bg-violet-500/10 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-violet-700 dark:text-violet-300">
+						<span className="rounded bg-[var(--rule-soft)] px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-[var(--kola-amber)]">
 							{input.subagent_type}
 						</span>
 					)}
 					{input.description && <span className="ml-2 text-foreground">{input.description}</span>}
 				</div>
 			</div>
-			{expanded && (
+			{isFull && (
 				<>
 					{input.prompt && (
-						<pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded border border-border bg-muted/40 p-2 font-mono text-[11px]">
+						<pre className="whitespace-pre-wrap break-words rounded border border-[var(--rule)] bg-[var(--rule-soft)] p-2 font-mono text-[11px]">
 							{input.prompt}
 						</pre>
 					)}
 					{children.length > 0 && (
-						<div className="ml-4 space-y-2 border-l-2 border-violet-500/30 pl-3">
-							<div className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+						<div className="ml-4 space-y-2 border-l-2 border-[var(--kola-amber)] pl-3">
+							<div className="flex items-center gap-1 font-mono text-[10px] uppercase tracking-wider text-[var(--chip-carve)]">
 								<ChevronRight className="h-3 w-3" />
 								{children.length} child{children.length === 1 ? '' : 'ren'}
 							</div>
@@ -58,7 +59,7 @@ export function TaskRenderer({
 						</div>
 					)}
 					{pair.result && (
-						<pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded bg-muted/40 p-2 font-mono text-[11px]">
+						<pre className="whitespace-pre-wrap break-words rounded bg-[var(--rule-soft)] p-2 font-mono text-[11px]">
 							{flatten(pair.result.output)}
 						</pre>
 					)}

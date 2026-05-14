@@ -28,6 +28,7 @@ import {
 import { buildRenderItems, selectDebugEvents, useChatStore, type RenderItem } from '../store';
 import { ToolCallCard } from './tool-call-card';
 import { ArtifactPill } from './artifact-pill';
+import { PermissionDialog } from './permission-dialog';
 import { Markdown } from '@/components/markdown';
 
 interface ThreadProps {
@@ -67,6 +68,17 @@ export function Thread({ threadId, className, onBranch }: ThreadProps) {
 		}
 		return out;
 	}, [items, state]);
+	// ADR-011 phase 1: identify the last assistant `text` item so we can
+	// render the ember streaming-edge under it when the thread is actively
+	// streaming. Walk in reverse so the first hit is the tail.
+	const streamingTailKey = useMemo<string | null>(() => {
+		if (!state || state.status !== 'streaming') return null;
+		for (let i = items.length - 1; i >= 0; i--) {
+			const it = items[i];
+			if ('kind' in it.event && it.event.kind === 'text') return it.key;
+		}
+		return null;
+	}, [items, state]);
 	const debugEvents = useMemo(
 		() => (includeDebug && state ? selectDebugEvents(state.events) : []),
 		[state?.events, includeDebug]
@@ -95,7 +107,7 @@ export function Thread({ threadId, className, onBranch }: ThreadProps) {
 						description="Send a prompt to start the conversation."
 					/>
 				) : (
-					<ul className="divide-y divide-border/40">
+					<ul className="divide-y divide-[var(--rule)]">
 						{items.map((item) => (
 							<RenderRow
 								key={item.key}
@@ -104,29 +116,28 @@ export function Thread({ threadId, className, onBranch }: ThreadProps) {
 								cwd={cwd}
 								branchTurn={branchTurnByItem.get(item.key)}
 								onBranch={onBranch}
+								isStreamingTail={item.key === streamingTailKey}
 							/>
 						))}
 					</ul>
 				)}
-				{state.status === 'streaming' && (
-					<div className="flex items-center gap-2 border-t border-border bg-muted/20 px-4 py-2 text-xs text-muted-foreground">
-						<Loader2 className="h-3 w-3 animate-spin" />
-						streaming…
-					</div>
-				)}
 				{state.status === 'interrupted' && (
-					<div className="flex items-center gap-2 border-t border-amber-500/30 bg-amber-500/5 px-4 py-2 text-xs text-amber-700 dark:text-amber-300">
+					<div className="flex items-center gap-2 border-t border-[var(--rule)] px-4 py-1.5 text-[10px] uppercase tracking-wider text-[var(--kola-amber)]">
 						<AlertCircle className="h-3 w-3" />
 						interrupted
 					</div>
 				)}
 				{state.status === 'error' && state.errorMessage && (
-					<div className="flex items-center gap-2 border-t border-destructive/40 bg-destructive/10 px-4 py-2 text-xs text-destructive">
-						<CircleAlert className="h-3 w-3" />
-						{state.errorMessage}
+					<div className="flex items-center gap-2 border-t border-[var(--rule)] px-4 py-1.5 text-[11px] text-[var(--oxblood)]">
+						<CircleAlert className="h-3 w-3 shrink-0" />
+						<span className="uppercase tracking-wider text-[10px] mr-1">error</span>
+						<span className="truncate normal-case tracking-normal opacity-90">
+							{state.errorMessage}
+						</span>
 					</div>
 				)}
 				{includeDebug && debugEvents.length > 0 && <DebugStrip events={debugEvents} />}
+				<PermissionDialog threadId={threadId} />
 			</ConversationContent>
 			<ConversationScrollButton />
 		</Conversation>
@@ -139,6 +150,7 @@ function RenderRow({
 	cwd,
 	branchTurn,
 	onBranch,
+	isStreamingTail,
 }: {
 	item: RenderItem;
 	threadId: string;
@@ -147,12 +159,15 @@ function RenderRow({
 	 *  `acpForkSession` when the user clicks "Branch from here". */
 	branchTurn?: number;
 	onBranch?: (upToTurn: number) => void;
+	/** ADR-011 phase 1: true on the last assistant `text` row while the
+	 *  thread is streaming. Drives the ember-edge animation. */
+	isStreamingTail?: boolean;
 }) {
 	const event = item.event;
 
 	if ('kind' in event && event.kind === 'tool_pair') {
 		return (
-			<li className="bg-amber-50/30 px-4 py-3 dark:bg-amber-950/10">
+			<li className="px-4 py-3">
 				<ToolCallCard pair={event.pair} threadId={threadId} />
 			</li>
 		);
@@ -183,15 +198,22 @@ function RenderRow({
 							density="compact"
 							className="text-sm leading-relaxed"
 						/>
+						{isStreamingTail && (
+							// ADR-011 phase 1: ember streaming edge — animated linear-gradient
+							// strip under the actively streaming turn. Only this turn shows
+							// it (computed at Thread level), so we never get more than one
+							// ember per visible scroll.
+							<div className="streaming-edge mt-2 h-px" aria-hidden />
+						)}
 						{canBranch && (
 							<button
 								type="button"
 								onClick={() => onBranch(branchTurn)}
-								className="absolute right-0 top-0 inline-flex items-center gap-1 rounded-md border border-input bg-background/80 px-1.5 py-0.5 text-[10px] text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground group-hover:opacity-100"
+								className="absolute right-0 top-0 inline-flex items-center gap-1 rounded-sm border border-[var(--rule)] bg-transparent px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-[var(--chip-carve)] opacity-0 transition-colors hover:border-[var(--kola-amber)] hover:bg-[var(--rule-soft)] hover:text-[var(--kola-amber)] group-hover:opacity-100"
 								title="Branch from here — fork this thread into a new conversation that continues from this assistant turn"
 							>
 								<GitBranch className="h-3 w-3" />
-								Branch from here
+								Branch
 							</button>
 						)}
 					</div>
@@ -218,20 +240,28 @@ function RenderRow({
 				</Row>
 			);
 		case 'user_turn':
+			// ADR-011 phase 1: user turns are inset right (asymmetric D3 layout).
+			// No label gutter — right-alignment is the signal. Max-width 68%.
 			return (
-				<Row icon={User} tone="user" label="you">
-					<Markdown
-						content={event.text}
-						cwd={cwd}
-						density="compact"
-						className="text-sm leading-relaxed"
-					/>
-				</Row>
+				<li className="flex justify-end px-4 py-5">
+					<div className="min-w-0 max-w-[68%]">
+						<div className="mb-1 flex items-center justify-end gap-1 font-mono text-[10px] uppercase tracking-[0.2em] text-[var(--chip-carve)]">
+							<span>you</span>
+							<User className="h-3 w-3" />
+						</div>
+						<Markdown
+							content={event.text}
+							cwd={cwd}
+							density="compact"
+							className="text-sm leading-relaxed"
+						/>
+					</div>
+				</li>
 			);
 		case 'system_hook':
 			if (event.hookEvent === 'cancel') {
 				return (
-					<li className="flex items-center gap-2 bg-amber-50/30 px-4 py-2 text-xs text-amber-700 dark:bg-amber-950/10 dark:text-amber-300">
+					<li className="flex items-center gap-2 px-4 py-2 text-[10px] uppercase tracking-wider text-[var(--kola-amber)]">
 						<AlertCircle className="h-3 w-3" />
 						interrupted by user
 					</li>
@@ -250,13 +280,14 @@ function RenderRow({
 			);
 		case 'done':
 			return (
-				<Row icon={CheckCircle2} tone="info" label="done">
-					<span className="text-xs text-muted-foreground">
-						{event.stopReason ?? 'finished'}
-						{event.totalCostUsd != null && ` · $${event.totalCostUsd.toFixed(4)}`}
-						{event.durationMs != null && ` · ${event.durationMs}ms`}
-					</span>
-				</Row>
+				<li className="flex items-center gap-3 border-t border-[var(--rule)] px-4 py-2 font-mono text-[10px] uppercase tracking-[0.2em] text-[var(--chip-carve)]">
+					<CheckCircle2 className="h-3 w-3 shrink-0" />
+					<span>{event.stopReason ?? 'finished'}</span>
+					{event.totalCostUsd != null && (
+						<span className="text-[var(--kola-amber)]">· ${event.totalCostUsd.toFixed(4)}</span>
+					)}
+					{event.durationMs != null && <span>· {event.durationMs}ms</span>}
+				</li>
 			);
 		case 'parse_error':
 		case 'unknown':
@@ -271,14 +302,16 @@ function RenderRow({
 
 type Tone = 'user' | 'assistant' | 'tool' | 'artifact' | 'info' | 'muted' | 'error';
 
-const TONE_CLASS: Record<Tone, string> = {
-	user: 'bg-blue-50/40 dark:bg-blue-950/15',
-	assistant: 'bg-background',
-	tool: 'bg-amber-50/30 dark:bg-amber-950/10',
-	artifact: 'bg-violet-50/30 dark:bg-violet-950/10',
-	info: 'bg-muted/20',
-	muted: 'bg-background',
-	error: 'bg-red-50/40 dark:bg-red-950/10',
+// v2 layout uses hairline rules between turns, not row backgrounds.
+// Kept the Tone union so the label color can still vary per row kind.
+const TONE_LABEL_CLASS: Record<Tone, string> = {
+	user: 'text-[var(--chip-carve)]',
+	assistant: 'text-[var(--chip-carve)]',
+	tool: 'text-[var(--kola-amber)]',
+	artifact: 'text-[var(--kola-amber)]',
+	info: 'text-[var(--chip-carve)]',
+	muted: 'text-[var(--chip-carve)]',
+	error: 'text-[var(--oxblood)]',
 };
 
 function Row({
@@ -293,8 +326,13 @@ function Row({
 	children: React.ReactNode;
 }) {
 	return (
-		<li className={cn('flex gap-3 px-4 py-3', TONE_CLASS[tone])}>
-			<div className="flex w-20 shrink-0 items-start gap-1 pt-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+		<li className="flex gap-4 px-4 py-5">
+			<div
+				className={cn(
+					'flex w-20 shrink-0 items-start gap-1 pt-0.5 font-mono text-[10px] uppercase tracking-[0.2em]',
+					TONE_LABEL_CLASS[tone]
+				)}
+			>
 				{Icon && <Icon className="h-3 w-3" />}
 				<span>{label}</span>
 			</div>

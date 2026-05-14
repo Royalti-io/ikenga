@@ -3,38 +3,41 @@ import type { PairedToolCall } from '../../store';
 
 export function GenericJsonRenderer({
 	pair,
-	expanded,
+	density = 'inline',
 }: {
 	pair: PairedToolCall;
-	expanded: boolean;
+	density?: 'inline' | 'full';
 }) {
+	const isFull = density === 'full';
 	return (
 		<div className="space-y-2">
 			<div className="flex items-center gap-2 text-xs">
-				<Wrench className="h-3 w-3 text-muted-foreground" />
+				<Wrench className="h-3 w-3 text-[var(--chip-carve)]" />
 				<span className="font-mono text-[11px]">{pair.use.name}</span>
-				{!expanded && pair.use.input != null && (
-					<span className="truncate text-muted-foreground">{summarize(pair.use.input)}</span>
+				{!isFull && pair.use.input != null && (
+					<span className="truncate text-[var(--chip-carve)]">{summarize(pair.use.input)}</span>
 				)}
 			</div>
-			{expanded && (
+			{isFull && (
 				<>
 					<div>
-						<p className="mb-1 text-[10px] uppercase tracking-wide text-muted-foreground">input</p>
-						<pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded border border-border bg-muted/40 p-2 font-mono text-[11px]">
+						<p className="mb-1 font-mono text-[10px] uppercase tracking-wider text-[var(--chip-carve)]">
+							input
+						</p>
+						<pre className="whitespace-pre-wrap break-words rounded border border-[var(--rule)] bg-[var(--rule-soft)] p-2 font-mono text-[11px]">
 							{tryStringify(pair.use.input)}
 						</pre>
 					</div>
 					{pair.result && (
 						<div>
-							<p className="mb-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+							<p className="mb-1 font-mono text-[10px] uppercase tracking-wider text-[var(--chip-carve)]">
 								output{pair.result.isError ? ' (error)' : ''}
 							</p>
 							<pre
-								className={`max-h-48 overflow-auto whitespace-pre-wrap break-words rounded p-2 font-mono text-[11px] ${
+								className={`whitespace-pre-wrap break-words rounded p-2 font-mono text-[11px] ${
 									pair.result.isError
-										? 'border border-destructive/30 bg-destructive/10 text-destructive'
-										: 'bg-muted/40'
+										? 'border border-[var(--oxblood)]/30 bg-[var(--oxblood)]/10 text-[var(--oxblood)]'
+										: 'bg-[var(--rule-soft)]'
 								}`}
 							>
 								{tryStringify(pair.result.output)}

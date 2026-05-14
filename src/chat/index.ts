@@ -33,7 +33,7 @@ export {
 	useChatColdStart,
 	mintThreadId,
 } from './hooks';
-export { useChatStore } from './store';
+export { useChatStore, selectTotalCostUsd } from './store';
 export {
 	findThreadByClaudeSessionId,
 	findThreadById,

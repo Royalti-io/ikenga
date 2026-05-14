@@ -259,6 +259,19 @@ export function buildRenderItems(events: ChatEvent[], includeDebug = false): Ren
 	return items;
 }
 
+/** ADR-011 phase 1: sum `totalCostUsd` across all `done` events for a
+ *  thread. Drives the cumulative thread cost in the session pane header.
+ *  Events without a cost field contribute zero. */
+export function selectTotalCostUsd(events: ChatEvent[]): number {
+	let total = 0;
+	for (const e of events) {
+		if (e.kind === 'done' && typeof e.totalCostUsd === 'number') {
+			total += e.totalCostUsd;
+		}
+	}
+	return total;
+}
+
 /** Children of a Task tool, looked up by parentToolUseId. */
 export function findToolChildren(events: ChatEvent[], parentId: string): PairedToolCall[] {
 	const resultsById = new Map<string, Extract<ChatEvent, { kind: 'tool_result' }>>();

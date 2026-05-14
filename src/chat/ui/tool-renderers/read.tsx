@@ -1,27 +1,38 @@
 import { FileText } from 'lucide-react';
 import type { PairedToolCall } from '../../store';
 
-export function ReadRenderer({ pair, expanded }: { pair: PairedToolCall; expanded: boolean }) {
+export function ReadRenderer({
+	pair,
+	density = 'inline',
+}: {
+	pair: PairedToolCall;
+	density?: 'inline' | 'full';
+}) {
 	const input = pair.use.input as { file_path?: string; offset?: number; limit?: number } | null;
 	const path = input?.file_path ?? '(no path)';
 	const result = pair.result;
 	const text = typeof result?.output === 'string' ? result.output : stringifyOutput(result?.output);
+	const isFull = density === 'full';
 
 	return (
 		<div className="space-y-2">
 			<div className="flex items-center gap-2 text-xs">
-				<FileText className="h-3 w-3 text-muted-foreground" />
-				<code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">{path}</code>
+				<FileText className="h-3 w-3 text-[var(--chip-carve)]" />
+				<code className="rounded bg-[var(--rule-soft)] px-1 py-0.5 font-mono text-[11px]">
+					{path}
+				</code>
 				{input?.offset != null && (
-					<span className="text-muted-foreground">offset {input.offset}</span>
+					<span className="text-[var(--chip-carve)]">offset {input.offset}</span>
 				)}
-				{input?.limit != null && <span className="text-muted-foreground">limit {input.limit}</span>}
-				{!expanded && text && (
-					<span className="text-muted-foreground">· {countLines(text)} lines</span>
+				{input?.limit != null && (
+					<span className="text-[var(--chip-carve)]">limit {input.limit}</span>
+				)}
+				{!isFull && text && (
+					<span className="text-[var(--chip-carve)]">· {countLines(text)} lines</span>
 				)}
 			</div>
-			{expanded && text && (
-				<pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words rounded border border-border bg-muted/40 p-2 font-mono text-[11px]">
+			{isFull && text && (
+				<pre className="whitespace-pre-wrap break-words rounded border border-[var(--rule)] bg-[var(--rule-soft)] p-2 font-mono text-[11px]">
 					{text}
 				</pre>
 			)}

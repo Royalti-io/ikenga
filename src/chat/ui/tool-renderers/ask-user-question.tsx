@@ -68,9 +68,9 @@ export function AskUserQuestionRenderer({ pair }: AskUserQuestionRendererProps) 
 
 	return (
 		<div className="space-y-3">
-			<div className="flex items-start gap-2 rounded-md border border-border bg-muted/30 p-2 text-xs text-muted-foreground">
-				<Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-				<div>
+			<div className="flex items-start gap-2 border border-[var(--rule)] bg-transparent p-2 font-mono text-[10px] uppercase tracking-wider text-[var(--chip-carve)]">
+				<Info className="mt-0.5 h-3 w-3 shrink-0 text-[var(--kola-amber)]" />
+				<div className="normal-case tracking-normal">
 					AskUserQuestion is handled via the ACP permission dialog on the default chat engine. This
 					read-only view appears only on the legacy CLI path.
 				</div>
@@ -84,25 +84,25 @@ export function AskUserQuestionRenderer({ pair }: AskUserQuestionRendererProps) 
 
 function ReadOnlyQuestion({ q }: { q: AskUserQuestionEntry }) {
 	return (
-		<div className="space-y-2 rounded-md border border-border bg-background p-3">
-			<div className="flex items-baseline gap-2">
-				{q.header && (
-					<span className="rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
-						{q.header}
-					</span>
-				)}
-				<span className="text-[10px] uppercase tracking-wide text-muted-foreground">
-					{q.multiSelect ? 'pick any' : 'pick one'}
-				</span>
+		<div className="space-y-2 border border-[var(--rule)] bg-transparent p-3">
+			<div className="flex items-baseline gap-2 border-b border-[var(--rule)] pb-1.5 font-mono text-[9px] uppercase tracking-[0.22em] text-[var(--chip-carve)]">
+				{q.header && <span className="text-[var(--kola-amber)]">◾ {q.header}</span>}
+				<span>·</span>
+				<span>{q.multiSelect ? 'pick any' : 'pick one'}</span>
 			</div>
 			<div className="text-sm font-medium">
 				<Markdown content={q.question} density="compact" />
 			</div>
-			<ul className="space-y-1 text-xs">
+			<ul className="space-y-1.5 text-xs">
 				{q.options.map((opt) => (
-					<li key={opt.label} className="flex items-start gap-2">
-						<span className="font-medium">{opt.label}</span>
-						{opt.description && <span className="text-muted-foreground">{opt.description}</span>}
+					<li
+						key={opt.label}
+						className="flex items-start gap-2 border-l-2 border-[var(--rule)] pl-2"
+					>
+						<span className="font-mono font-medium uppercase tracking-wider text-[10px] text-foreground">
+							{opt.label}
+						</span>
+						{opt.description && <span className="text-[var(--chip-carve)]">{opt.description}</span>}
 					</li>
 				))}
 			</ul>

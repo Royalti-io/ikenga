@@ -9,24 +9,35 @@ interface EditInput {
 	edits?: Array<{ old_string: string; new_string: string }>;
 }
 
-export function WriteEditRenderer({ pair, expanded }: { pair: PairedToolCall; expanded: boolean }) {
+export function WriteEditRenderer({
+	pair,
+	density = 'inline',
+}: {
+	pair: PairedToolCall;
+	density?: 'inline' | 'full';
+}) {
 	const input = (pair.use.input ?? {}) as EditInput;
 	const path = input.file_path ?? '(no path)';
 	const isError = pair.result?.isError === true;
+	const isFull = density === 'full';
 
 	return (
 		<div className="space-y-2">
 			<div className="flex items-center gap-2 text-xs">
-				<Pencil className="h-3 w-3 text-muted-foreground" />
-				<code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">{path}</code>
-				<span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+				<Pencil className="h-3 w-3 text-[var(--chip-carve)]" />
+				<code className="rounded bg-[var(--rule-soft)] px-1 py-0.5 font-mono text-[11px]">
+					{path}
+				</code>
+				<span className="font-mono text-[10px] uppercase tracking-wider text-[var(--chip-carve)]">
 					{pair.use.name}
 				</span>
 				{isError && (
-					<span className="text-[10px] uppercase tracking-wide text-destructive">error</span>
+					<span className="font-mono text-[10px] uppercase tracking-wider text-[var(--oxblood)]">
+						error
+					</span>
 				)}
 			</div>
-			{expanded && (
+			{isFull && (
 				<div className="space-y-2">
 					{input.edits ? (
 						input.edits.map((e, i) => (
@@ -35,14 +46,14 @@ export function WriteEditRenderer({ pair, expanded }: { pair: PairedToolCall; ex
 					) : input.old_string != null || input.new_string != null ? (
 						<DiffPreview oldStr={input.old_string ?? ''} newStr={input.new_string ?? ''} />
 					) : input.content != null ? (
-						<pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded border border-emerald-500/30 bg-emerald-500/5 p-2 font-mono text-[11px]">
+						<pre className="whitespace-pre-wrap break-words rounded border border-[var(--verdigris)]/30 bg-[var(--verdigris)]/5 p-2 font-mono text-[11px]">
 							{input.content}
 						</pre>
 					) : (
-						<p className="text-[11px] text-muted-foreground italic">no preview available</p>
+						<p className="text-[11px] italic text-[var(--chip-carve)]">no preview available</p>
 					)}
 					{pair.result && (
-						<pre className="max-h-32 overflow-auto whitespace-pre-wrap break-words rounded bg-muted/40 p-2 font-mono text-[11px]">
+						<pre className="whitespace-pre-wrap break-words rounded bg-[var(--rule-soft)] p-2 font-mono text-[11px]">
 							{summarizeResult(pair.result.output)}
 						</pre>
 					)}
@@ -56,14 +67,14 @@ function DiffPreview({ oldStr, newStr }: { oldStr: string; newStr: string }) {
 	return (
 		<div className="grid grid-cols-1 gap-2">
 			{oldStr && (
-				<pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded border border-rose-500/30 bg-rose-500/5 p-2 font-mono text-[11px]">
-					<span className="select-none text-rose-500">- </span>
+				<pre className="whitespace-pre-wrap break-words rounded border border-[var(--oxblood)]/30 bg-[var(--oxblood)]/5 p-2 font-mono text-[11px]">
+					<span className="select-none text-[var(--oxblood)]">- </span>
 					{oldStr}
 				</pre>
 			)}
 			{newStr && (
-				<pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded border border-emerald-500/30 bg-emerald-500/5 p-2 font-mono text-[11px]">
-					<span className="select-none text-emerald-500">+ </span>
+				<pre className="whitespace-pre-wrap break-words rounded border border-[var(--verdigris)]/30 bg-[var(--verdigris)]/5 p-2 font-mono text-[11px]">
+					<span className="select-none text-[var(--verdigris)]">+ </span>
 					{newStr}
 				</pre>
 			)}

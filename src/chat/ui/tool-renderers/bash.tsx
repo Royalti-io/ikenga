@@ -7,42 +7,49 @@ interface BashInput {
 	timeout?: number;
 }
 
-export function BashRenderer({ pair, expanded }: { pair: PairedToolCall; expanded: boolean }) {
+export function BashRenderer({
+	pair,
+	density = 'inline',
+}: {
+	pair: PairedToolCall;
+	density?: 'inline' | 'full';
+}) {
 	const input = (pair.use.input ?? {}) as BashInput;
 	const command = input.command ?? '';
 	const result = pair.result;
 	const { stdout, stderr } = splitOutput(result?.output);
 	const isError = result?.isError === true;
+	const isFull = density === 'full';
 
 	return (
 		<div className="space-y-2">
 			<div className="flex items-start gap-2 text-xs">
-				<TerminalSquare className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground" />
-				<code className="break-all rounded bg-muted px-1 py-0.5 font-mono text-[11px]">
-					{expanded ? command : truncate(command, 80)}
+				<TerminalSquare className="mt-0.5 h-3 w-3 shrink-0 text-[var(--chip-carve)]" />
+				<code className="break-all rounded bg-[var(--rule-soft)] px-1 py-0.5 font-mono text-[11px]">
+					{isFull ? command : truncate(command, 80)}
 				</code>
 			</div>
-			{input.description && expanded && (
-				<p className="text-[11px] italic text-muted-foreground">{input.description}</p>
+			{input.description && isFull && (
+				<p className="text-[11px] italic text-[var(--chip-carve)]">{input.description}</p>
 			)}
-			{expanded && (
+			{isFull && (
 				<>
 					{stdout && (
-						<pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words rounded border border-border bg-muted/40 p-2 font-mono text-[11px]">
+						<pre className="whitespace-pre-wrap break-words rounded border border-[var(--rule)] bg-[var(--rule-soft)] p-2 font-mono text-[11px]">
 							{stdout}
 						</pre>
 					)}
 					{stderr && (
-						<pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded border border-destructive/30 bg-destructive/10 p-2 font-mono text-[11px] text-destructive">
+						<pre className="whitespace-pre-wrap break-words rounded border border-[var(--oxblood)]/40 bg-[var(--oxblood)]/10 p-2 font-mono text-[11px] text-[var(--oxblood)]">
 							{stderr}
 						</pre>
 					)}
 					{!stdout && !stderr && result && (
-						<pre className="max-h-32 overflow-auto whitespace-pre-wrap break-words rounded bg-muted/40 p-2 font-mono text-[11px]">
+						<pre className="whitespace-pre-wrap break-words rounded bg-[var(--rule-soft)] p-2 font-mono text-[11px]">
 							{flatten(result.output)}
 						</pre>
 					)}
-					{isError && !stderr && <p className="text-[11px] text-destructive">tool error</p>}
+					{isError && !stderr && <p className="text-[11px] text-[var(--oxblood)]">tool error</p>}
 				</>
 			)}
 		</div>

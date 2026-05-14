@@ -280,9 +280,18 @@ export function Composer({ threadId, className, placeholder }: ComposerProps) {
 		}
 	}
 
+	// ADR-011 phase 1: anvil composer — heat-dot intensity tracks composer
+	// state. Cold = empty, warm = user typing, hot = streaming. The dot is
+	// rendered next to the submit button below.
+	const heatIntensity: 'cold' | 'warm' | 'hot' = isStreaming
+		? 'hot'
+		: text.trim().length > 0 || pendingImages.length > 0
+			? 'warm'
+			: 'cold';
+
 	return (
 		<div
-			className={cn('border-t border-border bg-background px-4 py-3', className)}
+			className={cn('border-t-2 border-[var(--rule)] bg-[var(--bg-raised)] px-4 py-3', className)}
 			onDrop={handleDrop}
 			onDragOver={handleDragOver}
 		>
@@ -305,9 +314,9 @@ export function Composer({ threadId, className, placeholder }: ComposerProps) {
 				</div>
 			)}
 			{isSlash && slashMatches.length > 0 && (
-				<div className="mb-2 overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-sm">
-					<div className="border-b border-border bg-muted/40 px-2 py-1 text-[10px] uppercase tracking-wide text-muted-foreground">
-						Slash commands — ↑/↓ to choose, Tab to insert
+				<div className="mb-2 overflow-hidden rounded-sm border border-[var(--rule)] bg-background text-popover-foreground">
+					<div className="border-b border-[var(--rule)] px-2 py-1 font-mono text-[9px] uppercase tracking-[0.22em] text-[var(--chip-carve)]">
+						slash commands · ↑↓ choose · tab insert
 					</div>
 					<ul>
 						{slashMatches.map((cmd, idx) => (
@@ -319,12 +328,13 @@ export function Composer({ threadId, className, placeholder }: ComposerProps) {
 										insertSlashCommand(cmd);
 									}}
 									className={cn(
-										'flex w-full items-center gap-2 px-2 py-1 text-left text-xs hover:bg-accent',
-										idx === slashIdx && 'bg-accent text-accent-foreground'
+										'flex w-full items-center gap-2 border-l-2 border-transparent px-2 py-1 text-left text-xs transition-colors hover:bg-[var(--rule-soft)]',
+										idx === slashIdx &&
+											'border-l-[var(--kola-amber)] bg-[var(--rule-soft)] text-foreground'
 									)}
 								>
 									<span className="font-mono">/{cmd.name}</span>
-									<span className="ml-auto text-[10px] uppercase tracking-wide text-muted-foreground">
+									<span className="ml-auto font-mono text-[9px] uppercase tracking-wider text-[var(--chip-carve)]">
 										{cmd.source}
 									</span>
 								</button>
@@ -334,27 +344,28 @@ export function Composer({ threadId, className, placeholder }: ComposerProps) {
 				</div>
 			)}
 			{isSlash && slashMatches.length === 0 && slashQuery && (
-				<div className="mb-2 flex items-center gap-2 text-[11px] text-muted-foreground">
-					<span className="rounded bg-muted px-1.5 py-0.5 font-mono">slash command</span>
+				<div className="mb-2 flex items-center gap-2 font-mono text-[10px] uppercase tracking-wider text-[var(--chip-carve)]">
+					<span className="text-[var(--kola-amber)]">◾</span>
 					<span>
-						no <span className="font-mono">/{slashQuery}</span> defined — sent to claude as-is
+						no <span className="normal-case tracking-normal">/{slashQuery}</span> defined — sent to
+						claude as-is
 					</span>
 				</div>
 			)}
 			{pendingImages.length > 0 && (
 				// Phase 7: thumbnail strip for pasted/dropped images. Each thumb has
 				// an inline × to remove it pre-send.
-				<div className="mb-2 flex flex-wrap gap-2">
+				<div className="mb-2 flex flex-wrap gap-2 border-b border-[var(--rule)] pb-2">
 					{pendingImages.map((img) => (
 						<div
 							key={img.id}
-							className="relative h-16 w-16 overflow-hidden rounded border border-border"
+							className="group/thumb relative h-16 w-16 overflow-hidden rounded-sm border border-[var(--rule)] transition-colors hover:border-[var(--kola-amber)]"
 						>
 							<img src={img.previewUrl} alt="attachment" className="h-full w-full object-cover" />
 							<button
 								type="button"
 								onClick={() => removePendingImage(img.id)}
-								className="absolute right-0 top-0 flex h-4 w-4 items-center justify-center bg-background/80 text-foreground hover:bg-background"
+								className="absolute right-0 top-0 flex h-4 w-4 items-center justify-center bg-background/80 text-[var(--chip-carve)] transition-colors hover:bg-background hover:text-[var(--oxblood)]"
 								aria-label="Remove image"
 							>
 								<X className="h-3 w-3" />
@@ -393,15 +404,43 @@ export function Composer({ threadId, className, placeholder }: ComposerProps) {
 							<button
 								type="button"
 								onClick={() => fileInputRef.current?.click()}
-								className="inline-flex h-5 items-center gap-1 rounded border border-border bg-muted/40 px-1.5 text-[10px] font-medium uppercase tracking-wide text-foreground hover:bg-muted"
+								className="inline-flex h-5 items-center gap-1 rounded-sm border border-[var(--rule)] bg-transparent px-1.5 font-mono text-[10px] uppercase tracking-wider text-foreground transition-colors hover:border-[var(--kola-amber)] hover:bg-[var(--rule-soft)]"
 								aria-label="Attach image"
 								title="Attach image (or paste / drag-drop)"
 							>
 								<ImagePlus className="h-3 w-3" />
-								<span className="hidden sm:inline">Attach</span>
+								<span className="hidden sm:inline">attach</span>
 							</button>
-							<span>{adapterLabel}</span>
-							{state?.thread.model && <span>· {state.thread.model.replace(/^claude-/, '')}</span>}
+							<span className="text-[var(--chip-carve)]">{adapterLabel}</span>
+							{/* ADR-011 phase 1: Model + Effort pills — non-functional placeholders.
+							    Real behavior lands in phases 3 + 4 (per-turn model picker, effort
+							    control + thinking-budget-tokens flag). Click is a no-op for now. */}
+							<button
+								type="button"
+								disabled
+								className="inline-flex h-5 cursor-not-allowed items-center gap-1 rounded-sm border border-[var(--rule)] bg-transparent px-1.5 font-mono text-[10px] uppercase tracking-wider text-[var(--kola-amber-soft)] opacity-80"
+								title="Per-turn model picker — coming in ADR-011 phase 3"
+							>
+								{state?.thread.model
+									? state.thread.model.replace(/^claude-/, '').replace(/-/g, ' ')
+									: 'sonnet 4.6'}
+							</button>
+							<button
+								type="button"
+								disabled
+								className="inline-flex h-5 cursor-not-allowed items-center gap-1.5 rounded-sm border border-[var(--rule)] bg-transparent px-1.5 font-mono text-[10px] uppercase tracking-wider text-[var(--ember-soft)] opacity-80"
+								title="Extended-thinking effort — coming in ADR-011 phase 4"
+							>
+								<span>med</span>
+								{/* 5-step bar viz: first three lit at MED. */}
+								<span aria-hidden className="inline-flex items-center gap-[2px]">
+									<span className="inline-block h-2 w-[2px] bg-[var(--ember)]" />
+									<span className="inline-block h-2 w-[2px] bg-[var(--ember)]" />
+									<span className="inline-block h-2 w-[2px] bg-[var(--ember)]" />
+									<span className="inline-block h-2 w-[2px] bg-[var(--rule)]" />
+									<span className="inline-block h-2 w-[2px] bg-[var(--rule)]" />
+								</span>
+							</button>
 							{/* Phase 5 mode picker: badge-styled trigger + select dropdown. */}
 							<Select
 								value={currentMode}
@@ -409,7 +448,7 @@ export function Composer({ threadId, className, placeholder }: ComposerProps) {
 								disabled={!threadId}
 							>
 								<SelectTrigger
-									className="h-5 gap-1 rounded border border-border bg-muted/40 px-1.5 py-0 text-[10px] font-medium uppercase tracking-wide text-foreground hover:bg-muted [&>svg]:size-3"
+									className="h-5 gap-1 rounded-sm border border-[var(--rule)] bg-transparent px-1.5 py-0 font-mono text-[10px] uppercase tracking-wider text-foreground transition-colors hover:border-[var(--kola-amber)] hover:bg-[var(--rule-soft)] [&>svg]:size-3"
 									aria-label="Session mode"
 								>
 									<SelectValue>{MODE_LABELS[currentMode]}</SelectValue>
@@ -430,6 +469,20 @@ export function Composer({ threadId, className, placeholder }: ComposerProps) {
 							{isStreaming && <span>· Esc or Stop to cancel</span>}
 						</div>
 						<div className="flex items-center gap-2">
+							{/* ADR-011 phase 1: heat-dot — ember intensity tracks composer state.
+							    cold = idle, warm = user typing / image attached, hot = streaming. */}
+							<span
+								aria-hidden
+								className={cn(
+									'inline-block h-1.5 w-1.5 rounded-full transition-all',
+									heatIntensity === 'cold' && 'bg-[var(--rule)]',
+									heatIntensity === 'warm' &&
+										'bg-[var(--ember-soft)] shadow-[0_0_4px_var(--ember-soft)]',
+									heatIntensity === 'hot' &&
+										'animate-pulse bg-[var(--ember)] shadow-[0_0_6px_var(--ember),0_0_12px_color-mix(in_oklab,var(--ember)_40%,transparent)]'
+								)}
+								title={`composer heat: ${heatIntensity}`}
+							/>
 							{isStreaming && (
 								<button
 									type="button"

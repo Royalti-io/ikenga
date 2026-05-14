@@ -7,11 +7,7 @@ import { detectAgentSlug, sessionsListQueryOptions } from '@/lib/queries/session
 import { shortPath, loadHome } from '@/lib/home';
 
 import '../sessions.css';
-import {
-	Popover,
-	PopoverContent,
-	PopoverTrigger,
-} from '@/components/ui/popover';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { acpForkSession, acpLoadSession, chatThreadMove } from '@/lib/tauri-cmd';
 import { useShellStore } from '@/lib/shell/shell-store';
 import { createTerminalSession } from '@/terminal/single-terminal';
@@ -21,6 +17,7 @@ import {
 	AdapterSwitcher,
 	Composer,
 	Thread,
+	selectTotalCostUsd,
 	useChatStore,
 	useThread,
 	findThreadByClaudeSessionId,
@@ -74,9 +71,14 @@ function SessionDetailPage() {
 	// placeholder→real navigate dance.
 	const { loading, error } = useThread(threadId);
 	const claudeSessionId = useChatStore((s) => s.threads[threadId]?.thread.claudeSessionId ?? null);
-	const threadProjectId = useChatStore(
-		(s) => s.threads[threadId]?.thread.projectId ?? null
-	);
+	// ADR-011 phase 1: cumulative thread cost — sum of `totalCostUsd` across
+	// all `done` events so the user sees lifetime spend on the thread, not
+	// just per-turn cost. Surfaces in the .ses-det-meta row below.
+	const totalCostUsd = useChatStore((s) => {
+		const events = s.threads[threadId]?.events ?? [];
+		return selectTotalCostUsd(events);
+	});
+	const threadProjectId = useChatStore((s) => s.threads[threadId]?.thread.projectId ?? null);
 	const projects = useShellStore((s) => s.projects);
 	const threadProject = projects.find((p) => p.id === threadProjectId);
 	const queryClient = useQueryClient();
@@ -95,10 +97,7 @@ function SessionDetailPage() {
 			// waiting for a refetch round-trip.
 			const t = useChatStore.getState().threads[threadId];
 			if (t) {
-				useChatStore.getState().upsertThread(
-					{ ...t.thread, projectId: nextProjectId },
-					t.events
-				);
+				useChatStore.getState().upsertThread({ ...t.thread, projectId: nextProjectId }, t.events);
 			}
 			await queryClient.invalidateQueries({ queryKey: ['project-scoped'] });
 			setMoveOpen(false);
@@ -177,9 +176,7 @@ function SessionDetailPage() {
 												}}
 											/>
 										)}
-										<span>
-											{threadProject?.display_name ?? (threadProjectId || 'No project')}
-										</span>
+										<span>{threadProject?.display_name ?? (threadProjectId || 'No project')}</span>
 									</button>
 								</PopoverTrigger>
 								<PopoverContent align="start" className="w-64 p-1">
@@ -232,6 +229,22 @@ function SessionDetailPage() {
 									<span className="sep">·</span>
 									<span className="id" title="Claude session id">
 										claude {claudeSessionId.slice(0, 8)}…
+									</span>
+								</>
+							)}
+							{totalCostUsd > 0 && (
+								<>
+									<span className="sep">·</span>
+									<span
+										style={{
+											color: 'var(--kola-amber)',
+											fontFamily: 'var(--font-mono)',
+											textTransform: 'uppercase',
+											letterSpacing: '0.06em',
+										}}
+										title="Cumulative cost for this thread — sum of done.totalCostUsd"
+									>
+										spent ${totalCostUsd.toFixed(2)}
 									</span>
 								</>
 							)}
