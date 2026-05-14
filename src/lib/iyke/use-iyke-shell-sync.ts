@@ -79,5 +79,7 @@ function viewTitle(view: PaneView): string {
 			return view.path;
 		case 'scratchpad':
 			return `${view.scope}/${view.name}`;
+		case 'tool-output':
+			return `tool-output:${view.toolUseId}`;
 	}
 }

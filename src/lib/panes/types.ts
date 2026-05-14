@@ -9,6 +9,10 @@ export type PaneView = (
 	| { kind: 'chat'; sessionId: string }
 	| { kind: 'artifact'; path: string }
 	| { kind: 'scratchpad'; scope: string; name: string }
+	// ADR-011 phase 2: dedicated viewer for a tool call result. Payload is
+	// pointer-only (`threadId` + `toolUseId`); the renderer looks up the
+	// tool_use + tool_result from the chat store at mount time.
+	| { kind: 'tool-output'; threadId: string; toolUseId: string }
 ) & { pinned?: boolean };
 
 export type PaneDirection = 'horizontal' | 'vertical';

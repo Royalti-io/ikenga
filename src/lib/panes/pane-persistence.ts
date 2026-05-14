@@ -107,6 +107,12 @@ function isViewLive(view: PaneView, liveTerminalIds: Set<string>): boolean {
 			// hydrates from `~/.claude/projects/**` on mount). Drop placeholder
 			// ids minted by new-tab-menu — those don't map to on-disk sessions.
 			return UUID_RE.test(view.sessionId);
+		case 'tool-output':
+			// Tool-output viewers are tied to a specific tool_use id in a
+			// thread's event stream. The chat module hydrates events on mount,
+			// so the viewer can resolve its pair (or render the "stale"
+			// placeholder if the pair was pruned).
+			return true;
 	}
 }
 

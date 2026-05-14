@@ -117,6 +117,10 @@ function viewsMatch(a: PaneView, b: PaneView): boolean {
 			const bb = b as Extract<PaneView, { kind: 'scratchpad' }>;
 			return a.scope === bb.scope && a.name === bb.name;
 		}
+		case 'tool-output': {
+			const bb = b as Extract<PaneView, { kind: 'tool-output' }>;
+			return a.threadId === bb.threadId && a.toolUseId === bb.toolUseId;
+		}
 	}
 }
 

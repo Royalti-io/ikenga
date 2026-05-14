@@ -272,6 +272,24 @@ export function selectTotalCostUsd(events: ChatEvent[]): number {
 	return total;
 }
 
+/** ADR-011 phase 2: find a single tool pair (use + result) by tool_use id.
+ *  Used by the viewer pane (`kind: 'tool-output'`) to render a tool result
+ *  at full density. Returns `null` if the use is missing from the event
+ *  stream — callers should treat that as "tab is stale, close it". */
+export function findToolPairById(events: ChatEvent[], toolUseId: string): PairedToolCall | null {
+	let use: Extract<ChatEvent, { kind: 'tool_use' }> | null = null;
+	let result: Extract<ChatEvent, { kind: 'tool_result' }> | null = null;
+	for (const e of events) {
+		if (e.kind === 'tool_use' && e.id === toolUseId) {
+			use = e;
+		} else if (e.kind === 'tool_result' && e.id === toolUseId) {
+			result = e;
+		}
+	}
+	if (!use) return null;
+	return { use, result };
+}
+
 /** Children of a Task tool, looked up by parentToolUseId. */
 export function findToolChildren(events: ChatEvent[], parentId: string): PairedToolCall[] {
 	const resultsById = new Map<string, Extract<ChatEvent, { kind: 'tool_result' }>>();

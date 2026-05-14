@@ -329,6 +329,8 @@ function viewLabelShort(view: PaneView): string {
 			return `Artifact ${view.path}`;
 		case 'scratchpad':
 			return `Scratchpad ${view.name}`;
+		case 'tool-output':
+			return `Tool · ${view.toolUseId.slice(0, 8)}`;
 	}
 }
 
@@ -451,6 +453,10 @@ function iconForView(view: PaneView): typeof Inbox {
 		case 'artifact':
 			return FolderOpen;
 		case 'scratchpad':
+			return FileText;
+		case 'tool-output':
+			// No tool-call-specific icon in the icon set; FileText fits the
+			// "inspecting a result" cue better than FolderOpen.
 			return FileText;
 	}
 }

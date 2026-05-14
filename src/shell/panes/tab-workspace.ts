@@ -26,5 +26,10 @@ export function viewWorkspace(view: PaneView): IkengaWorkspace {
 			return 'files';
 		case 'scratchpad':
 			return 'app';
+		case 'tool-output':
+			// Tool-output viewers belong to a chat session — share the
+			// 'sessions' tint so the activity-bar and pane chrome stay
+			// consistent with the originating chat tab.
+			return 'sessions';
 	}
 }

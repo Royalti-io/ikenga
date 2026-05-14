@@ -21,6 +21,7 @@ export function getPaneAddress(view: PaneView): string | null {
 		case 'chat':
 		case 'terminal':
 		case 'scratchpad':
+		case 'tool-output':
 			return null;
 	}
 }

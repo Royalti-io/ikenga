@@ -15,13 +15,9 @@
 import { useState } from 'react';
 import { ChevronDown, ChevronRight, ExternalLink, CircleAlert, Loader2 } from 'lucide-react';
 import { cn } from '@/components/ui/utils';
+import { usePaneStore } from '@/lib/panes/pane-store';
 import type { PairedToolCall } from '../store';
-import { ReadRenderer } from './tool-renderers/read';
-import { WriteEditRenderer } from './tool-renderers/write-edit';
-import { BashRenderer } from './tool-renderers/bash';
-import { TaskRenderer } from './tool-renderers/task';
-import { GenericJsonRenderer } from './tool-renderers/generic-json';
-import { AskUserQuestionRenderer } from './tool-renderers/ask-user-question';
+import { ToolRendererDispatch } from './tool-renderers';
 
 interface ToolCallCardProps {
 	pair: PairedToolCall;
@@ -36,21 +32,25 @@ export function ToolCallCard({ pair, threadId, isChild }: ToolCallCardProps) {
 	const isPending = pair.result == null;
 	const title = deriveTitle(pair);
 	const [open, setOpen] = useState(isError);
+	const focusedId = usePaneStore((s) => s.focusedId);
+	const addTab = usePaneStore((s) => s.addTab);
 
 	if (isChild) {
 		// Children render at full density without pill chrome — they sit
 		// inside the parent Task's expanded panel and already inherit its
 		// scroll cap.
-		return <Renderer pair={pair} threadId={threadId} density="full" />;
+		return <ToolRendererDispatch pair={pair} threadId={threadId} density="full" />;
 	}
 
 	function handleOpenInViewer() {
-		// Phase 1: viewer pane tab kind (`tool-output`) lands in phase 2.
-		// Logging a warn so devs can grep for unwired CTAs.
-		console.warn(
-			'[tool-call-card] Open in viewer ↗ — not yet wired (ADR-011 phase 2)',
-			pair.use.id
-		);
+		// ADR-011 phase 2: open this tool output in a dedicated pane tab.
+		// The viewer dedupes by (threadId, toolUseId) so clicking twice
+		// focuses the existing tab rather than spawning a duplicate.
+		addTab(focusedId, {
+			kind: 'tool-output',
+			threadId,
+			toolUseId: pair.use.id,
+		});
 	}
 
 	return (
@@ -78,7 +78,7 @@ export function ToolCallCard({ pair, threadId, isChild }: ToolCallCardProps) {
 			{open && (
 				<div className="border-l-2 border-[var(--kola-amber)] pl-3">
 					<div className="max-h-[320px] overflow-auto pr-1">
-						<Renderer pair={pair} threadId={threadId} density="full" />
+						<ToolRendererDispatch pair={pair} threadId={threadId} density="full" />
 					</div>
 					<div className="mt-1 flex justify-end">
 						<button
@@ -115,29 +115,6 @@ function StatusHint({ isError, isPending }: { isError: boolean; isPending: boole
 		);
 	}
 	return <span>done</span>;
-}
-
-function Renderer({
-	pair,
-	threadId,
-	density,
-}: {
-	pair: PairedToolCall;
-	threadId: string;
-	density: 'inline' | 'full';
-}) {
-	const name = pair.use.name;
-	if (name === 'Read') return <ReadRenderer pair={pair} density={density} />;
-	if (name === 'Write' || name === 'Edit' || name === 'MultiEdit' || name === 'NotebookEdit')
-		return <WriteEditRenderer pair={pair} density={density} />;
-	if (name === 'Bash') return <BashRenderer pair={pair} density={density} />;
-	if (name === 'Task') return <TaskRenderer pair={pair} density={density} threadId={threadId} />;
-	// AskUserQuestion may be invoked under several names depending on how it's
-	// registered (built-in, mcp scoped). Match on the trailing token.
-	if (name === 'AskUserQuestion' || name.endsWith('AskUserQuestion')) {
-		return <AskUserQuestionRenderer pair={pair} threadId={threadId} />;
-	}
-	return <GenericJsonRenderer pair={pair} density={density} />;
 }
 
 function deriveTitle(pair: PairedToolCall): string {

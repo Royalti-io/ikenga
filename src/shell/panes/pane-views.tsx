@@ -4,6 +4,7 @@ import { TerminalView } from './views/terminal-view';
 import { ChatView } from './views/chat-view';
 import { ArtifactView } from './views/artifact-view';
 import { ScratchpadView } from './views/scratchpad-view';
+import { ToolOutputView } from './views/tool-output-view';
 
 interface PaneBodyProps {
 	paneId: string;
@@ -22,6 +23,8 @@ export function PaneBody({ paneId, view }: PaneBodyProps) {
 			return <ArtifactView path={view.path} paneId={paneId} />;
 		case 'scratchpad':
 			return <ScratchpadView scope={view.scope} name={view.name} />;
+		case 'tool-output':
+			return <ToolOutputView threadId={view.threadId} toolUseId={view.toolUseId} />;
 	}
 }
 
@@ -42,6 +45,10 @@ export function viewLabel(view: PaneView): string {
 		}
 		case 'scratchpad':
 			return view.name;
+		case 'tool-output':
+			// Short id is enough — the pane subtitle carries the full toolUseId
+			// for disambiguation when several viewers are open at once.
+			return `Tool · ${view.toolUseId.slice(0, 8)}`;
 	}
 }
 
@@ -57,5 +64,7 @@ export function viewSubtitle(view: PaneView): string {
 			return view.path;
 		case 'scratchpad':
 			return view.scope;
+		case 'tool-output':
+			return `thread: ${view.threadId.slice(0, 8)}… · tool: ${view.toolUseId}`;
 	}
 }
