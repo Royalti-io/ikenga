@@ -5,7 +5,14 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { createDefaultOnboardingState, useShellStore } from '@/lib/shell/shell-store';
 import type { DetectedAgent } from '@/lib/tauri-cmd';
 
-import { OFFLINE_PAYLOAD, agentToPayload, shouldShowAuthWarning } from './agent-body';
+import type { RegistryIndex } from '@/lib/registry/client';
+
+import {
+	OFFLINE_PAYLOAD,
+	agentToPayload,
+	findEngineNoopEntry,
+	shouldShowAuthWarning,
+} from './agent-body';
 
 beforeEach(() => {
 	useShellStore.setState({ onboarding: createDefaultOnboardingState() });
@@ -88,7 +95,10 @@ describe('store interaction', () => {
 		expect(payload.executablePath).toBe('/usr/local/bin/claude');
 	});
 
-	it('offline mode sets engine-noop without installing a pkg', () => {
+	it('offline payload, once committed, pins engine-noop on the store', () => {
+		// Post-install side-effect: agent-body's offlineMut.onSuccess writes
+		// these into the store. We exercise the store directly — the
+		// pkg-install half is covered by the Browse view's flow.
 		const store = useShellStore.getState();
 		store.setSelectedAgentId(OFFLINE_PAYLOAD.agentId);
 		store.setOnboardingPayload('agent', OFFLINE_PAYLOAD);
@@ -97,5 +107,30 @@ describe('store interaction', () => {
 		expect(after.onboarding.selectedAgentId).toBe('engine-noop');
 		const payload = after.onboarding.steps.agent.payload as typeof OFFLINE_PAYLOAD;
 		expect(payload.display).toMatch(/offline/i);
+	});
+});
+
+describe('findEngineNoopEntry', () => {
+	function makeIndex(names: string[]): RegistryIndex {
+		return {
+			schema: 1,
+			generatedAt: '2026-05-13T00:00:00Z',
+			pkgs: names.map((name) => ({
+				name,
+				latest: '0.1.1',
+				kind: 'engine',
+				description: `${name} description`,
+			})),
+		} as unknown as RegistryIndex;
+	}
+
+	it('finds the engine-noop entry by its canonical npm name', () => {
+		const idx = makeIndex(['@ikenga/pkg-engine-claude-code', '@ikenga/pkg-engine-noop']);
+		expect(findEngineNoopEntry(idx)?.name).toBe('@ikenga/pkg-engine-noop');
+	});
+
+	it('returns undefined when engine-noop is absent', () => {
+		const idx = makeIndex(['@ikenga/pkg-engine-claude-code', '@ikenga/pkg-mcp-iyke']);
+		expect(findEngineNoopEntry(idx)).toBeUndefined();
 	});
 });

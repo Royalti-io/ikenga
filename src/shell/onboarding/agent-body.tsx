@@ -9,13 +9,25 @@
 //
 // Mirrors prototypes `02-coding-agent.html` + `02-coding-agent-empty.html`.
 
-import { useEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { open as openExternal } from '@tauri-apps/plugin-shell';
 
 import { Button } from '@/components/ui/button';
 import { cn } from '@/components/ui/utils';
-import { type DetectedAgent, detectAgents } from '@/lib/tauri-cmd';
+import {
+	type DetectedAgent,
+	detectAgents,
+	pkgInstallFromRegistry,
+	pkgKernelStatus,
+} from '@/lib/tauri-cmd';
+import {
+	fetchIndex,
+	fetchPkgDetail,
+	resolveInstallPlan,
+	type RegistryEntry,
+	type RegistryIndex,
+} from '@/lib/registry/client';
 import { useShellStore } from '@/lib/shell/shell-store';
 
 import { useOnboardingStep } from './use-onboarding-step';
@@ -37,6 +49,10 @@ interface AgentBodyProps {
 const QUERY_KEY = ['onboarding', 'agents'] as const;
 
 const OFFLINE_AGENT_ID = 'engine-noop';
+const ENGINE_NOOP_NPM_NAME = '@ikenga/pkg-engine-noop';
+const ENGINE_NOOP_PKG_ID = 'com.ikenga.engine-noop';
+const REGISTRY_UNREACHABLE_MSG =
+	"Couldn't reach the registry — you can install the offline engine later from Packages → Browse.";
 
 // Install-hint links surfaced under "Don't see yours?" when a known agent
 // is missing from the detected list. We keep these short — full setup
@@ -123,15 +139,83 @@ export function AgentBody({ onContinue }: AgentBodyProps) {
 		});
 	};
 
+	const [offlineError, setOfflineError] = useState<string | null>(null);
+
+	const offlineMut = useMutation({
+		mutationFn: async () => {
+			// Fast-path: engine-noop already installed (re-opening onboarding,
+			// or it was installed from Packages → Browse earlier).
+			const status = await pkgKernelStatus();
+			if (status.installed.some((p) => p.id === ENGINE_NOOP_PKG_ID)) return;
+
+			const { index, indexUrl } = await fetchIndex();
+			const entry = findEngineNoopEntry(index);
+			if (!entry) {
+				throw new Error('registry index has no @ikenga/pkg-engine-noop entry');
+			}
+
+			const detail = await fetchPkgDetail(indexUrl, entry);
+			const plan = await resolveInstallPlan(detail, (name) =>
+				fetchPkgDetail(indexUrl, { name })
+			);
+
+			for (const step of plan) {
+				try {
+					await pkgInstallFromRegistry({
+						tarball: step.tarball,
+						integrity: step.integrity,
+						pkgId: step.pkgId,
+						sourceUrl: step.tarball,
+					});
+				} catch (e) {
+					// Kernel rejects "already installed at conflicting path" as an
+					// error; for this CTA the pkg ending up registered is the goal,
+					// so swallow that specific case.
+					const msg = String((e as Error).message ?? e).toLowerCase();
+					if (msg.includes('already installed') || msg.includes('already registered')) {
+						continue;
+					}
+					throw e;
+				}
+			}
+		},
+		onSuccess: () => {
+			setOfflineError(null);
+			setSelectedAgentId(OFFLINE_AGENT_ID);
+			// Offline mode → no adapter (chat surface stays dormant).
+			setChatAdapterId(null);
+			setPayload({
+				agentId: OFFLINE_AGENT_ID,
+				display: 'Offline (no engine)',
+				authed: null,
+			});
+		},
+		onError: (e) => {
+			const raw = (e as Error).message ?? String(e);
+			// Log the precise failure mode for debugging, but show a single
+			// user-facing surface — sig-verify and integrity mismatches are not
+			// actionable for the user mid-onboarding.
+			if (/signature|sig|verify/i.test(raw)) {
+				console.error('[onboarding] engine-noop install: signature verification failed', e);
+			} else if (/integrity|sha-?512/i.test(raw)) {
+				console.error('[onboarding] engine-noop install: tarball integrity mismatch', e);
+			} else {
+				console.error('[onboarding] engine-noop install failed', e);
+			}
+			setOfflineError(REGISTRY_UNREACHABLE_MSG);
+		},
+	});
+
 	const handleOffline = () => {
-		setSelectedAgentId(OFFLINE_AGENT_ID);
-		// Offline mode → no adapter (chat surface stays dormant).
-		setChatAdapterId(null);
-		setPayload({
-			agentId: OFFLINE_AGENT_ID,
-			display: 'Offline (no engine)',
-			authed: null,
-		});
+		if (offlineMut.isPending) return;
+		setOfflineError(null);
+		offlineMut.mutate();
+	};
+
+	const offlineButtonLabel = (long: boolean) => {
+		if (offlineMut.isPending) return 'Installing offline engine…';
+		if (isOffline) return 'Offline selected';
+		return long ? 'Use offline mode' : 'Continue offline';
 	};
 
 	return (
@@ -244,10 +328,28 @@ export function AgentBody({ onContinue }: AgentBodyProps) {
 								dormant.
 							</div>
 						</div>
-						<Button variant="secondary" onClick={handleOffline} data-testid="agents-offline-cta">
-							{isOffline ? 'Offline selected' : 'Use offline mode'}
+						<Button
+							variant="secondary"
+							onClick={handleOffline}
+							disabled={offlineMut.isPending}
+							data-testid="agents-offline-cta"
+						>
+							{offlineButtonLabel(true)}
 						</Button>
 					</div>
+					{offlineError && (
+						<div
+							className="mt-3 rounded-md border p-3 text-xs"
+							style={{
+								borderColor: 'var(--danger)',
+								background: 'var(--danger-soft)',
+								color: 'var(--fg)',
+							}}
+							data-testid="agents-offline-error"
+						>
+							{offlineError}
+						</div>
+					)}
 				</div>
 			)}
 
@@ -280,10 +382,24 @@ export function AgentBody({ onContinue }: AgentBodyProps) {
 						variant={isOffline ? 'default' : 'secondary'}
 						size="sm"
 						onClick={handleOffline}
+						disabled={offlineMut.isPending}
 						data-testid="agents-offline-alt"
 					>
-						{isOffline ? 'Offline selected' : 'Continue offline'}
+						{offlineButtonLabel(false)}
 					</Button>
+				</div>
+			)}
+			{offlineError && !isLoading && agents.length > 0 && (
+				<div
+					className="mt-3 rounded-md border p-3 text-xs"
+					style={{
+						borderColor: 'var(--danger)',
+						background: 'var(--danger-soft)',
+						color: 'var(--fg)',
+					}}
+					data-testid="agents-offline-error-alt"
+				>
+					{offlineError}
 				</div>
 			)}
 
@@ -537,3 +653,10 @@ export const OFFLINE_PAYLOAD: AgentStepPayload = Object.freeze({
 	display: 'Offline (no engine)',
 	authed: null,
 });
+
+/** Look up the engine-noop entry in a verified registry index. Exported for
+ *  tests; the onboarding install flow uses this to find the tarball + sig
+ *  manifest to feed `pkgInstallFromRegistry`. */
+export function findEngineNoopEntry(index: RegistryIndex): RegistryEntry | undefined {
+	return index.pkgs.find((p) => p.name === ENGINE_NOOP_NPM_NAME);
+}
