@@ -46,17 +46,22 @@ const IYKE_INJECT_MARKER: &str = "<!-- iyke-bridge-injected -->";
 /// would be a data file mislabeled as HTML.
 const HTML_INJECT_MAX_BYTES: usize = 4 * 1024 * 1024;
 
-/// Content-Security-Policy injected on every viewer-served response. Allows
-/// inline scripts and styles (Claude-generated HTML artifacts use them
-/// heavily) but blocks remote `<script src="https://...">` loads — iframe
-/// sandbox with `allow-same-origin` doesn't block third-party fetches on its
-/// own.
+/// Content-Security-Policy injected on every viewer-served response.
+///
+/// Allows inline scripts/styles (Claude-generated HTML artifacts use them
+/// heavily) and the four CDN hosts the `ikenga-artifact-builder` skill
+/// documents as the canonical script sources (React/ReactDOM UMD, Babel-
+/// standalone, Tailwind, esm.sh). Image and font hosts are broader — real
+/// artifacts pull from Wikimedia, Met Museum, Unsplash, etc. — but
+/// `connect-src` stays at `'self'` so artifacts can't make ad-hoc fetch()
+/// calls to arbitrary hosts; data must flow through declared dataSources
+/// (resolved by the shell bridge, not the iframe).
 const VIEWER_CSP: &str = "default-src 'self' data: blob:; \
-script-src 'self' 'unsafe-inline' 'unsafe-eval'; \
-style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; \
-img-src 'self' data: blob:; \
-font-src 'self' data: https://fonts.gstatic.com; \
-media-src 'self' blob:; \
+script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://cdn.tailwindcss.com https://esm.sh https://cdn.skypack.dev; \
+style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net https://cdn.tailwindcss.com; \
+img-src 'self' data: blob: https:; \
+font-src 'self' data: https://fonts.gstatic.com https://cdn.jsdelivr.net; \
+media-src 'self' blob: https:; \
 connect-src 'self'";
 
 /// Default fixed port. Override with `IKENGA_VIEWER_PORT` if it conflicts.
