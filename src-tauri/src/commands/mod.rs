@@ -80,8 +80,7 @@ pub use screenshot::{
     ScreenshotPending, ScreenshotResult,
 };
 pub use secrets::{
-    secrets_delete, secrets_get, secrets_import_dotenv, secrets_list_keys, secrets_set,
-    secrets_vault_status, SecretsLock,
+    secrets_delete, secrets_get, secrets_list_keys, secrets_set, secrets_vault_status, SecretsLock,
 };
 pub use settings_kv::{settings_clear_all, settings_get, settings_get_all, settings_set};
 pub use spike::{spike_grant_fs_read, spike_setup_test_file};

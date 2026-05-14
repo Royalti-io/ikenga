@@ -39,7 +39,7 @@ use commands::{
     pty_kill, pty_resize, pty_spawn, pty_write,
     screenshot_capture_done,
     screenshot_capture_failed, screenshot_get_config, screenshot_pane, screenshot_set_dir,
-    screenshot_window, secrets_delete, secrets_get, secrets_import_dotenv, secrets_list_keys,
+    screenshot_window, secrets_delete, secrets_get, secrets_list_keys,
     pkg_content_html, pkg_content_revoke, pkg_content_url, pkg_db_diag, pkg_discover_workspace,
     pkg_install_from_path, pkg_install_from_registry, pkg_kernel_status,
     pkg_mcp_call, pkg_preview_manifest, pkg_settings_get, pkg_settings_set, pkg_sidecar_call,
@@ -477,7 +477,6 @@ pub fn run() {
             secrets_delete,
             secrets_list_keys,
             secrets_vault_status,
-            secrets_import_dotenv,
             // settings_kv (durable mirror for Zustand-backed prefs)
             settings_get,
             settings_set,

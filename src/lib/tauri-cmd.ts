@@ -225,30 +225,6 @@ export async function secretsVaultStatus(): Promise<VaultStatus> {
 	};
 }
 
-export type ImportDotenvArgs = {
-	paths: string[];
-	keys: string[];
-	overwrite: boolean;
-};
-
-export type ImportDotenvResult = {
-	imported: number;
-	skipped: number;
-	missingFiles: string[];
-};
-
-export async function secretsImportDotenv(args: ImportDotenvArgs): Promise<ImportDotenvResult> {
-	const raw = await invoke<{ imported: number; skipped: number; missing_files: string[] }>(
-		'secrets_import_dotenv',
-		{ args }
-	);
-	return {
-		imported: raw.imported,
-		skipped: raw.skipped,
-		missingFiles: raw.missing_files,
-	};
-}
-
 // ─── Supabase project config (URL + anon key, stored as a non-secret JSON
 // manifest at app_data_dir/supabase.json — see commands/supabase_config.rs).
 

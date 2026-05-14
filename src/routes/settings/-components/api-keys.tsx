@@ -6,7 +6,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { confirm as confirmDialog } from '@tauri-apps/plugin-dialog';
 import {
 	CheckCircle2,
-	Download,
 	Eye,
 	EyeOff,
 	KeyRound,
@@ -29,7 +28,6 @@ import { Input } from '@/components/ui/input';
 import { cn } from '@/components/ui/utils';
 import {
 	useDeleteSecret,
-	useImportDotenv,
 	useSetSecret,
 	vaultKeysQueryOptions,
 	vaultStatusQueryOptions,
@@ -81,12 +79,9 @@ export const KEY_CATALOG: KeyCategory[] = [
 	},
 ];
 
-export const DOTENV_CANDIDATES = ['~/.config/pa-actions/env', '~/.config/ikenga/env'];
-
 export function ApiKeysSectionBody() {
 	const status = useQuery(vaultStatusQueryOptions());
 	const keys = useQuery(vaultKeysQueryOptions());
-	const [importOpen, setImportOpen] = useState(false);
 	const [editKey, setEditKey] = useState<string | null>(null);
 	const [revealedKey, setRevealedKey] = useState<{ key: string; value: string } | null>(null);
 
@@ -141,25 +136,6 @@ export function ApiKeysSectionBody() {
 							)}
 						</div>
 					</div>
-				</div>
-			)}
-
-			{vaultAvailable && (
-				<div className="flex items-center justify-between rounded-md border border-dashed border-border bg-muted/30 px-3 py-2 text-xs">
-					<span className="text-muted-foreground">
-						Import existing keys from{' '}
-						{DOTENV_CANDIDATES.map((p, i) => (
-							<span key={p}>
-								{i > 0 && ' or '}
-								<code>{p}</code>
-							</span>
-						))}
-						.
-					</span>
-					<Button variant="outline" size="sm" onClick={() => setImportOpen(true)}>
-						<Download className="mr-1 h-3.5 w-3.5" />
-						Import from dotenv
-					</Button>
 				</div>
 			)}
 
@@ -239,7 +215,6 @@ export function ApiKeysSectionBody() {
 					onClose={() => setEditKey(null)}
 				/>
 			)}
-			{importOpen && <ImportDotenvDialog existing={known} onClose={() => setImportOpen(false)} />}
 		</div>
 	);
 }
@@ -339,116 +314,3 @@ export function EditKeyDialog({
 	);
 }
 
-export function ImportDotenvDialog({
-	existing,
-	onClose,
-}: {
-	existing: Set<string>;
-	onClose: () => void;
-}) {
-	const [paths] = useState<string[]>(DOTENV_CANDIDATES);
-	const knownKeys = useMemo(() => KEY_CATALOG.flatMap((c) => c.keys.map((k) => k.name)), []);
-	const [selected, setSelected] = useState<Set<string>>(
-		() => new Set(knownKeys.filter((k) => !existing.has(k)))
-	);
-	const [overwrite, setOverwrite] = useState(false);
-	const [busy, setBusy] = useState(false);
-	const [result, setResult] = useState<string | null>(null);
-	const [error, setError] = useState<string | null>(null);
-	const importMut = useImportDotenv();
-
-	function toggle(k: string) {
-		setSelected((s) => {
-			const n = new Set(s);
-			if (n.has(k)) n.delete(k);
-			else n.add(k);
-			return n;
-		});
-	}
-
-	async function handleImport() {
-		setBusy(true);
-		setError(null);
-		try {
-			const r = await importMut.mutateAsync({
-				paths,
-				keys: Array.from(selected),
-				overwrite,
-			});
-			const missing = r.missingFiles.length
-				? ` (${r.missingFiles.length} file${r.missingFiles.length === 1 ? '' : 's'} not found)`
-				: '';
-			setResult(`Imported ${r.imported}, skipped ${r.skipped}${missing}.`);
-		} catch (e) {
-			setError((e as Error).message);
-		} finally {
-			setBusy(false);
-		}
-	}
-
-	return (
-		<Dialog open onOpenChange={(o) => !o && onClose()}>
-			<DialogContent className="sm:max-w-lg">
-				<DialogHeader>
-					<DialogTitle>Import keys from dotenv</DialogTitle>
-					<DialogDescription>
-						Scans{' '}
-						{paths.map((p, i) => (
-							<span key={p}>
-								{i > 0 && ', '}
-								<code>{p}</code>
-							</span>
-						))}
-						.
-					</DialogDescription>
-				</DialogHeader>
-				<div className="space-y-3">
-					<div className="max-h-72 space-y-3 overflow-y-auto rounded-md border border-border p-3">
-						{KEY_CATALOG.map((cat) => (
-							<div key={cat.label} className="space-y-1">
-								<div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-									{cat.label}
-								</div>
-								{cat.keys.map((k) => {
-									const isExisting = existing.has(k.name);
-									return (
-										<label key={k.name} className="flex items-center gap-2 text-xs">
-											<input
-												type="checkbox"
-												checked={selected.has(k.name)}
-												onChange={() => toggle(k.name)}
-											/>
-											<code>{k.name}</code>
-											{isExisting && (
-												<span className="text-[10px] text-amber-700">(already in vault)</span>
-											)}
-										</label>
-									);
-								})}
-							</div>
-						))}
-					</div>
-					<label className="flex items-center gap-2 text-xs">
-						<input
-							type="checkbox"
-							checked={overwrite}
-							onChange={(e) => setOverwrite(e.target.checked)}
-						/>
-						Overwrite keys already in the vault
-					</label>
-					{result && <p className="text-xs text-emerald-700">{result}</p>}
-					{error && <p className="text-xs text-red-700">{error}</p>}
-				</div>
-				<DialogFooter className="flex-row sm:justify-end">
-					<Button variant="ghost" size="sm" onClick={onClose} disabled={busy}>
-						Close
-					</Button>
-					<Button size="sm" onClick={handleImport} disabled={busy || selected.size === 0}>
-						<Download className="mr-1 h-3.5 w-3.5" />
-						Import {selected.size} key{selected.size === 1 ? '' : 's'}
-					</Button>
-				</DialogFooter>
-			</DialogContent>
-		</Dialog>
-	);
-}

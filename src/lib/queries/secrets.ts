@@ -1,18 +1,15 @@
 import { queryOptions, useMutation, useQueryClient } from '@tanstack/react-query';
 
 import {
-	type ImportDotenvArgs,
-	type ImportDotenvResult,
 	type VaultStatus,
 	secretsDelete,
-	secretsImportDotenv,
 	secretsListKeys,
 	secretsSet,
 	secretsVaultStatus,
 } from '@/lib/tauri-cmd';
 import { queryKeys } from '@/lib/query-keys';
 
-export type { VaultStatus, ImportDotenvArgs, ImportDotenvResult };
+export type { VaultStatus };
 
 export function vaultStatusQueryOptions() {
 	return queryOptions({
@@ -50,12 +47,3 @@ export function useDeleteSecret() {
 	});
 }
 
-export function useImportDotenv() {
-	const qc = useQueryClient();
-	return useMutation<ImportDotenvResult, Error, ImportDotenvArgs>({
-		mutationFn: (args) => secretsImportDotenv(args),
-		onSuccess: () => {
-			qc.invalidateQueries({ queryKey: queryKeys.secrets.all });
-		},
-	});
-}
