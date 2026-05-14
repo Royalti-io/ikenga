@@ -49,12 +49,12 @@ use crate::acp::{
     mapping::chat_event_to_session_updates,
     prompt::{extract_content, map_stop_reason},
 };
-use crate::commands::db::PaDb;
 use crate::claude::event::ChatEvent;
 use crate::claude::session::{
     send_control_response, send_interrupt, send_set_mode, send_user_message_with_content,
-    SessionOpts, SessionsManager,
+    EffortLevel, SessionOpts, SessionsManager,
 };
+use crate::commands::db::PaDb;
 
 /// How long we wait for the client to answer a `session/request_permission`
 /// before giving up and synthesizing a cancellation. 5 minutes mirrors the
@@ -244,12 +244,10 @@ impl AcpServer {
                 let workspace_pins = crate::claude::discovery::load_pins(&pool, "workspace")
                     .await
                     .unwrap_or_default();
-                let project_pins = crate::claude::discovery::load_pins(
-                    &pool,
-                    &format!("project:{project_id}"),
-                )
-                .await
-                .unwrap_or_default();
+                let project_pins =
+                    crate::claude::discovery::load_pins(&pool, &format!("project:{project_id}"))
+                        .await
+                        .unwrap_or_default();
                 let mut pins = workspace_pins;
                 pins.extend(project_pins);
                 match crate::claude::discovery::build_session_config_dir(
@@ -277,8 +275,7 @@ impl AcpServer {
         // frontend can render a picker, and surface our spawn-time mode
         // as `currentModeId`. Switching is handled by
         // `handle_set_mode` → `send_set_mode` / next-spawn flag.
-        Ok(NewSessionResponse::new(SessionId::new(thread_id))
-            .modes(mode_state(initial_mode)))
+        Ok(NewSessionResponse::new(SessionId::new(thread_id)).modes(mode_state(initial_mode)))
     }
 
     /// Handle ACP `session/prompt`. Subscribes to the session's in-process
@@ -337,9 +334,7 @@ impl AcpServer {
                     // etc. are filtered out inside `payload_from_system_hook`.
                     if let ChatEvent::SystemHook { content, .. } = &ev {
                         if let Some(hook_value) = content {
-                            if let Some(notify) =
-                                payload_from_system_hook(&thread_id, hook_value)
-                            {
+                            if let Some(notify) = payload_from_system_hook(&thread_id, hook_value) {
                                 let _ = app.emit("acp://notify", &notify);
                             }
                         }
@@ -383,10 +378,8 @@ impl AcpServer {
                         // frontend receives the canonical ACP envelope on
                         // the wire (sessionId + update). This matches what
                         // a real ACP JSON-RPC peer would send.
-                        let notif = SessionNotification::new(
-                            SessionId::new(thread_id.clone()),
-                            upd,
-                        );
+                        let notif =
+                            SessionNotification::new(SessionId::new(thread_id.clone()), upd);
                         let _ = app.emit(&channel, &notif);
                     }
                 }
@@ -502,7 +495,8 @@ impl AcpServer {
                 tool_input_for_task.as_ref(),
                 &response,
             );
-            if let Err(e) = send_control_response(session_for_task, request_id_for_task, body).await {
+            if let Err(e) = send_control_response(session_for_task, request_id_for_task, body).await
+            {
                 log::warn!(
                     target: "ikenga::acp::server",
                     "send_control_response failed: {e}",
@@ -510,7 +504,6 @@ impl AcpServer {
             }
         });
     }
-
 
     /// Handle ACP `session/cancel`. Phase 6: write an interrupt
     /// control_request to claude's stdin instead of killing the child.
@@ -546,11 +539,7 @@ impl AcpServer {
     /// Errors with a descriptive message for unknown mode ids or unknown
     /// thread ids — callers should surface these as toast/inline errors
     /// rather than failing silently.
-    pub async fn handle_set_mode(
-        &self,
-        thread_id: String,
-        mode_id: String,
-    ) -> Result<(), String> {
+    pub async fn handle_set_mode(&self, thread_id: String, mode_id: String) -> Result<(), String> {
         let mode = AcpSessionMode::from_acp_id(&mode_id)
             .ok_or_else(|| format!("unknown mode id: {mode_id}"))?;
         let session = self
@@ -574,6 +563,46 @@ impl AcpServer {
         if session.streaming.lock().await.is_some() {
             send_set_mode(session.clone(), mode).await?;
         }
+        Ok(())
+    }
+
+    /// ADR-011 phase 3: set the session's model. Stored on `SessionOpts.model`
+    /// and applied on next spawn via `--model`. Per-turn switching is deferred;
+    /// if a streaming child is alive, the change does not take effect until
+    /// the child exits and a fresh spawn picks up the new opts.
+    ///
+    /// Unknown `thread_id` becomes a clean error. We do NOT validate the
+    /// model id against a fixed list — claude CLI accepts any string and
+    /// surfaces its own error if the model is unknown, so this stays
+    /// forward-compatible with new models.
+    pub async fn handle_set_model(
+        &self,
+        thread_id: String,
+        model: Option<String>,
+    ) -> Result<(), String> {
+        let session = self
+            .sessions
+            .get(&thread_id)
+            .await
+            .ok_or_else(|| format!("no session for thread {thread_id}"))?;
+        session.opts.lock().await.model = model;
+        Ok(())
+    }
+
+    /// ADR-011 phase 3: set the session's extended-thinking effort. Stored
+    /// on `SessionOpts.effort` and applied on next spawn via
+    /// `--thinking-budget-tokens` (or omitted when `Off`).
+    pub async fn handle_set_effort(
+        &self,
+        thread_id: String,
+        effort: EffortLevel,
+    ) -> Result<(), String> {
+        let session = self
+            .sessions
+            .get(&thread_id)
+            .await
+            .ok_or_else(|| format!("no session for thread {thread_id}"))?;
+        session.opts.lock().await.effort = effort;
         Ok(())
     }
 
@@ -612,16 +641,14 @@ impl AcpServer {
         // the fork can `--resume` against the same on-disk JSONL. Missing
         // rows surface as a typed error rather than an FK violation on the
         // INSERT below.
-        let row: Option<(Option<String>, Option<String>)> = sqlx::query_as(
-            "SELECT claude_session_id, project_dir FROM chat_threads WHERE id = ?",
-        )
-        .bind(&req.source_thread_id)
-        .fetch_optional(&pool)
-        .await
-        .map_err(|e| format!("fork lookup: {e}"))?;
-        let (source_claude_sid, source_cwd) = row.ok_or_else(|| {
-            format!("no source thread for id {}", req.source_thread_id)
-        })?;
+        let row: Option<(Option<String>, Option<String>)> =
+            sqlx::query_as("SELECT claude_session_id, project_dir FROM chat_threads WHERE id = ?")
+                .bind(&req.source_thread_id)
+                .fetch_optional(&pool)
+                .await
+                .map_err(|e| format!("fork lookup: {e}"))?;
+        let (source_claude_sid, source_cwd) =
+            row.ok_or_else(|| format!("no source thread for id {}", req.source_thread_id))?;
 
         let new_thread_id = uuid::Uuid::new_v4().to_string();
         let up_to_turn = req.up_to_turn.map(|v| v as i64);
@@ -657,7 +684,10 @@ impl AcpServer {
                 resume_session_id: Some(sid),
                 ..SessionOpts::default()
             };
-            let _ = self.sessions.get_or_create(&new_thread_id, &cwd, opts).await;
+            let _ = self
+                .sessions
+                .get_or_create(&new_thread_id, &cwd, opts)
+                .await;
         }
 
         Ok(ForkResult {
@@ -755,7 +785,10 @@ mod tests {
         // id) misses the session table and errors "no session for thread".
         // Spotted live via iyke on /sessions/$id after the migration.
         let mut meta = serde_json::Map::new();
-        meta.insert("threadId".into(), serde_json::Value::String("ui-thread-42".into()));
+        meta.insert(
+            "threadId".into(),
+            serde_json::Value::String("ui-thread-42".into()),
+        );
         assert_eq!(resolve_thread_id(Some(&meta)), "ui-thread-42");
     }
 
@@ -887,10 +920,7 @@ mod tests {
             )
             .await;
         // Sanity: starting state is Default.
-        assert_eq!(
-            *session.current_mode.lock().await,
-            AcpSessionMode::Default,
-        );
+        assert_eq!(*session.current_mode.lock().await, AcpSessionMode::Default,);
 
         server
             .handle_set_mode("t_setmode".into(), "auto".into())
@@ -1003,7 +1033,10 @@ mod tests {
             .await
             .expect("load ok");
         let modes = resp.modes.expect("modes present");
-        assert_eq!(modes.current_mode_id.0.as_ref(), AcpSessionMode::Auto.as_acp_id());
+        assert_eq!(
+            modes.current_mode_id.0.as_ref(),
+            AcpSessionMode::Auto.as_acp_id()
+        );
         assert_eq!(modes.available_modes.len(), 4);
     }
 

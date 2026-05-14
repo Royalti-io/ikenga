@@ -58,11 +58,23 @@ const CAPABILITIES: AdapterCapabilities = {
 	// Phase 7 wired end-to-end image support through the ACP path.
 	imageInput: true,
 	slashCommands: true,
-	modelSwitching: false,
+	// ADR-011 phase 3: model + effort are session-level on the ACP adapter.
+	// The Composer exposes them as pills; changes mutate Rust-side SessionOpts
+	// via `acpSetModel` / `acpSetEffort` and take effect on next spawn.
+	modelSwitching: true,
+	effortControl: true,
 	streaming: true,
 	promptCaching: true,
 	agenticTools: true,
 };
+
+/** ADR-011 phase 3: canonical Claude Code model options exposed in the
+ *  Model pill. Ids match what claude CLI accepts via `--model`. */
+const ACP_MODELS: ModelOption[] = [
+	{ id: 'claude-opus-4-7', label: 'Opus 4.7' },
+	{ id: 'claude-sonnet-4-6', label: 'Sonnet 4.6' },
+	{ id: 'claude-haiku-4-5', label: 'Haiku 4.5' },
+];
 
 interface ActiveStream {
 	threadId: string;
@@ -158,7 +170,7 @@ class AcpAdapterImpl implements ChatAdapter {
 	readonly id = 'acp';
 	readonly label = 'Claude (ACP)';
 	readonly Icon = Sparkles;
-	readonly models: ModelOption[] | null = null;
+	readonly models: ModelOption[] | null = ACP_MODELS;
 	readonly capabilities = CAPABILITIES;
 
 	/** One subscription per thread. Keyed by threadId so re-mounts don't

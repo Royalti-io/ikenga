@@ -1,5 +1,5 @@
-mod agent_detect;
 pub mod acp;
+mod agent_detect;
 pub mod claude;
 mod commands;
 mod fs_roots;
@@ -25,45 +25,36 @@ use commands::db::PaDb;
 use commands::screenshot::new_pending as new_screenshot_pending;
 use commands::{
     acp_cancel, acp_fork_session, acp_initialize, acp_load_session, acp_new_session, acp_prompt,
-    acp_respond_permission, acp_set_mode,
-    activity_pins_add, activity_pins_list, activity_pins_remove, activity_pins_reorder,
-    activity_sections_create, activity_sections_list, activity_sections_remove,
-    activity_sections_update,
-    backup_delete, backup_export, backup_import, backup_list,
+    acp_respond_permission, acp_set_effort, acp_set_mode, acp_set_model, activity_pins_add,
+    activity_pins_list, activity_pins_remove, activity_pins_reorder, activity_sections_create,
+    activity_sections_list, activity_sections_remove, activity_sections_update, backup_delete,
+    backup_export, backup_import, backup_list, chat_thread_move, chat_threads_list_by_project,
     claude_asset_list_pins, claude_asset_pin, claude_asset_unpin, claude_assets_discover,
     claude_config_load, claude_config_read_file, claude_config_unwatch, claude_config_watch,
-    chat_thread_move, chat_threads_list_by_project,
-    claude_list_sessions, claude_read_jsonl, db_exec, db_query, fs_exists,
-    fs_list, fs_mime, fs_read, fs_rename, fs_roots_add, fs_roots_list, fs_roots_remove,
-    fs_roots_reset, fs_trash,
-    fs_unwatch, fs_watch, fs_write, iyke_dom_done, iyke_endpoint,
-    iyke_log_push, iyke_network_push, iyke_query_cache_done, iyke_set_shell, iyke_wait_done,
-    pty_kill, pty_resize, pty_spawn, pty_write,
-    screenshot_capture_done,
-    screenshot_capture_failed, screenshot_get_config, screenshot_pane, screenshot_set_dir,
-    screenshot_window, secrets_delete, secrets_get, secrets_list_keys,
-    pkg_content_html, pkg_content_revoke, pkg_content_url, pkg_db_diag, pkg_discover_workspace,
-    pkg_install_from_path, pkg_install_from_registry, pkg_kernel_status,
-    pkg_mcp_call, pkg_preview_manifest, pkg_settings_get, pkg_settings_set, pkg_sidecar_call,
-    pkg_supervisor_restart,
-    pkg_uninstall, pkg_set_enabled, pkg_set_scope, dev_bind_port, dev_release_port,
-    pkg_webview_create, pkg_webview_destroy, pkg_webview_navigate, pkg_webview_set_rect,
-    project_archive, project_create, project_get_active, project_list, project_set_active,
-    project_update,
-    WebviewPanesState,
-    secrets_set, secrets_vault_status, PkgContentState, SidecarsRegistryState, SidecarSupervisorState,
-    set_dock_badge, iyke_mcp_info, spike_grant_fs_read, spike_setup_test_file, KernelState, PkgSettingsState,
-    settings_clear_all, settings_get, settings_get_all, settings_set,
+    claude_list_sessions, claude_read_jsonl, db_exec, db_query, dev_bind_port, dev_release_port,
+    fs_exists, fs_list, fs_mime, fs_read, fs_rename, fs_roots_add, fs_roots_list, fs_roots_remove,
+    fs_roots_reset, fs_trash, fs_unwatch, fs_watch, fs_write, iyke_dom_done, iyke_endpoint,
+    iyke_log_push, iyke_mcp_info, iyke_network_push, iyke_query_cache_done, iyke_set_shell,
+    iyke_wait_done, pkg_content_html, pkg_content_revoke, pkg_content_url, pkg_db_diag,
+    pkg_discover_workspace, pkg_install_from_path, pkg_install_from_registry, pkg_kernel_status,
+    pkg_mcp_call, pkg_preview_manifest, pkg_set_enabled, pkg_set_scope, pkg_settings_get,
+    pkg_settings_set, pkg_sidecar_call, pkg_supervisor_restart, pkg_uninstall, pkg_webview_create,
+    pkg_webview_destroy, pkg_webview_navigate, pkg_webview_set_rect, project_archive,
+    project_create, project_get_active, project_list, project_set_active, project_update, pty_kill,
+    pty_resize, pty_spawn, pty_write, screenshot_capture_done, screenshot_capture_failed,
+    screenshot_get_config, screenshot_pane, screenshot_set_dir, screenshot_window, secrets_delete,
+    secrets_get, secrets_list_keys, secrets_set, secrets_vault_status, set_dock_badge,
+    settings_clear_all, settings_get, settings_get_all, settings_set, spike_grant_fs_read,
+    spike_setup_test_file, KernelState, PkgContentState, PkgSettingsState, SidecarSupervisorState,
+    SidecarsRegistryState, WebviewPanesState,
 };
 #[cfg(debug_assertions)]
 use commands::{bg_spike_reply, bg_spike_run, new_bg_spike_state};
 use commands::{
-    SecretsLock,
-    session_cancel, session_destroy, session_destroy_all, session_ensure,
-    session_send, session_tool_result,
-    supabase_config_clear, supabase_config_get, supabase_config_set,
-    viewer_port, viewer_serve, viewer_stop, IykeRuntimeState,
-    ScreenshotConfigState, ScreenshotConfigStateRef, ScreenshotPending,
+    session_cancel, session_destroy, session_destroy_all, session_ensure, session_send,
+    session_tool_result, supabase_config_clear, supabase_config_get, supabase_config_set,
+    viewer_port, viewer_serve, viewer_stop, IykeRuntimeState, ScreenshotConfigState,
+    ScreenshotConfigStateRef, ScreenshotPending, SecretsLock,
 };
 use fs_watch::FsWatchManager;
 use iyke::{IykeRpc, IykeState};
@@ -540,6 +531,9 @@ pub fn run() {
             acp_respond_permission,
             // acp session modes (phase 5)
             acp_set_mode,
+            // adr-011 phase 3: session-level model + effort (per-turn deferred)
+            acp_set_model,
+            acp_set_effort,
             // acp session fork + faster resume (phase 8)
             acp_fork_session,
             acp_load_session,
@@ -739,7 +733,10 @@ fn global_shortcut_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
                     }
                 }
             } else if shortcut == &shot_window {
-                let _ = app.emit("screenshot://shortcut", serde_json::json!({ "kind": "window" }));
+                let _ = app.emit(
+                    "screenshot://shortcut",
+                    serde_json::json!({ "kind": "window" }),
+                );
             } else if shortcut == &shot_pane {
                 let _ = app.emit(
                     "screenshot://shortcut",

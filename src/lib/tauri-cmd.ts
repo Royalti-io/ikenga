@@ -817,6 +817,26 @@ export async function acpSetMode(threadId: string, modeId: AcpSessionModeId): Pr
 	return invoke('acp_set_mode', { threadId, modeId });
 }
 
+/** ADR-011 phase 3: set the session's `--model`. Stored on Rust-side
+ *  `SessionOpts.model`; applied on next spawn. Per-turn switching is
+ *  deferred — if a streaming child is alive, the change takes effect on
+ *  the next respawn. Pass `null` to clear the override and let claude
+ *  use its own default. */
+export async function acpSetModel(threadId: string, model: string | null): Promise<void> {
+	return invoke('acp_set_model', { threadId, model });
+}
+
+/** ADR-011 phase 3: set the session's extended-thinking effort. Same
+ *  semantics as `acpSetModel` — stored on `SessionOpts.effort` and
+ *  applied on next spawn via `--thinking-budget-tokens`. `'off'` omits
+ *  the flag entirely so claude's own default applies. */
+export async function acpSetEffort(
+	threadId: string,
+	effort: 'off' | 'low' | 'medium' | 'high' | 'max'
+): Promise<void> {
+	return invoke('acp_set_effort', { threadId, effort });
+}
+
 // ─── ACP session fork + load (phase 8) ────────────────────────────────────────
 //
 // `session/fork` clones an existing session from a chosen turn. The new thread
@@ -1070,9 +1090,7 @@ export interface ClaudeAssetPin {
 }
 
 /** Run the 4-tier discovery for `projectId` (defaults to the active project). */
-export async function claudeAssetsDiscover(
-	projectId?: string | null
-): Promise<ClaudeAssetTree> {
+export async function claudeAssetsDiscover(projectId?: string | null): Promise<ClaudeAssetTree> {
 	return invoke<ClaudeAssetTree>('claude_assets_discover', {
 		projectId: projectId ?? null,
 	});
@@ -1221,10 +1239,7 @@ export async function pkgInstallFromPath(
  *  `"project:<id>"` = project-scoped; null/undefined = active project. */
 export type PkgScopeWire = 'workspace' | `project:${string}`;
 
-export async function pkgSetScope(
-	pkgId: string,
-	scope: PkgScopeWire | null
-): Promise<void> {
+export async function pkgSetScope(pkgId: string, scope: PkgScopeWire | null): Promise<void> {
 	return invoke('pkg_set_scope', { pkgId, scope });
 }
 

@@ -28,7 +28,7 @@ use std::collections::HashMap;
 use std::process::Stdio;
 use std::sync::Arc;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, Command};
@@ -49,6 +49,36 @@ use crate::claude::{
 /// switches. The legacy free-form `permissionMode` string from the
 /// `session_ensure` Tauri command still deserializes via the enum's
 /// camelCase Serde derive (`plan` / `default` / `auto` / `bypassPermissions`).
+/// ADR-011 phase 3: 5-step extended-thinking effort control. Maps to
+/// claude CLI's `--thinking-budget-tokens` flag at spawn time. `Off` omits
+/// the flag entirely so claude defaults apply. Per-turn switching is
+/// deferred — changes mutate `SessionOpts.effort` and take effect on the
+/// next spawn.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum EffortLevel {
+    #[default]
+    Off,
+    Low,
+    Medium,
+    High,
+    Max,
+}
+
+impl EffortLevel {
+    /// Token budget passed via `--thinking-budget-tokens`. `Off` returns
+    /// `None` so the caller omits the flag.
+    pub fn thinking_budget_tokens(&self) -> Option<u32> {
+        match self {
+            Self::Off => None,
+            Self::Low => Some(1_000),
+            Self::Medium => Some(4_000),
+            Self::High => Some(16_000),
+            Self::Max => Some(32_000),
+        }
+    }
+}
+
 #[derive(Deserialize, Default, Clone)]
 #[serde(default)]
 pub struct SessionOpts {
@@ -62,6 +92,10 @@ pub struct SessionOpts {
     #[serde(rename = "permissionMode")]
     pub permission_mode: AcpSessionMode,
     pub model: Option<String>,
+    /// ADR-011 phase 3: extended-thinking effort. Applied on next spawn
+    /// via `--thinking-budget-tokens`. Mutated by `acp_set_effort`.
+    #[serde(default)]
+    pub effort: EffortLevel,
 }
 
 /// The live streaming child owned by a session, if one is currently spawned.
@@ -381,6 +415,14 @@ pub async fn spawn_streaming(
     if let Some(ref m) = opts.model {
         command.arg("--model").arg(m);
     }
+    // ADR-011 phase 3: extended-thinking effort. `Off` skips the flag so
+    // claude's own default applies; the other four steps map to discrete
+    // thinking-budget-tokens values (see `EffortLevel::thinking_budget_tokens`).
+    if let Some(budget) = opts.effort.thinking_budget_tokens() {
+        command
+            .arg("--thinking-budget-tokens")
+            .arg(budget.to_string());
+    }
 
     let mut child = command
         .spawn()
@@ -628,10 +670,7 @@ pub async fn send_tool_result(
 /// both sides agree on the correlation key.
 ///
 /// Public for unit tests; the only caller is `send_control_response`.
-pub fn control_response_envelope(
-    request_id: &str,
-    response_body: &serde_json::Value,
-) -> String {
+pub fn control_response_envelope(request_id: &str, response_body: &serde_json::Value) -> String {
     let mut inner = match response_body {
         serde_json::Value::Object(m) => m.clone(),
         // Defensive: spec says callers pass an object. If they don't,
@@ -699,10 +738,7 @@ pub async fn send_control_response(
 /// the caller is expected to have already updated `session.current_mode`
 /// + `session.opts.permission_mode`, and the next `spawn_streaming` will
 /// pick up the new mode via the `--permission-mode` CLI flag.
-pub async fn send_set_mode(
-    session: Arc<Session>,
-    mode: AcpSessionMode,
-) -> Result<(), String> {
+pub async fn send_set_mode(session: Arc<Session>, mode: AcpSessionMode) -> Result<(), String> {
     let streaming = session.streaming.lock().await.as_ref().cloned();
     let Some(streaming) = streaming else {
         // No live child → the mode will be applied on the next spawn via

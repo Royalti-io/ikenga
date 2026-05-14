@@ -15,6 +15,7 @@ use tauri::{AppHandle, State};
 
 use crate::acp::fork::{ForkRequest, ForkResult};
 use crate::acp::server::AcpServerState;
+use crate::claude::session::EffortLevel;
 use crate::commands::db::PaDb;
 
 #[tauri::command]
@@ -78,6 +79,31 @@ pub async fn acp_set_mode(
     #[allow(non_snake_case)] modeId: String,
 ) -> Result<(), String> {
     state.handle_set_mode(threadId, modeId).await
+}
+
+/// ADR-011 phase 3: set the session's `--model`. `model = None` clears it
+/// so the next spawn falls back to claude's own default. Per-turn
+/// switching is deferred — changes mutate `SessionOpts` only; if a
+/// streaming child is alive, the change takes effect on the next spawn.
+#[tauri::command]
+pub async fn acp_set_model(
+    state: State<'_, AcpServerState>,
+    #[allow(non_snake_case)] threadId: String,
+    model: Option<String>,
+) -> Result<(), String> {
+    state.handle_set_model(threadId, model).await
+}
+
+/// ADR-011 phase 3: set the session's extended-thinking effort. Stored
+/// on `SessionOpts` and applied via `--thinking-budget-tokens` on next
+/// spawn (omitted entirely when `effort = "off"`).
+#[tauri::command]
+pub async fn acp_set_effort(
+    state: State<'_, AcpServerState>,
+    #[allow(non_snake_case)] threadId: String,
+    effort: EffortLevel,
+) -> Result<(), String> {
+    state.handle_set_effort(threadId, effort).await
 }
 
 /// Phase 8: ACP `session/fork`. Clones an existing thread from a chosen

@@ -17,10 +17,29 @@ export interface AdapterCapabilities {
 	imageInput: boolean;
 	slashCommands: boolean;
 	modelSwitching: boolean;
+	/** ADR-011 phase 3: adapter exposes the discrete-effort control.
+	 *  Composer renders the Effort pill as functional when true. */
+	effortControl: boolean;
 	streaming: boolean;
 	promptCaching: boolean;
 	agenticTools: boolean;
 }
+
+/** ADR-011 phase 3: 5-step extended-thinking effort control. Maps to
+ *  claude CLI's `--thinking-budget-tokens` flag at spawn time. The
+ *  session-level setting is stored on Rust-side `SessionOpts` and
+ *  applied on next spawn (per-turn switching is deferred). */
+export type ChatEffort = 'off' | 'low' | 'medium' | 'high' | 'max';
+
+/** Token budgets for each effort step. `off` maps to 0 (Rust side omits
+ *  the flag entirely so claude defaults apply). */
+export const EFFORT_TOKENS: Record<ChatEffort, number> = {
+	off: 0,
+	low: 1_000,
+	medium: 4_000,
+	high: 16_000,
+	max: 32_000,
+};
 
 export interface ModelOption {
 	id: string;

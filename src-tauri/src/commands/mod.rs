@@ -31,7 +31,7 @@ pub mod viewer;
 
 pub use acp::{
     acp_cancel, acp_fork_session, acp_initialize, acp_load_session, acp_new_session, acp_prompt,
-    acp_respond_permission, acp_set_mode,
+    acp_respond_permission, acp_set_effort, acp_set_mode, acp_set_model,
 };
 pub use activity_bar::{
     activity_pins_add, activity_pins_list, activity_pins_remove, activity_pins_reorder,
@@ -65,9 +65,7 @@ pub use pkg::{
     pkg_kernel_status, pkg_preview_manifest, pkg_set_enabled, pkg_set_scope, pkg_settings_get,
     pkg_settings_set, pkg_uninstall, KernelState, PkgSettingsState,
 };
-pub use pkg_content::{
-    pkg_content_html, pkg_content_revoke, pkg_content_url, PkgContentState,
-};
+pub use pkg_content::{pkg_content_html, pkg_content_revoke, pkg_content_url, PkgContentState};
 pub use pkg_mcp::{
     dev_bind_port, dev_release_port, pkg_mcp_call, pkg_supervisor_restart, SidecarSupervisorState,
 };
@@ -135,16 +133,12 @@ pub fn resolve_allowlisted(input: &str) -> Result<PathBuf> {
     };
 
     if !is_allowed(&canonical)? {
-        return Err(anyhow!(
-            "path outside allowlist: {}",
-            canonical.display()
-        ));
+        return Err(anyhow!("path outside allowlist: {}", canonical.display()));
     }
     Ok(canonical)
 }
 
 fn is_allowed(path: &Path) -> Result<bool> {
-    let roots = crate::fs_roots::current()
-        .ok_or_else(|| anyhow!("fs_roots not initialized"))?;
+    let roots = crate::fs_roots::current().ok_or_else(|| anyhow!("fs_roots not initialized"))?;
     Ok(roots.is_allowed(path))
 }

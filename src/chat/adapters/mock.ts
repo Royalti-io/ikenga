@@ -22,6 +22,7 @@ const CAPABILITIES: AdapterCapabilities = {
 	imageInput: false,
 	slashCommands: false,
 	modelSwitching: false,
+	effortControl: false,
 	streaming: true,
 	promptCaching: false,
 	agenticTools: false,

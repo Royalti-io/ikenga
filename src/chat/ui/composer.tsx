@@ -28,12 +28,34 @@ import {
 } from '@/components/ui/select';
 import {
 	acpPrompt,
+	acpSetEffort,
 	acpSetMode,
+	acpSetModel,
 	type AcpContentBlock,
 	type AcpSessionModeId,
 } from '@/lib/tauri-cmd';
 import { useChatActions, useThreadState } from '../hooks';
+import { useChatStore } from '../store';
+import { type ChatEffort } from '../adapter';
 import { filterSlashCommands, useSlashCommands, type SlashCommand } from '../slash-commands';
+
+/** ADR-011 phase 3: Model + Effort options exposed in the composer pills.
+ *  Ids match what claude CLI accepts via `--model`. Mirror of the
+ *  AcpAdapter.models list so the composer can render without depending
+ *  on the active adapter (which can be the legacy CLI adapter). */
+const MODEL_OPTIONS: Array<{ id: string; label: string }> = [
+	{ id: 'claude-opus-4-7', label: 'Opus 4.7' },
+	{ id: 'claude-sonnet-4-6', label: 'Sonnet 4.6' },
+	{ id: 'claude-haiku-4-5', label: 'Haiku 4.5' },
+];
+
+const EFFORT_OPTIONS: ReadonlyArray<{ id: ChatEffort; label: string; lit: number }> = [
+	{ id: 'off', label: 'Off', lit: 0 },
+	{ id: 'low', label: 'Low', lit: 1 },
+	{ id: 'medium', label: 'Med', lit: 3 },
+	{ id: 'high', label: 'High', lit: 4 },
+	{ id: 'max', label: 'Max', lit: 5 },
+];
 
 /**
  * Phase 7: in-memory image attachment state. `base64` is the raw payload
@@ -280,6 +302,47 @@ export function Composer({ threadId, className, placeholder }: ComposerProps) {
 		}
 	}
 
+	// ADR-011 phase 3: Model + Effort selection. Model is mirrored on
+	// `ChatThread.model` so the pill stays in sync across composer
+	// remounts. Effort doesn't have a persisted thread field yet, so it
+	// lives purely in local state and resets on remount — the Rust side
+	// keeps the authoritative value on `SessionOpts.effort`. Per-turn
+	// switching is deferred per ADR; changes take effect on next spawn.
+	const setThread = useChatStore((s) => s.setThread);
+	const currentModel = state?.thread.model ?? null;
+	const currentModelLabel =
+		MODEL_OPTIONS.find((m) => m.id === currentModel)?.label ??
+		currentModel?.replace(/^claude-/, '').replace(/-/g, ' ') ??
+		'Auto';
+	const [currentEffort, setCurrentEffort] = useState<ChatEffort>('off');
+
+	async function handleModelChange(nextId: string) {
+		if (!threadId) return;
+		if (nextId === currentModel) return;
+		const previous = currentModel;
+		// Optimistic local mirror so the pill flips immediately.
+		setThread(threadId, { model: nextId });
+		try {
+			await acpSetModel(threadId, nextId);
+		} catch (e) {
+			setThread(threadId, { model: previous });
+			console.warn('acpSetModel:', e);
+		}
+	}
+
+	async function handleEffortChange(next: ChatEffort) {
+		if (!threadId) return;
+		if (next === currentEffort) return;
+		const previous = currentEffort;
+		setCurrentEffort(next);
+		try {
+			await acpSetEffort(threadId, next);
+		} catch (e) {
+			setCurrentEffort(previous);
+			console.warn('acpSetEffort:', e);
+		}
+	}
+
 	// ADR-011 phase 1: anvil composer — heat-dot intensity tracks composer
 	// state. Cold = empty, warm = user typing, hot = streaming. The dot is
 	// rendered next to the submit button below.
@@ -412,35 +475,69 @@ export function Composer({ threadId, className, placeholder }: ComposerProps) {
 								<span className="hidden sm:inline">attach</span>
 							</button>
 							<span className="text-[var(--chip-carve)]">{adapterLabel}</span>
-							{/* ADR-011 phase 1: Model + Effort pills — non-functional placeholders.
-							    Real behavior lands in phases 3 + 4 (per-turn model picker, effort
-							    control + thinking-budget-tokens flag). Click is a no-op for now. */}
-							<button
-								type="button"
-								disabled
-								className="inline-flex h-5 cursor-not-allowed items-center gap-1 rounded-sm border border-[var(--rule)] bg-transparent px-1.5 font-mono text-[10px] uppercase tracking-wider text-[var(--kola-amber-soft)] opacity-80"
-								title="Per-turn model picker — coming in ADR-011 phase 3"
+							{/* ADR-011 phase 3: Model picker — session-level. Stored on
+							    SessionOpts.model and applied on next spawn. */}
+							<Select
+								value={currentModel ?? ''}
+								onValueChange={(v) => void handleModelChange(v)}
+								disabled={!threadId}
 							>
-								{state?.thread.model
-									? state.thread.model.replace(/^claude-/, '').replace(/-/g, ' ')
-									: 'sonnet 4.6'}
-							</button>
-							<button
-								type="button"
-								disabled
-								className="inline-flex h-5 cursor-not-allowed items-center gap-1.5 rounded-sm border border-[var(--rule)] bg-transparent px-1.5 font-mono text-[10px] uppercase tracking-wider text-[var(--ember-soft)] opacity-80"
-								title="Extended-thinking effort — coming in ADR-011 phase 4"
+								<SelectTrigger
+									className="h-5 gap-1 rounded-sm border border-[var(--rule)] bg-transparent px-1.5 py-0 font-mono text-[10px] uppercase tracking-wider text-[var(--kola-amber-soft)] transition-colors hover:border-[var(--kola-amber)] hover:bg-[var(--rule-soft)] [&>svg]:size-3"
+									aria-label="Model"
+									title="Model — applied on next spawn (per-turn switching deferred)"
+								>
+									<SelectValue>{currentModelLabel}</SelectValue>
+								</SelectTrigger>
+								<SelectContent>
+									{MODEL_OPTIONS.map((m) => (
+										<SelectItem key={m.id} value={m.id} className="text-xs">
+											{m.label}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+							{/* ADR-011 phase 3: Effort picker — session-level. Maps to
+							    --thinking-budget-tokens at spawn. */}
+							<Select
+								value={currentEffort}
+								onValueChange={(v) => void handleEffortChange(v as ChatEffort)}
+								disabled={!threadId}
 							>
-								<span>med</span>
-								{/* 5-step bar viz: first three lit at MED. */}
-								<span aria-hidden className="inline-flex items-center gap-[2px]">
-									<span className="inline-block h-2 w-[2px] bg-[var(--ember)]" />
-									<span className="inline-block h-2 w-[2px] bg-[var(--ember)]" />
-									<span className="inline-block h-2 w-[2px] bg-[var(--ember)]" />
-									<span className="inline-block h-2 w-[2px] bg-[var(--rule)]" />
-									<span className="inline-block h-2 w-[2px] bg-[var(--rule)]" />
-								</span>
-							</button>
+								<SelectTrigger
+									className="h-5 gap-1.5 rounded-sm border border-[var(--rule)] bg-transparent px-1.5 py-0 font-mono text-[10px] uppercase tracking-wider text-[var(--ember-soft)] transition-colors hover:border-[var(--ember)] hover:bg-[var(--rule-soft)] [&>svg]:size-3"
+									aria-label="Effort"
+									title="Extended-thinking effort — applied on next spawn"
+								>
+									<SelectValue asChild>
+										<span className="inline-flex items-center gap-1.5">
+											<span>
+												{EFFORT_OPTIONS.find((o) => o.id === currentEffort)?.label ?? 'Off'}
+											</span>
+											<span aria-hidden className="inline-flex items-center gap-[2px]">
+												{[0, 1, 2, 3, 4].map((i) => (
+													<span
+														key={i}
+														className={cn(
+															'inline-block h-2 w-[2px]',
+															i < (EFFORT_OPTIONS.find((o) => o.id === currentEffort)?.lit ?? 0)
+																? 'bg-[var(--ember)]'
+																: 'bg-[var(--rule)]'
+														)}
+													/>
+												))}
+											</span>
+										</span>
+									</SelectValue>
+								</SelectTrigger>
+								<SelectContent>
+									{EFFORT_OPTIONS.map((o) => (
+										<SelectItem key={o.id} value={o.id} className="text-xs">
+											{o.label}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
 							{/* Phase 5 mode picker: badge-styled trigger + select dropdown. */}
 							<Select
 								value={currentMode}

@@ -31,9 +31,7 @@ use crate::claude::{
     is_session_jsonl,
     jsonl_reader::{read_jsonl, summarize, SessionSummary as JsonlSessionSummary},
     projects_root,
-    session::{
-        cancel_streaming, send_tool_result, send_user_message, SessionOpts, SessionsState,
-    },
+    session::{cancel_streaming, send_tool_result, send_user_message, SessionOpts, SessionsState},
 };
 use crate::commands::db::PaDb;
 
@@ -153,8 +151,14 @@ pub async fn claude_list_sessions(
     // Re-sort by the actual `last_message_at` from the summaries — mtime is a
     // good predictor but the in-file timestamp is canonical.
     summaries.sort_by(|a, b| {
-        let key_a = a.last_message_at.as_deref().unwrap_or(a.started_at.as_str());
-        let key_b = b.last_message_at.as_deref().unwrap_or(b.started_at.as_str());
+        let key_a = a
+            .last_message_at
+            .as_deref()
+            .unwrap_or(a.started_at.as_str());
+        let key_b = b
+            .last_message_at
+            .as_deref()
+            .unwrap_or(b.started_at.as_str());
         key_b.cmp(key_a)
     });
     Ok(summaries)
@@ -199,6 +203,10 @@ pub async fn session_ensure(
         resume_session_id: opts.resume_session_id,
         permission_mode,
         model: opts.model,
+        // ADR-011 phase 3: legacy session_ensure path does not yet take
+        // effort from the frontend. The composer mutates this post-spawn
+        // via `acp_set_effort` instead. Default `Off` matches claude's own.
+        effort: Default::default(),
     };
     let session = sessions.get_or_create(&threadId, &cwd, opts).await;
     let claude_session_id = session.claude_session_id.lock().await.clone();
@@ -276,9 +284,7 @@ pub async fn session_destroy(
 /// Called by the frontend on window 'beforeunload' so dev reloads don't
 /// orphan claude processes. PTYs are handled by `PtyManager` separately.
 #[tauri::command]
-pub async fn session_destroy_all(
-    sessions: State<'_, SessionsState>,
-) -> Result<(), String> {
+pub async fn session_destroy_all(sessions: State<'_, SessionsState>) -> Result<(), String> {
     sessions.kill_all_streaming().await;
     Ok(())
 }
@@ -349,26 +355,30 @@ pub async fn chat_threads_list_by_project(
     };
 
     let rows = match project_filter.as_deref() {
-        Some(pid) => sqlx::query(
-            "SELECT id, title, cwd, project_id, claude_session_id, created_at, updated_at
+        Some(pid) => {
+            sqlx::query(
+                "SELECT id, title, cwd, project_id, claude_session_id, created_at, updated_at
              FROM chat_threads
              WHERE project_id = ?
              ORDER BY updated_at DESC
              LIMIT ?",
-        )
-        .bind(pid)
-        .bind(lim)
-        .fetch_all(&pool)
-        .await,
-        None => sqlx::query(
-            "SELECT id, title, cwd, project_id, claude_session_id, created_at, updated_at
+            )
+            .bind(pid)
+            .bind(lim)
+            .fetch_all(&pool)
+            .await
+        }
+        None => {
+            sqlx::query(
+                "SELECT id, title, cwd, project_id, claude_session_id, created_at, updated_at
              FROM chat_threads
              ORDER BY updated_at DESC
              LIMIT ?",
-        )
-        .bind(lim)
-        .fetch_all(&pool)
-        .await,
+            )
+            .bind(lim)
+            .fetch_all(&pool)
+            .await
+        }
     }
     .map_err(|e| format!("list chat_threads: {e}"))?;
 
@@ -418,4 +428,3 @@ pub async fn chat_thread_move(
     }
     Ok(())
 }
-
