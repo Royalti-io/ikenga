@@ -60,6 +60,11 @@ pub struct InstalledSummary {
     /// Provenance — recorded at install time, used by the UI for grouping
     /// and by the kernel to refuse uninstall of `Builtin` pkgs.
     pub source: InstallSource,
+    /// Scope (Phase 2 of projects-first-class). `Some("default" | "music-2026" | …)`
+    /// means the pkg loads only when that project is active; `None` is the
+    /// workspace scope (always loaded). The Phase 0 bootstrap stamps existing
+    /// rows with `Some("default")` so they remain visible after upgrade.
+    pub project_id: Option<String>,
 }
 
 pub struct Kernel {
@@ -83,6 +88,14 @@ pub struct Kernel {
     /// `pkg_settings` / `pkg_permissions_granted` here; FK cascades on
     /// uninstall clean up children automatically.
     db: Arc<PaDb>,
+
+    /// Phase 2 (projects-first-class): which pkgs are currently
+    /// "registered with runtime registries" — i.e. their sidecars are
+    /// running, their UI routes are mounted, their MCP/cron/etc.
+    /// contributions are live. Distinct from `installed`, which is the
+    /// durable set; `live ⊆ installed`. The reconciler diffs `live`
+    /// against the target set and registers/unregisters to converge.
+    live: RwLock<std::collections::HashSet<String>>,
 }
 
 impl Kernel {
@@ -93,6 +106,7 @@ impl Kernel {
             installed: RwLock::new(HashMap::new()),
             app,
             db,
+            live: RwLock::new(std::collections::HashSet::new()),
         }
     }
 
@@ -112,10 +126,19 @@ impl Kernel {
     /// declare provenance via `source` so the kernel can stamp the
     /// `pkg_installed.source_json` row — this is what later distinguishes
     /// shell-bundled builtins from registry / sideloaded pkgs.
+    /// Install a pkg at `install_path` with the given provenance + scope.
+    /// `project_id = None` means workspace scope (always loaded);
+    /// `Some("default" | other slug)` binds the pkg to that project so it
+    /// only loads when the project is active. The kernel persists the
+    /// scope on `pkg_installed.project_id` but does *not* perform
+    /// reconciliation here — caller is responsible for kicking
+    /// `reconcile_for_project` after install if the scope differs from the
+    /// active project.
     pub fn install_from_path(
         &self,
         install_path: &Path,
         source: InstallSource,
+        project_id: Option<String>,
     ) -> Result<InstalledSummary> {
         let pkg = Package::load(install_path).with_context(|| {
             format!("load manifest at {}", install_path.display())
@@ -167,6 +190,7 @@ impl Kernel {
             installed_at,
             compatible: true,
             source: effective_source,
+            project_id,
         };
 
         // Persist the parent `pkg_installed` row BEFORE running registries.
@@ -238,13 +262,14 @@ impl Kernel {
             s.install_path.clone(),
             s.installed_at,
             source_json,
+            s.project_id.clone(),
         );
         tauri::async_runtime::block_on(async move {
             let pool = db.ensure_pool().await.map_err(|e| anyhow!(e))?;
             sqlx::query(
                 "INSERT OR REPLACE INTO pkg_installed
-                 (id, version, ikenga_api, manifest_json, install_path, installed_at, enabled, source_json)
-                 VALUES (?, ?, ?, ?, ?, ?, 1, ?)",
+                 (id, version, ikenga_api, manifest_json, install_path, installed_at, enabled, source_json, project_id)
+                 VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)",
             )
             .bind(&row.0)
             .bind(&row.1)
@@ -253,11 +278,63 @@ impl Kernel {
             .bind(&row.4)
             .bind(row.5)
             .bind(&row.6)
+            .bind(&row.7)
             .execute(&pool)
             .await
             .map_err(|e| anyhow!("insert pkg_installed: {e}"))?;
             Ok::<_, anyhow::Error>(())
         })
+    }
+
+    /// Phase 2: update the scope of an already-installed pkg. `None` means
+    /// workspace; `Some(slug)` rebinds it to that project. Returns Err if
+    /// the pkg isn't installed. The caller should run a reconcile after
+    /// updating to start/stop sidecars affected by the change.
+    pub fn set_scope(&self, pkg_id: &str, project_id: Option<String>) -> Result<()> {
+        let lock = self.lock_for(pkg_id);
+        let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+        let exists = self
+            .installed
+            .read()
+            .map(|g| g.contains_key(pkg_id))
+            .unwrap_or(false);
+        if !exists {
+            return Err(anyhow!("pkg not installed: {pkg_id}"));
+        }
+        let db = self.db.clone();
+        let id_owned = pkg_id.to_string();
+        let scope_owned = project_id.clone();
+        tauri::async_runtime::block_on(async move {
+            let pool = db.ensure_pool().await.map_err(|e| anyhow!(e))?;
+            sqlx::query("UPDATE pkg_installed SET project_id = ? WHERE id = ?")
+                .bind(&scope_owned)
+                .bind(&id_owned)
+                .execute(&pool)
+                .await
+                .map_err(|e| anyhow!("update project_id: {e}"))?;
+            Ok::<_, anyhow::Error>(())
+        })?;
+        if let Ok(mut g) = self.installed.write() {
+            if let Some(existing) = g.get_mut(pkg_id) {
+                existing.project_id = project_id;
+            }
+        }
+        Ok(())
+    }
+
+    /// Whether `pkg_id` is currently visible under `active_project_id`.
+    /// Workspace-scoped pkgs (project_id None) are always visible.
+    /// Returns false for unknown pkg ids.
+    pub fn is_visible_under(&self, pkg_id: &str, active_project_id: &str) -> bool {
+        self.installed
+            .read()
+            .ok()
+            .and_then(|g| g.get(pkg_id).map(|s| s.project_id.clone()))
+            .map(|scope| match scope {
+                None => true,
+                Some(p) => p == active_project_id,
+            })
+            .unwrap_or(false)
     }
 
     /// Reconcile a pre-existing row's source. Used by `install_builtins()` to
@@ -540,7 +617,9 @@ impl Kernel {
                 }
                 continue;
             }
-            match self.install_from_path(&path, InstallSource::Builtin) {
+            // Builtins are always workspace-scoped — they're shell-shipped
+            // and ought to load regardless of which project is active.
+            match self.install_from_path(&path, InstallSource::Builtin, None) {
                 Ok(s) => log::info!(
                     "[pkg_kernel] auto-installed builtin `{}` v{}",
                     s.id,
@@ -616,7 +695,10 @@ impl Kernel {
                 continue;
             }
             let path_str = path.display().to_string();
-            match self.install_from_path(&path, InstallSource::Local { path: path_str }) {
+            // CLI sideloads default to workspace scope — the shell may not
+            // know which project the user intended. They can move it via
+            // Settings → Packages or `iyke_pkg_install_scope_set`.
+            match self.install_from_path(&path, InstallSource::Local { path: path_str }, None) {
                 Ok(s) => log::info!(
                     "[pkg_kernel] discovered pkgs-dir pkg `{}` v{} (CLI install)",
                     s.id,
@@ -638,7 +720,10 @@ impl Kernel {
     /// to repair or uninstall via the UI.
     pub fn boot(&self) -> Result<()> {
         let db = self.db.clone();
-        let (rows, total_rows): (Vec<(String, String, i64, Option<String>)>, i64) = tauri::async_runtime::block_on(async move {
+        let (rows, total_rows): (
+            Vec<(String, String, i64, Option<String>, Option<String>)>,
+            i64,
+        ) = tauri::async_runtime::block_on(async move {
             let pool = db.ensure_pool().await.map_err(|e| anyhow!(e))?;
             // Diagnostic: total row count regardless of `enabled`. Distinguishes
             // "wrong DB file" / "missing rows" from "all rows disabled".
@@ -646,8 +731,8 @@ impl Kernel {
                 .fetch_one(&pool)
                 .await
                 .map_err(|e| anyhow!("count pkg_installed: {e}"))?;
-            let r: Vec<(String, String, i64, Option<String>)> = sqlx::query_as(
-                "SELECT id, install_path, installed_at, source_json
+            let r: Vec<(String, String, i64, Option<String>, Option<String>)> = sqlx::query_as(
+                "SELECT id, install_path, installed_at, source_json, project_id
                  FROM pkg_installed WHERE enabled = 1",
             )
             .fetch_all(&pool)
@@ -659,7 +744,7 @@ impl Kernel {
 
         let mut replayed = 0usize;
         let mut skipped = 0usize;
-        for (id, install_path, installed_at, source_raw) in rows {
+        for (id, install_path, installed_at, source_raw, project_id) in rows {
             match Package::load(Path::new(&install_path)) {
                 Ok(pkg) => {
                     if !pkg.is_compatible() {
@@ -701,6 +786,7 @@ impl Kernel {
                         installed_at,
                         compatible: true,
                         source,
+                        project_id,
                     };
                     if let Ok(mut g) = self.installed.write() {
                         g.insert(id.clone(), summary);
@@ -730,6 +816,120 @@ impl Kernel {
             .read()
             .ok()
             .and_then(|g| g.get(pkg_id).map(|s| PathBuf::from(&s.install_path)))
+    }
+
+    /// Snapshot of the installed map. Useful for the reconciler and other
+    /// callers that want full info, not just the kernel status payload.
+    pub fn list_installed(&self) -> Vec<InstalledSummary> {
+        self.installed
+            .read()
+            .map(|g| g.values().cloned().collect())
+            .unwrap_or_default()
+    }
+
+    /// Phase 2 reconciler. For each installed pkg, ensure its registry
+    /// contribution + sidecar match its scope vs the active project:
+    /// - workspace (project_id None) → always live.
+    /// - project_id Some(p) where p == active → live.
+    /// - otherwise → parked (unregistered from runtime registries).
+    ///
+    /// "Live" pkgs missing from runtime registries get registered.
+    /// "Parked" pkgs present in runtime registries get unregistered.
+    /// Idempotent: re-running with the same active is a no-op.
+    ///
+    /// We track which pkgs are currently "live" in `live` and compare on
+    /// each reconcile to compute the delta.
+    pub fn reconcile_for_project(&self, active_project_id: &str) -> Result<()> {
+        let installed = self.list_installed();
+        let want_live: std::collections::HashSet<String> = installed
+            .iter()
+            .filter(|s| match &s.project_id {
+                None => true,
+                Some(p) => p == active_project_id,
+            })
+            .map(|s| s.id.clone())
+            .collect();
+
+        let mut live_guard = self
+            .live
+            .write()
+            .map_err(|_| anyhow!("live lock poisoned"))?;
+        let prev_live: std::collections::HashSet<String> = live_guard.clone();
+
+        // Park anything live → not in target set.
+        for pkg_id in prev_live.difference(&want_live).cloned().collect::<Vec<_>>() {
+            log::info!("[pkg_kernel] reconcile: parking `{pkg_id}` (scope mismatch)");
+            for reg in self.registries.iter().rev() {
+                if let Err(e) = reg.unregister(&pkg_id) {
+                    log::warn!(
+                        "[pkg_kernel] reconcile: unregister `{}` for `{pkg_id}` failed: {e}",
+                        reg.name()
+                    );
+                }
+            }
+            live_guard.remove(&pkg_id);
+        }
+
+        // Resume anything in target set → not yet live.
+        for pkg_id in want_live.difference(&prev_live).cloned().collect::<Vec<_>>() {
+            let install_path = installed
+                .iter()
+                .find(|s| s.id == pkg_id)
+                .map(|s| s.install_path.clone());
+            let Some(install_path) = install_path else {
+                continue;
+            };
+            match Package::load(Path::new(&install_path)) {
+                Ok(pkg) => {
+                    log::info!("[pkg_kernel] reconcile: resuming `{pkg_id}`");
+                    let mut applied: Vec<&str> = Vec::new();
+                    let mut failed = false;
+                    for reg in &self.registries {
+                        if let Err(e) = reg.register(&pkg) {
+                            log::warn!(
+                                "[pkg_kernel] reconcile: register `{}` for `{pkg_id}` failed: {e}",
+                                reg.name()
+                            );
+                            // Roll back what we managed to apply for this pkg.
+                            for name in applied.iter().rev() {
+                                if let Some(r) =
+                                    self.registries.iter().find(|r| r.name() == *name)
+                                {
+                                    let _ = r.unregister(&pkg_id);
+                                }
+                            }
+                            failed = true;
+                            break;
+                        }
+                        applied.push(reg.name());
+                    }
+                    if !failed {
+                        live_guard.insert(pkg_id);
+                    }
+                }
+                Err(e) => {
+                    log::warn!(
+                        "[pkg_kernel] reconcile: load `{pkg_id}` at {install_path} failed: {e:#}"
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Mark every installed pkg as live. Used by `boot()` (which has
+    /// already registered everything) so the reconciler knows the
+    /// current truth at startup. Called from lib.rs setup after
+    /// `kernel.boot()` returns.
+    pub fn mark_all_live(&self) {
+        if let Ok(g) = self.installed.read() {
+            if let Ok(mut live) = self.live.write() {
+                live.clear();
+                for id in g.keys() {
+                    live.insert(id.clone());
+                }
+            }
+        }
     }
 
     pub fn status(&self) -> KernelStatus {

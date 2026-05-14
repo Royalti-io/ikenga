@@ -44,7 +44,7 @@ use commands::{
     pkg_install_from_path, pkg_install_from_registry, pkg_kernel_status,
     pkg_mcp_call, pkg_preview_manifest, pkg_settings_get, pkg_settings_set, pkg_sidecar_call,
     pkg_supervisor_restart,
-    pkg_uninstall, pkg_set_enabled, dev_bind_port, dev_release_port,
+    pkg_uninstall, pkg_set_enabled, pkg_set_scope, dev_bind_port, dev_release_port,
     pkg_webview_create, pkg_webview_destroy, pkg_webview_navigate, pkg_webview_set_rect,
     project_archive, project_create, project_get_active, project_list, project_set_active,
     project_update,
@@ -402,12 +402,69 @@ pub fn run() {
             if let Err(e) = kernel.install_from_pkgs_dir() {
                 log::warn!("[pkg_kernel] pkgs-dir discovery failed (continuing): {e:#}");
             }
+            // Phase 2 (projects-first-class): seed the live set from the
+            // boot-registered pkgs, then reconcile against the active
+            // project so anything scoped to a non-active project is parked
+            // on first paint. boot() registered every enabled row; we
+            // mark them live, then prune.
+            kernel.mark_all_live();
+            {
+                let db_for_active = pa_db.clone();
+                let active_now = tauri::async_runtime::block_on(async move {
+                    let pool = db_for_active.ensure_pool().await.ok()?;
+                    crate::commands::projects::get_active_project_id(&pool).await.ok()
+                });
+                if let Some(active) = active_now {
+                    if let Err(e) = kernel.reconcile_for_project(&active) {
+                        log::warn!("[pkg_kernel] initial reconcile failed (continuing): {e:#}");
+                    }
+                }
+            }
+            let kernel_arc_for_listener = kernel.clone();
             app.manage(KernelState(kernel));
             app.manage(PkgSettingsState(settings_reg));
             app.manage(PkgContentState(pkg_content_server));
             app.manage(SidecarSupervisorState(sidecar_supervisor));
             app.manage(SidecarsRegistryState(sidecars_reg));
             app.manage(WebviewPanesState(webview_panes_reg));
+
+            // Phase 2 (projects-first-class): subscribe to
+            // `projects.active-changed` and reconcile pkg liveness on
+            // every switch. Debounced 250ms because rapid ⌘P spamming
+            // through the picker emits one event per step.
+            {
+                use tauri::{Listener, Manager};
+                let app_for_listener = app.handle().clone();
+                let kernel = kernel_arc_for_listener.clone();
+                let pa_db_for_listener = pa_db.clone();
+                let debounce_token: Arc<std::sync::atomic::AtomicU64> =
+                    Arc::new(std::sync::atomic::AtomicU64::new(0));
+                app_for_listener.clone().listen("projects.active-changed", move |evt| {
+                    // Pull `id` out of the payload.
+                    let active = serde_json::from_str::<serde_json::Value>(evt.payload())
+                        .ok()
+                        .and_then(|v| v.get("id").and_then(|s| s.as_str().map(String::from)));
+                    let Some(active) = active else { return };
+                    let token =
+                        debounce_token.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                    let kernel = kernel.clone();
+                    let token_check = debounce_token.clone();
+                    let _pa_db = pa_db_for_listener.clone();
+                    tauri::async_runtime::spawn(async move {
+                        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+                        // If another active-changed landed during the sleep,
+                        // a later iteration will win — drop this one.
+                        if token_check.load(std::sync::atomic::Ordering::Relaxed) != token {
+                            return;
+                        }
+                        if let Err(e) = kernel.reconcile_for_project(&active) {
+                            log::warn!(
+                                "[pkg_kernel] reconcile for active=`{active}` failed: {e:#}"
+                            );
+                        }
+                    });
+                });
+            }
 
             // Phase 0.5 background-execution spike state. Debug builds only.
             // See commands/bg_spike.rs.
@@ -556,6 +613,7 @@ pub fn run() {
             pkg_install_from_registry,
             pkg_uninstall,
             pkg_set_enabled,
+            pkg_set_scope,
             pkg_kernel_status,
             pkg_discover_workspace,
             pkg_db_diag,

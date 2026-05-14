@@ -28,10 +28,16 @@ pub struct PkgInstallResult {
     pub installed: InstalledSummary,
 }
 
+/// Install a pkg from a local directory. `scope` (Phase 2 of
+/// projects-first-class) is the wire-format scope picker:
+/// `"workspace"` for always-loaded, `"project:<id>"` for project-bound,
+/// or null to default to the active project.
 #[tauri::command]
-pub fn pkg_install_from_path(
+pub async fn pkg_install_from_path(
     kernel: State<'_, KernelState>,
+    db: State<'_, Arc<crate::commands::db::PaDb>>,
     install_path: String,
+    scope: Option<String>,
 ) -> Result<PkgInstallResult, String> {
     let path = PathBuf::from(&install_path);
     // FE / iyke / dev-mode workspace installs are all `Local` provenance.
@@ -40,16 +46,73 @@ pub fn pkg_install_from_path(
     let source = InstallSource::Local {
         path: install_path,
     };
-    let installed = kernel
-        .0
-        .install_from_path(&path, source)
-        .map_err(|e| format!("{e:#}"))?;
+    let project_id = resolve_install_scope(db.inner().clone(), scope).await?;
+    let kernel_arc = kernel.0.clone();
+    let installed = tokio::task::spawn_blocking(move || {
+        kernel_arc.install_from_path(&path, source, project_id)
+    })
+    .await
+    .map_err(|e| format!("install join: {e}"))?
+    .map_err(|e| format!("{e:#}"))?;
     Ok(PkgInstallResult { installed })
 }
 
 #[tauri::command]
 pub fn pkg_uninstall(kernel: State<'_, KernelState>, pkg_id: String) -> Result<(), String> {
     kernel.0.uninstall(&pkg_id).map_err(|e| format!("{e:#}"))
+}
+
+/// Update an installed pkg's scope. `scope` is the same wire format as
+/// `pkg_install_from_path`: `"workspace"`, `"project:<id>"`, or null
+/// (defaults to active project).
+#[tauri::command]
+pub fn pkg_set_scope(
+    kernel: State<'_, KernelState>,
+    pkg_id: String,
+    scope: Option<String>,
+    db: State<'_, Arc<crate::commands::db::PaDb>>,
+) -> Result<(), String> {
+    let db_arc = db.inner().clone();
+    let project_id = tauri::async_runtime::block_on(resolve_install_scope(db_arc, scope))?;
+    kernel
+        .0
+        .set_scope(&pkg_id, project_id)
+        .map_err(|e| format!("{e:#}"))
+}
+
+/// Re-export of `resolve_install_scope` for the iyke bridge handler.
+/// Same parser; named differently so the call site reads as "this is
+/// the bridge path, not the Tauri-command path."
+pub async fn resolve_install_scope_for_iyke(
+    db: Arc<crate::commands::db::PaDb>,
+    scope: Option<String>,
+) -> Result<Option<String>, String> {
+    resolve_install_scope(db, scope).await
+}
+
+/// Parse a wire scope ("workspace" | "project:<id>" | null) into the
+/// Option<String> the kernel persists. Null defaults to the active
+/// project. Returns Err if the slug is malformed.
+async fn resolve_install_scope(
+    db: Arc<crate::commands::db::PaDb>,
+    scope: Option<String>,
+) -> Result<Option<String>, String> {
+    match scope.as_deref() {
+        Some("workspace") => Ok(None),
+        Some(s) if s.starts_with("project:") => {
+            let slug = &s["project:".len()..];
+            if slug.is_empty() {
+                return Err("empty project slug".into());
+            }
+            Ok(Some(slug.to_string()))
+        }
+        Some(other) => Err(format!("invalid scope: {other}")),
+        None => {
+            let pool = db.ensure_pool().await.map_err(|e| e.to_string())?;
+            let id = crate::commands::projects::get_active_project_id(&pool).await?;
+            Ok(Some(id))
+        }
+    }
 }
 
 #[tauri::command]
@@ -227,12 +290,17 @@ pub struct PkgInstallFromRegistryArgs {
     pub source_url: String,
 }
 
+/// Install a pkg from a registry. `scope` follows the same wire format as
+/// `pkg_install_from_path`.
 #[tauri::command]
 pub async fn pkg_install_from_registry(
     kernel: State<'_, KernelState>,
+    db: State<'_, Arc<crate::commands::db::PaDb>>,
     args: PkgInstallFromRegistryArgs,
+    scope: Option<String>,
 ) -> Result<PkgInstallResult, String> {
-    install_from_registry_inner(kernel.0.clone(), args)
+    let project_id = resolve_install_scope(db.inner().clone(), scope).await?;
+    install_from_registry_inner(kernel.0.clone(), args, project_id)
         .await
         .map_err(|e| format!("{e:#}"))
 }
@@ -240,6 +308,7 @@ pub async fn pkg_install_from_registry(
 async fn install_from_registry_inner(
     kernel: Arc<Kernel>,
     args: PkgInstallFromRegistryArgs,
+    project_id: Option<String>,
 ) -> AnyResult<PkgInstallResult> {
     let pkgs_dir = kernel.pkgs_dir()?;
     tokio::fs::create_dir_all(&pkgs_dir)
@@ -338,7 +407,7 @@ async fn install_from_registry_inner(
         publisher_key: None,
     };
     let installed = tokio::task::spawn_blocking(move || {
-        kernel.install_from_path(&final_dir_for_kernel, source)
+        kernel.install_from_path(&final_dir_for_kernel, source, project_id)
     })
     .await
     .map_err(|e| anyhow!("kernel install task join: {e}"))?;

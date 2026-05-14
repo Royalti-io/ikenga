@@ -774,6 +774,10 @@ pub async fn post_iframe_message(
 #[derive(Deserialize)]
 pub struct PkgInstallBody {
     pub install_path: String,
+    /// Phase 2 (projects-first-class): scope picker.
+    /// `"workspace"` / `"project:<id>"` / null (defaults to active project).
+    #[serde(default)]
+    pub scope: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -801,6 +805,130 @@ pub async fn post_pkg_uninstall(
     Ok(ok())
 }
 
+#[derive(serde::Deserialize)]
+pub struct PkgListQuery {
+    /// When true, return pkgs scoped to other projects too. Default false.
+    #[serde(default)]
+    pub include_other_projects: bool,
+    /// "workspace" → only workspace-scoped, "project" → only project-scoped.
+    pub kind: Option<String>,
+}
+
+/// Phase 2 (projects-first-class) bridge endpoint: list installed pkgs
+/// with scope-aware filtering. Default returns workspace + active-project
+/// pkgs; pass `include_other_projects=true` to include the rest.
+pub async fn get_pkg_list(
+    Extension(app): Extension<AppHandle>,
+    Extension(db): Extension<Arc<crate::commands::db::PaDb>>,
+    axum::extract::Query(q): axum::extract::Query<PkgListQuery>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    use tauri::Manager;
+    let kernel = app
+        .try_state::<crate::commands::KernelState>()
+        .ok_or((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "pkg kernel state not registered".into(),
+        ))?;
+    let active = {
+        let pool = db
+            .ensure_pool()
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+        crate::commands::projects::get_active_project_id(&pool)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?
+    };
+    let mut entries: Vec<Value> = Vec::new();
+    for s in kernel.0.list_installed() {
+        let kind_match = match q.kind.as_deref() {
+            Some("workspace") => s.project_id.is_none(),
+            Some("project") => s.project_id.is_some(),
+            _ => true,
+        };
+        if !kind_match {
+            continue;
+        }
+        let visible = match &s.project_id {
+            None => true,
+            Some(p) => p == &active,
+        };
+        if !visible && !q.include_other_projects {
+            continue;
+        }
+        let scope_wire = match &s.project_id {
+            None => "workspace".to_string(),
+            Some(p) => format!("project:{p}"),
+        };
+        entries.push(serde_json::json!({
+            "id": s.id,
+            "version": s.version,
+            "ikenga_api": s.ikenga_api,
+            "install_path": s.install_path,
+            "enabled": s.enabled,
+            "installed_at": s.installed_at,
+            "compatible": s.compatible,
+            "source": s.source,
+            "scope": scope_wire,
+            "active_now": visible,
+        }));
+    }
+    Ok(Json(serde_json::json!({
+        "active_project_id": active,
+        "pkgs": entries,
+    })))
+}
+
+#[derive(Deserialize)]
+pub struct PkgScopeSetBody {
+    pub pkg_id: String,
+    /// "workspace" | "project:<id>" | null (defaults to active project).
+    pub scope: Option<String>,
+}
+
+pub async fn post_pkg_scope_set(
+    Extension(app): Extension<AppHandle>,
+    Extension(db): Extension<Arc<crate::commands::db::PaDb>>,
+    JsonBody(body): JsonBody<PkgScopeSetBody>,
+) -> Result<Json<OkResponse>, (StatusCode, String)> {
+    use tauri::Manager;
+    let kernel = app
+        .try_state::<crate::commands::KernelState>()
+        .ok_or((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "pkg kernel state not registered".into(),
+        ))?;
+    let project_id = crate::commands::pkg::resolve_install_scope_for_iyke(
+        db.clone(),
+        body.scope,
+    )
+    .await
+    .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    let pool = db
+        .ensure_pool()
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let active = crate::commands::projects::get_active_project_id(&pool)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let kernel_arc = kernel.0.clone();
+    let pkg_id = body.pkg_id.clone();
+    let active_for_task = active.clone();
+    let project_for_task = project_id.clone();
+    tokio::task::spawn_blocking(move || -> Result<(), String> {
+        kernel_arc
+            .set_scope(&pkg_id, project_for_task)
+            .map_err(|e| format!("{e:#}"))?;
+        kernel_arc
+            .reconcile_for_project(&active_for_task)
+            .map_err(|e| format!("{e:#}"))?;
+        Ok(())
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("join error: {e}")))?
+    .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    Ok(ok())
+}
+
 pub async fn post_pkg_install(
     Extension(app): Extension<AppHandle>,
     JsonBody(body): JsonBody<PkgInstallBody>,
@@ -823,8 +951,21 @@ pub async fn post_pkg_install(
     let source = crate::pkg::InstallSource::Local {
         path: body.install_path.clone(),
     };
+    // Resolve scope. The bridge has the PaDb in Extension; reuse the same
+    // helper as the FE Tauri command so the wire format stays single-sourced.
+    let pa_db = app
+        .try_state::<std::sync::Arc<crate::commands::db::PaDb>>()
+        .ok_or((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "pa_db state not registered".into(),
+        ))?
+        .inner()
+        .clone();
+    let project_id = crate::commands::pkg::resolve_install_scope_for_iyke(pa_db, body.scope)
+        .await
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     let installed =
-        tokio::task::spawn_blocking(move || kernel_arc.install_from_path(&path, source))
+        tokio::task::spawn_blocking(move || kernel_arc.install_from_path(&path, source, project_id))
             .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("join error: {e}")))?
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("{e:#}")))?;

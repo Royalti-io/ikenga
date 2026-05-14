@@ -8,9 +8,11 @@ import {
 	pkgKernelStatus,
 	pkgPreviewManifest,
 	pkgSetEnabled,
+	pkgSetScope,
 	pkgUninstall,
 	type PkgInstalledSummary,
 	type PkgManifestPreview,
+	type PkgScopeWire,
 } from '@/lib/tauri-cmd';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -19,8 +21,10 @@ import {
 	DropdownMenu,
 	DropdownMenuContent,
 	DropdownMenuItem,
+	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { useShellStore } from '@/lib/shell/shell-store';
 
 interface PkgRow {
 	installed: PkgInstalledSummary;
@@ -101,6 +105,20 @@ export function PackagesPage() {
 		},
 		onError: (e) => setError((e as Error).message ?? String(e)),
 	});
+
+	const setScopeMut = useMutation({
+		mutationFn: ({ pkgId, scope }: { pkgId: string; scope: PkgScopeWire | null }) =>
+			pkgSetScope(pkgId, scope),
+		onSuccess: async () => {
+			setError(null);
+			await qc.refetchQueries({ queryKey: ['pkg'] });
+		},
+		onError: (e) => setError((e as Error).message ?? String(e)),
+	});
+
+	const projects = useShellStore((s) => s.projects);
+	const activeProjectId = useShellStore((s) => s.activeProjectId);
+	const activeProject = projects.find((p) => p.id === activeProjectId);
 
 	const status = useQuery({
 		queryKey: ['pkg', 'kernel-status'],
@@ -248,8 +266,13 @@ export function PackagesPage() {
 							items={grouped.builtin}
 							busyEnabled={setEnabledMut}
 							busyUninstall={uninstallMut}
+							busyScope={setScopeMut}
+							projects={projects.map((p) => ({ id: p.id, name: p.display_name }))}
+							activeProjectId={activeProjectId}
+							activeProjectName={activeProject?.display_name ?? activeProjectId}
 							onToggle={handleToggle}
 							onUninstall={handleUninstall}
+							onSetScope={(pkgId, scope) => setScopeMut.mutate({ pkgId, scope })}
 						/>
 						<PkgGroup
 							title="Engine"
@@ -257,8 +280,13 @@ export function PackagesPage() {
 							items={grouped.engine}
 							busyEnabled={setEnabledMut}
 							busyUninstall={uninstallMut}
+							busyScope={setScopeMut}
+							projects={projects.map((p) => ({ id: p.id, name: p.display_name }))}
+							activeProjectId={activeProjectId}
+							activeProjectName={activeProject?.display_name ?? activeProjectId}
 							onToggle={handleToggle}
 							onUninstall={handleUninstall}
+							onSetScope={(pkgId, scope) => setScopeMut.mutate({ pkgId, scope })}
 						/>
 						<PkgGroup
 							title="Installed"
@@ -266,8 +294,13 @@ export function PackagesPage() {
 							items={grouped.user}
 							busyEnabled={setEnabledMut}
 							busyUninstall={uninstallMut}
+							busyScope={setScopeMut}
+							projects={projects.map((p) => ({ id: p.id, name: p.display_name }))}
+							activeProjectId={activeProjectId}
+							activeProjectName={activeProject?.display_name ?? activeProjectId}
 							onToggle={handleToggle}
 							onUninstall={handleUninstall}
+							onSetScope={(pkgId, scope) => setScopeMut.mutate({ pkgId, scope })}
 						/>
 					</div>
 				</div>
@@ -292,16 +325,26 @@ function PkgGroup({
 	items,
 	busyEnabled,
 	busyUninstall,
+	busyScope,
+	projects,
+	activeProjectId,
+	activeProjectName,
 	onToggle,
 	onUninstall,
+	onSetScope,
 }: {
 	title: string;
 	tag: string;
 	items: PkgRow[];
 	busyEnabled: { isPending: boolean; variables?: { pkgId: string; enabled: boolean } };
 	busyUninstall: { isPending: boolean; variables?: string };
+	busyScope: { isPending: boolean; variables?: { pkgId: string; scope: PkgScopeWire | null } };
+	projects: Array<{ id: string; name: string }>;
+	activeProjectId: string;
+	activeProjectName: string;
 	onToggle: (row: PkgRow) => void;
 	onUninstall: (row: PkgRow) => void;
+	onSetScope: (pkgId: string, scope: PkgScopeWire | null) => void;
 }) {
 	if (items.length === 0) return null;
 	return (
@@ -316,14 +359,19 @@ function PkgGroup({
 				{items.map((row) => {
 					const busy =
 						(busyEnabled.isPending && busyEnabled.variables?.pkgId === row.installed.id) ||
-						(busyUninstall.isPending && busyUninstall.variables === row.installed.id);
+						(busyUninstall.isPending && busyUninstall.variables === row.installed.id) ||
+						(busyScope.isPending && busyScope.variables?.pkgId === row.installed.id);
 					return (
 						<PkgRowItem
 							key={row.installed.id}
 							row={row}
 							busy={busy}
+							projects={projects}
+							activeProjectId={activeProjectId}
+							activeProjectName={activeProjectName}
 							onToggle={() => onToggle(row)}
 							onUninstall={() => onUninstall(row)}
+							onSetScope={(scope) => onSetScope(row.installed.id, scope)}
 						/>
 					);
 				})}
@@ -335,13 +383,21 @@ function PkgGroup({
 function PkgRowItem({
 	row,
 	busy,
+	projects,
+	activeProjectId,
+	activeProjectName,
 	onToggle,
 	onUninstall,
+	onSetScope,
 }: {
 	row: PkgRow;
 	busy: boolean;
+	projects: Array<{ id: string; name: string }>;
+	activeProjectId: string;
+	activeProjectName: string;
 	onToggle: () => void;
 	onUninstall: () => void;
+	onSetScope: (scope: PkgScopeWire | null) => void;
 }) {
 	const { installed, manifest, manifestError } = row;
 	const name = manifest?.name ?? installed.id;
@@ -351,6 +407,15 @@ function PkgRowItem({
 	// Source-of-truth: the kernel records provenance on install. The uninstall
 	// command will refuse `builtin` source server-side too — this is the UI hint.
 	const isBuiltIn = installed.source?.kind === 'builtin';
+	const scope: PkgScopeWire | null = installed.project_id
+		? (`project:${installed.project_id}` as const)
+		: 'workspace';
+	const scopeLabel =
+		scope === 'workspace'
+			? 'workspace'
+			: projects.find((p) => p.id === installed.project_id)?.name
+				?? installed.project_id
+				?? 'project';
 
 	const stateDotColor =
 		state === 'running'
@@ -399,6 +464,12 @@ function PkgRowItem({
 			</div>
 
 			<div className="flex shrink-0 items-center gap-3">
+				<span
+					className="inline-flex min-w-[56px] items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider text-muted-foreground"
+					title={`scope: ${scope}`}
+				>
+					<span className="opacity-70">{scopeLabel}</span>
+				</span>
 				<span className="inline-flex min-w-[56px] items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
 					<span className={`h-1.5 w-1.5 rounded-full ${stateDotColor}`} />
 					{state}
@@ -420,6 +491,25 @@ function PkgRowItem({
 						</button>
 					</DropdownMenuTrigger>
 					<DropdownMenuContent align="end">
+						<DropdownMenuItem
+							disabled={busy || scope === 'workspace'}
+							onSelect={(e) => {
+								e.preventDefault();
+								onSetScope('workspace');
+							}}
+						>
+							Move to workspace
+						</DropdownMenuItem>
+						<DropdownMenuItem
+							disabled={busy || scope === `project:${activeProjectId}`}
+							onSelect={(e) => {
+								e.preventDefault();
+								onSetScope(`project:${activeProjectId}` as const);
+							}}
+						>
+							Move to {activeProjectName}
+						</DropdownMenuItem>
+						<DropdownMenuSeparator />
 						<DropdownMenuItem
 							variant="destructive"
 							disabled={busy || isBuiltIn}

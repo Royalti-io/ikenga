@@ -33,10 +33,10 @@ use super::browser_sessions::{
 };
 use crate::commands::db::PaDb;
 use super::handlers::{
-    get_dom, get_iframe_state, get_logs, get_network, get_query_cache, get_state, post_click,
-    post_close, post_devtools, post_focus, post_go, post_iframe_message, post_key, post_mode,
-    post_open, post_pkg_install, post_pkg_uninstall, post_refresh, post_resize,
-    post_screenshot_pane, post_screenshot_window, post_split, post_type, post_wait,
+    get_dom, get_iframe_state, get_logs, get_network, get_pkg_list, get_query_cache, get_state,
+    post_click, post_close, post_devtools, post_focus, post_go, post_iframe_message, post_key,
+    post_mode, post_open, post_pkg_install, post_pkg_scope_set, post_pkg_uninstall, post_refresh,
+    post_resize, post_screenshot_pane, post_screenshot_window, post_split, post_type, post_wait,
 };
 use super::pkg_dispatch::pkg_dispatch;
 use super::memory::{
@@ -106,6 +106,8 @@ pub async fn serve(
         .route("/iyke/devtools", post(post_devtools))
         .route("/iyke/pkg/install", post(post_pkg_install))
         .route("/iyke/pkg/uninstall", post(post_pkg_uninstall))
+        .route("/iyke/pkg/list", get(get_pkg_list))
+        .route("/iyke/pkg/scope-set", post(post_pkg_scope_set))
         .route("/iyke/iframe-state", get(get_iframe_state))
         .route("/iyke/iframe-message", post(post_iframe_message))
         // pkg-browser bridge (kernel-direct + eval).

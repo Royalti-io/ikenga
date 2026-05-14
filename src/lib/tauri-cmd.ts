@@ -1083,6 +1083,11 @@ export interface PkgInstalledSummary {
 	installed_at: number;
 	compatible: boolean;
 	source: PkgInstallSource;
+	/** Phase 2 (projects-first-class): null/undefined = workspace scope
+	 *  (always loaded); slug = project-scoped (loaded only when that
+	 *  project is active). Optional so fixtures from before Phase 2
+	 *  don't need a manual backfill. */
+	project_id?: string | null;
 }
 
 export interface PkgKernelStatus {
@@ -1092,9 +1097,21 @@ export interface PkgKernelStatus {
 }
 
 export async function pkgInstallFromPath(
-	installPath: string
+	installPath: string,
+	scope?: PkgScopeWire | null
 ): Promise<{ installed: PkgInstalledSummary }> {
-	return invoke('pkg_install_from_path', { installPath });
+	return invoke('pkg_install_from_path', { installPath, scope: scope ?? null });
+}
+
+/** Phase 2 scope-picker wire format. `"workspace"` = always loaded;
+ *  `"project:<id>"` = project-scoped; null/undefined = active project. */
+export type PkgScopeWire = 'workspace' | `project:${string}`;
+
+export async function pkgSetScope(
+	pkgId: string,
+	scope: PkgScopeWire | null
+): Promise<void> {
+	return invoke('pkg_set_scope', { pkgId, scope });
 }
 
 /**
@@ -1113,9 +1130,10 @@ export interface PkgInstallFromRegistryArgs {
 }
 
 export async function pkgInstallFromRegistry(
-	args: PkgInstallFromRegistryArgs
+	args: PkgInstallFromRegistryArgs,
+	scope?: PkgScopeWire | null
 ): Promise<{ installed: PkgInstalledSummary }> {
-	return invoke('pkg_install_from_registry', { args });
+	return invoke('pkg_install_from_registry', { args, scope: scope ?? null });
 }
 
 export async function pkgUninstall(pkgId: string): Promise<void> {
