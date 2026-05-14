@@ -393,10 +393,22 @@ pub fn run() {
             // sidecar can read vault values via its existing dotenv loader.
             // Best-effort: a failure here just means sidecars fall through
             // to ~/.config/pa-actions/env or ikenga/.env.
-            match commands::secrets::dump_to_runtime_file(&app.handle().clone()) {
-                Ok(path) => log::info!("env-vault dumped to {}", path.display()),
-                Err(e) => log::warn!("env-vault dump skipped: {e}"),
-            }
+            //
+            // FE-init-fix (2026-05-13): this used to run synchronously
+            // here, but Stronghold::new + get_client can block the setup
+            // thread indefinitely on Linux when the snapshot file is in
+            // a degraded state — which stalls the GTK event loop and
+            // prevents the main window from ever being presented. We
+            // hop it onto a background OS thread so setup returns
+            // immediately. The actions sidecar only reads the env-vault
+            // file when it spawns, which is well after boot.
+            let app_for_dump = app.handle().clone();
+            std::thread::spawn(move || {
+                match commands::secrets::dump_to_runtime_file(&app_for_dump) {
+                    Ok(path) => log::info!("env-vault dumped to {}", path.display()),
+                    Err(e) => log::warn!("env-vault dump skipped: {e}"),
+                }
+            });
 
             Ok(())
         })
