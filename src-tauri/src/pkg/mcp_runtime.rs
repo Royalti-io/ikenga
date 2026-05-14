@@ -47,7 +47,7 @@ pub async fn call_tool(
     tool: &str,
     args: Value,
 ) -> Result<Value> {
-    let mut cmd = Command::new(&server.command);
+    let mut cmd = Command::new(crate::runtime::resolve_command(&server.command));
     cmd.args(&server.args);
     cmd.current_dir(install_path);
     for (k, v) in &server.env {

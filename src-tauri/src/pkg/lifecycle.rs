@@ -779,7 +779,7 @@ impl SupervisedSidecar {
     /// success. On any error the child is dropped (kill_on_drop reaps it)
     /// and Err is returned — caller handles the crash transition.
     async fn spawn_and_handshake(&self, crash_tx: oneshot::Sender<()>) -> Result<Child> {
-        let mut cmd = Command::new(&self.server.command);
+        let mut cmd = Command::new(crate::runtime::resolve_command(&self.server.command));
         cmd.args(&self.server.args);
         cmd.current_dir(&self.install_path);
         for (k, v) in &self.server.env {

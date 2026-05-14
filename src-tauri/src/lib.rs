@@ -9,6 +9,7 @@ pub mod path_fix;
 mod pkg;
 mod pkg_content;
 mod pty;
+mod runtime;
 pub mod vault_key;
 mod viewer_server;
 
@@ -144,6 +145,12 @@ pub fn run() {
         .manage(screenshot_pending.clone())
         .manage(SecretsLock::new())
         .setup(move |app| {
+            // Resolve the bundled Bun (per ADR-010) before anything spawns
+            // sidecars or MCP children. Idempotent; safe even if the binary
+            // is missing — `runtime::resolve_command` then falls back to
+            // PATH lookup with a warning.
+            runtime::init_from_app(&app.handle());
+
             // Ensure app data dir exists; SQLite + Stronghold both write here.
             let data_dir = app
                 .path()

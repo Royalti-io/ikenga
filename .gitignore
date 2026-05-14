@@ -32,6 +32,12 @@ src-tauri/gen/
 src-tauri/resources/builtin-pkgs/com.ikenga.mcp-iyke/bin/
 src-tauri/resources/builtin-pkgs/com.ikenga.mcp-iyke/node_modules/
 
+# Bundled Bun runtime (per ADR-010) — fetched per build target by
+# scripts/fetch-bun.sh. Pin lives in the script; the binary itself is
+# ~50–95 MB and fully reproducible from the pinned SHA, so we don't
+# track it.
+src-tauri/resources/bun/
+
 # env
 .env
 .env.local
