@@ -26,6 +26,8 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from '@/components/ui/select';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { useNavigate } from '@tanstack/react-router';
 import {
 	acpPrompt,
 	acpSetEffort,
@@ -37,17 +39,8 @@ import {
 import { useChatActions, useThreadState } from '../hooks';
 import { useChatStore } from '../store';
 import { type ChatEffort } from '../adapter';
+import { ENGINE_CATALOG, modelLabelFor } from '../engines';
 import { filterSlashCommands, useSlashCommands, type SlashCommand } from '../slash-commands';
-
-/** ADR-011 phase 3: Model + Effort options exposed in the composer pills.
- *  Ids match what claude CLI accepts via `--model`. Mirror of the
- *  AcpAdapter.models list so the composer can render without depending
- *  on the active adapter (which can be the legacy CLI adapter). */
-const MODEL_OPTIONS: Array<{ id: string; label: string }> = [
-	{ id: 'claude-opus-4-7', label: 'Opus 4.7' },
-	{ id: 'claude-sonnet-4-6', label: 'Sonnet 4.6' },
-	{ id: 'claude-haiku-4-5', label: 'Haiku 4.5' },
-];
 
 const EFFORT_OPTIONS: ReadonlyArray<{ id: ChatEffort; label: string; lit: number }> = [
 	{ id: 'off', label: 'Off', lit: 0 },
@@ -310,11 +303,21 @@ export function Composer({ threadId, className, placeholder }: ComposerProps) {
 	// switching is deferred per ADR; changes take effect on next spawn.
 	const setThread = useChatStore((s) => s.setThread);
 	const currentModel = state?.thread.model ?? null;
-	const currentModelLabel =
-		MODEL_OPTIONS.find((m) => m.id === currentModel)?.label ??
-		currentModel?.replace(/^claude-/, '').replace(/-/g, ' ') ??
-		'Auto';
+	const currentModelLabel = modelLabelFor(currentModel);
 	const [currentEffort, setCurrentEffort] = useState<ChatEffort>('off');
+	// ADR-011 phase 4: open/close state for the Engine→Model popover.
+	// Tracking it lets us auto-close when the user picks a model.
+	const [engineMenuOpen, setEngineMenuOpen] = useState(false);
+	const navigate = useNavigate();
+
+	function handleInstallEnginePkg() {
+		setEngineMenuOpen(false);
+		// TanStack file-route convention: trailing `_` in `packages_.browse.tsx`
+		// strips the segment from the URL, so the navigable path is
+		// `/packages/browse`. The `filter` search param is validated by the
+		// route's `validateSearch`.
+		void navigate({ to: '/packages/browse', search: { filter: 'engine' } });
+	}
 
 	async function handleModelChange(nextId: string) {
 		if (!threadId) return;
@@ -475,28 +478,86 @@ export function Composer({ threadId, className, placeholder }: ComposerProps) {
 								<span className="hidden sm:inline">attach</span>
 							</button>
 							<span className="text-[var(--chip-carve)]">{adapterLabel}</span>
-							{/* ADR-011 phase 3: Model picker — session-level. Stored on
-							    SessionOpts.model and applied on next spawn. */}
-							<Select
-								value={currentModel ?? ''}
-								onValueChange={(v) => void handleModelChange(v)}
-								disabled={!threadId}
-							>
-								<SelectTrigger
-									className="h-5 gap-1 rounded-sm border border-[var(--rule)] bg-transparent px-1.5 py-0 font-mono text-[10px] uppercase tracking-wider text-[var(--kola-amber-soft)] transition-colors hover:border-[var(--kola-amber)] hover:bg-[var(--rule-soft)] [&>svg]:size-3"
-									aria-label="Model"
-									title="Model — applied on next spawn (per-turn switching deferred)"
+							{/* ADR-011 phase 4: Engine → Model two-level popover. Top group
+							    is the active engine (Claude Code); other engines render
+							    greyed with a "not installed" tag. Footer routes to
+							    `/packages_/browse?filter=engine`. Session-level — applied
+							    on next spawn (per-turn switching deferred). */}
+							<Popover open={engineMenuOpen} onOpenChange={setEngineMenuOpen}>
+								<PopoverTrigger
+									type="button"
+									disabled={!threadId}
+									className="inline-flex h-5 items-center gap-1 rounded-sm border border-[var(--rule)] bg-transparent px-1.5 font-mono text-[10px] uppercase tracking-wider text-[var(--kola-amber-soft)] transition-colors hover:border-[var(--kola-amber)] hover:bg-[var(--rule-soft)] disabled:cursor-not-allowed disabled:opacity-60"
+									aria-label="Engine and model"
+									title="Engine → Model — applied on next spawn"
 								>
-									<SelectValue>{currentModelLabel}</SelectValue>
-								</SelectTrigger>
-								<SelectContent>
-									{MODEL_OPTIONS.map((m) => (
-										<SelectItem key={m.id} value={m.id} className="text-xs">
-											{m.label}
-										</SelectItem>
-									))}
-								</SelectContent>
-							</Select>
+									{currentModelLabel}
+								</PopoverTrigger>
+								<PopoverContent
+									align="start"
+									className="w-64 border border-[var(--rule)] bg-background p-0 font-sans"
+								>
+									<div className="max-h-[280px] overflow-auto py-1">
+										{ENGINE_CATALOG.map((eng) => (
+											<div
+												key={eng.id}
+												className={cn(
+													'border-b border-[var(--rule)] py-1 last:border-b-0',
+													!eng.installed && 'opacity-60'
+												)}
+											>
+												<div className="flex items-baseline gap-2 px-3 pb-1 font-mono text-[9px] uppercase tracking-[0.22em] text-[var(--chip-carve)]">
+													<span className="text-[var(--kola-amber)]">◾</span>
+													<span className="text-foreground">{eng.label}</span>
+													{!eng.installed && (
+														<span className="ml-auto text-[var(--chip-carve)]">not installed</span>
+													)}
+												</div>
+												<ul>
+													{eng.models.map((m) => {
+														const selected = m.id === currentModel;
+														return (
+															<li key={m.id}>
+																<button
+																	type="button"
+																	disabled={!eng.installed}
+																	onClick={() => {
+																		setEngineMenuOpen(false);
+																		void handleModelChange(m.id);
+																	}}
+																	className={cn(
+																		'flex w-full items-center gap-2 border-l-2 border-transparent px-3 py-1 text-left text-xs transition-colors',
+																		eng.installed && 'hover:bg-[var(--rule-soft)]',
+																		!eng.installed && 'cursor-not-allowed',
+																		selected &&
+																			'border-l-[var(--kola-amber)] bg-[var(--rule-soft)] text-foreground'
+																	)}
+																>
+																	<span className="font-mono">{m.label}</span>
+																	<span className="ml-auto font-mono text-[9px] uppercase tracking-wider text-[var(--chip-carve)]">
+																		{m.id}
+																	</span>
+																</button>
+															</li>
+														);
+													})}
+												</ul>
+											</div>
+										))}
+									</div>
+									<div className="border-t border-[var(--rule)] bg-[var(--rule-soft)] px-2 py-1.5">
+										<button
+											type="button"
+											onClick={handleInstallEnginePkg}
+											className="flex w-full items-center gap-1 font-mono text-[10px] uppercase tracking-wider text-[var(--chip-carve)] transition-colors hover:text-[var(--kola-amber)]"
+											title="Browse engine pkgs in the package manager"
+										>
+											<span className="text-[var(--kola-amber)]">+</span>
+											<span>install engine pkg</span>
+										</button>
+									</div>
+								</PopoverContent>
+							</Popover>
 							{/* ADR-011 phase 3: Effort picker — session-level. Maps to
 							    --thinking-budget-tokens at spawn. */}
 							<Select

@@ -73,7 +73,12 @@ function BrowsePage() {
 	const navigate = useNavigate();
 	const queryClient = useQueryClient();
 	const refreshRegistry = useRefreshRegistry();
-	const [filter, setFilter] = useState('');
+	// ADR-011 phase 4: optional `?filter=` deep-link so the composer's
+	// "+ Install engine pkg" footer can route here pre-filtered to
+	// engine pkgs. The URL value seeds the local state; the user can
+	// edit / clear the input freely from that point on.
+	const search = Route.useSearch();
+	const [filter, setFilter] = useState<string>(search.filter ?? '');
 	const [selectedName, setSelectedName] = useState<string | null>(null);
 	const [installError, setInstallError] = useState<string | null>(null);
 	const [installProgress, setInstallProgress] = useState<{
@@ -578,6 +583,16 @@ function formatBytes(n: number): string {
 // the hook module. (Used implicitly by the planResolver / detail queries.)
 void registryKeys;
 
+interface BrowseSearch {
+	/** ADR-011 phase 4: optional deep-link filter. Composer's
+	 *  "+ Install engine pkg" footer sets this to `engine`. */
+	filter?: string;
+}
+
 export const Route = createFileRoute('/packages_/browse')({
 	component: BrowsePage,
+	validateSearch: (raw: Record<string, unknown>): BrowseSearch => {
+		const f = raw.filter;
+		return typeof f === 'string' && f.length > 0 ? { filter: f } : {};
+	},
 });
