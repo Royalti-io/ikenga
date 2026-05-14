@@ -185,20 +185,51 @@ impl Default for BrowserRpc {
 
 /// Wrap `body` (a JS expression that may be a Promise or a value) in an
 /// IIFE that ensures the helper module is installed, runs the body, and
-/// posts the result to the reply endpoint. `body` evaluates to either the
+/// posts the result back to the host. `body` evaluates to either the
 /// payload value directly, or a Promise resolving to it.
+///
+/// Transport: prefers Tauri IPC (`window.__TAURI_INTERNALS__.invoke`),
+/// falls back to a plain HTTP POST. See `sendReply` in `browser_inject.js`
+/// for the rationale — Tauri IPC works for child webviews on arbitrary
+/// remote origins because it isn't subject to CORS / mixed-content /
+/// Private Network Access, while a fetch from https://example.com to
+/// http://127.0.0.1 is killed by all three.
 fn make_eval(port: u16, request_id: &str, oneshot_token: &str, body: &str) -> String {
     let inject = INJECT_SCRIPT;
     let req = json_string(request_id);
     let tok = json_string(oneshot_token);
     format!(
         r#"(async () => {{
+  const __port = {port};
+  const __req = {req};
+  const __tok = {tok};
+  async function __replyDirect(env) {{
+    const __internals = window.__TAURI_INTERNALS__;
+    if (__internals && typeof __internals.invoke === 'function') {{
+      try {{
+        await __internals.invoke('iyke_browser_reply', {{
+          request_id: __req,
+          oneshot_token: __tok,
+          ok: !!env.ok,
+          payload: env.payload === undefined ? null : env.payload,
+          error: env.error === undefined ? null : env.error,
+        }});
+        return;
+      }} catch (_) {{}}
+    }}
+    try {{
+      await fetch('http://127.0.0.1:' + __port + '/iyke/browser/_reply', {{
+        method: 'POST',
+        mode: 'cors',
+        credentials: 'omit',
+        headers: {{ 'Content-Type': 'application/json' }},
+        body: JSON.stringify({{ request_id: __req, oneshot_token: __tok, ...env }}),
+      }});
+    }} catch (_) {{}}
+  }}
   try {{
     {inject}
     const __ipb = window.__ikengaPkgBrowser;
-    const __port = {port};
-    const __req = {req};
-    const __tok = {tok};
     try {{
       const __result = await (async () => {{ return ({body}); }})();
       await __ipb.sendReply(__port, __req, __tok, {{ ok: true, payload: __result }});
@@ -206,15 +237,7 @@ fn make_eval(port: u16, request_id: &str, oneshot_token: &str, body: &str) -> St
       await __ipb.sendReply(__port, __req, __tok, {{ ok: false, error: String(__err && __err.message || __err) }});
     }}
   }} catch (__outer) {{
-    try {{
-      await fetch('http://127.0.0.1:{port}/iyke/browser/_reply', {{
-        method: 'POST',
-        mode: 'cors',
-        credentials: 'omit',
-        headers: {{ 'Content-Type': 'application/json' }},
-        body: JSON.stringify({{ request_id: {req}, oneshot_token: {tok}, ok: false, error: String(__outer && __outer.message || __outer) }}),
-      }});
-    }} catch (_) {{}}
+    await __replyDirect({{ ok: false, error: String(__outer && __outer.message || __outer) }});
   }}
 }})();"#,
     )

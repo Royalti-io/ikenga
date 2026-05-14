@@ -174,6 +174,9 @@ pub struct ListEntry {
     pub partition: String,
     pub surface_kind: &'static str,
     pub paused: bool,
+    /// Last rect handed to the kernel — useful for verifying that the FE's
+    /// ResizeObserver in `PkgWebviewHost` is tracking the host pane.
+    pub stored_rect: crate::pkg::webview::PaneRect,
 }
 
 #[derive(Serialize)]
@@ -197,6 +200,7 @@ pub async fn get_browser_list(
             partition: s.partition,
             surface_kind: s.surface_kind,
             paused: s.paused,
+            stored_rect: s.stored_rect,
         })
         .collect();
     Json(ListResult { panes: entries })
@@ -704,6 +708,45 @@ pub async fn post_browser_reply(
         .await
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("{e:#}")))?;
     Ok(Json(ReplyAck { ok: true }))
+}
+
+// ── _reply (Tauri command path) ─────────────────────────────────────────────
+//
+// The HTTP reply route above works fine for clients that can talk plain
+// HTTP, but the in-page reply from a child webview hitting an external
+// origin (https://example.com etc.) is killed by browser network policy
+// — mixed-content (HTTPS → HTTP localhost), CORS preflight, and (most
+// importantly) Private Network Access — before the body reaches us. The
+// canonical Tauri 2 way to round-trip a value back from a page on a
+// remote origin is to call `window.__TAURI_INTERNALS__.invoke(...)` and
+// let Tauri's own IPC carry the bytes. We expose `iyke_browser_reply`
+// here for that path; the capability `pkg-browser-child.json` opens it
+// up to webviews with labels matching `pkg-*` on any remote URL.
+//
+// Security: the command does no auth of its own. Spoofing is prevented
+// by the same `oneshot_token` (122-bit UUID) check that gates the HTTP
+// route — `BrowserRpc::resolve` validates it in constant time. The
+// command is intentionally narrow: it accepts the reply envelope and
+// nothing else.
+
+#[tauri::command]
+pub async fn iyke_browser_reply(
+    rpc: tauri::State<'_, BrowserRpc>,
+    request_id: String,
+    oneshot_token: String,
+    ok: bool,
+    payload: Option<Value>,
+    error: Option<String>,
+) -> Result<ReplyAck, String> {
+    let env = ReplyEnvelope {
+        request_id,
+        oneshot_token,
+        ok,
+        payload,
+        error,
+    };
+    rpc.resolve(env).await.map_err(|e| format!("{e:#}"))?;
+    Ok(ReplyAck { ok: true })
 }
 
 // ── helpers ─────────────────────────────────────────────────────────────────

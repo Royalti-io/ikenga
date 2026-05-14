@@ -1,0 +1,13 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "pkg-browser-child",
+  "description": "Permits child webviews opened by the pkg-browser kernel (labels matching `pkg-*`) to call back into Rust via `__TAURI_INTERNALS__.invoke`. The only command they need to reach is `iyke_browser_reply`, which is gated by a 122-bit oneshot_token per request — partner-site JS cannot spoof an in-flight reply. `remote.urls` is wide-open because the pkg-browser mounts arbitrary partner portals (Spotify-for-Artists, Bandcamp, Linkfire, accounts.google.com, etc.); narrowing it would require redeploying the shell every time a pkg adds a new partner.",
+  "windows": ["pkg-*"],
+  "webviews": ["pkg-*"],
+  "remote": {
+    "urls": ["http://*", "https://*"]
+  },
+  "permissions": [
+    "core:default"
+  ]
+}

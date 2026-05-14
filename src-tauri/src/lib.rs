@@ -491,6 +491,7 @@ pub fn run() {
             iyke_dom_done,
             iyke_query_cache_done,
             iyke_wait_done,
+            iyke::browser_handlers::iyke_browser_reply,
             // backup / restore
             backup_export,
             backup_import,

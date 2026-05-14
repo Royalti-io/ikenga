@@ -34,6 +34,29 @@
     // ────────────────────────────────────────────────────────────────────
 
     async sendReply(port, requestId, oneshotToken, body) {
+      // Preferred path: Tauri IPC. Works for child webviews on arbitrary
+      // remote origins (partner portals etc.) because Tauri's IPC channel
+      // is exempt from CORS / mixed-content / Private Network Access. The
+      // origin is allowlisted via the `pkg-browser-child` capability;
+      // spoofing is gated by the per-request `oneshotToken` on the Rust
+      // side. We try this first and only fall back to the HTTP route if
+      // the IPC bridge isn't installed (e.g. unusual build config where
+      // __TAURI_INTERNALS__ isn't injected) or the invoke itself fails.
+      const internals = window.__TAURI_INTERNALS__;
+      if (internals && typeof internals.invoke === 'function') {
+        try {
+          await internals.invoke('iyke_browser_reply', {
+            request_id: requestId,
+            oneshot_token: oneshotToken,
+            ok: !!body.ok,
+            payload: body.payload === undefined ? null : body.payload,
+            error: body.error === undefined ? null : body.error,
+          });
+          return;
+        } catch (_) {
+          // fall through to HTTP fallback below
+        }
+      }
       try {
         await fetch(`http://127.0.0.1:${port}/iyke/browser/_reply`, {
           method: 'POST',
@@ -47,8 +70,8 @@
           }),
         });
       } catch (_) {
-        // If the reply fetch itself fails, the shell-side request will
-        // time out and surface the error — nothing useful to do here.
+        // If both transports fail, the shell-side request will time out
+        // and surface the error — nothing useful to do here.
       }
     },
 
