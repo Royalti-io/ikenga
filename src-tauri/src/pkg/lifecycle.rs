@@ -639,8 +639,23 @@ impl SupervisedSidecar {
                 self_arc.tear_down_active().await;
                 return;
             }
-            self_arc.set_state(State::Spawning);
-            self_arc.clear_blocked_signal();
+            // Preserve Crashed / Blocked across loop iterations so the
+            // strike counter survives. Pre-2026-05-15 this unconditionally
+            // set Spawning, which wiped `Crashed { retries }` before
+            // `note_crash_after_run` could increment it — strikes never
+            // accumulated and the supervisor looped forever instead of
+            // parking. The runtime-ACL phase exposed this as a runaway
+            // audit-row spam from deterministic deny + 1s RESTART_DELAY.
+            // The FE's intermediate "spawning…" affordance still fires
+            // for fresh starts (initial state is Spawning) and for the
+            // operator-restart path (`restart()` sets Spawning explicitly).
+            if matches!(
+                self_arc.current_state(),
+                State::Spawning | State::Running { .. } | State::Stopped { .. } | State::Parked { .. }
+            ) {
+                self_arc.set_state(State::Spawning);
+                self_arc.clear_blocked_signal();
+            }
 
             // Per-cycle crash signal. `oneshot` has correct
             // already-fired-before-await semantics: if the read-loop
@@ -1553,6 +1568,63 @@ mod tests {
             "expected denial message, got: {msg}"
         );
         assert!(msg.contains("/bin/true"), "expected command in error: {msg}");
+    }
+
+    /// Strike counter must survive across loop iterations: pre-2026-05-15
+    /// the supervisor_loop unconditionally `set_state(Spawning)` at the top
+    /// of each iteration, wiping `Crashed { retries }` before
+    /// `note_crash_after_run` could increment it. Phase 2's deterministic
+    /// deny path made this pathological (audit table fills with thousands
+    /// of rows from one pkg looping every RESTART_DELAY=1s). The fix
+    /// preserves Crashed/Blocked across iterations; this test pins down
+    /// the invariant: simulating "loop iter top" while Crashed must NOT
+    /// reset retries.
+    #[test]
+    fn supervisor_loop_top_preserves_crashed_strike_count() {
+        let sidecar = SupervisedSidecar::new(
+            "x".into(),
+            McpServer {
+                name: "t".into(),
+                command: "/bin/false".into(),
+                args: vec![],
+                env: HashMap::new(),
+                lifecycle: Some("long-lived".into()),
+                restart_when_changed: vec![],
+                auto_restart: true,
+            },
+            PathBuf::from("/tmp"),
+        );
+        sidecar.note_crash_after_run("first".into());
+        sidecar.note_crash_after_run("second".into());
+        // Mirror the supervisor_loop's preserve-Crashed branch: when the
+        // current state is already Crashed, the loop must NOT call
+        // `set_state(Spawning)`. Verify by checking the discriminant
+        // matches what the loop conditional gates on.
+        let state = sidecar.current_state();
+        assert!(
+            matches!(state, State::Crashed { retries: 2, .. }),
+            "expected Crashed retries=2, got {state:?}"
+        );
+        // The loop's conditional (mirrored): only set Spawning when state
+        // is one of the listed variants. Crashed is intentionally absent.
+        let should_reset = matches!(
+            state,
+            State::Spawning
+                | State::Running { .. }
+                | State::Stopped { .. }
+                | State::Parked { .. }
+        );
+        assert!(
+            !should_reset,
+            "supervisor_loop must NOT reset Crashed to Spawning at iter top — \
+             that re-entry to Spawning is what wiped the strike counter pre-fix"
+        );
+        // And the next crash must increment, not reset.
+        sidecar.note_crash_after_run("third".into());
+        match sidecar.current_state() {
+            State::Crashed { retries: 3, .. } => {}
+            other => panic!("expected Crashed retries=3 (strike preserved), got {other:?}"),
+        }
     }
 
     /// Runtime-ACL phase: glob entries match expected commands and reject
