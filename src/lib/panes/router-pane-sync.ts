@@ -10,8 +10,6 @@
 import { useEffect } from 'react';
 import { useRouter } from '@tanstack/react-router';
 
-import { useShellStore } from '@/lib/shell/shell-store';
-
 import { usePaneStore } from './pane-store';
 import { findLeaf } from './pane-reducer';
 
@@ -63,16 +61,7 @@ export function useRouterPaneSync(): void {
 		// other than '/'.
 		const path = focusedRoute();
 		if (path && router.state.location.pathname !== path) {
-			// Don't drag the user back into the wizard via a stale /onboarding
-			// pane tab once first-run is complete — the layout guard would
-			// redirect back to '/' and the sync would re-push the same path,
-			// looping until the CPU is pegged.
-			const ob = useShellStore.getState().onboarding;
-			if (path.startsWith('/onboarding') && ob.mode === 'first_run' && ob.completedAt !== null) {
-				usePaneStore.getState().navigateFocused('/');
-			} else {
-				void router.navigate({ to: path, replace: true });
-			}
+			void router.navigate({ to: path, replace: true });
 		}
 
 		return () => {
