@@ -24,13 +24,19 @@ set -euo pipefail
 BUN_VERSION="1.3.14"
 
 # SHASUMS256.txt from https://github.com/oven-sh/bun/releases/tag/bun-v1.3.14
-declare -A BUN_SHA256=(
-  [linux-x64]="951ee2aee855f08595aeec6225226a298d3fea83a3dcd6465c09cbccdf7e848f"
-  [linux-aarch64]="a27ffb63a8310375836e0d6f668ae17fa8d8d18b88c37c821c65331973a19a3b"
-  [darwin-x64]="4183df3374623e5bab315c547cfa0974533cd457d86b73b639f7a87974cd6633"
-  [darwin-aarch64]="d8b96221828ad6f97ac7ac0ab7e95872341af763001e8803e8267652c2652620"
-  [windows-x64]="0a0620930b6675d7ba440e81f4e0e00d3cfbe096c4b140d3fff02205e9e18922"
-)
+# Case statement (not `declare -A`) so this works on macOS's default
+# /bin/bash 3.2 — associative arrays only landed in bash 4.
+expected_sha_for() {
+  case "$1" in
+    linux-x64)       echo "951ee2aee855f08595aeec6225226a298d3fea83a3dcd6465c09cbccdf7e848f" ;;
+    linux-aarch64)   echo "a27ffb63a8310375836e0d6f668ae17fa8d8d18b88c37c821c65331973a19a3b" ;;
+    darwin-x64)      echo "4183df3374623e5bab315c547cfa0974533cd457d86b73b639f7a87974cd6633" ;;
+    darwin-aarch64)  echo "d8b96221828ad6f97ac7ac0ab7e95872341af763001e8803e8267652c2652620" ;;
+    windows-x64)     echo "0a0620930b6675d7ba440e81f4e0e00d3cfbe096c4b140d3fff02205e9e18922" ;;
+    *) return 1 ;;
+  esac
+}
+KNOWN_TARGETS="linux-x64 linux-aarch64 darwin-x64 darwin-aarch64 windows-x64"
 
 # ─── Args ───────────────────────────────────────────────────────────────────
 TARGET=""
@@ -69,9 +75,8 @@ if [[ -z "$TARGET" ]]; then
   echo "fetch-bun.sh: auto-detected host target = $TARGET"
 fi
 
-EXPECTED_SHA="${BUN_SHA256[$TARGET]:-}"
-if [[ -z "$EXPECTED_SHA" ]]; then
-  echo "fetch-bun.sh: no pinned sha for target '$TARGET'. Known targets: ${!BUN_SHA256[*]}" >&2
+if ! EXPECTED_SHA="$(expected_sha_for "$TARGET")"; then
+  echo "fetch-bun.sh: no pinned sha for target '$TARGET'. Known targets: $KNOWN_TARGETS" >&2
   exit 2
 fi
 
