@@ -21,6 +21,7 @@ import {
 	migrateLegacyKey,
 	saveScopedLayoutState,
 } from '@/lib/layout-state';
+import { useShellStore } from '@/lib/shell/shell-store';
 import { useTerminalStore } from '@/terminal/session-store';
 import { findLeaf, getLeafIdsInOrder, makeLeaf } from './pane-reducer';
 import type { PaneId, PaneNode, PaneView } from './types';
@@ -89,7 +90,12 @@ export async function loadPaneTree(projectId: string): Promise<PaneTreeSnapshot>
 	}
 
 	const liveTerminalIds = new Set(useTerminalStore.getState().tabs.map((t) => t.id));
-	const cleaned = filterTreeViews(blob.root, (view) => isViewLive(view, liveTerminalIds));
+	const ob = useShellStore.getState().onboarding;
+	const dropOnboardingTabs = ob.mode === 'first_run' && ob.completedAt !== null;
+	const cleaned = filterTreeViews(
+		blob.root,
+		(view) => isViewLive(view, liveTerminalIds) && !isStaleOnboardingTab(view, dropOnboardingTabs)
+	);
 
 	if (!cleaned) return { ...buildDefault(), closedHistory: blob.closedHistory ?? [] };
 
@@ -102,6 +108,11 @@ export async function loadPaneTree(projectId: string): Promise<PaneTreeSnapshot>
 		focusedId,
 		closedHistory: (blob.closedHistory ?? []).slice(-MAX_CLOSED_HISTORY),
 	};
+}
+
+function isStaleOnboardingTab(view: PaneView, dropOnboardingTabs: boolean): boolean {
+	if (!dropOnboardingTabs) return false;
+	return view.kind === 'route' && view.path.startsWith('/onboarding');
 }
 
 function isViewLive(view: PaneView, liveTerminalIds: Set<string>): boolean {
