@@ -20,6 +20,7 @@ use tauri::AppHandle;
 
 use crate::commands::db::PaDb;
 
+use super::cap_snapshot;
 use super::manifest::{Package, IKENGA_API_MIN_SUPPORTED, IKENGA_API_VERSION};
 use super::registry::Registry;
 use super::source::InstallSource;
@@ -229,6 +230,25 @@ impl Kernel {
             .write()
             .map_err(|_| anyhow!("installed lock poisoned"))?
             .insert(pkg_id.clone(), summary.clone());
+
+        // Trust-review modal (2026-05-15): the install itself is implicit
+        // consent for the manifest's current capabilities + permissions.
+        // Subsequent upgrades that change the normalized blob will trip
+        // the boot-time diff and surface in the review modal. Best-effort:
+        // a write failure here just means the first re-boot will see a
+        // missing snapshot and re-stamp implicitly, which is the same
+        // semantics; we log and continue.
+        let snapshot_json = cap_snapshot::normalize(&pkg.manifest);
+        let db_for_snap = self.db.clone();
+        let id_for_snap = pkg_id.clone();
+        if let Err(e) = tauri::async_runtime::block_on(async move {
+            let pool = db_for_snap.ensure_pool().await.map_err(|e| anyhow!(e))?;
+            cap_snapshot::write_implicit(&pool, &id_for_snap, &snapshot_json).await
+        }) {
+            log::warn!(
+                "[pkg_kernel] cap-snapshot write_implicit for `{pkg_id}` failed (continuing): {e:#}"
+            );
+        }
 
         log::info!(
             "[pkg_kernel] installed `{pkg_id}` v{} ({} registries)",
@@ -752,6 +772,7 @@ impl Kernel {
 
         let mut replayed = 0usize;
         let mut skipped = 0usize;
+        let mut parked_for_review = 0usize;
         for (id, install_path, installed_at, source_raw, project_id) in rows {
             match Package::load(Path::new(&install_path)) {
                 Ok(pkg) => {
@@ -763,6 +784,84 @@ impl Kernel {
                         skipped += 1;
                         continue;
                     }
+
+                    // Trust-review modal (2026-05-15): diff the current
+                    // manifest's normalized capabilities + permissions
+                    // against the stored snapshot. No snapshot → first
+                    // boot for this pkg, treat as implicit approval and
+                    // proceed. Matching snapshot → proceed. Mismatched
+                    // snapshot → record the pkg as "installed but pending
+                    // review" (in `self.installed` so the FE can list it,
+                    // but skip the registry replay so sidecars / MCPs
+                    // never start). The user resolves via the
+                    // `pkg_trust_*` commands.
+                    let current_norm = cap_snapshot::normalize(&pkg.manifest);
+                    let db_for_snap = self.db.clone();
+                    let id_for_snap = id.clone();
+                    let norm_for_check = current_norm.clone();
+                    let snap_result = tauri::async_runtime::block_on(async move {
+                        let pool = db_for_snap.ensure_pool().await.map_err(|e| anyhow!(e))?;
+                        cap_snapshot::fetch(&pool, &id_for_snap).await
+                    });
+                    let needs_review = match snap_result {
+                        Ok(Some(snap)) => cap_snapshot::capabilities_changed(
+                            &snap.manifest_capabilities_json,
+                            &norm_for_check,
+                        ),
+                        Ok(None) => {
+                            // No snapshot — write implicit and proceed.
+                            let db = self.db.clone();
+                            let id_w = id.clone();
+                            let norm_w = current_norm.clone();
+                            if let Err(e) = tauri::async_runtime::block_on(async move {
+                                let pool = db.ensure_pool().await.map_err(|e| anyhow!(e))?;
+                                cap_snapshot::write_implicit(&pool, &id_w, &norm_w).await
+                            }) {
+                                log::warn!(
+                                    "[pkg_kernel] boot: cap-snapshot implicit write for `{id}` failed (continuing): {e:#}"
+                                );
+                            }
+                            false
+                        }
+                        Err(e) => {
+                            log::warn!(
+                                "[pkg_kernel] boot: cap-snapshot fetch for `{id}` failed (proceeding): {e:#}"
+                            );
+                            false
+                        }
+                    };
+
+                    let source =
+                        InstallSource::parse_or_local(source_raw.as_deref(), &install_path);
+                    let summary = InstalledSummary {
+                        id: id.clone(),
+                        version: pkg.manifest.version.clone(),
+                        ikenga_api: pkg.manifest.ikenga_api.clone(),
+                        install_path: install_path.clone(),
+                        enabled: true,
+                        installed_at,
+                        compatible: true,
+                        source,
+                        project_id,
+                    };
+
+                    if needs_review {
+                        // Park: insert into `installed` so the FE / list
+                        // commands see the pkg, but skip the registry
+                        // replay. The pkg won't enter `live` either, so
+                        // the project reconciler won't accidentally
+                        // resurrect it.
+                        if let Ok(mut g) = self.installed.write() {
+                            g.insert(id.clone(), summary);
+                        }
+                        log::info!(
+                            "[pkg_kernel] boot: `{id}` parked pending capability review — \
+                             not registering until user approves"
+                        );
+                        parked_for_review += 1;
+                        continue;
+                    }
+
                     let mut applied: Vec<&str> = Vec::new();
                     let mut failed = false;
                     for reg in &self.registries {
@@ -781,19 +880,6 @@ impl Kernel {
                         skipped += 1;
                         continue;
                     }
-                    let source =
-                        InstallSource::parse_or_local(source_raw.as_deref(), &install_path);
-                    let summary = InstalledSummary {
-                        id: id.clone(),
-                        version: pkg.manifest.version.clone(),
-                        ikenga_api: pkg.manifest.ikenga_api.clone(),
-                        install_path,
-                        enabled: true,
-                        installed_at,
-                        compatible: true,
-                        source,
-                        project_id,
-                    };
                     if let Ok(mut g) = self.installed.write() {
                         g.insert(id.clone(), summary);
                     }
@@ -808,8 +894,48 @@ impl Kernel {
             }
         }
         log::info!(
-            "[pkg_kernel] boot — {} registries, replayed {replayed}, skipped {skipped}",
+            "[pkg_kernel] boot — {} registries, replayed {replayed}, skipped {skipped}, parked_for_review {parked_for_review}",
             self.registries.len()
+        );
+        Ok(())
+    }
+
+    /// Trust-review modal (2026-05-15) — run the registry replay for a pkg
+    /// that was parked by `boot()` because its capability snapshot
+    /// differed. Called after the user approves the diff via the modal.
+    /// Idempotent if the pkg is already registered: the registries
+    /// themselves enforce single-register semantics on their side.
+    pub fn resume_after_review(&self, pkg_id: &str) -> Result<()> {
+        let lock = self.lock_for(pkg_id);
+        let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+
+        let install_path = self
+            .installed
+            .read()
+            .ok()
+            .and_then(|g| g.get(pkg_id).map(|s| s.install_path.clone()))
+            .ok_or_else(|| anyhow!("pkg `{pkg_id}` not installed"))?;
+        let pkg = Package::load(Path::new(&install_path))
+            .with_context(|| format!("reload manifest for `{pkg_id}`"))?;
+
+        let mut applied: Vec<&str> = Vec::new();
+        for reg in &self.registries {
+            if let Err(e) = reg.register(&pkg) {
+                log::error!(
+                    "[pkg_kernel] resume_after_review: register `{}` failed for `{pkg_id}`: {e}",
+                    reg.name()
+                );
+                self.rollback(pkg_id, &applied);
+                return Err(e);
+            }
+            applied.push(reg.name());
+        }
+        if let Ok(mut g) = self.live.write() {
+            g.insert(pkg_id.to_string());
+        }
+        log::info!(
+            "[pkg_kernel] resume_after_review: `{pkg_id}` re-registered ({} registries)",
+            applied.len()
         );
         Ok(())
     }

@@ -188,6 +188,11 @@ async fn ensure_schema(pool: &sqlx::SqlitePool) -> Result<(), String> {
             "0020_pkg_permission_violations",
             include_str!("../../migrations/0020_pkg_permission_violations.sql"),
         ),
+        (
+            21,
+            "0021_pkg_capability_snapshots",
+            include_str!("../../migrations/0021_pkg_capability_snapshots.sql"),
+        ),
     ];
 
     for (id, name, sql) in migrations {

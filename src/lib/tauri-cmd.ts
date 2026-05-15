@@ -1411,6 +1411,45 @@ export async function pkgTrustRevoke(pkgId: string): Promise<void> {
 	await invoke<void>('pkg_trust_revoke', { pkgId });
 }
 
+// ── Trust-review modal (2026-05-15) — capability-diff batch surface ──────
+//
+// Distinct from the Phase 9 sensitive-perms trust surface above. These
+// commands gate boot-time capability changes (the FULL capabilities +
+// permissions blocks) by parking the pkg out of the kernel's registry
+// replay until the user approves or rejects the diff.
+
+export interface PkgTrustReview {
+	pkg_id: string;
+	manifest_version: string;
+	old_capabilities: string;
+	new_capabilities: string;
+	prior_approved_at_ms: number;
+}
+
+/**
+ * List pkgs whose normalized capabilities + permissions differ from
+ * their last-approved snapshot. Empty list = nothing to review.
+ */
+export async function pkgTrustListPending(): Promise<PkgTrustReview[]> {
+	return invoke<PkgTrustReview[]>('pkg_trust_list_pending');
+}
+
+/**
+ * Approve the current manifest's capabilities + permissions: write a new
+ * explicit snapshot and re-register the pkg with the kernel (which boots
+ * its sidecars / MCPs).
+ */
+export async function pkgTrustApprove(pkgId: string): Promise<void> {
+	await invoke<void>('pkg_trust_approve', { pkgId });
+}
+
+/**
+ * Reject the diff: delegate to the standard uninstall path.
+ */
+export async function pkgTrustReject(pkgId: string): Promise<void> {
+	await invoke<void>('pkg_trust_reject', { pkgId });
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // Runtime-ACL violations audit (2026-05-15)
 // ─────────────────────────────────────────────────────────────────────────

@@ -6,6 +6,7 @@
 //! Wiring: built in `lib.rs::run()::setup`, stored in app state, exposed via
 //! the `pkg_*` Tauri commands in `commands::pkg`.
 
+pub mod cap_snapshot;
 pub mod file_watcher;
 pub mod keep_awake;
 pub mod kernel;
