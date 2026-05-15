@@ -198,7 +198,9 @@ fn disk_free_gb_for(target: &Path) -> u64 {
     // the longest mount-point prefix-match for `target` — that's the volume
     // the file would live on.
     let disks = Disks::new_with_refreshed_list();
-    let canonical = target.canonicalize().unwrap_or_else(|_| target.to_path_buf());
+    let canonical = target
+        .canonicalize()
+        .unwrap_or_else(|_| target.to_path_buf());
 
     let mut best: Option<(usize, u64)> = None;
     for disk in disks.list() {

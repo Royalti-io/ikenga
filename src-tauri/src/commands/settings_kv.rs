@@ -22,10 +22,7 @@ fn now_ms() -> i64 {
 }
 
 #[tauri::command]
-pub async fn settings_get(
-    db: State<'_, Arc<PaDb>>,
-    key: String,
-) -> Result<Option<String>, String> {
+pub async fn settings_get(db: State<'_, Arc<PaDb>>, key: String) -> Result<Option<String>, String> {
     let pool = db.ensure_pool().await?;
     let row: Option<(String,)> = sqlx::query_as("SELECT value FROM settings_kv WHERE key = ?")
         .bind(&key)
@@ -56,9 +53,7 @@ pub async fn settings_set(
 }
 
 #[tauri::command]
-pub async fn settings_get_all(
-    db: State<'_, Arc<PaDb>>,
-) -> Result<HashMap<String, String>, String> {
+pub async fn settings_get_all(db: State<'_, Arc<PaDb>>) -> Result<HashMap<String, String>, String> {
     let pool = db.ensure_pool().await?;
     let rows: Vec<(String, String)> = sqlx::query_as("SELECT key, value FROM settings_kv")
         .fetch_all(&pool)

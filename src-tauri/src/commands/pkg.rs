@@ -46,9 +46,7 @@ pub async fn pkg_install_from_path(
     // FE / iyke / dev-mode workspace installs are all `Local` provenance.
     // Registry installs go through a separate command once the registry
     // client lands; builtins go through `install_builtins()` at boot.
-    let source = InstallSource::Local {
-        path: install_path,
-    };
+    let source = InstallSource::Local { path: install_path };
     let project_id = resolve_install_scope(db.inner().clone(), scope).await?;
     let kernel_arc = kernel.0.clone();
     let installed = tokio::task::spawn_blocking(move || {
@@ -165,8 +163,7 @@ pub fn pkg_discover_workspace(
 #[tauri::command]
 pub fn pkg_preview_manifest(install_path: String) -> Result<serde_json::Value, String> {
     let path = PathBuf::from(install_path);
-    let pkg = crate::pkg::manifest::Package::load(&path)
-        .map_err(|e| format!("{e:#}"))?;
+    let pkg = crate::pkg::manifest::Package::load(&path).map_err(|e| format!("{e:#}"))?;
     serde_json::to_value(&pkg.manifest).map_err(|e| format!("serialize manifest: {e}"))
 }
 
@@ -192,14 +189,17 @@ pub fn pkg_db_diag(
             .fetch_one(&pool)
             .await
             .map_err(|e| e.to_string())?;
-        let ids: Vec<String> =
-            sqlx::query_scalar("SELECT id FROM pkg_installed ORDER BY id")
-                .fetch_all(&pool)
-                .await
-                .map_err(|e| e.to_string())?;
+        let ids: Vec<String> = sqlx::query_scalar("SELECT id FROM pkg_installed ORDER BY id")
+            .fetch_all(&pool)
+            .await
+            .map_err(|e| e.to_string())?;
         Ok::<_, String>((count, ids))
     })?;
-    Ok(PkgDbDiag { db_path, pkg_installed_count: count, ids })
+    Ok(PkgDbDiag {
+        db_path,
+        pkg_installed_count: count,
+        ids,
+    })
 }
 
 // ─── pkg_settings ────────────────────────────────────────────────────────────
@@ -229,13 +229,12 @@ pub fn pkg_settings_get(
     let stored: serde_json::Map<String, serde_json::Value> =
         tauri::async_runtime::block_on(async move {
             let pool = db_clone.ensure_pool().await?;
-            let rows: Vec<(String, String)> = sqlx::query_as(
-                "SELECT key, value_json FROM pkg_settings WHERE pkg_id = ?",
-            )
-            .bind(&pkg_for_query)
-            .fetch_all(&pool)
-            .await
-            .map_err(|e| format!("read pkg_settings: {e}"))?;
+            let rows: Vec<(String, String)> =
+                sqlx::query_as("SELECT key, value_json FROM pkg_settings WHERE pkg_id = ?")
+                    .bind(&pkg_for_query)
+                    .fetch_all(&pool)
+                    .await
+                    .map_err(|e| format!("read pkg_settings: {e}"))?;
             let mut obj = serde_json::Map::new();
             for (k, vj) in rows {
                 let v: serde_json::Value =
@@ -437,11 +436,7 @@ async fn install_from_registry_inner(
 /// Stream the tarball to disk while hashing in parallel. Constant-time-compare
 /// the final digest against the SRI integrity. Removes the partial file on
 /// any failure.
-async fn download_and_verify(
-    url: &str,
-    integrity_sri: &str,
-    dest: &Path,
-) -> AnyResult<()> {
+async fn download_and_verify(url: &str, integrity_sri: &str, dest: &Path) -> AnyResult<()> {
     let expected = parse_sri_sha512(integrity_sri)?;
 
     let res = reqwest::get(url)
@@ -516,10 +511,9 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 /// component (npm convention). Rejects entries whose normalized path escapes
 /// `dest_dir` (defends against `..` traversal and absolute paths).
 fn extract_tarball(src: &Path, dest_dir: &Path) -> AnyResult<()> {
-    std::fs::create_dir_all(dest_dir)
-        .with_context(|| format!("mkdir {}", dest_dir.display()))?;
-    let file = std::fs::File::open(src)
-        .with_context(|| format!("open tarball {}", src.display()))?;
+    std::fs::create_dir_all(dest_dir).with_context(|| format!("mkdir {}", dest_dir.display()))?;
+    let file =
+        std::fs::File::open(src).with_context(|| format!("open tarball {}", src.display()))?;
     let gz = flate2::read::GzDecoder::new(file);
     let mut archive = tar::Archive::new(gz);
     archive.set_preserve_mtime(false);
@@ -566,9 +560,8 @@ fn extract_tarball(src: &Path, dest_dir: &Path) -> AnyResult<()> {
         // files inside them, and `Entry::unpack` doesn't always mkdir parents
         // on Linux. Create them explicitly before unpacking.
         if let Some(parent) = target.parent() {
-            std::fs::create_dir_all(parent).with_context(|| {
-                format!("mkdir -p parent of {}", target.display())
-            })?;
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("mkdir -p parent of {}", target.display()))?;
         }
         entry
             .unpack(&target)
@@ -585,8 +578,7 @@ pub fn pkg_settings_set(
     value: serde_json::Value,
 ) -> Result<(), String> {
     let db_clone = db.inner().clone();
-    let value_json = serde_json::to_string(&value)
-        .map_err(|e| format!("serialize value: {e}"))?;
+    let value_json = serde_json::to_string(&value).map_err(|e| format!("serialize value: {e}"))?;
     let now = chrono::Utc::now().timestamp_millis();
     tauri::async_runtime::block_on(async move {
         let pool = db_clone.ensure_pool().await?;

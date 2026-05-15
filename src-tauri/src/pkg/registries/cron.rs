@@ -146,70 +146,73 @@ impl Registry for CronRegistry {
         let mut new_jobs: Vec<CronJob> = Vec::new();
 
         // Scheduler ops are async; do them all in one block_on.
-        let sched_jobs: Vec<(String, String, String, Uuid)> = tauri::async_runtime::block_on(async move {
-            let sched = self.ensure_sched().await?;
-            let mut out: Vec<(String, String, String, Uuid)> = Vec::new();
-            for (cron_id, expr, handler) in parsed {
-                let app_inner = app.clone();
-                let pkg_inner = pkg_id.clone();
-                let cron_inner = cron_id.clone();
-                let handler_for_log = match &handler {
-                    HandlerSpec::Event(n) => format!("event:{n}"),
-                    HandlerSpec::Sidecar { name, subcommand } => format!("sidecar:{name} {subcommand}"),
-                };
-                let job = match handler {
-                    HandlerSpec::Event(name) => Job::new(expr.as_str(), move |_uuid, _l| {
-                        let event = format!("pkg://{name}");
-                        let payload = json!({
-                            "pkg_id": pkg_inner,
-                            "cron_id": cron_inner,
-                        });
-                        if let Err(e) = app_inner.emit(&event, payload) {
-                            log::warn!("[pkg.cron] emit `{event}` failed: {e}");
+        let sched_jobs: Vec<(String, String, String, Uuid)> =
+            tauri::async_runtime::block_on(async move {
+                let sched = self.ensure_sched().await?;
+                let mut out: Vec<(String, String, String, Uuid)> = Vec::new();
+                for (cron_id, expr, handler) in parsed {
+                    let app_inner = app.clone();
+                    let pkg_inner = pkg_id.clone();
+                    let cron_inner = cron_id.clone();
+                    let handler_for_log = match &handler {
+                        HandlerSpec::Event(n) => format!("event:{n}"),
+                        HandlerSpec::Sidecar { name, subcommand } => {
+                            format!("sidecar:{name} {subcommand}")
                         }
-                    })
-                    .map_err(|e| anyhow!("build cron job `{cron_id}` (`{expr}`): {e}"))?,
-                    HandlerSpec::Sidecar { name, subcommand } => {
-                        // Capture once, clone per fire — the closure has to be
-                        // FnMut + Send, so all captured state must be owned
-                        // and Send-safe.
-                        let sidecars_for_job = sidecars.clone();
-                        let install_path_for_job = install_path.clone();
-                        Job::new(expr.as_str(), move |_uuid, _l| {
-                            let app2 = app_inner.clone();
-                            let pkg2 = pkg_inner.clone();
-                            let cron2 = cron_inner.clone();
-                            let name2 = name.clone();
-                            let sub2 = subcommand.clone();
-                            let sidecars2 = sidecars_for_job.clone();
-                            let install_path2 = install_path_for_job.clone();
-                            // tokio-cron-scheduler hands us a sync closure;
-                            // do the spawn-and-wait work on the runtime so
-                            // it doesn't block scheduler ticks.
-                            tauri::async_runtime::spawn(async move {
-                                run_sidecar_cron(
-                                    app2,
-                                    pkg2,
-                                    cron2,
-                                    name2,
-                                    sub2,
-                                    sidecars2,
-                                    install_path2,
-                                )
-                                .await;
+                    };
+                    let job = match handler {
+                        HandlerSpec::Event(name) => Job::new(expr.as_str(), move |_uuid, _l| {
+                            let event = format!("pkg://{name}");
+                            let payload = json!({
+                                "pkg_id": pkg_inner,
+                                "cron_id": cron_inner,
                             });
+                            if let Err(e) = app_inner.emit(&event, payload) {
+                                log::warn!("[pkg.cron] emit `{event}` failed: {e}");
+                            }
                         })
-                        .map_err(|e| anyhow!("build cron job `{cron_id}` (`{expr}`): {e}"))?
-                    }
-                };
-                let job_uuid = sched
-                    .add(job)
-                    .await
-                    .map_err(|e| anyhow!("schedule cron `{cron_id}`: {e}"))?;
-                out.push((cron_id, expr, handler_for_log, job_uuid));
-            }
-            Ok::<_, anyhow::Error>(out)
-        })?;
+                        .map_err(|e| anyhow!("build cron job `{cron_id}` (`{expr}`): {e}"))?,
+                        HandlerSpec::Sidecar { name, subcommand } => {
+                            // Capture once, clone per fire — the closure has to be
+                            // FnMut + Send, so all captured state must be owned
+                            // and Send-safe.
+                            let sidecars_for_job = sidecars.clone();
+                            let install_path_for_job = install_path.clone();
+                            Job::new(expr.as_str(), move |_uuid, _l| {
+                                let app2 = app_inner.clone();
+                                let pkg2 = pkg_inner.clone();
+                                let cron2 = cron_inner.clone();
+                                let name2 = name.clone();
+                                let sub2 = subcommand.clone();
+                                let sidecars2 = sidecars_for_job.clone();
+                                let install_path2 = install_path_for_job.clone();
+                                // tokio-cron-scheduler hands us a sync closure;
+                                // do the spawn-and-wait work on the runtime so
+                                // it doesn't block scheduler ticks.
+                                tauri::async_runtime::spawn(async move {
+                                    run_sidecar_cron(
+                                        app2,
+                                        pkg2,
+                                        cron2,
+                                        name2,
+                                        sub2,
+                                        sidecars2,
+                                        install_path2,
+                                    )
+                                    .await;
+                                });
+                            })
+                            .map_err(|e| anyhow!("build cron job `{cron_id}` (`{expr}`): {e}"))?
+                        }
+                    };
+                    let job_uuid = sched
+                        .add(job)
+                        .await
+                        .map_err(|e| anyhow!("schedule cron `{cron_id}`: {e}"))?;
+                    out.push((cron_id, expr, handler_for_log, job_uuid));
+                }
+                Ok::<_, anyhow::Error>(out)
+            })?;
 
         for (cron_id, expr, handler, job_uuid) in sched_jobs {
             new_jobs.push(CronJob {
@@ -419,4 +422,3 @@ async fn run_sidecar_cron(
         log::warn!("[pkg.cron] emit `{event}` failed: {e}");
     }
 }
-

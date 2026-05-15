@@ -86,12 +86,14 @@ impl AcpSessionMode {
 /// with future field additions.
 pub fn available_modes() -> Vec<SessionMode> {
     vec![
-        SessionMode::new(MODE_PLAN, "Plan")
-            .description("Read-only planning. Claude can browse and reason but won't edit anything."),
+        SessionMode::new(MODE_PLAN, "Plan").description(
+            "Read-only planning. Claude can browse and reason but won't edit anything.",
+        ),
         SessionMode::new(MODE_DEFAULT, "Default")
             .description("Ask before every tool use. Safest day-to-day mode."),
-        SessionMode::new(MODE_AUTO, "Auto")
-            .description("Auto-approve file edits. Still asks for shell and other sensitive tools."),
+        SessionMode::new(MODE_AUTO, "Auto").description(
+            "Auto-approve file edits. Still asks for shell and other sensitive tools.",
+        ),
         SessionMode::new(MODE_BYPASS, "Bypass")
             .description("Run everything without prompting. Use sparingly."),
     ]

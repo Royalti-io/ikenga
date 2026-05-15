@@ -55,12 +55,11 @@ impl FsWatchManager {
         let event_name = format!("fs://{id}");
 
         let (event_tx, event_rx) = std_mpsc::channel::<notify::Result<notify::Event>>();
-        let mut watcher: RecommendedWatcher = notify::recommended_watcher(
-            move |res: notify::Result<notify::Event>| {
+        let mut watcher: RecommendedWatcher =
+            notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
                 let _ = event_tx.send(res);
-            },
-        )
-        .context("create watcher")?;
+            })
+            .context("create watcher")?;
 
         let mode = if path.is_dir() {
             RecursiveMode::Recursive
@@ -74,38 +73,36 @@ impl FsWatchManager {
         let (stop_tx, stop_rx) = std_mpsc::channel::<()>();
 
         let app_for_emit = app.clone();
-        thread::spawn(move || {
-            loop {
-                if stop_rx.try_recv().is_ok() {
-                    break;
-                }
-                match event_rx.recv_timeout(std::time::Duration::from_millis(250)) {
-                    Ok(Ok(event)) => {
-                        let kind = match event.kind {
-                            EventKind::Create(_) => Some(ChangeKind::Create),
-                            EventKind::Modify(notify::event::ModifyKind::Name(_)) => {
-                                Some(ChangeKind::Rename)
-                            }
-                            EventKind::Modify(_) => Some(ChangeKind::Modify),
-                            EventKind::Remove(_) => Some(ChangeKind::Remove),
-                            _ => None,
-                        };
-                        if let Some(kind) = kind {
-                            for p in event.paths {
-                                let change = FileChange {
-                                    kind: kind.clone(),
-                                    path: p.to_string_lossy().to_string(),
-                                };
-                                let _ = app_for_emit.emit(&event_name, change);
-                            }
+        thread::spawn(move || loop {
+            if stop_rx.try_recv().is_ok() {
+                break;
+            }
+            match event_rx.recv_timeout(std::time::Duration::from_millis(250)) {
+                Ok(Ok(event)) => {
+                    let kind = match event.kind {
+                        EventKind::Create(_) => Some(ChangeKind::Create),
+                        EventKind::Modify(notify::event::ModifyKind::Name(_)) => {
+                            Some(ChangeKind::Rename)
+                        }
+                        EventKind::Modify(_) => Some(ChangeKind::Modify),
+                        EventKind::Remove(_) => Some(ChangeKind::Remove),
+                        _ => None,
+                    };
+                    if let Some(kind) = kind {
+                        for p in event.paths {
+                            let change = FileChange {
+                                kind: kind.clone(),
+                                path: p.to_string_lossy().to_string(),
+                            };
+                            let _ = app_for_emit.emit(&event_name, change);
                         }
                     }
-                    Ok(Err(e)) => {
-                        log::debug!("fs watcher error: {e}");
-                    }
-                    Err(std_mpsc::RecvTimeoutError::Timeout) => continue,
-                    Err(std_mpsc::RecvTimeoutError::Disconnected) => break,
                 }
+                Ok(Err(e)) => {
+                    log::debug!("fs watcher error: {e}");
+                }
+                Err(std_mpsc::RecvTimeoutError::Timeout) => continue,
+                Err(std_mpsc::RecvTimeoutError::Disconnected) => break,
             }
         });
 

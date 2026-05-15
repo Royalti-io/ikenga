@@ -87,13 +87,11 @@ impl McpRegistry {
         let parent = path
             .parent()
             .ok_or_else(|| anyhow!("config path has no parent"))?;
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("mkdir {}", parent.display()))?;
+        std::fs::create_dir_all(parent).with_context(|| format!("mkdir {}", parent.display()))?;
         let pretty = serde_json::to_string_pretty(&Value::Object(cfg.clone()))
             .map_err(|e| anyhow!("serialize claude config: {e}"))?;
         let tmp = path.with_extension("json.pkg-tmp");
-        std::fs::write(&tmp, pretty)
-            .with_context(|| format!("write {}", tmp.display()))?;
+        std::fs::write(&tmp, pretty).with_context(|| format!("write {}", tmp.display()))?;
         std::fs::rename(&tmp, path)
             .with_context(|| format!("rename {} -> {}", tmp.display(), path.display()))?;
         Ok(())
@@ -112,7 +110,8 @@ impl Registry for McpRegistry {
 
         // Build the new entries first so a single bad shape aborts cleanly,
         // before we touch ~/.claude.json.
-        let mut new_keys: Vec<(String, McpEntry, Value)> = Vec::with_capacity(pkg.manifest.mcp.len());
+        let mut new_keys: Vec<(String, McpEntry, Value)> =
+            Vec::with_capacity(pkg.manifest.mcp.len());
         for server in &pkg.manifest.mcp {
             if server.name.is_empty() {
                 return Err(anyhow!("mcp entry of `{}` has empty name", pkg.manifest.id));
@@ -192,7 +191,10 @@ impl Registry for McpRegistry {
         let mut cfg = match Self::load_config(&path) {
             Ok(c) => c,
             Err(e) => {
-                log::warn!("[pkg.mcp] load {} failed during uninstall: {e:#}", path.display());
+                log::warn!(
+                    "[pkg.mcp] load {} failed during uninstall: {e:#}",
+                    path.display()
+                );
                 return Ok(());
             }
         };
@@ -202,7 +204,10 @@ impl Registry for McpRegistry {
             }
         }
         if let Err(e) = Self::save_config(&path, &cfg) {
-            log::warn!("[pkg.mcp] save {} failed during uninstall: {e:#}", path.display());
+            log::warn!(
+                "[pkg.mcp] save {} failed during uninstall: {e:#}",
+                path.display()
+            );
         }
         Ok(())
     }

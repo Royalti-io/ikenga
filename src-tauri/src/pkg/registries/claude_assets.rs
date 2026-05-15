@@ -68,11 +68,7 @@ impl ClaudeAssetsRegistry {
     /// returns the entry without touching the filesystem (idempotent). If it
     /// exists pointing somewhere else, returns an error rather than blowing
     /// the user's config away.
-    fn install_symlink(
-        pkg: &Package,
-        kind: &str,
-        rel: &str,
-    ) -> Result<AssetEntry> {
+    fn install_symlink(pkg: &Package, kind: &str, rel: &str) -> Result<AssetEntry> {
         let source = pkg
             .resolve_relative(rel)
             .with_context(|| format!("resolve `{kind}` source `{rel}`"))?;
@@ -84,8 +80,7 @@ impl ClaudeAssetsRegistry {
         }
         let claude = Self::claude_dir()?;
         let parent = claude.join(kind);
-        std::fs::create_dir_all(&parent)
-            .with_context(|| format!("mkdir {}", parent.display()))?;
+        std::fs::create_dir_all(&parent).with_context(|| format!("mkdir {}", parent.display()))?;
         let target = parent.join(pkg.slug());
 
         // Resolve any existing entry at the target. read_link errors if the

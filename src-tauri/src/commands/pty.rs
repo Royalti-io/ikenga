@@ -57,12 +57,6 @@ pub async fn pty_resize(
 }
 
 #[tauri::command]
-pub async fn pty_kill(
-    manager: State<'_, Arc<PtyManager>>,
-    id: String,
-) -> Result<(), String> {
-    manager
-        .kill(&id)
-        .map_err(|e| format!("kill failed: {e}"))
+pub async fn pty_kill(manager: State<'_, Arc<PtyManager>>, id: String) -> Result<(), String> {
+    manager.kill(&id).map_err(|e| format!("kill failed: {e}"))
 }
-

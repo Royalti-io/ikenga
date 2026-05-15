@@ -247,7 +247,10 @@ pub async fn claude_config_unwatch(
 pub async fn claude_config_read_file(path: String) -> Result<String, String> {
     let resolved = expand(&path).map_err(|e| e.to_string())?;
     if !is_under_claude_dir(&resolved) {
-        return Err(format!("path not under a .claude/ dir: {}", resolved.display()));
+        return Err(format!(
+            "path not under a .claude/ dir: {}",
+            resolved.display()
+        ));
     }
     tokio::fs::read_to_string(&resolved)
         .await
@@ -415,7 +418,13 @@ fn scan_personal(
         |entry| agents.push(agent_from_md(entry)),
         errors,
     );
-    scan_skills_dir(&personal.join("skills"), Scope::Personal, None, skills, errors);
+    scan_skills_dir(
+        &personal.join("skills"),
+        Scope::Personal,
+        None,
+        skills,
+        errors,
+    );
     scan_md_dir(
         &personal.join("commands"),
         Scope::Personal,
@@ -657,7 +666,11 @@ fn command_from_md(e: MdEntry) -> CommandEntry {
 
 // ─── Hook parsing ───────────────────────────────────────────────────────────
 
-pub(crate) fn parse_hooks_file(path: &Path, scope: Scope, project_root: Option<&str>) -> Result<Vec<HookEntry>> {
+pub(crate) fn parse_hooks_file(
+    path: &Path,
+    scope: Scope,
+    project_root: Option<&str>,
+) -> Result<Vec<HookEntry>> {
     let raw = std::fs::read_to_string(path).context("read settings file")?;
     let json: serde_json::Value = serde_json::from_str(&raw).context("parse settings json")?;
     let hooks_obj = match json.get("hooks") {
@@ -683,7 +696,10 @@ pub(crate) fn parse_hooks_file(path: &Path, scope: Scope, project_root: Option<&
                     .and_then(|v| v.as_str())
                     .unwrap_or("command")
                     .to_string();
-                let command_raw = h.get("command").and_then(|v| v.as_str()).map(str::to_string);
+                let command_raw = h
+                    .get("command")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string);
                 let command_path = command_raw.as_ref().and_then(|c| {
                     let resolved = resolve_command_path(c, project_root);
                     resolved.map(|p| p.to_string_lossy().to_string())
@@ -748,7 +764,11 @@ fn resolve_command_path(raw: &str, project_root: Option<&str>) -> Option<PathBuf
 // ─── MCP parsing ────────────────────────────────────────────────────────────
 
 /// Parse a standalone `mcp.json` file (top level is `{ mcpServers: { ... } }`).
-pub(crate) fn parse_mcp_file(path: &Path, scope: Scope, project_root: Option<&str>) -> Result<Vec<McpEntry>> {
+pub(crate) fn parse_mcp_file(
+    path: &Path,
+    scope: Scope,
+    project_root: Option<&str>,
+) -> Result<Vec<McpEntry>> {
     let raw = std::fs::read_to_string(path).context("read mcp file")?;
     let json: serde_json::Value = serde_json::from_str(&raw).context("parse mcp json")?;
     let servers = json.get("mcpServers").or_else(|| json.get("servers"));
@@ -784,10 +804,7 @@ fn extract_mcp_servers(
     let path_str = path.to_string_lossy().to_string();
     let mut out = Vec::with_capacity(servers.len());
     for (name, raw) in servers {
-        let kind = raw
-            .get("type")
-            .and_then(|v| v.as_str())
-            .map(str::to_string);
+        let kind = raw.get("type").and_then(|v| v.as_str()).map(str::to_string);
         let url = raw.get("url").and_then(|v| v.as_str()).map(str::to_string);
         let command = raw
             .get("command")
@@ -852,12 +869,20 @@ pub fn split_frontmatter(raw: &str) -> (serde_json::Value, String) {
     // Treat `---\n` or `---\r\n` as the opener; require it at the very start.
     let trimmed = raw.trim_start_matches('\u{FEFF}');
     if !trimmed.starts_with("---") {
-        return (serde_json::Value::Object(Default::default()), raw.to_string());
+        return (
+            serde_json::Value::Object(Default::default()),
+            raw.to_string(),
+        );
     }
     // Find the line break after the opening fence.
     let after_open = match trimmed.find('\n') {
         Some(i) => &trimmed[i + 1..],
-        None => return (serde_json::Value::Object(Default::default()), raw.to_string()),
+        None => {
+            return (
+                serde_json::Value::Object(Default::default()),
+                raw.to_string(),
+            )
+        }
     };
     // Find the closing `---` on its own line.
     let mut close_idx: Option<usize> = None;
@@ -876,7 +901,12 @@ pub fn split_frontmatter(raw: &str) -> (serde_json::Value, String) {
     }
     let close = match close_idx {
         Some(c) => c,
-        None => return (serde_json::Value::Object(Default::default()), raw.to_string()),
+        None => {
+            return (
+                serde_json::Value::Object(Default::default()),
+                raw.to_string(),
+            )
+        }
     };
     let yaml = &after_open[..close];
     // Body starts after the closing `---` line.
@@ -1227,7 +1257,9 @@ mod tests {
     #[test]
     fn under_claude_dir() {
         assert!(is_under_claude_dir(Path::new("/x/y/.claude/agents/a.md")));
-        assert!(is_under_claude_dir(Path::new("/home/u/.claude/settings.json")));
+        assert!(is_under_claude_dir(Path::new(
+            "/home/u/.claude/settings.json"
+        )));
         assert!(!is_under_claude_dir(Path::new("/x/y/agents/a.md")));
     }
 

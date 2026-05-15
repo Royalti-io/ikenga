@@ -212,10 +212,7 @@ fn build_tool_call(
             "ikenga".into(),
             Value::Object({
                 let mut inner = Map::new();
-                inner.insert(
-                    "parentToolUseId".into(),
-                    Value::String(parent.to_string()),
-                );
+                inner.insert("parentToolUseId".into(), Value::String(parent.to_string()));
                 inner
             }),
         );
@@ -256,10 +253,7 @@ fn build_tool_result_update(
             "ikenga".into(),
             Value::Object({
                 let mut inner = Map::new();
-                inner.insert(
-                    "parentToolUseId".into(),
-                    Value::String(parent.to_string()),
-                );
+                inner.insert("parentToolUseId".into(), Value::String(parent.to_string()));
                 inner
             }),
         );
@@ -595,11 +589,16 @@ mod tests {
     #[test]
     fn end_to_end_fixture_yields_expected_session_update_sequence() {
         let transcript = concat!(
-            r#"{"type":"system","subtype":"init","session_id":"sess_e2e","model":"claude-opus-4-7","cwd":"/work","permissionMode":"default"}"#, "\n",
-            r#"{"type":"assistant","message":{"id":"msg_a","content":[{"type":"text","text":"running ls"}]},"parent_tool_use_id":null}"#, "\n",
-            r#"{"type":"assistant","message":{"id":"msg_a","content":[{"type":"tool_use","id":"toolu_e2e","name":"Bash","input":{"command":"ls"}}]},"parent_tool_use_id":null}"#, "\n",
-            r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_e2e","content":"file1\nfile2","is_error":false}]},"parent_tool_use_id":null}"#, "\n",
-            r#"{"type":"result","subtype":"success","total_cost_usd":0.01,"stop_reason":"end_turn","duration_ms":250}"#, "\n",
+            r#"{"type":"system","subtype":"init","session_id":"sess_e2e","model":"claude-opus-4-7","cwd":"/work","permissionMode":"default"}"#,
+            "\n",
+            r#"{"type":"assistant","message":{"id":"msg_a","content":[{"type":"text","text":"running ls"}]},"parent_tool_use_id":null}"#,
+            "\n",
+            r#"{"type":"assistant","message":{"id":"msg_a","content":[{"type":"tool_use","id":"toolu_e2e","name":"Bash","input":{"command":"ls"}}]},"parent_tool_use_id":null}"#,
+            "\n",
+            r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_e2e","content":"file1\nfile2","is_error":false}]},"parent_tool_use_id":null}"#,
+            "\n",
+            r#"{"type":"result","subtype":"success","total_cost_usd":0.01,"stop_reason":"end_turn","duration_ms":250}"#,
+            "\n",
         );
 
         let mut parser = StreamParser::new();

@@ -341,15 +341,17 @@ fn capture_region_to(out: &Path, rect: ScreenRect) -> Result<()> {
         // focused window; the Tauri window is the active one when iyke
         // dispatches a shortcut/CLI capture, so this DTRT.
         if which_present("gnome-screenshot") {
-            return run_tool(
-                "gnome-screenshot",
-                &["-w", "-f", &out.to_string_lossy()],
-            );
+            return run_tool("gnome-screenshot", &["-w", "-f", &out.to_string_lossy()]);
         }
         if which_present("spectacle") {
             return run_tool(
                 "spectacle",
-                &["--activewindow", "--background", "-o", &out.to_string_lossy()],
+                &[
+                    "--activewindow",
+                    "--background",
+                    "-o",
+                    &out.to_string_lossy(),
+                ],
             );
         }
         Err(anyhow!(
@@ -499,9 +501,15 @@ pub async fn screenshot_window(
     pending: State<'_, ScreenshotPending>,
     out_path: Option<String>,
 ) -> Result<ScreenshotResult, String> {
-    capture(&app, pending.inner(), ScreenshotKind::Window, None, out_path)
-        .await
-        .map_err(|e| format!("{e:#}"))
+    capture(
+        &app,
+        pending.inner(),
+        ScreenshotKind::Window,
+        None,
+        out_path,
+    )
+    .await
+    .map_err(|e| format!("{e:#}"))
 }
 
 #[tauri::command]

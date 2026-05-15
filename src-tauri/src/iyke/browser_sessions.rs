@@ -122,9 +122,7 @@ fn now_ms() -> i64 {
         .unwrap_or(0)
 }
 
-async fn pool(
-    pa: &PaDb,
-) -> Result<sqlx::SqlitePool, (StatusCode, String)> {
+async fn pool(pa: &PaDb) -> Result<sqlx::SqlitePool, (StatusCode, String)> {
     pa.ensure_pool().await.map_err(err500)
 }
 
@@ -247,7 +245,10 @@ mod tests {
 
     #[test]
     fn slug_handles_spaces() {
-        assert_eq!(sanitize_partition_slug("Royalti Spotify"), "royalti-spotify");
+        assert_eq!(
+            sanitize_partition_slug("Royalti Spotify"),
+            "royalti-spotify"
+        );
     }
 
     #[test]

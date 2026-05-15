@@ -29,7 +29,13 @@ pub async fn pkg_dispatch(
 
     let entry = match routes.resolve(method.as_str(), &path) {
         Some(e) => e,
-        None => return (StatusCode::NOT_FOUND, format!("no pkg route: {method} {path}")).into_response(),
+        None => {
+            return (
+                StatusCode::NOT_FOUND,
+                format!("no pkg route: {method} {path}"),
+            )
+                .into_response()
+        }
     };
 
     // Read body once so handlers can choose to ignore or use it.
@@ -44,8 +50,10 @@ pub async fn pkg_dispatch(
         Handler::EventEmit { name } => {
             let event_name = format!("pkg://{name}");
             // Try to forward as JSON; fall back to bytes-as-string if not.
-            let payload: serde_json::Value = serde_json::from_slice(&body_bytes)
-                .unwrap_or_else(|_| serde_json::Value::String(String::from_utf8_lossy(&body_bytes).into_owned()));
+            let payload: serde_json::Value =
+                serde_json::from_slice(&body_bytes).unwrap_or_else(|_| {
+                    serde_json::Value::String(String::from_utf8_lossy(&body_bytes).into_owned())
+                });
             if let Err(e) = app.emit(&event_name, payload) {
                 return (
                     StatusCode::INTERNAL_SERVER_ERROR,
@@ -61,11 +69,7 @@ pub async fn pkg_dispatch(
             // plus a streaming stdin/stdout spawn helper. For now return 501
             // so a route declaring this handler doesn't silently 404.
             let _ = (name, subcommand, body_bytes);
-            (
-                StatusCode::NOT_IMPLEMENTED,
-                "sidecar handler not yet wired",
-            )
-                .into_response()
+            (StatusCode::NOT_IMPLEMENTED, "sidecar handler not yet wired").into_response()
         }
     }
 }

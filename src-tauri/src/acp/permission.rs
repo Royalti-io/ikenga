@@ -51,7 +51,10 @@ pub const OPT_REJECT_ALWAYS: &str = "reject_always";
 /// Build the option list to surface to the ACP client. `AskUserQuestion`
 /// gets one option per (question, label) pair so the client can render the
 /// real form; everything else gets the four canonical allow/reject options.
-pub fn build_permission_options(tool_name: &str, tool_input: Option<&Value>) -> Vec<PermissionOption> {
+pub fn build_permission_options(
+    tool_name: &str,
+    tool_input: Option<&Value>,
+) -> Vec<PermissionOption> {
     if tool_name == "AskUserQuestion" {
         if let Some(input) = tool_input {
             return ask_user_question_options(input);
@@ -62,7 +65,11 @@ pub fn build_permission_options(tool_name: &str, tool_input: Option<&Value>) -> 
 
 fn generic_options() -> Vec<PermissionOption> {
     vec![
-        PermissionOption::new(OPT_ALLOW_ONCE, "Allow once", PermissionOptionKind::AllowOnce),
+        PermissionOption::new(
+            OPT_ALLOW_ONCE,
+            "Allow once",
+            PermissionOptionKind::AllowOnce,
+        ),
         PermissionOption::new(
             OPT_ALLOW_ALWAYS,
             "Allow always",
@@ -88,10 +95,7 @@ fn ask_user_question_options(input: &Value) -> Vec<PermissionOption> {
         None => return generic_options(),
     };
     for (q_idx, q) in questions.iter().enumerate() {
-        let q_header = q
-            .get("header")
-            .and_then(Value::as_str)
-            .unwrap_or("");
+        let q_header = q.get("header").and_then(Value::as_str).unwrap_or("");
         let options = q.get("options").and_then(Value::as_array);
         let opts = match options {
             Some(o) => o,
@@ -257,7 +261,12 @@ mod tests {
         let ids: Vec<&str> = opts.iter().map(|o| o.option_id.0.as_ref()).collect();
         assert_eq!(
             ids,
-            vec![OPT_ALLOW_ONCE, OPT_ALLOW_ALWAYS, OPT_REJECT_ONCE, OPT_REJECT_ALWAYS],
+            vec![
+                OPT_ALLOW_ONCE,
+                OPT_ALLOW_ALWAYS,
+                OPT_REJECT_ONCE,
+                OPT_REJECT_ALWAYS
+            ],
         );
         assert_eq!(opts[0].kind, PermissionOptionKind::AllowOnce);
         assert_eq!(opts[3].kind, PermissionOptionKind::RejectAlways);

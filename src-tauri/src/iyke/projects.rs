@@ -28,7 +28,10 @@ fn map_err(e: String) -> (StatusCode, String) {
     let lower = e.to_lowercase();
     if lower.contains("not found") {
         err(StatusCode::NOT_FOUND, e)
-    } else if lower.contains("invalid") || lower.contains("cannot archive") || lower.contains("already exists") {
+    } else if lower.contains("invalid")
+        || lower.contains("cannot archive")
+        || lower.contains("already exists")
+    {
         err(StatusCode::BAD_REQUEST, e)
     } else {
         err(StatusCode::INTERNAL_SERVER_ERROR, e)

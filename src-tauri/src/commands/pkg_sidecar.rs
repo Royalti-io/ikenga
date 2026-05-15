@@ -104,10 +104,7 @@ pub async fn pkg_sidecar_call(
     let mut child = match cmd.spawn() {
         Ok(c) => c,
         Err(e) => {
-            return Ok(err(format!(
-                "spawn `{}`: {e}",
-                entry.bin_path.display()
-            )));
+            return Ok(err(format!("spawn `{}`: {e}", entry.bin_path.display())));
         }
     };
 
@@ -137,10 +134,7 @@ pub async fn pkg_sidecar_call(
         Err(_) => {
             return Ok(PkgSidecarCallResult {
                 ok: false,
-                error: Some(format!(
-                    "sidecar timed out after {}s",
-                    dur.as_secs()
-                )),
+                error: Some(format!("sidecar timed out after {}s", dur.as_secs())),
                 stdout: None,
                 stderr: None,
                 exit_code: None,
@@ -160,7 +154,9 @@ pub async fn pkg_sidecar_call(
         } else {
             Some(format!(
                 "exit code {}",
-                exit_code.map(|c| c.to_string()).unwrap_or_else(|| "<signal>".into())
+                exit_code
+                    .map(|c| c.to_string())
+                    .unwrap_or_else(|| "<signal>".into())
             ))
         },
         stdout: Some(stdout),

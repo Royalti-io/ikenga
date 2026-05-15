@@ -141,9 +141,7 @@ impl PkgContentServer {
             .get()
             .ok_or_else(|| anyhow!("pkg_content server not started"))?;
         if !self.pkgs.contains_key(pkg_id) {
-            return Err(anyhow!(
-                "pkg `{pkg_id}` has no iframe content registered"
-            ));
+            return Err(anyhow!("pkg `{pkg_id}` has no iframe content registered"));
         }
         let token = random_token_hex(32);
         self.tokens.insert(
@@ -212,14 +210,15 @@ impl PkgContentServer {
             .canonicalize()
             .with_context(|| format!("canonicalize html path {}", abs.display()))?;
         if !canon_abs.starts_with(&canon_root) {
-            return Err(anyhow!(
-                "source `{source}` resolves outside dist_root"
-            ));
+            return Err(anyhow!("source `{source}` resolves outside dist_root"));
         }
         let raw = std::fs::read_to_string(&canon_abs)
             .with_context(|| format!("read {}", canon_abs.display()))?;
 
-        let MintedHandle { url: base_url, token } = self.mint(pkg_id)?;
+        let MintedHandle {
+            url: base_url,
+            token,
+        } = self.mint(pkg_id)?;
         // Three-step rewrite:
         //   1. inline relative <script src> + <link rel="stylesheet" href>
         //      bodies into the HTML. WebKitGTK silently drops loopback
@@ -287,7 +286,11 @@ fn next_skip_block(s: &str) -> Option<(usize, usize)> {
     let st_idx = lower.find("<style");
     let (start, close_tag) = match (s_idx, st_idx) {
         (Some(a), Some(b)) => {
-            if a <= b { (a, "</script>") } else { (b, "</style>") }
+            if a <= b {
+                (a, "</script>")
+            } else {
+                (b, "</style>")
+            }
         }
         (Some(a), None) => (a, "</script>"),
         (None, Some(b)) => (b, "</style>"),
@@ -379,7 +382,11 @@ fn inline_subresources(html: &str, dist_root: &Path) -> String {
         let l_idx = find_case_insensitive(rest, "<link");
         let (tag_rel, is_script) = match (s_idx, l_idx) {
             (Some(s), Some(l)) => {
-                if s <= l { (s, true) } else { (l, false) }
+                if s <= l {
+                    (s, true)
+                } else {
+                    (l, false)
+                }
             }
             (Some(s), None) => (s, true),
             (None, Some(l)) => (l, false),
@@ -425,9 +432,7 @@ fn inline_subresources(html: &str, dist_root: &Path) -> String {
                                 continue;
                             }
                             Err(e) => {
-                                log::warn!(
-                                    "[pkg_content] inline script {src} failed: {e}"
-                                );
+                                log::warn!("[pkg_content] inline script {src} failed: {e}");
                             }
                         }
                     }
@@ -453,9 +458,7 @@ fn inline_subresources(html: &str, dist_root: &Path) -> String {
                                 continue;
                             }
                             Err(e) => {
-                                log::warn!(
-                                    "[pkg_content] inline stylesheet {href} failed: {e}"
-                                );
+                                log::warn!("[pkg_content] inline stylesheet {href} failed: {e}");
                             }
                         }
                     }
@@ -518,9 +521,7 @@ fn read_subresource(dist_root: &Path, url: &str) -> Result<String> {
         .canonicalize()
         .with_context(|| format!("canonicalize {}", abs.display()))?;
     if !canon.starts_with(dist_root) {
-        return Err(anyhow!(
-            "subresource `{url}` resolves outside dist_root"
-        ));
+        return Err(anyhow!("subresource `{url}` resolves outside dist_root"));
     }
     std::fs::read_to_string(&canon).with_context(|| format!("read {}", canon.display()))
 }
@@ -730,7 +731,8 @@ async fn serve_with_token(
     };
     let csp = build_csp(&pkg_entry.csp_overrides);
     if let Ok(v) = HeaderValue::from_str(&csp) {
-        resp.headers_mut().insert(header::CONTENT_SECURITY_POLICY, v);
+        resp.headers_mut()
+            .insert(header::CONTENT_SECURITY_POLICY, v);
     }
     let perm_policy = build_permission_policy(&pkg_entry.perm_overrides);
     if !perm_policy.is_empty() {
@@ -743,8 +745,10 @@ async fn serve_with_token(
         header::X_CONTENT_TYPE_OPTIONS,
         HeaderValue::from_static("nosniff"),
     );
-    resp.headers_mut()
-        .insert(header::REFERRER_POLICY, HeaderValue::from_static("no-referrer"));
+    resp.headers_mut().insert(
+        header::REFERRER_POLICY,
+        HeaderValue::from_static("no-referrer"),
+    );
     // CORS: subresources are fetched cross-origin from the srcdoc iframe
     // (which inherits the parent's tauri:// origin) to this http loopback
     // server. ESM module imports require CORS headers; non-module

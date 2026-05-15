@@ -208,10 +208,7 @@ pub async fn post_open(
         kind,
         "route" | "terminal" | "chat" | "artifact" | "mini-app"
     ) {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            format!("invalid kind: {kind:?}"),
-        ));
+        return Err((StatusCode::BAD_REQUEST, format!("invalid kind: {kind:?}")));
     }
     emit(&app, "iyke:open", body)?;
     Ok(ok())
@@ -699,9 +696,7 @@ pub async fn get_network(
     Extension(state): Extension<Arc<IykeState>>,
     Query(q): Query<NetworkQuery>,
 ) -> Json<NetworkResponse> {
-    let entries = state
-        .recent_network(q.since, q.source.as_deref())
-        .await;
+    let entries = state.recent_network(q.since, q.source.as_deref()).await;
     Json(NetworkResponse { entries })
 }
 
@@ -790,17 +785,20 @@ pub async fn post_pkg_uninstall(
     JsonBody(body): JsonBody<PkgUninstallBody>,
 ) -> Result<Json<OkResponse>, (StatusCode, String)> {
     use tauri::Manager;
-    let kernel = app
-        .try_state::<crate::commands::KernelState>()
-        .ok_or((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "pkg kernel state not registered".into(),
-        ))?;
+    let kernel = app.try_state::<crate::commands::KernelState>().ok_or((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "pkg kernel state not registered".into(),
+    ))?;
     let kernel_arc = kernel.0.clone();
     let pkg_id = body.pkg_id;
     tokio::task::spawn_blocking(move || kernel_arc.uninstall(&pkg_id))
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("join error: {e}")))?
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("join error: {e}"),
+            )
+        })?
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("{e:#}")))?;
     Ok(ok())
 }
@@ -823,12 +821,10 @@ pub async fn get_pkg_list(
     axum::extract::Query(q): axum::extract::Query<PkgListQuery>,
 ) -> Result<Json<Value>, (StatusCode, String)> {
     use tauri::Manager;
-    let kernel = app
-        .try_state::<crate::commands::KernelState>()
-        .ok_or((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "pkg kernel state not registered".into(),
-        ))?;
+    let kernel = app.try_state::<crate::commands::KernelState>().ok_or((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "pkg kernel state not registered".into(),
+    ))?;
     let active = {
         let pool = db
             .ensure_pool()
@@ -891,18 +887,13 @@ pub async fn post_pkg_scope_set(
     JsonBody(body): JsonBody<PkgScopeSetBody>,
 ) -> Result<Json<OkResponse>, (StatusCode, String)> {
     use tauri::Manager;
-    let kernel = app
-        .try_state::<crate::commands::KernelState>()
-        .ok_or((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "pkg kernel state not registered".into(),
-        ))?;
-    let project_id = crate::commands::pkg::resolve_install_scope_for_iyke(
-        db.clone(),
-        body.scope,
-    )
-    .await
-    .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    let kernel = app.try_state::<crate::commands::KernelState>().ok_or((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "pkg kernel state not registered".into(),
+    ))?;
+    let project_id = crate::commands::pkg::resolve_install_scope_for_iyke(db.clone(), body.scope)
+        .await
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     let pool = db
         .ensure_pool()
         .await
@@ -924,7 +915,12 @@ pub async fn post_pkg_scope_set(
         Ok(())
     })
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("join error: {e}")))?
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("join error: {e}"),
+        )
+    })?
     .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     Ok(ok())
 }
@@ -934,12 +930,10 @@ pub async fn post_pkg_install(
     JsonBody(body): JsonBody<PkgInstallBody>,
 ) -> Result<Json<Value>, (StatusCode, String)> {
     use tauri::Manager;
-    let kernel = app
-        .try_state::<crate::commands::KernelState>()
-        .ok_or((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "pkg kernel state not registered".into(),
-        ))?;
+    let kernel = app.try_state::<crate::commands::KernelState>().ok_or((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "pkg kernel state not registered".into(),
+    ))?;
     // The kernel's registries call `tauri::async_runtime::block_on` internally
     // (DB writes, content-server registration). Calling that from a Tokio
     // worker panics with "Cannot start a runtime from within a runtime", so
@@ -964,11 +958,17 @@ pub async fn post_pkg_install(
     let project_id = crate::commands::pkg::resolve_install_scope_for_iyke(pa_db, body.scope)
         .await
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
-    let installed =
-        tokio::task::spawn_blocking(move || kernel_arc.install_from_path(&path, source, project_id))
-            .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("join error: {e}")))?
-        .map_err(|e| (StatusCode::BAD_REQUEST, format!("{e:#}")))?;
+    let installed = tokio::task::spawn_blocking(move || {
+        kernel_arc.install_from_path(&path, source, project_id)
+    })
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("join error: {e}"),
+        )
+    })?
+    .map_err(|e| (StatusCode::BAD_REQUEST, format!("{e:#}")))?;
     serde_json::to_value(&installed)
         .map(|v| Json(serde_json::json!({ "installed": v })))
         .map_err(|e| {
@@ -1003,11 +1003,7 @@ pub async fn post_devtools(
 
 // --- helpers --------------------------------------------------------------
 
-fn emit(
-    app: &AppHandle,
-    event: &str,
-    payload: Value,
-) -> Result<(), (StatusCode, String)> {
+fn emit(app: &AppHandle, event: &str, payload: Value) -> Result<(), (StatusCode, String)> {
     app.emit(event, payload).map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,

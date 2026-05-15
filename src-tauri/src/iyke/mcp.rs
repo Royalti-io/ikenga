@@ -123,7 +123,11 @@ pub async fn get_mcp_list(
             Err(_) => continue,
         };
         for entry in &pkg.manifest.mcp {
-            let lc = if entry.is_long_lived() { "long-lived" } else { "per-call" };
+            let lc = if entry.is_long_lived() {
+                "long-lived"
+            } else {
+                "per-call"
+            };
             pkg_mcp_lifecycle.insert((s.id.clone(), entry.name.clone()), lc);
         }
     }
@@ -209,7 +213,10 @@ pub async fn post_mcp_restart(
     if !dispatched {
         return Err(err(
             StatusCode::NOT_FOUND,
-            format!("pkg `{}` is not supervised (per-call or workspace-parked)", body.pkg_id),
+            format!(
+                "pkg `{}` is not supervised (per-call or workspace-parked)",
+                body.pkg_id
+            ),
         ));
     }
     Ok(Json(json!({ "ok": true })))

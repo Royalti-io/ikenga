@@ -310,7 +310,9 @@ pub async fn get_active_project_id(pool: &SqlitePool) -> Result<String, String> 
         .fetch_optional(pool)
         .await
         .map_err(|e| format!("read active project id: {e}"))?;
-    Ok(row.map(|(v,)| v).unwrap_or_else(|| DEFAULT_PROJECT_ID.to_string()))
+    Ok(row
+        .map(|(v,)| v)
+        .unwrap_or_else(|| DEFAULT_PROJECT_ID.to_string()))
 }
 
 /// Phase 5: resolve `(IKENGA_PROJECT_ID, IKENGA_PROJECT_ROOT)` for an MCP
@@ -372,11 +374,12 @@ pub async fn claude_roots_to_projects_migration_v1(pool: &SqlitePool) -> Result<
     }
 
     // Read roots blob. May be absent (fresh install) — that's fine, mark done.
-    let roots_row: Option<(String,)> = sqlx::query_as("SELECT value FROM settings_kv WHERE key = ?")
-        .bind(CLAUDE_ROOTS_KEY)
-        .fetch_optional(pool)
-        .await
-        .map_err(|e| format!("read claude roots: {e}"))?;
+    let roots_row: Option<(String,)> =
+        sqlx::query_as("SELECT value FROM settings_kv WHERE key = ?")
+            .bind(CLAUDE_ROOTS_KEY)
+            .fetch_optional(pool)
+            .await
+            .map_err(|e| format!("read claude roots: {e}"))?;
     let roots: Vec<String> = match roots_row {
         Some((blob,)) => serde_json::from_str(&blob)
             .map_err(|e| format!("parse claude.projectRoots blob: {e}"))?,
@@ -457,9 +460,7 @@ pub async fn claude_roots_to_projects_migration_v1(pool: &SqlitePool) -> Result<
             }
             Err(e) => {
                 // Don't propagate — one bad row mustn't block the migration.
-                log::warn!(
-                    "[claude-roots-migration] skip {trimmed:?}: insert failed: {e}"
-                );
+                log::warn!("[claude-roots-migration] skip {trimmed:?}: insert failed: {e}");
             }
         }
     }
@@ -652,8 +653,8 @@ mod tests {
             .execute(&pool)
             .await
             .ok(); // sqlx::query runs one stmt; the file has many. Apply each.
-        // The file uses ALTER TABLE on tables that don't exist in this minimal
-        // schema — apply only the CREATE statements.
+                   // The file uses ALTER TABLE on tables that don't exist in this minimal
+                   // schema — apply only the CREATE statements.
         for stmt in [
             "CREATE TABLE IF NOT EXISTS projects (
                 id TEXT PRIMARY KEY,

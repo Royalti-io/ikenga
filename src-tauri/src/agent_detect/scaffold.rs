@@ -20,14 +20,15 @@
 
 use std::path::{Path, PathBuf};
 
-use include_dir::{Dir, include_dir};
+use include_dir::{include_dir, Dir};
 use serde::{Deserialize, Serialize};
 
 /// Source of truth for the starter templates. Files under
 /// `src-tauri/templates/starter/claude-code/` are baked into the release
 /// binary at compile time so the scaffolder works offline and doesn't
 /// require cc-config to be installed alongside the shell.
-static CLAUDE_CODE_STARTER: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/templates/starter/claude-code");
+static CLAUDE_CODE_STARTER: Dir<'_> =
+    include_dir!("$CARGO_MANIFEST_DIR/templates/starter/claude-code");
 
 #[derive(Debug, Deserialize)]
 pub struct ScaffoldRequest {
@@ -178,7 +179,11 @@ fn walk(
         let nested_target = dest.join(rel);
 
         // Use nested_target so subdir structure is preserved.
-        let target = if rel.parent().map(|p| p.as_os_str().is_empty()).unwrap_or(true) {
+        let target = if rel
+            .parent()
+            .map(|p| p.as_os_str().is_empty())
+            .unwrap_or(true)
+        {
             target_path
         } else {
             nested_target
@@ -367,7 +372,9 @@ mod tests {
         .unwrap();
         assert!(resp.ok);
         assert!(
-            resp.skipped.iter().any(|f| f.path.ends_with("release-coordinator.md")),
+            resp.skipped
+                .iter()
+                .any(|f| f.path.ends_with("release-coordinator.md")),
             "conflict must appear in skipped[]"
         );
         // The non-conflicting files should have been written.

@@ -136,7 +136,11 @@ pub async fn bg_spike_run(
         );
         if let Err(e) = window.eval(&js) {
             log::warn!("[bg_spike] eval failed (nonce={nonce}): {e}");
-            state.pending.lock().expect("pending poisoned").remove(&nonce);
+            state
+                .pending
+                .lock()
+                .expect("pending poisoned")
+                .remove(&nonce);
             continue;
         }
 
@@ -151,7 +155,11 @@ pub async fn bg_spike_run(
                 timeouts += 1;
             }
             Err(_) => {
-                state.pending.lock().expect("pending poisoned").remove(&nonce);
+                state
+                    .pending
+                    .lock()
+                    .expect("pending poisoned")
+                    .remove(&nonce);
                 timeouts += 1;
             }
         }

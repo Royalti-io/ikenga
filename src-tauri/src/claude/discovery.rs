@@ -18,10 +18,10 @@
 //! the legacy Tauri commands stay registered so the existing /claude UI
 //! keeps working. New callers go through `claude_assets_discover`.
 
-use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
 use crate::commands::claude_config::{
@@ -456,13 +456,7 @@ fn scan_pkg_contributions(pkg_id: &str, tier: Tier, tree: &mut AssetTree) {
     }
 }
 
-fn scan_md_recursive(
-    dir: &Path,
-    pkg_id: &str,
-    tier: Tier,
-    kind: AssetKind,
-    tree: &mut AssetTree,
-) {
+fn scan_md_recursive(dir: &Path, pkg_id: &str, tier: Tier, kind: AssetKind, tree: &mut AssetTree) {
     let read_dir = match std::fs::read_dir(dir) {
         Ok(r) => r,
         Err(_) => return,
@@ -505,11 +499,7 @@ fn scan_md_recursive(
 }
 
 /// Surface the pkg's manifest `mcp[]` entries as tier-tagged MCP sources.
-fn scan_pkg_mcps(
-    summary: &crate::pkg::kernel::InstalledSummary,
-    tier: Tier,
-    tree: &mut AssetTree,
-) {
+fn scan_pkg_mcps(summary: &crate::pkg::kernel::InstalledSummary, tier: Tier, tree: &mut AssetTree) {
     let manifest_path = Path::new(&summary.install_path).join("manifest.json");
     let raw = match std::fs::read_to_string(&manifest_path) {
         Ok(s) => s,
@@ -745,9 +735,10 @@ pub fn resolve_preferred<'a>(
     }
     let kind = sources[0].kind;
     if let Some((tier, provider)) = pins.get(&(kind, name.to_string())) {
-        if let Some(s) = sources.iter().find(|s| {
-            s.tier == *tier && provider.as_deref().map_or(true, |p| s.provider == p)
-        }) {
+        if let Some(s) = sources
+            .iter()
+            .find(|s| s.tier == *tier && provider.as_deref().map_or(true, |p| s.provider == p))
+        {
             return s;
         }
     }
@@ -817,22 +808,23 @@ pub fn build_session_config_dir(
         .path()
         .app_cache_dir()
         .map_err(|e| format!("app_cache_dir: {e}"))?;
-    let claude_dir = cache_dir
-        .join("sessions")
-        .join(session_id)
-        .join(".claude");
+    let claude_dir = cache_dir.join("sessions").join(session_id).join(".claude");
     // Fresh dir per session — wipe if it already exists (stale prior session).
     if claude_dir.exists() {
         std::fs::remove_dir_all(&claude_dir).map_err(|e| format!("clean: {e}"))?;
     }
     for sub in ["agents", "skills", "commands", "hooks"] {
-        std::fs::create_dir_all(claude_dir.join(sub))
-            .map_err(|e| format!("mkdir {sub}: {e}"))?;
+        std::fs::create_dir_all(claude_dir.join(sub)).map_err(|e| format!("mkdir {sub}: {e}"))?;
     }
 
     for (name, sources) in &tree.agents {
         let pick = resolve_preferred(name, sources, pins);
-        link_into(&claude_dir.join("agents"), Path::new(&pick.path), name, "md")?;
+        link_into(
+            &claude_dir.join("agents"),
+            Path::new(&pick.path),
+            name,
+            "md",
+        )?;
     }
     for (name, sources) in &tree.commands {
         let pick = resolve_preferred(name, sources, pins);
@@ -902,8 +894,7 @@ fn write_merged_mcp_config(
     }
     let out = serde_json::json!({ "mcpServers": servers });
     let bytes = serde_json::to_vec_pretty(&out).map_err(|e| format!("mcp json: {e}"))?;
-    std::fs::write(claude_dir.join(".mcp.json"), bytes)
-        .map_err(|e| format!("write .mcp.json: {e}"))
+    std::fs::write(claude_dir.join(".mcp.json"), bytes).map_err(|e| format!("write .mcp.json: {e}"))
 }
 
 fn link_into(dst_dir: &Path, src: &Path, name: &str, ext: &str) -> Result<(), String> {
@@ -1135,11 +1126,19 @@ mod tests {
         let pins = PinMap::new();
         for (name, sources) in &tree.agents {
             let pick = resolve_preferred(name, sources, &pins);
-            make_symlink(Path::new(&pick.path), &dst_root.join("agents").join(format!("{name}.md"))).unwrap();
+            make_symlink(
+                Path::new(&pick.path),
+                &dst_root.join("agents").join(format!("{name}.md")),
+            )
+            .unwrap();
         }
         for (name, sources) in &tree.commands {
             let pick = resolve_preferred(name, sources, &pins);
-            make_symlink(Path::new(&pick.path), &dst_root.join("commands").join(format!("{name}.md"))).unwrap();
+            make_symlink(
+                Path::new(&pick.path),
+                &dst_root.join("commands").join(format!("{name}.md")),
+            )
+            .unwrap();
         }
         for (name, sources) in &tree.skills {
             let pick = resolve_preferred(name, sources, &pins);
@@ -1159,10 +1158,8 @@ mod tests {
     fn write_merged_mcp_config_merges_and_resolves_pins() {
         use std::io::Write;
 
-        let tmp = std::env::temp_dir().join(format!(
-            "ikenga-mcp-merge-test-{}",
-            std::process::id()
-        ));
+        let tmp =
+            std::env::temp_dir().join(format!("ikenga-mcp-merge-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
 
@@ -1243,7 +1240,10 @@ mod tests {
         write_merged_mcp_config(&claude_dir, &tree.mcps, &PinMap::new()).unwrap();
         let written = std::fs::read_to_string(claude_dir.join(".mcp.json")).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&written).unwrap();
-        let servers = parsed.get("mcpServers").and_then(|v| v.as_object()).unwrap();
+        let servers = parsed
+            .get("mcpServers")
+            .and_then(|v| v.as_object())
+            .unwrap();
         assert!(servers.contains_key("alpha"));
         assert!(servers.contains_key("beta"));
         assert_eq!(
@@ -1253,14 +1253,14 @@ mod tests {
 
         // Pin shared -> ProjectPkg.
         let mut pins = PinMap::new();
-        pins.insert(
-            (AssetKind::Mcp, "shared".into()),
-            (Tier::ProjectPkg, None),
-        );
+        pins.insert((AssetKind::Mcp, "shared".into()), (Tier::ProjectPkg, None));
         write_merged_mcp_config(&claude_dir, &tree.mcps, &pins).unwrap();
         let written = std::fs::read_to_string(claude_dir.join(".mcp.json")).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&written).unwrap();
-        let servers = parsed.get("mcpServers").and_then(|v| v.as_object()).unwrap();
+        let servers = parsed
+            .get("mcpServers")
+            .and_then(|v| v.as_object())
+            .unwrap();
         assert_eq!(
             servers["shared"]["command"].as_str().unwrap(),
             "shared-project-pkg"
@@ -1271,10 +1271,8 @@ mod tests {
 
     #[test]
     fn write_merged_mcp_config_skips_empty() {
-        let tmp = std::env::temp_dir().join(format!(
-            "ikenga-mcp-empty-test-{}",
-            std::process::id()
-        ));
+        let tmp =
+            std::env::temp_dir().join(format!("ikenga-mcp-empty-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
         let claude_dir = tmp.join("session-out").join(".claude");

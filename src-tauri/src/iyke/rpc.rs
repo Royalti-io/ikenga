@@ -54,10 +54,7 @@ where
         Ok(Err(_)) => Err(anyhow!("{event} sender dropped")),
         Err(_) => {
             pending.lock().await.remove(&request_id);
-            Err(anyhow!(
-                "{event} timed out after {}ms",
-                timeout.as_millis()
-            ))
+            Err(anyhow!("{event} timed out after {}ms", timeout.as_millis()))
         }
     }
 }
