@@ -100,9 +100,7 @@ impl Registry for QueriesRegistry {
         };
         let entries: Vec<Value> = map
             .iter()
-            .map(|(pkg_id, prefixes)| {
-                json!({ "pkg_id": pkg_id, "key_prefixes": prefixes })
-            })
+            .map(|(pkg_id, prefixes)| json!({ "pkg_id": pkg_id, "key_prefixes": prefixes }))
             .collect();
         json!({
             "count": entries.len(),

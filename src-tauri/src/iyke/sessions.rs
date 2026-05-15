@@ -79,26 +79,30 @@ pub async fn get_session_list(
     };
 
     let rows = match project_filter.as_deref() {
-        Some(pid) => sqlx::query(
-            "SELECT id, title, cwd, project_id, claude_session_id, created_at, updated_at
+        Some(pid) => {
+            sqlx::query(
+                "SELECT id, title, cwd, project_id, claude_session_id, created_at, updated_at
              FROM chat_threads
              WHERE project_id = ?
              ORDER BY updated_at DESC
              LIMIT ?",
-        )
-        .bind(pid)
-        .bind(limit)
-        .fetch_all(&pool)
-        .await,
-        None => sqlx::query(
-            "SELECT id, title, cwd, project_id, claude_session_id, created_at, updated_at
+            )
+            .bind(pid)
+            .bind(limit)
+            .fetch_all(&pool)
+            .await
+        }
+        None => {
+            sqlx::query(
+                "SELECT id, title, cwd, project_id, claude_session_id, created_at, updated_at
              FROM chat_threads
              ORDER BY updated_at DESC
              LIMIT ?",
-        )
-        .bind(limit)
-        .fetch_all(&pool)
-        .await,
+            )
+            .bind(limit)
+            .fetch_all(&pool)
+            .await
+        }
     }
     .map_err(|e| map_err(format!("list chat_threads: {e}")))?;
 
@@ -132,22 +136,25 @@ pub async fn post_session_move(
     let target = get_project(&pool, &body.project_id)
         .await
         .map_err(map_err)?
-        .ok_or_else(|| err(StatusCode::NOT_FOUND, format!("project not found: {}", body.project_id)))?;
+        .ok_or_else(|| {
+            err(
+                StatusCode::NOT_FOUND,
+                format!("project not found: {}", body.project_id),
+            )
+        })?;
     if target.archived_at.is_some() {
         return Err(err(
             StatusCode::BAD_REQUEST,
             format!("project is archived: {}", body.project_id),
         ));
     }
-    let res = sqlx::query(
-        "UPDATE chat_threads SET project_id = ?, updated_at = ? WHERE id = ?",
-    )
-    .bind(&body.project_id)
-    .bind(now_ms())
-    .bind(&body.thread_id)
-    .execute(&pool)
-    .await
-    .map_err(|e| map_err(format!("move chat thread: {e}")))?;
+    let res = sqlx::query("UPDATE chat_threads SET project_id = ?, updated_at = ? WHERE id = ?")
+        .bind(&body.project_id)
+        .bind(now_ms())
+        .bind(&body.thread_id)
+        .execute(&pool)
+        .await
+        .map_err(|e| map_err(format!("move chat thread: {e}")))?;
     if res.rows_affected() == 0 {
         return Err(err(
             StatusCode::NOT_FOUND,
@@ -187,7 +194,12 @@ pub async fn post_session_start(
     let project = get_project(&pool, &body.project_id)
         .await
         .map_err(map_err)?
-        .ok_or_else(|| err(StatusCode::NOT_FOUND, format!("project not found: {}", body.project_id)))?;
+        .ok_or_else(|| {
+            err(
+                StatusCode::NOT_FOUND,
+                format!("project not found: {}", body.project_id),
+            )
+        })?;
     if project.archived_at.is_some() {
         return Err(err(
             StatusCode::BAD_REQUEST,

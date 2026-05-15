@@ -52,9 +52,7 @@ pub fn spike_grant_fs_read(
     app.add_capability(cap)
         .map_err(|e| format!("add_capability failed: {e}"))?;
 
-    let msg = format!(
-        "granted fs:allow-read-text-file scoped to {path} (cap_id={capability_id})"
-    );
+    let msg = format!("granted fs:allow-read-text-file scoped to {path} (cap_id={capability_id})");
     log::info!("spike: {msg}");
     Ok(msg)
 }

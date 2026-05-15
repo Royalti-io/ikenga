@@ -74,8 +74,8 @@ use anyhow::{anyhow, Context, Result};
 use serde::Serialize;
 use serde_json::Value;
 use tauri::{
-    AppHandle, LogicalPosition, LogicalSize, Manager, PhysicalPosition, WebviewUrl,
-    WebviewWindow, WindowEvent,
+    AppHandle, LogicalPosition, LogicalSize, Manager, PhysicalPosition, WebviewUrl, WebviewWindow,
+    WindowEvent,
 };
 
 #[cfg(target_os = "linux")]
@@ -252,10 +252,7 @@ impl WebviewPanesRegistry {
         }
         let partition = partition.unwrap_or("default");
         let wildcard = cap.partitions.iter().any(|p| p == "*");
-        if partition != "default"
-            && !wildcard
-            && !cap.partitions.iter().any(|p| p == partition)
-        {
+        if partition != "default" && !wildcard && !cap.partitions.iter().any(|p| p == partition) {
             return Err(anyhow!(
                 "pkg `{pkg_id}` did not declare partition `{partition}` (declared: {:?}). \
                  Use `partitions: [\"*\"]` in the manifest to allow any.",
@@ -266,9 +263,9 @@ impl WebviewPanesRegistry {
         // Idempotency hook for FE strict-mode double-mount.
         self.destroy(pkg_id, pane_id).ok();
 
-        let main_window = app
-            .get_webview_window("main")
-            .ok_or_else(|| anyhow!("no main webview window — kernel called before setup completed?"))?;
+        let main_window = app.get_webview_window("main").ok_or_else(|| {
+            anyhow!("no main webview window — kernel called before setup completed?")
+        })?;
 
         let label = webview_label(pkg_id, pane_id);
         let parsed_url = url::Url::parse(url).with_context(|| format!("parse url `{url}`"))?;
@@ -379,9 +376,7 @@ impl WebviewPanesRegistry {
         let prev = handle
             .paused
             .swap(paused, std::sync::atomic::Ordering::SeqCst);
-        log::info!(
-            "[pkg_webview] pane=({pkg_id},{pane_id}) paused {prev} -> {paused}"
-        );
+        log::info!("[pkg_webview] pane=({pkg_id},{pane_id}) paused {prev} -> {paused}");
         Ok(prev)
     }
 
@@ -454,33 +449,31 @@ impl WebviewPanesRegistry {
         }
         let registry = self.clone();
         let main = main_window.clone();
-        main_window.on_window_event(move |event| {
-            match event {
-                WindowEvent::Moved(_) | WindowEvent::Resized(_) => {
-                    let main_pos = match main.inner_position() {
-                        Ok(p) => p,
-                        Err(_) => return,
+        main_window.on_window_event(move |event| match event {
+            WindowEvent::Moved(_) | WindowEvent::Resized(_) => {
+                let main_pos = match main.inner_position() {
+                    Ok(p) => p,
+                    Err(_) => return,
+                };
+                let panes = match registry.panes.read() {
+                    Ok(g) => g,
+                    Err(_) => return,
+                };
+                for handle in panes.values() {
+                    let rect = match handle.stored_rect.read() {
+                        Ok(r) => *r,
+                        Err(_) => continue,
                     };
-                    let panes = match registry.panes.read() {
-                        Ok(g) => g,
-                        Err(_) => return,
-                    };
-                    for handle in panes.values() {
-                        let rect = match handle.stored_rect.read() {
-                            Ok(r) => *r,
-                            Err(_) => continue,
-                        };
-                        if let PaneSurface::TopLevel(w) = &handle.surface {
-                            let _ = w.set_position(PhysicalPosition::new(
-                                main_pos.x + rect.x,
-                                main_pos.y + rect.y,
-                            ));
-                            let _ = w.set_size(LogicalSize::new(rect.w as f64, rect.h as f64));
-                        }
+                    if let PaneSurface::TopLevel(w) = &handle.surface {
+                        let _ = w.set_position(PhysicalPosition::new(
+                            main_pos.x + rect.x,
+                            main_pos.y + rect.y,
+                        ));
+                        let _ = w.set_size(LogicalSize::new(rect.w as f64, rect.h as f64));
                     }
                 }
-                _ => {}
             }
+            _ => {}
         });
         log::info!("[pkg_webview] Linux parent-window event listener installed");
     }
@@ -663,9 +656,7 @@ fn build_surface(
     // is mapped — try once. To use this on a Wayland session, launch the
     // app with `GDK_BACKEND=x11` so it routes through XWayland.
     if let Err(e) = window.set_position(PhysicalPosition::new(screen_x, screen_y)) {
-        log::warn!(
-            "[pkg_webview] post-build set_position for `{label}` failed (continuing): {e}"
-        );
+        log::warn!("[pkg_webview] post-build set_position for `{label}` failed (continuing): {e}");
     }
 
     Ok(PaneSurface::TopLevel(window))
@@ -704,8 +695,11 @@ fn set_surface_rect(surface: &PaneSurface, label: &str, rect: PaneRect) -> Resul
     let main_pos = main_window
         .inner_position()
         .context("read main window inner_position")?;
-    w.set_position(PhysicalPosition::new(main_pos.x + rect.x, main_pos.y + rect.y))
-        .with_context(|| format!("set_position `{label}`"))?;
+    w.set_position(PhysicalPosition::new(
+        main_pos.x + rect.x,
+        main_pos.y + rect.y,
+    ))
+    .with_context(|| format!("set_position `{label}`"))?;
     w.set_size(LogicalSize::new(rect.w as f64, rect.h as f64))
         .with_context(|| format!("set_size `{label}`"))?;
     Ok(())
@@ -717,7 +711,13 @@ fn webview_label(pkg_id: &str, pane_id: &str) -> String {
     let pkg_slug = pkg_id.replace('.', "-");
     let pane_slug: String = pane_id
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '-' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' {
+                c
+            } else {
+                '-'
+            }
+        })
         .collect();
     format!("pkg-{pkg_slug}-{pane_slug}")
 }

@@ -132,7 +132,11 @@ impl Registry for IykeRoutesRegistry {
         // Build the new entries first so a single bad route aborts cleanly.
         let mut new_entries: Vec<RouteEntry> = Vec::with_capacity(block.routes.len());
         for r in &block.routes {
-            let ManifestRoute { method, path, handler } = r;
+            let ManifestRoute {
+                method,
+                path,
+                handler,
+            } = r;
             let method_upper = method.to_ascii_uppercase();
             if method_upper != "GET" && method_upper != "POST" {
                 return Err(anyhow!(

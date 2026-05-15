@@ -39,11 +39,11 @@ impl InstallSource {
     /// predate the source column.
     pub fn parse_or_local(raw: Option<&str>, install_path: &str) -> Self {
         match raw {
-            Some(s) if !s.trim().is_empty() => serde_json::from_str(s).unwrap_or_else(|_| {
-                InstallSource::Local {
+            Some(s) if !s.trim().is_empty() => {
+                serde_json::from_str(s).unwrap_or_else(|_| InstallSource::Local {
                     path: install_path.to_string(),
-                }
-            }),
+                })
+            }
             _ => InstallSource::Local {
                 path: install_path.to_string(),
             },
@@ -98,8 +98,7 @@ mod tests {
                 path: "/tmp/x".into()
             }
         );
-        let from_valid =
-            InstallSource::parse_or_local(Some(r#"{"kind":"builtin"}"#), "/tmp/x");
+        let from_valid = InstallSource::parse_or_local(Some(r#"{"kind":"builtin"}"#), "/tmp/x");
         assert_eq!(from_valid, InstallSource::Builtin);
     }
 }

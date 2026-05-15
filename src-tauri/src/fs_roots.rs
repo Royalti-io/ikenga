@@ -69,8 +69,8 @@ impl FsRoots {
         let entries = if file.exists() {
             let text = std::fs::read_to_string(&file)
                 .with_context(|| format!("read {}", file.display()))?;
-            let persisted: PersistedRoots = serde_json::from_str(&text)
-                .with_context(|| format!("parse {}", file.display()))?;
+            let persisted: PersistedRoots =
+                serde_json::from_str(&text).with_context(|| format!("parse {}", file.display()))?;
             persisted
                 .roots
                 .into_iter()
@@ -184,8 +184,7 @@ impl FsRoots {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let _ =
-                std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600));
+            let _ = std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600));
         }
         std::fs::rename(&tmp, &self.file)
             .with_context(|| format!("rename {} -> {}", tmp.display(), self.file.display()))?;

@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Phase 1 capability set: pty (custom commands), fs (read/list within ~/royalti-co and ~/.claude/projects), sql, stronghold, dialog, os. Sidecar binaries spawn through tokio::process directly (see src-tauri/src/sidecar/), not through tauri-plugin-shell.",
+  "description": "Main-window capability set: pty (custom commands), sql, stronghold, dialog, os. Sidecar binaries spawn through tokio::process directly (see src-tauri/src/sidecar/), not through tauri-plugin-shell. fs:* perm identifiers are listed with empty allow arrays — no static main-window fs grants; per-pkg fs is granted dynamically by pkg/registries/permissions.rs::add_fs_capabilities, and Rust-side app fs (commands::fs::*) bypasses Tauri ACL and enforces fs_roots.rs instead.",
   "windows": ["main"],
   "remote": {
     "urls": [
@@ -29,24 +29,15 @@
     "notification:allow-request-permission",
     {
       "identifier": "fs:allow-read-file",
-      "allow": [
-        { "path": "$HOME/royalti-co/**" },
-        { "path": "$HOME/.claude/projects/**" }
-      ]
+      "allow": []
     },
     {
       "identifier": "fs:allow-write-file",
-      "allow": [
-        { "path": "$HOME/royalti-co/**" },
-        { "path": "$HOME/.claude/projects/**" }
-      ]
+      "allow": []
     },
     {
       "identifier": "fs:allow-read-dir",
-      "allow": [
-        { "path": "$HOME/royalti-co/**" },
-        { "path": "$HOME/.claude/projects/**" }
-      ]
+      "allow": []
     }
   ]
 }

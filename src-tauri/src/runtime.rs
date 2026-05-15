@@ -39,7 +39,11 @@ const BUN_TARGET: &str = if cfg!(all(target_os = "linux", target_arch = "x86_64"
     "unsupported"
 };
 
-const BUN_BIN_NAME: &str = if cfg!(target_os = "windows") { "bun.exe" } else { "bun" };
+const BUN_BIN_NAME: &str = if cfg!(target_os = "windows") {
+    "bun.exe"
+} else {
+    "bun"
+};
 
 static BUN_PATH: OnceLock<Option<PathBuf>> = OnceLock::new();
 
@@ -86,7 +90,10 @@ fn resolve_bun_path(app: &AppHandle) -> Option<PathBuf> {
     if let Ok(resource_dir) = app.path().resource_dir() {
         let bundled = resource_dir.join("bun").join(BUN_TARGET).join(BUN_BIN_NAME);
         if bundled.is_file() {
-            log::info!("[runtime] bundled bun (resource_dir): {}", bundled.display());
+            log::info!(
+                "[runtime] bundled bun (resource_dir): {}",
+                bundled.display()
+            );
             return Some(bundled);
         }
         log::warn!(
@@ -127,7 +134,11 @@ mod tests {
         // the test is informational — assertion guarded behind the file
         // check so a stock checkout doesn't fail the suite.
         if let Some(p) = resolve_dev_bun_path() {
-            assert!(p.is_file(), "resolve_dev_bun_path returned a non-file path: {}", p.display());
+            assert!(
+                p.is_file(),
+                "resolve_dev_bun_path returned a non-file path: {}",
+                p.display()
+            );
             assert_eq!(p.file_name().and_then(|s| s.to_str()), Some(BUN_BIN_NAME));
         }
     }
@@ -137,8 +148,14 @@ mod tests {
         // Absolute paths, ./bin shell-outs, and any other binary name must
         // round-trip unchanged so existing manifests (engine adapters, the
         // legacy iyke-mcp `./bin/iyke-mcp`) keep working.
-        assert_eq!(resolve_command("./bin/iyke-mcp"), PathBuf::from("./bin/iyke-mcp"));
-        assert_eq!(resolve_command("/usr/bin/node"), PathBuf::from("/usr/bin/node"));
+        assert_eq!(
+            resolve_command("./bin/iyke-mcp"),
+            PathBuf::from("./bin/iyke-mcp")
+        );
+        assert_eq!(
+            resolve_command("/usr/bin/node"),
+            PathBuf::from("/usr/bin/node")
+        );
         assert_eq!(resolve_command("uvx"), PathBuf::from("uvx"));
     }
 

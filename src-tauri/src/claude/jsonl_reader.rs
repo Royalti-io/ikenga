@@ -81,7 +81,10 @@ pub fn read_jsonl(path: &Path) -> Result<Vec<ChatEvent>> {
             Err(_) => continue,
         };
         if session_id.is_none() {
-            session_id = v.get("sessionId").and_then(Value::as_str).map(str::to_string);
+            session_id = v
+                .get("sessionId")
+                .and_then(Value::as_str)
+                .map(str::to_string);
         }
         if cwd.is_none() {
             cwd = v.get("cwd").and_then(Value::as_str).map(str::to_string);
@@ -154,10 +157,7 @@ pub fn summarize(path: &Path) -> Result<Option<SessionSummary>> {
                 .map(str::to_string);
         }
         if project_dir.is_none() {
-            project_dir = value
-                .get("cwd")
-                .and_then(Value::as_str)
-                .map(str::to_string);
+            project_dir = value.get("cwd").and_then(Value::as_str).map(str::to_string);
         }
         if started_at.is_none() {
             started_at = value
@@ -378,7 +378,9 @@ mod tests {
         let events = read_jsonl(f.path()).unwrap();
         // SessionInit (synthesized) + Text "hi back". No Unknowns.
         assert!(
-            !events.iter().any(|e| matches!(e, ChatEvent::Unknown { .. })),
+            !events
+                .iter()
+                .any(|e| matches!(e, ChatEvent::Unknown { .. })),
             "control envelopes leaked as Unknown: {:?}",
             events
         );
@@ -386,7 +388,8 @@ mod tests {
 
     #[test]
     fn truncate_title_strips_command_framing() {
-        let with_framing = "<command-message>foo</command-message>\n<command-name>/bar</command-name>";
+        let with_framing =
+            "<command-message>foo</command-message>\n<command-name>/bar</command-name>";
         assert_eq!(truncate_title(with_framing), "");
         let normal = "Help me debug this Rust panic";
         assert_eq!(truncate_title(normal), "Help me debug this Rust panic");

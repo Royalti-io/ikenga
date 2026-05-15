@@ -20,7 +20,7 @@ use tauri::AppHandle;
 
 use crate::commands::db::PaDb;
 
-use super::manifest::{Package, IKENGA_API_VERSION, IKENGA_API_MIN_SUPPORTED};
+use super::manifest::{Package, IKENGA_API_MIN_SUPPORTED, IKENGA_API_VERSION};
 use super::registry::Registry;
 use super::source::InstallSource;
 
@@ -140,9 +140,8 @@ impl Kernel {
         source: InstallSource,
         project_id: Option<String>,
     ) -> Result<InstalledSummary> {
-        let pkg = Package::load(install_path).with_context(|| {
-            format!("load manifest at {}", install_path.display())
-        })?;
+        let pkg = Package::load(install_path)
+            .with_context(|| format!("load manifest at {}", install_path.display()))?;
         let pkg_id = pkg.manifest.id.clone();
         let lock = self.lock_for(&pkg_id);
         // Recover from poison: the `()` payload carries no state, so a prior
@@ -162,8 +161,11 @@ impl Kernel {
         // Preserve a stronger pre-existing source: if the row is already
         // marked Builtin, never downgrade it to Local on a path-equal replay
         // (e.g. workspace dev pointing at the same dir as a builtin).
-        let effective_source = if let Some(existing) =
-            self.installed.read().ok().and_then(|g| g.get(&pkg_id).cloned())
+        let effective_source = if let Some(existing) = self
+            .installed
+            .read()
+            .ok()
+            .and_then(|g| g.get(&pkg_id).cloned())
         {
             if existing.install_path != pkg.install_path.display().to_string() {
                 return Err(anyhow!(
@@ -198,8 +200,8 @@ impl Kernel {
         // rows with `FOREIGN KEY(pkg_id) REFERENCES pkg_installed(id)`, so
         // they need the parent committed first. If the parent write fails,
         // bail before touching any registry.
-        let manifest_json = serde_json::to_string(&pkg.manifest)
-            .map_err(|e| anyhow!("serialize manifest: {e}"))?;
+        let manifest_json =
+            serde_json::to_string(&pkg.manifest).map_err(|e| anyhow!("serialize manifest: {e}"))?;
         self.persist_install(&summary, &manifest_json)?;
 
         // Register against every registry in order. On any failure, walk
@@ -343,8 +345,8 @@ impl Kernel {
     fn reconcile_source(&self, pkg_id: &str, source: &InstallSource) -> Result<()> {
         let db = self.db.clone();
         let id_owned = pkg_id.to_string();
-        let source_json = serde_json::to_string(source)
-            .map_err(|e| anyhow!("serialize install source: {e}"))?;
+        let source_json =
+            serde_json::to_string(source).map_err(|e| anyhow!("serialize install source: {e}"))?;
         tauri::async_runtime::block_on(async move {
             let pool = db.ensure_pool().await.map_err(|e| anyhow!(e))?;
             sqlx::query("UPDATE pkg_installed SET source_json = ? WHERE id = ?")
@@ -562,7 +564,10 @@ impl Kernel {
     pub fn install_builtins(&self, resource_dir: &Path) -> Result<()> {
         let builtins_dir = resource_dir.join("builtin-pkgs");
         if !builtins_dir.is_dir() {
-            log::info!("[pkg_kernel] no builtin-pkgs/ at {} — skipping auto-install", builtins_dir.display());
+            log::info!(
+                "[pkg_kernel] no builtin-pkgs/ at {} — skipping auto-install",
+                builtins_dir.display()
+            );
             return Ok(());
         }
         let entries = std::fs::read_dir(&builtins_dir)
@@ -585,7 +590,10 @@ impl Kernel {
             let id = match id_opt {
                 Some(id) => id,
                 None => {
-                    log::warn!("[pkg_kernel] builtin at {} has no id — skipping", path.display());
+                    log::warn!(
+                        "[pkg_kernel] builtin at {} has no id — skipping",
+                        path.display()
+                    );
                     continue;
                 }
             };
@@ -649,8 +657,7 @@ impl Kernel {
         if !dir.is_dir() {
             return Ok(());
         }
-        let entries = std::fs::read_dir(&dir)
-            .with_context(|| format!("read {}", dir.display()))?;
+        let entries = std::fs::read_dir(&dir).with_context(|| format!("read {}", dir.display()))?;
         for entry in entries.flatten() {
             let path = entry.path();
             if !path.is_dir() {
@@ -689,9 +696,7 @@ impl Kernel {
                 .map(|g| g.contains_key(&id))
                 .unwrap_or(false);
             if already_installed {
-                log::debug!(
-                    "[pkg_kernel] pkgs-dir entry `{id}` already tracked — skipping"
-                );
+                log::debug!("[pkg_kernel] pkgs-dir entry `{id}` already tracked — skipping");
                 continue;
             }
             let path_str = path.display().to_string();
@@ -740,7 +745,10 @@ impl Kernel {
             .map_err(|e| anyhow!("read pkg_installed: {e}"))?;
             Ok::<_, anyhow::Error>((r, total))
         })?;
-        log::info!("[pkg_kernel] boot: pkg_installed total_rows={total_rows} enabled_rows={}", rows.len());
+        log::info!(
+            "[pkg_kernel] boot: pkg_installed total_rows={total_rows} enabled_rows={}",
+            rows.len()
+        );
 
         let mut replayed = 0usize;
         let mut skipped = 0usize;
@@ -773,10 +781,8 @@ impl Kernel {
                         skipped += 1;
                         continue;
                     }
-                    let source = InstallSource::parse_or_local(
-                        source_raw.as_deref(),
-                        &install_path,
-                    );
+                    let source =
+                        InstallSource::parse_or_local(source_raw.as_deref(), &install_path);
                     let summary = InstalledSummary {
                         id: id.clone(),
                         version: pkg.manifest.version.clone(),
@@ -832,7 +838,10 @@ impl Kernel {
     /// own project scope (workspace or `project:<id>`) before spawning, so
     /// it can inject the matching `IKENGA_PROJECT_ID` env.
     pub fn installed_summary(&self, pkg_id: &str) -> Option<InstalledSummary> {
-        self.installed.read().ok().and_then(|g| g.get(pkg_id).cloned())
+        self.installed
+            .read()
+            .ok()
+            .and_then(|g| g.get(pkg_id).cloned())
     }
 
     /// Phase 2 reconciler. For each installed pkg, ensure its registry
@@ -865,7 +874,11 @@ impl Kernel {
         let prev_live: std::collections::HashSet<String> = live_guard.clone();
 
         // Park anything live → not in target set.
-        for pkg_id in prev_live.difference(&want_live).cloned().collect::<Vec<_>>() {
+        for pkg_id in prev_live
+            .difference(&want_live)
+            .cloned()
+            .collect::<Vec<_>>()
+        {
             log::info!("[pkg_kernel] reconcile: parking `{pkg_id}` (scope mismatch)");
             for reg in self.registries.iter().rev() {
                 if let Err(e) = reg.unregister(&pkg_id) {
@@ -879,7 +892,11 @@ impl Kernel {
         }
 
         // Resume anything in target set → not yet live.
-        for pkg_id in want_live.difference(&prev_live).cloned().collect::<Vec<_>>() {
+        for pkg_id in want_live
+            .difference(&prev_live)
+            .cloned()
+            .collect::<Vec<_>>()
+        {
             let install_path = installed
                 .iter()
                 .find(|s| s.id == pkg_id)
@@ -900,8 +917,7 @@ impl Kernel {
                             );
                             // Roll back what we managed to apply for this pkg.
                             for name in applied.iter().rev() {
-                                if let Some(r) =
-                                    self.registries.iter().find(|r| r.name() == *name)
+                                if let Some(r) = self.registries.iter().find(|r| r.name() == *name)
                                 {
                                     let _ = r.unregister(&pkg_id);
                                 }
@@ -962,9 +978,7 @@ impl Kernel {
         for name in applied.iter().rev() {
             if let Some(reg) = self.registries.iter().find(|r| r.name() == *name) {
                 if let Err(e) = reg.unregister(pkg_id) {
-                    log::warn!(
-                        "[pkg_kernel] rollback `{name}` for `{pkg_id}` failed: {e}"
-                    );
+                    log::warn!("[pkg_kernel] rollback `{name}` for `{pkg_id}` failed: {e}");
                 }
             }
         }

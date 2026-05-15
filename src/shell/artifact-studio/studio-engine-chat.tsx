@@ -25,13 +25,12 @@
 // — the noise belongs on the main chat surface.
 
 import { Loader2, MessageSquare, Square, X } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Thread, useChatActions, useThread, useThreadState, mintThreadId } from '@/chat';
+import { useCallback, useMemo, useState } from 'react';
+import { Thread, useChatActions, useThread, useThreadState } from '@/chat';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/components/ui/utils';
-
-const STUDIO_THREAD_KEY_PREFIX = 'ikenga.studio.thread:';
+import { useStudioThreadId } from '@/lib/artifact/studio-thread';
 
 interface StudioEngineChatProps {
 	path: string;
@@ -76,34 +75,6 @@ export function StudioEngineChat({ path, pendingChip, onConsumeChip }: StudioEng
 			/>
 		</div>
 	);
-}
-
-/** Look up (or mint) the stable thread id for this artifact path. The
- *  mapping lives in localStorage so reopening Studio resumes the same
- *  conversation. New paths get a fresh uuid. */
-function useStudioThreadId(path: string): string | null {
-	const [id, setId] = useState<string | null>(null);
-	useEffect(() => {
-		const key = STUDIO_THREAD_KEY_PREFIX + path;
-		try {
-			const existing = window.localStorage.getItem(key);
-			if (existing) {
-				setId(existing);
-				return;
-			}
-		} catch {
-			// localStorage unavailable — fall through and mint, but we won't
-			// persist. Future opens will mint a fresh thread.
-		}
-		const fresh = mintThreadId();
-		try {
-			window.localStorage.setItem(key, fresh);
-		} catch {
-			// noop
-		}
-		setId(fresh);
-	}, [path]);
-	return id;
 }
 
 interface StudioComposerProps {

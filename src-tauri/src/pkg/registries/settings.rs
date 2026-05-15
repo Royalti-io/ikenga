@@ -45,7 +45,6 @@ impl SettingsRegistry {
     pub fn schema_for(&self, pkg_id: &str) -> Option<Vec<SettingsField>> {
         self.schemas.read().ok()?.get(pkg_id).cloned()
     }
-
 }
 
 impl Registry for SettingsRegistry {
@@ -125,13 +124,12 @@ impl SettingsRegistry {
             let pool = db.ensure_pool().await.map_err(|e| anyhow!(e))?;
             let mut out: HashMap<String, Value> = HashMap::new();
             for id in ids {
-                let rows: Vec<(String, String)> = sqlx::query_as(
-                    "SELECT key, value_json FROM pkg_settings WHERE pkg_id = ?",
-                )
-                .bind(&id)
-                .fetch_all(&pool)
-                .await
-                .map_err(|e| anyhow!("read pkg_settings: {e}"))?;
+                let rows: Vec<(String, String)> =
+                    sqlx::query_as("SELECT key, value_json FROM pkg_settings WHERE pkg_id = ?")
+                        .bind(&id)
+                        .fetch_all(&pool)
+                        .await
+                        .map_err(|e| anyhow!("read pkg_settings: {e}"))?;
                 let mut obj = serde_json::Map::new();
                 for (k, vj) in rows {
                     let v = serde_json::from_str(&vj).unwrap_or(Value::String(vj));

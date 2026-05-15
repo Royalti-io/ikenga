@@ -291,7 +291,7 @@ pub async fn post_browser_snapshot(
     JsonBody(body): JsonBody<SnapshotBody>,
 ) -> Result<Json<Value>, (StatusCode, String)> {
     check_not_paused(&panes, &body.pkg_id, &body.pane_id)?;
-        let body_js = format!(
+    let body_js = format!(
         "__ipb.snapshot({{ query: {q}, all: {all} }})",
         q = json::to_string(&body.query),
         all = body.all,
@@ -573,13 +573,7 @@ pub async fn post_browser_wait_for(
     check_not_paused(&panes, &body.pkg_id, &body.pane_id)?;
     if !matches!(
         body.kind.as_str(),
-        "url"
-            | "ref"
-            | "text"
-            | "gone-text"
-            | "selector"
-            | "gone-selector"
-            | "idle"
+        "url" | "ref" | "text" | "gone-text" | "selector" | "gone-selector" | "idle"
     ) {
         return Err(err400(format!("unknown wait_for kind: {:?}", body.kind)));
     }
@@ -765,11 +759,7 @@ fn require_one_target(
     Ok(())
 }
 
-fn target_spec(
-    r#ref: &Option<String>,
-    selector: &Option<String>,
-    text: &Option<String>,
-) -> String {
+fn target_spec(r#ref: &Option<String>, selector: &Option<String>, text: &Option<String>) -> String {
     let mut o = serde_json::Map::new();
     if let Some(r) = r#ref {
         o.insert("ref".into(), Value::String(r.clone()));

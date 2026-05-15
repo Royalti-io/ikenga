@@ -143,7 +143,12 @@ pub async fn post_claude_asset_pin(
     .bind(now_ms())
     .execute(&pool)
     .await
-    .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("upsert pin: {e}")))?;
+    .map_err(|e| {
+        err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("upsert pin: {e}"),
+        )
+    })?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -172,7 +177,12 @@ pub async fn post_claude_asset_unpin(
     .bind(&body.asset_name)
     .execute(&pool)
     .await
-    .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("delete pin: {e}")))?;
+    .map_err(|e| {
+        err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("delete pin: {e}"),
+        )
+    })?;
     Ok(Json(json!({ "ok": true })))
 }
 

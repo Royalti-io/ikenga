@@ -82,13 +82,41 @@ struct PathColumn {
 }
 
 const PATH_COLUMNS: &[PathColumn] = &[
-    PathColumn { table: "chat_threads",            column: "cwd",            where_clause: None },
-    PathColumn { table: "chat_threads",            column: "project_dir",    where_clause: None },
-    PathColumn { table: "viewer_recents",          column: "path",           where_clause: None },
-    PathColumn { table: "render_jobs",             column: "output_path",    where_clause: None },
-    PathColumn { table: "storyboards",             column: "r1_still_path",  where_clause: None },
-    PathColumn { table: "storyboards",             column: "r2_still_path",  where_clause: None },
-    PathColumn { table: "pkg_installed",           column: "install_path",   where_clause: None },
+    PathColumn {
+        table: "chat_threads",
+        column: "cwd",
+        where_clause: None,
+    },
+    PathColumn {
+        table: "chat_threads",
+        column: "project_dir",
+        where_clause: None,
+    },
+    PathColumn {
+        table: "viewer_recents",
+        column: "path",
+        where_clause: None,
+    },
+    PathColumn {
+        table: "render_jobs",
+        column: "output_path",
+        where_clause: None,
+    },
+    PathColumn {
+        table: "storyboards",
+        column: "r1_still_path",
+        where_clause: None,
+    },
+    PathColumn {
+        table: "storyboards",
+        column: "r2_still_path",
+        where_clause: None,
+    },
+    PathColumn {
+        table: "pkg_installed",
+        column: "install_path",
+        where_clause: None,
+    },
     PathColumn {
         table: "pkg_permissions_granted",
         column: "scope_value",
@@ -298,16 +326,15 @@ pub async fn backup_export<R: tauri::Runtime>(
     );
     let manifest_json =
         serde_json::to_vec_pretty(&manifest).map_err(|e| format!("serialize manifest: {e}"))?;
-    let pkgs_json =
-        serde_json::to_vec_pretty(&pkgs).map_err(|e| format!("serialize pkgs: {e}"))?;
+    let pkgs_json = serde_json::to_vec_pretty(&pkgs).map_err(|e| format!("serialize pkgs: {e}"))?;
 
     // Build the zip.
     let file = fs::File::create(&dest).map_err(|e| format!("create dest: {e}"))?;
     let mut zip = zip::ZipWriter::new(file);
     let opts_deflate: zip::write::SimpleFileOptions = zip::write::SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated);
-    let opts_stored: zip::write::SimpleFileOptions = zip::write::SimpleFileOptions::default()
-        .compression_method(zip::CompressionMethod::Stored);
+    let opts_stored: zip::write::SimpleFileOptions =
+        zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
 
     zip.start_file("manifest.json", opts_deflate)
         .map_err(|e| format!("zip start manifest: {e}"))?;
@@ -514,8 +541,7 @@ pub async fn backup_delete<R: tauri::Runtime>(
     let target = PathBuf::from(&path);
     let allowed = local_backups_dir(&app)?;
     let canon_target = fs::canonicalize(&target).map_err(|e| format!("canon target: {e}"))?;
-    let canon_allowed =
-        fs::canonicalize(&allowed).map_err(|e| format!("canon allowed: {e}"))?;
+    let canon_allowed = fs::canonicalize(&allowed).map_err(|e| format!("canon allowed: {e}"))?;
     if !canon_target.starts_with(&canon_allowed) {
         return Err(format!(
             "refusing to delete file outside backups dir: {}",
@@ -603,10 +629,7 @@ pub fn apply_staged_secrets<R: tauri::Runtime>(app: &AppHandle<R>) {
 /// Walk `PATH_COLUMNS` in the snapshot, rewriting `<home>/...` → `${IKENGA_HOME}/...`
 /// in place. Returns a list of `PathWarning`s for paths outside `<home>`
 /// (left untouched). `home` is canonical (no trailing slash).
-async fn tokenize_snapshot_paths(
-    snapshot: &Path,
-    home: &str,
-) -> Result<Vec<PathWarning>, String> {
+async fn tokenize_snapshot_paths(snapshot: &Path, home: &str) -> Result<Vec<PathWarning>, String> {
     let home = home.trim_end_matches('/').to_string();
     let url = format!("sqlite://{}?mode=rwc", snapshot.display());
     let pool = sqlx::SqlitePool::connect(&url)
@@ -660,7 +683,10 @@ async fn tokenize_snapshot_paths(
                     .execute(&pool)
                     .await
                     .map_err(|e| {
-                        format!("tokenize update {}.{} rowid={rowid}: {e}", col.table, col.column)
+                        format!(
+                            "tokenize update {}.{} rowid={rowid}: {e}",
+                            col.table, col.column
+                        )
                     })?;
             } else {
                 warnings.push(PathWarning {
@@ -760,9 +786,7 @@ pub fn apply_staged_path_rewrites<R: tauri::Runtime>(app: &AppHandle<R>) {
     });
     match result {
         Ok(n) => {
-            log::info!(
-                "[backup] rewrote {n} path-bearing rows ({from_token_log} → {to_home_log})"
-            );
+            log::info!("[backup] rewrote {n} path-bearing rows ({from_token_log} → {to_home_log})");
             let _ = fs::remove_file(&plan_path);
             let _ = fs::remove_file(staged_dir.join(MARKER_NAME));
         }
@@ -851,11 +875,11 @@ fn read_pkgs_from_zip(zip_path: &Path) -> Result<Vec<PkgEntry>, String> {
 fn read_zip_bytes(zip_path: &Path, name: &str) -> Result<Vec<u8>, String> {
     let file = fs::File::open(zip_path).map_err(|e| format!("open zip: {e}"))?;
     let mut archive = zip::ZipArchive::new(file).map_err(|e| format!("read zip: {e}"))?;
-    let mut entry = archive
-        .by_name(name)
-        .map_err(|e| format!("{name}: {e}"))?;
+    let mut entry = archive.by_name(name).map_err(|e| format!("{name}: {e}"))?;
     let mut buf = Vec::new();
-    entry.read_to_end(&mut buf).map_err(|e| format!("read {name}: {e}"))?;
+    entry
+        .read_to_end(&mut buf)
+        .map_err(|e| format!("read {name}: {e}"))?;
     Ok(buf)
 }
 
@@ -933,7 +957,8 @@ fn age_encrypt(plaintext: &[u8], passphrase: &str) -> Result<Vec<u8>, String> {
     use age::secrecy::SecretString;
     use std::io::Write as _;
 
-    let encryptor = age::Encryptor::with_user_passphrase(SecretString::from(passphrase.to_string()));
+    let encryptor =
+        age::Encryptor::with_user_passphrase(SecretString::from(passphrase.to_string()));
     let mut out = Vec::new();
     let mut writer = encryptor
         .wrap_output(&mut out)

@@ -42,9 +42,7 @@ fn config_path<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
 }
 
 #[tauri::command]
-pub async fn supabase_config_get(
-    app: AppHandle,
-) -> Result<Option<SupabaseConfig>, String> {
+pub async fn supabase_config_get(app: AppHandle) -> Result<Option<SupabaseConfig>, String> {
     let path = config_path(&app)?;
     if !path.exists() {
         return Ok(None);

@@ -47,10 +47,7 @@ fn validate(m: &ManifestProbe) -> Result<(), String> {
     let prefix = format!("pa-{}-", m.id.replace('.', "-"));
     for s in &m.sidecars {
         if !s.name.starts_with(&prefix) {
-            return Err(format!(
-                "sidecar `{}` must start with `{prefix}`",
-                s.name
-            ));
+            return Err(format!("sidecar `{}` must start with `{prefix}`", s.name));
         }
     }
     Ok(())
@@ -81,12 +78,7 @@ fn main() -> anyhow::Result<()> {
             Ok(m) => match validate(&m) {
                 Ok(()) => {
                     ok += 1;
-                    println!(
-                        "  ok    {} v{}  ({})",
-                        m.id,
-                        m.version,
-                        m.name
-                    );
+                    println!("  ok    {} v{}  ({})", m.id, m.version, m.name);
                 }
                 Err(e) => {
                     bad += 1;

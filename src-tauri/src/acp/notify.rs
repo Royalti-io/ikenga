@@ -175,11 +175,7 @@ mod tests {
 
     #[test]
     fn payload_from_permission_includes_tool_name() {
-        let p = payload_from_permission(
-            "t_abc",
-            "Bash",
-            Some(&json!({"command": "ls -la"})),
-        );
+        let p = payload_from_permission("t_abc", "Bash", Some(&json!({"command": "ls -la"})));
         assert_eq!(p.thread_id, "t_abc");
         assert!(p.title.contains("Bash"));
         assert_eq!(p.body, "ls -la");

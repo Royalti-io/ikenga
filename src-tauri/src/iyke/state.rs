@@ -132,7 +132,11 @@ impl IykeState {
             .iter()
             .filter(|e| level.map(|l| e.level == l).unwrap_or(true))
             .filter(|e| since.map(|s| e.ts >= s).unwrap_or(true))
-            .filter(|e| source.map(|s| e.source.as_deref() == Some(s)).unwrap_or(true))
+            .filter(|e| {
+                source
+                    .map(|s| e.source.as_deref() == Some(s))
+                    .unwrap_or(true)
+            })
             .cloned()
             .collect()
     }
@@ -146,7 +150,11 @@ impl IykeState {
         guard
             .iter()
             .filter(|e| since.map(|s| e.ts >= s).unwrap_or(true))
-            .filter(|e| source.map(|s| e.source.as_deref() == Some(s)).unwrap_or(true))
+            .filter(|e| {
+                source
+                    .map(|s| e.source.as_deref() == Some(s))
+                    .unwrap_or(true)
+            })
             .cloned()
             .collect()
     }

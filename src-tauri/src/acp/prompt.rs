@@ -93,9 +93,7 @@ pub fn extract_content(req: &PromptRequest) -> Result<PromptContent, String> {
             // The schema enum is `#[non_exhaustive]`; cover future variants
             // explicitly rather than silently coercing.
             _ => {
-                return Err(format!(
-                    "unsupported content block variant at index {idx}",
-                ));
+                return Err(format!("unsupported content block variant at index {idx}",));
             }
         }
     }
@@ -149,9 +147,7 @@ pub fn map_stop_reason(raw: Option<&str>) -> StopReason {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use agent_client_protocol::schema::{
-        ImageContent, ResourceLink, SessionId, TextContent,
-    };
+    use agent_client_protocol::schema::{ImageContent, ResourceLink, SessionId, TextContent};
 
     fn req(blocks: Vec<ContentBlock>) -> PromptRequest {
         PromptRequest::new(SessionId::new("sess_test"), blocks)

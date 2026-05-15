@@ -55,7 +55,10 @@ pub async fn pkg_webview_destroy(
     pane_id: String,
 ) -> Result<(), String> {
     // No keep-awake on destroy — teardown should never need to inhibit App Nap.
-    state.0.destroy(&pkg_id, &pane_id).map_err(|e| format!("{e:#}"))
+    state
+        .0
+        .destroy(&pkg_id, &pane_id)
+        .map_err(|e| format!("{e:#}"))
 }
 
 #[tauri::command]

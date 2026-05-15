@@ -53,10 +53,7 @@ mod tests {
         let parsed: serde_json::Value =
             serde_json::from_str(env.trim_end()).expect("envelope is JSON");
         assert_eq!(parsed["type"], serde_json::json!("sdk_control_request"));
-        assert_eq!(
-            parsed["request"]["subtype"],
-            serde_json::json!("interrupt"),
-        );
+        assert_eq!(parsed["request"]["subtype"], serde_json::json!("interrupt"),);
         assert_eq!(
             parsed["request"]["request_id"],
             serde_json::json!("req_int_42"),

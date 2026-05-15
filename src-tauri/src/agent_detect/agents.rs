@@ -38,6 +38,17 @@ pub async fn detect_all() -> Vec<DetectedAgent> {
     results.into_iter().flatten().collect()
 }
 
+/// Detect a single known agent by id. Returns `None` when the id isn't in
+/// `KNOWN_AGENTS` or the executable couldn't be resolved on the current OS.
+/// Surfaced as the per-engine variant so the onboarding UI can fan out one
+/// call per engine and reveal results as they land instead of blocking on
+/// the slowest probe.
+pub async fn detect_by_id(agent_id: &str) -> Option<DetectedAgent> {
+    let os = std::env::consts::OS;
+    let def = KNOWN_AGENTS.iter().find(|d| d.id == agent_id)?;
+    detect_one(def, os).await
+}
+
 /// Inlined tiny join_all so we don't drag in the full `futures` crate.
 async fn futures_join_all<I, F>(iter: I) -> Vec<F::Output>
 where
@@ -240,7 +251,10 @@ async fn probe_auth_exec(
                     Some(format!(
                         "`{cmd} {}` exited {}",
                         args.join(" "),
-                        out.status.code().map(|c| c.to_string()).unwrap_or_else(|| "?".into())
+                        out.status
+                            .code()
+                            .map(|c| c.to_string())
+                            .unwrap_or_else(|| "?".into())
                     )),
                 )
             }

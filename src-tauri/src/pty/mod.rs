@@ -38,8 +38,7 @@ pub struct SpawnOpts {
 /// xterm frontend gets). Subscribers see chunks pre-base64, in the order the
 /// reader thread saw them. Errors are swallowed — subscribers detach by
 /// dropping the boxed future on the next tick.
-pub type ByteSubscriber =
-    Box<dyn Fn(&[u8]) + Send + Sync + 'static>;
+pub type ByteSubscriber = Box<dyn Fn(&[u8]) + Send + Sync + 'static>;
 
 struct PtySession {
     master: Mutex<Box<dyn MasterPty + Send>>,
@@ -60,7 +59,9 @@ pub struct PtyManager {
 
 impl PtyManager {
     pub fn new() -> Self {
-        Self { sessions: DashMap::new() }
+        Self {
+            sessions: DashMap::new(),
+        }
     }
 
     pub async fn spawn(self: &Arc<Self>, app: AppHandle, opts: SpawnOpts) -> Result<String> {
@@ -180,8 +181,7 @@ impl PtyManager {
         tokio::spawn(async move {
             let engine = base64::engine::general_purpose::STANDARD;
             let mut pending: Vec<u8> = Vec::with_capacity(CHUNK_SIZE);
-            let mut interval =
-                tokio::time::interval(Duration::from_millis(FLUSH_INTERVAL_MS));
+            let mut interval = tokio::time::interval(Duration::from_millis(FLUSH_INTERVAL_MS));
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
             loop {

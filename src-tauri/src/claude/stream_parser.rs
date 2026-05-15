@@ -136,19 +136,18 @@ pub(crate) fn dispatch_envelope(value: &Value, out: &mut Vec<ChatEvent>) {
         }
         // Internal/control envelopes — JSONL bookkeeping that's not part of
         // the conversation. Drop silently; they're noise to the chat feed.
-        "attachment" | "queue-operation" | "last-prompt" | "skill_listing"
-        | "deferred_tools_delta" | "command_permissions" => {}
-        _ => out.push(ChatEvent::Unknown {
-            raw: value.clone(),
-        }),
+        "attachment"
+        | "queue-operation"
+        | "last-prompt"
+        | "skill_listing"
+        | "deferred_tools_delta"
+        | "command_permissions" => {}
+        _ => out.push(ChatEvent::Unknown { raw: value.clone() }),
     }
 }
 
 fn dispatch_system(value: &Value, out: &mut Vec<ChatEvent>) {
-    let subtype = value
-        .get("subtype")
-        .and_then(Value::as_str)
-        .unwrap_or("");
+    let subtype = value.get("subtype").and_then(Value::as_str).unwrap_or("");
     match subtype {
         "init" => out.push(ChatEvent::SessionInit {
             session_id: value
@@ -160,10 +159,7 @@ fn dispatch_system(value: &Value, out: &mut Vec<ChatEvent>) {
                 .get("model")
                 .and_then(Value::as_str)
                 .map(str::to_string),
-            cwd: value
-                .get("cwd")
-                .and_then(Value::as_str)
-                .map(str::to_string),
+            cwd: value.get("cwd").and_then(Value::as_str).map(str::to_string),
             permission_mode: value
                 .get("permissionMode")
                 .and_then(Value::as_str)
@@ -177,9 +173,7 @@ fn dispatch_system(value: &Value, out: &mut Vec<ChatEvent>) {
                 .map(str::to_string),
             content: Some(value.clone()),
         }),
-        _ => out.push(ChatEvent::Unknown {
-            raw: value.clone(),
-        }),
+        _ => out.push(ChatEvent::Unknown { raw: value.clone() }),
     }
 }
 
@@ -193,13 +187,13 @@ fn dispatch_assistant(value: &Value, out: &mut Vec<ChatEvent>) {
         .and_then(|m| m.get("id"))
         .and_then(Value::as_str)
         .map(str::to_string);
-    let content = message.and_then(|m| m.get("content")).and_then(Value::as_array);
+    let content = message
+        .and_then(|m| m.get("content"))
+        .and_then(Value::as_array);
     let blocks = match content {
         Some(b) => b,
         None => {
-            out.push(ChatEvent::Unknown {
-                raw: value.clone(),
-            });
+            out.push(ChatEvent::Unknown { raw: value.clone() });
             return;
         }
     };
@@ -236,9 +230,7 @@ fn dispatch_assistant(value: &Value, out: &mut Vec<ChatEvent>) {
                 input: block.get("input").cloned().unwrap_or(Value::Null),
                 parent_tool_use_id: parent_tool_use_id.clone(),
             }),
-            _ => out.push(ChatEvent::Unknown {
-                raw: block.clone(),
-            }),
+            _ => out.push(ChatEvent::Unknown { raw: block.clone() }),
         }
     }
 }

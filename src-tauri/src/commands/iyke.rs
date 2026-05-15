@@ -29,9 +29,7 @@ use crate::iyke::{Endpoint, IykeRpc, IykeRuntime, IykeState};
 pub type IykeRuntimeState = Arc<Mutex<Option<IykeRuntime>>>;
 
 #[tauri::command]
-pub async fn iyke_endpoint(
-    runtime: State<'_, IykeRuntimeState>,
-) -> Result<Endpoint, String> {
+pub async fn iyke_endpoint(runtime: State<'_, IykeRuntimeState>) -> Result<Endpoint, String> {
     let guard = runtime.lock().await;
     match guard.as_ref() {
         Some(rt) => Ok(rt.endpoint()),

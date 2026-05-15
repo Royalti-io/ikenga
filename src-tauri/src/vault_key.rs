@@ -47,8 +47,8 @@ impl std::error::Error for VaultKeyError {}
 fn vault_key_path() -> Result<PathBuf, VaultKeyError> {
     const BUNDLE_ID: &str = "app.ikenga";
     let dir: PathBuf = if cfg!(target_os = "macos") {
-        let home = std::env::var_os("HOME")
-            .ok_or_else(|| VaultKeyError::Resolve("$HOME unset".into()))?;
+        let home =
+            std::env::var_os("HOME").ok_or_else(|| VaultKeyError::Resolve("$HOME unset".into()))?;
         PathBuf::from(home)
             .join("Library/Application Support")
             .join(BUNDLE_ID)
@@ -78,7 +78,8 @@ pub fn fetch_or_create() -> Result<Vec<u8>, VaultKeyError> {
     if path.exists() {
         let hex_str = std::fs::read_to_string(&path)
             .map_err(|e| VaultKeyError::Io(format!("read {}: {e}", path.display())))?;
-        let bytes = hex::decode(hex_str.trim()).map_err(|e| VaultKeyError::Decode(e.to_string()))?;
+        let bytes =
+            hex::decode(hex_str.trim()).map_err(|e| VaultKeyError::Decode(e.to_string()))?;
         if bytes.len() != KEY_LEN {
             return Err(VaultKeyError::Decode(format!(
                 "wrong key length: {} (want {KEY_LEN})",
