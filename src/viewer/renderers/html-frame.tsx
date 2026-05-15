@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { AlertCircle, ExternalLink, Loader2 } from 'lucide-react';
+import { AlertCircle, ExternalLink, Loader2, Pencil } from 'lucide-react';
 import {
 	fsListenWatch,
 	fsRead,
@@ -10,7 +10,14 @@ import {
 	type ViewerHandle,
 } from '@/lib/tauri-cmd';
 import { registerIykeIframe } from '@/lib/iyke/iframe-registry';
+import { usePaneStore } from '@/lib/panes/pane-store';
+import { cn } from '@/components/ui/utils';
 import { pickViewerRoot } from '../lib/relative-root';
+
+function isHtmlPath(path: string): boolean {
+	const lower = path.toLowerCase();
+	return lower.endsWith('.html') || lower.endsWith('.htm');
+}
 
 interface HtmlFrameProps {
 	path: string;
@@ -166,6 +173,7 @@ export function HtmlFrame({ path, paneId }: HtmlFrameProps) {
 				<span className="truncate font-mono" title={state.src}>
 					{state.src}
 				</span>
+				{paneId && isHtmlPath(path) && <OpenInStudioButton paneId={paneId} path={path} />}
 			</div>
 			<iframe
 				ref={iframeRef}
@@ -175,5 +183,29 @@ export function HtmlFrame({ path, paneId }: HtmlFrameProps) {
 				className="h-full w-full flex-1 border-0 bg-background"
 			/>
 		</div>
+	);
+}
+
+interface OpenInStudioButtonProps {
+	paneId: string;
+	path: string;
+}
+
+function OpenInStudioButton({ paneId, path }: OpenInStudioButtonProps) {
+	const replaceView = usePaneStore((s) => s.replaceActiveViewAndPushHistory);
+	return (
+		<button
+			type="button"
+			onClick={() => replaceView(paneId, { kind: 'artifact-studio', path })}
+			title="Open in Artifact Studio"
+			aria-label="Open in Artifact Studio"
+			className={cn(
+				'ml-auto flex h-5 items-center gap-1 rounded px-2 text-[10.5px] font-semibold',
+				'bg-primary text-primary-foreground shadow-sm transition-colors hover:bg-primary/90'
+			)}
+		>
+			<Pencil className="h-3 w-3" />
+			Open in Studio
+		</button>
 	);
 }

@@ -10,9 +10,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
-import { FolderTree, Pin as PinGlyph, Save, SquareDashedMousePointer } from 'lucide-react';
+import { FolderTree, Pin as PinGlyph, Save, SquareDashedMousePointer, X } from 'lucide-react';
 import { cn } from '@/components/ui/utils';
 import { fsRead, fsWrite } from '@/lib/tauri-cmd';
+import { usePaneStore } from '@/lib/panes/pane-store';
 import { StudioSourceEditor } from '@/shell/artifact-studio/studio-source-editor';
 import { StudioManifestEditor } from '@/shell/artifact-studio/studio-manifest-editor';
 import { StudioEngineChat } from '@/shell/artifact-studio/studio-engine-chat';
@@ -179,6 +180,12 @@ export function ArtifactStudio({ path, paneId }: ArtifactStudioProps) {
 				onCommentModeToggle={() => setCommentMode((v) => !v)}
 				onSave={save}
 				onPromote={() => setPromoteOpen(true)}
+				onClose={() =>
+					usePaneStore.getState().replaceActiveViewAndPushHistory(paneId, {
+						kind: 'artifact',
+						path,
+					})
+				}
 				onPinToggle={() => {
 					if (!manifest) return;
 					updateManifest(
@@ -249,6 +256,7 @@ interface StudioChromeProps {
 	onSave: () => void;
 	onPromote: () => void;
 	onPinToggle: () => void;
+	onClose: () => void;
 }
 
 function StudioChrome({
@@ -260,6 +268,7 @@ function StudioChrome({
 	onSave,
 	onPromote,
 	onPinToggle,
+	onClose,
 }: StudioChromeProps) {
 	const name = manifest?.name ?? path.split('/').filter(Boolean).pop() ?? 'Artifact';
 	const pinSuggested = manifest?.pin?.suggested === true;
@@ -307,6 +316,13 @@ function StudioChrome({
 					aria-label="Save artifact"
 				>
 					<Save className="h-3.5 w-3.5" />
+				</ChromeButton>
+				<ChromeButton
+					onClick={onClose}
+					title="Close Studio (back to preview)"
+					aria-label="Close Studio"
+				>
+					<X className="h-3.5 w-3.5" />
 				</ChromeButton>
 			</span>
 		</div>
