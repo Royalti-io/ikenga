@@ -8,7 +8,7 @@
 // `artifact-studio` (kebab) / `ArtifactStudio` (component) — never the
 // bare word "Studio" since that collides with pkgs/studio/.
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 import { FolderTree, Pin as PinGlyph, Save, SquareDashedMousePointer } from 'lucide-react';
 import { cn } from '@/components/ui/utils';
@@ -21,6 +21,9 @@ import { StudioPromoteDialog } from '@/shell/artifact-studio/studio-promote-dial
 import { ViewerRouter } from '@/viewer/auto-router';
 import { extractManifestJson } from '@/lib/artifact/manifest-from-file';
 import { writeManifestIntoHtml } from '@/lib/artifact/manifest-write';
+import { getOrMintStudioThreadId } from '@/lib/artifact/studio-thread';
+import { useChatStore } from '@/chat';
+import { isArtifactWriteToolUse } from '@/lib/artifact/engine-writes';
 import {
 	ArtifactManifestSchema,
 	type ArtifactManifest,
@@ -105,6 +108,14 @@ export function ArtifactStudio({ path, paneId }: ArtifactStudioProps) {
 		},
 		[path],
 	);
+
+	useEngineWriteSync(path, (nextSource) => {
+		setSource(nextSource);
+		// The engine wrote directly to disk — what's now on disk is the canonical
+		// state. Mark savedSource so the dirty indicator stays off and ⌘S won't
+		// reapply a no-op.
+		setSavedSource(nextSource);
+	});
 
 	// ⌘S / Ctrl+S inside the Studio pane. Scoped to keyboard events that
 	// originate inside the pane root — we don't want Studio to swallow ⌘S
@@ -331,4 +342,86 @@ function ChromeButton({ onClick, active, disabled, title, children, ...rest }: C
 			{children}
 		</button>
 	);
+}
+
+// ─── Engine-write sync (ACP tool-result intercept) ───────────────────────
+//
+// Subscribes to the Studio's chat thread. When the engine calls one of its
+// file-write tools (Write / Edit / MultiEdit / write_file / edit_file /
+// multi_edit) against the artifact's path AND a non-error tool_result
+// comes back, re-read the file from disk and feed it to `onWrite`. The
+// caller updates `source` + `savedSource` so Monaco shows the new text and
+// the dirty indicator stays off.
+//
+// Two correctness details:
+//   1. `processedIds` tracks `tool_result.id`s we've already acted on, so a
+//      re-render of the events list doesn't re-trigger writes.
+//   2. `onWrite` is captured in a ref so updates to the closure (state
+//      changes in the parent) don't restart the subscription — the
+//      subscriber runs at most one effect for the artifact's lifetime.
+
+function useEngineWriteSync(path: string, onWrite: (nextSource: string) => void) {
+	const onWriteRef = useRef(onWrite);
+	onWriteRef.current = onWrite;
+
+	useEffect(() => {
+		const threadId = getOrMintStudioThreadId(path);
+		const processedIds = new Set<string>();
+
+		const unsubscribe = useChatStore.subscribe((state) => {
+			const events = state.threads[threadId]?.events;
+			if (!events || events.length === 0) return;
+
+			// Index tool_use events by id for O(1) lookup when matching results.
+			const useById = new Map<string, ReturnType<typeof toToolUse>>();
+			for (const e of events) {
+				const u = toToolUse(e);
+				if (u) useById.set(u.id, u);
+			}
+
+			for (const e of events) {
+				if (e.kind !== 'tool_result') continue;
+				if (processedIds.has(e.id)) continue;
+				if (e.isError) {
+					processedIds.add(e.id);
+					continue;
+				}
+				const use = useById.get(e.id);
+				if (!use || !isArtifactWriteToolUse(use, path)) {
+					processedIds.add(e.id);
+					continue;
+				}
+				processedIds.add(e.id);
+				void fsRead(path)
+					.then((res) => {
+						const text = new TextDecoder('utf-8', { fatal: false }).decode(
+							new Uint8Array(res.bytes),
+						);
+						onWriteRef.current(text);
+					})
+					.catch(() => {
+						// Best-effort — if the re-read fails, the source editor stays
+						// out of sync but the iframe (which uses its own fs_watch)
+						// still reloads. The user can hit Refresh on the pane.
+					});
+			}
+		});
+
+		return () => {
+			unsubscribe();
+		};
+	}, [path]);
+}
+
+/** Narrow a ChatEvent down to the tool_use shape `isArtifactWriteToolUse`
+ *  expects. Returns null for any other kind. */
+function toToolUse(
+	e: unknown,
+): { kind: 'tool_use'; id: string; name: string; input: unknown } | null {
+	if (!e || typeof e !== 'object') return null;
+	const ev = e as { kind?: unknown; id?: unknown; name?: unknown; input?: unknown };
+	if (ev.kind !== 'tool_use' || typeof ev.id !== 'string' || typeof ev.name !== 'string') {
+		return null;
+	}
+	return { kind: 'tool_use', id: ev.id, name: ev.name, input: ev.input };
 }
