@@ -37,22 +37,16 @@ export function PaneToolbar({ paneId }: PaneToolbarProps) {
 	return (
 		<div className="flex items-center gap-0.5">
 			{activeView?.kind === 'artifact' && (
-				<ToolButton
+				<StudioToggleButton
+					mode="open"
 					onClick={() => replaceView(paneId, { kind: 'artifact-studio', path: activeView.path })}
-					title="Open in Artifact Studio"
-					aria-label="Open in Artifact Studio"
-				>
-					<Pencil className="h-3.5 w-3.5" />
-				</ToolButton>
+				/>
 			)}
 			{activeView?.kind === 'artifact-studio' && (
-				<ToolButton
+				<StudioToggleButton
+					mode="close"
 					onClick={() => replaceView(paneId, { kind: 'artifact', path: activeView.path })}
-					title="Close Studio (back to preview)"
-					aria-label="Close Studio"
-				>
-					<Pencil className="h-3.5 w-3.5 fill-current opacity-80" />
-				</ToolButton>
+				/>
 			)}
 			<ToolButton
 				onClick={() => refreshPane(paneId)}
@@ -113,6 +107,43 @@ function ToolButton({ onClick, disabled, title, children, ...rest }: ToolButtonP
 			)}
 		>
 			{children}
+		</button>
+	);
+}
+
+interface StudioToggleButtonProps {
+	mode: 'open' | 'close';
+	onClick: () => void;
+}
+
+/** Labelled toolbar button for entering or leaving Artifact Studio. The
+ *  icon-only ToolButton is too easy to miss for a workspace-level mode
+ *  switch; this gives the action its own labelled chip in the toolbar so
+ *  the editing surface is discoverable on first artifact open. */
+function StudioToggleButton({ mode, onClick }: StudioToggleButtonProps) {
+	const isOpen = mode === 'open';
+	const label = isOpen ? 'Open in Studio' : 'Close Studio';
+	const title = isOpen ? 'Open in Artifact Studio' : 'Close Studio (back to preview)';
+	// High-contrast CTA styling. The pane toolbar sits on a slightly-muted
+	// strip alongside refresh/split icons, so anything muted or border-only
+	// gets lost in the background. Primary background + white text reads as
+	// "this is THE action for this pane" at a glance.
+	return (
+		<button
+			type="button"
+			onClick={onClick}
+			title={title}
+			aria-label={title}
+			className={cn(
+				'mr-2 flex h-6 items-center gap-1.5 rounded px-2.5 text-[11px] font-semibold shadow-sm',
+				'transition-colors',
+				isOpen
+					? 'bg-primary text-primary-foreground hover:bg-primary/90'
+					: 'bg-amber-500 text-white hover:bg-amber-500/90 dark:bg-amber-600 dark:hover:bg-amber-600/90'
+			)}
+		>
+			<Pencil className={cn('h-3 w-3', !isOpen && 'fill-current opacity-80')} />
+			{label}
 		</button>
 	);
 }

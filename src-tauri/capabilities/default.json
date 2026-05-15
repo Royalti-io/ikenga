@@ -3,6 +3,11 @@
   "identifier": "default",
   "description": "Phase 1 capability set: pty (custom commands), fs (read/list within ~/royalti-co and ~/.claude/projects), sql, stronghold, dialog, os. Sidecar binaries spawn through tokio::process directly (see src-tauri/src/sidecar/), not through tauri-plugin-shell.",
   "windows": ["main"],
+  "remote": {
+    "urls": [
+      "http://localhost:*/**"
+    ]
+  },
   "permissions": [
     "core:default",
     "core:event:default",

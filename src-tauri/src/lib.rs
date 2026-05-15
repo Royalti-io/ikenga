@@ -325,15 +325,53 @@ pub fn run() {
 
             // Viewer-server: single shared axum bound at startup so every
             // artifact iframe is same-origin with the shell (Vite proxies
-            // /__viewer/* to it in dev; tauri-plugin-localhost will route to
-            // it in prod). Failure is non-fatal — html-frame surfaces it.
+            // /__viewer/* to it in dev; in prod the shell loads directly from
+            // this server via the programmatic WebviewWindowBuilder below,
+            // and the server's catch-all serves the bundled frontend dist via
+            // Tauri's `AssetResolver`). The bound port is captured here and
+            // threaded into the window URL — if the preferred port (47821) is
+            // in use (e.g. a concurrent debug instance), the server falls back
+            // to an OS-chosen port and the window still finds it.
             let viewer_for_start = viewer_manager_for_start.clone();
             let viewer_app_handle = app.handle().clone();
-            if let Err(e) = tauri::async_runtime::block_on(async move {
+            let viewer_port = tauri::async_runtime::block_on(async move {
                 viewer_for_start.start(&viewer_app_handle).await
-            }) {
-                tracing::warn!("[viewer] start failed (continuing): {e:#}");
-            }
+            })
+            .map_err(|e| {
+                tracing::error!("[viewer] start failed: {e:#}");
+                e
+            })?;
+
+            // Main window — built programmatically so the prod webview loads
+            // from our viewer-server (same origin as `/__viewer/*` iframes,
+            // which is what makes `iframe.contentDocument` work for Studio's
+            // comment-mode, modern-screenshot, and the iyke iframe bridge).
+            // In dev, Vite serves the shell at :1420; in prod the
+            // viewer-server's catch-all serves the bundled dist at
+            // `viewer_port`. The label "main" matches the capability target
+            // in `capabilities/default.json`; `remote.urls` there grants IPC
+            // trust to both candidate localhost URLs.
+            #[cfg(debug_assertions)]
+            let window_url = "http://localhost:1420/".to_string();
+            #[cfg(not(debug_assertions))]
+            let window_url = format!("http://localhost:{viewer_port}/");
+            let url: tauri::Url = window_url.parse().expect("static window URL");
+            let builder = tauri::WebviewWindowBuilder::new(
+                app.handle(),
+                "main",
+                tauri::WebviewUrl::External(url),
+            )
+            .title("Ikenga")
+            .inner_size(1280.0, 800.0)
+            .min_inner_size(960.0, 600.0)
+            .resizable(true);
+            // Overlay title-bar + hidden title are macOS-only; the rest of
+            // the window config applies on every platform.
+            #[cfg(target_os = "macos")]
+            let builder = builder
+                .title_bar_style(tauri::TitleBarStyle::Overlay)
+                .hidden_title(true);
+            builder.build()?;
             let kernel = Arc::new(pkg::Kernel::new(
                 app.handle().clone(),
                 pa_db.clone(),

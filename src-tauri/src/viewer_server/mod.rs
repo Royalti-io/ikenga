@@ -134,7 +134,20 @@ impl ViewerServerManager {
 
     /// Spawn the singleton server. Idempotent: subsequent calls are no-ops
     /// if the server is already bound.
-    pub async fn start(self: &Arc<Self>) -> Result<u16> {
+    ///
+    /// In prod, the Tauri webview is configured (via `tauri.conf.json`
+    /// `frontendDist: "http://localhost:47821/"`) to load the shell itself
+    /// from this server, so a fallback route serves the bundled frontend
+    /// dist via Tauri's `AssetResolver`. That makes the shell and every
+    /// `/__viewer/*` iframe share an origin in prod — which is what makes
+    /// `iframe.contentDocument` access (Studio comment-mode, modern-screenshot,
+    /// iyke iframe bridge) work end-to-end. In dev, Vite serves the shell
+    /// from `http://localhost:1420` and proxies `/__viewer/*` here; the
+    /// asset fallback never fires because nothing requests it.
+    pub async fn start<R: tauri::Runtime>(
+        self: &Arc<Self>,
+        app: &tauri::AppHandle<R>,
+    ) -> Result<u16> {
         if let Some(p) = self.bound_port() {
             return Ok(p);
         }
@@ -145,7 +158,7 @@ impl ViewerServerManager {
             .unwrap_or(DEFAULT_VIEWER_PORT);
 
         let mounts = self.mounts.clone();
-        let app = Router::new()
+        let viewer_router: Router = Router::new()
             .route("/__viewer/:token/*path", any(serve_handler))
             .route("/__viewer/:token", any(serve_handler_root))
             // Health probe so the FE can confirm the server is up before
@@ -156,9 +169,41 @@ impl ViewerServerManager {
             .layer(middleware::from_fn(inject_security_headers))
             .with_state(mounts);
 
-        let listener = tokio::net::TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], port)))
-            .await
-            .with_context(|| format!("bind viewer listener on 127.0.0.1:{port}"))?;
+        // Catch-all: serve the bundled frontend dist via Tauri's asset
+        // resolver. Wrap in `Arc` because `AssetResolver<R>` is only `Clone`
+        // when `R: Clone`, and Tauri's `Wry` runtime isn't `Clone`. The
+        // injection middlewares above are scoped by URI prefix to viewer
+        // routes only, so frontend assets pass through unmodified.
+        let asset_resolver = Arc::new(app.asset_resolver());
+        let app: Router = viewer_router.fallback(any(move |req: Request<Body>| {
+            let resolver = asset_resolver.clone();
+            async move { serve_frontend_asset(&resolver, req) }
+        }));
+
+        // Try the preferred port (47821 by default) first so a fresh launch is
+        // predictable, but fall back to an OS-chosen port if it's in use. This
+        // keeps two concurrent Ikenga instances (e.g. prod + dev) from fighting
+        // over the same port — the second one transparently picks something
+        // free. The actual bound port is returned, threaded into the shell's
+        // window URL by `lib.rs` so the webview always loads from the right
+        // place.
+        let listener = match tokio::net::TcpListener::bind(SocketAddr::from((
+            [127, 0, 0, 1],
+            port,
+        )))
+        .await
+        {
+            Ok(l) => l,
+            Err(e) if port != 0 => {
+                tracing::warn!(
+                    "[viewer] port {port} unavailable ({e}); falling back to OS-assigned port"
+                );
+                tokio::net::TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0)))
+                    .await
+                    .context("bind viewer listener on OS-assigned port")?
+            }
+            Err(e) => return Err(e).context("bind viewer listener"),
+        };
         let local_addr = listener.local_addr().context("local_addr")?;
         let bound = local_addr.port();
 
@@ -178,6 +223,40 @@ impl ViewerServerManager {
 
 async fn health_handler() -> Response {
     (StatusCode::OK, "ok").into_response()
+}
+
+/// Serve a request out of Tauri's bundled frontend dist via the
+/// `AssetResolver`. In prod the shell's `frontendDist` points at this server
+/// (`http://localhost:47821/`), so the shell webview's own document, JS, and
+/// CSS all flow through here. In dev, Vite serves the shell directly so this
+/// is never invoked.
+fn serve_frontend_asset<R: tauri::Runtime>(
+    resolver: &Arc<tauri::AssetResolver<R>>,
+    req: Request<Body>,
+) -> Response {
+    // `AssetResolver::get` keys off the URL path (sans query string), with
+    // `/` resolving to `index.html`. Empty paths defensive-fall back to root.
+    let mut path = req.uri().path().to_string();
+    if path.is_empty() || path == "/" {
+        path = "/index.html".to_string();
+    }
+    match resolver.get(path) {
+        Some(asset) => {
+            let mut builder = Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, &asset.mime_type)
+                // Disable caching during development to avoid stale chunks
+                // after a `tauri build` + reinstall.
+                .header(header::CACHE_CONTROL, "no-cache");
+            if let Some(csp) = &asset.csp_header {
+                builder = builder.header(header::CONTENT_SECURITY_POLICY, csp);
+            }
+            builder
+                .body(Body::from(asset.bytes))
+                .unwrap_or_else(|_| (StatusCode::INTERNAL_SERVER_ERROR, "asset build failed").into_response())
+        }
+        None => (StatusCode::NOT_FOUND, "not found").into_response(),
+    }
 }
 
 async fn serve_handler(
@@ -237,7 +316,14 @@ async fn serve_file(root: &PathBuf, rel_path: &str, mut req: Request<Body>) -> R
 /// Inserting at `</head>` would put the bridge after the inline polyfill,
 /// defeating the handoff.
 async fn inject_artifact_bridge(req: Request<Body>, next: Next) -> Response {
+    // Scope to viewer routes only. In prod the same server also handles the
+    // shell's frontend dist via the asset-resolver fallback — those HTML
+    // responses must NOT receive the artifact bridge.
+    let is_viewer_path = req.uri().path().starts_with(VIEWER_PATH_PREFIX);
     let resp = next.run(req).await;
+    if !is_viewer_path {
+        return resp;
+    }
     let is_html = resp
         .headers()
         .get(header::CONTENT_TYPE)
@@ -309,7 +395,14 @@ async fn inject_artifact_bridge(req: Request<Body>, next: Next) -> Response {
 /// `allow-same-origin`), so the bridge can read the document and post to
 /// `window.parent`.
 async fn inject_iyke_bridge(req: Request<Body>, next: Next) -> Response {
+    // Same scoping as `inject_artifact_bridge` — only viewer iframes get the
+    // iyke iframe bridge; the shell document itself uses the regular host
+    // iyke control bridge from `src/lib/iyke/`.
+    let is_viewer_path = req.uri().path().starts_with(VIEWER_PATH_PREFIX);
     let resp = next.run(req).await;
+    if !is_viewer_path {
+        return resp;
+    }
     let is_html = resp
         .headers()
         .get(header::CONTENT_TYPE)
@@ -366,7 +459,14 @@ async fn inject_iyke_bridge(req: Request<Body>, next: Next) -> Response {
 }
 
 async fn inject_security_headers(req: Request<Body>, next: Next) -> Response {
+    // The viewer CSP locks down what artifact iframes can do; the shell's own
+    // assets need a different (looser) CSP set by Tauri's own asset pipeline.
+    // Same scoping as the bridge injectors.
+    let is_viewer_path = req.uri().path().starts_with(VIEWER_PATH_PREFIX);
     let mut resp = next.run(req).await;
+    if !is_viewer_path {
+        return resp;
+    }
     let headers = resp.headers_mut();
     headers.insert(
         header::CONTENT_SECURITY_POLICY,
