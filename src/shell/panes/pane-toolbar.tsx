@@ -1,6 +1,13 @@
-import { RefreshCw, SplitSquareHorizontal, SplitSquareVertical, X } from 'lucide-react';
-import { type PaneId } from '@/lib/panes/types';
+import {
+	Pencil,
+	RefreshCw,
+	SplitSquareHorizontal,
+	SplitSquareVertical,
+	X,
+} from 'lucide-react';
+import type { PaneId } from '@/lib/panes/types';
 import { usePaneStore } from '@/lib/panes/pane-store';
+import { findLeaf } from '@/lib/panes/pane-reducer';
 import { cn } from '@/components/ui/utils';
 
 interface PaneToolbarProps {
@@ -11,8 +18,17 @@ export function PaneToolbar({ paneId }: PaneToolbarProps) {
 	const splitPane = usePaneStore((s) => s.splitPane);
 	const closePane = usePaneStore((s) => s.closePane);
 	const refreshPane = usePaneStore((s) => s.refreshPane);
+	const replaceView = usePaneStore((s) => s.replaceActiveViewAndPushHistory);
 	const canSplit = usePaneStore((s) => s.canSplit());
 	const leafCount = usePaneStore((s) => s.leafCount());
+
+	// Look up the active tab for this pane so we can show context-specific
+	// actions (Open in Studio on artifact panes). Two-step lookup because the
+	// store keeps panes in a tree, not flat by id.
+	const activeView = usePaneStore((s) => {
+		const leaf = findLeaf(s.root, paneId);
+		return leaf?.tabs[leaf.activeTabIdx] ?? null;
+	});
 
 	const splitDisabled = !canSplit;
 	const splitTitle = splitDisabled ? 'Max 6 panes' : undefined;
@@ -20,6 +36,24 @@ export function PaneToolbar({ paneId }: PaneToolbarProps) {
 
 	return (
 		<div className="flex items-center gap-0.5">
+			{activeView?.kind === 'artifact' && (
+				<ToolButton
+					onClick={() => replaceView(paneId, { kind: 'artifact-studio', path: activeView.path })}
+					title="Open in Artifact Studio"
+					aria-label="Open in Artifact Studio"
+				>
+					<Pencil className="h-3.5 w-3.5" />
+				</ToolButton>
+			)}
+			{activeView?.kind === 'artifact-studio' && (
+				<ToolButton
+					onClick={() => replaceView(paneId, { kind: 'artifact', path: activeView.path })}
+					title="Close Studio (back to preview)"
+					aria-label="Close Studio"
+				>
+					<Pencil className="h-3.5 w-3.5 fill-current opacity-80" />
+				</ToolButton>
+			)}
 			<ToolButton
 				onClick={() => refreshPane(paneId)}
 				title="Refresh pane content"

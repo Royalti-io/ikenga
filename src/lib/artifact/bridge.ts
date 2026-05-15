@@ -109,7 +109,7 @@ declare global {
 
 function parseTagJson<T>(id: string): T | null {
 	const el = document.getElementById(id);
-	if (!el || !el.textContent) return null;
+	if (!el?.textContent) return null;
 	try {
 		return JSON.parse(el.textContent) as T;
 	} catch {

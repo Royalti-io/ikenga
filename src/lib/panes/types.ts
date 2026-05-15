@@ -8,6 +8,7 @@ export type PaneView = (
 	| { kind: 'terminal'; sessionId: string }
 	| { kind: 'chat'; sessionId: string }
 	| { kind: 'artifact'; path: string }
+	| { kind: 'artifact-studio'; path: string }
 	| { kind: 'scratchpad'; scope: string; name: string }
 	// ADR-011 phase 2: dedicated viewer for a tool call result. Payload is
 	// pointer-only (`threadId` + `toolUseId`); the renderer looks up the
