@@ -36,6 +36,11 @@ pub async fn detect_agents() -> Result<Vec<DetectedAgent>, String> {
 }
 
 #[tauri::command]
+pub async fn detect_agent(agent_id: String) -> Result<Option<DetectedAgent>, String> {
+    Ok(agents::detect_by_id(&agent_id).await)
+}
+
+#[tauri::command]
 pub async fn detect_agent_config(
     agent_id: String,
     root_path: String,

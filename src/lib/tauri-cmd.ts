@@ -2020,6 +2020,10 @@ export async function detectAgents(): Promise<DetectedAgent[]> {
 	return invoke<DetectedAgent[]>('detect_agents');
 }
 
+export async function detectAgent(agentId: string): Promise<DetectedAgent | null> {
+	return invoke<DetectedAgent | null>('detect_agent', { agentId });
+}
+
 export async function detectAgentConfig(
 	agentId: string,
 	rootPath: string

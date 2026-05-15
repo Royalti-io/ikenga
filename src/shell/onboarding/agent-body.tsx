@@ -1,26 +1,22 @@
 // Step 2 — Coding agent picker.
 //
-// Calls `detectAgents()`, renders a card grid, and writes the user's
-// choice to `onboarding.selectedAgentId`. Empty-state offers an
-// "offline mode" CTA that pins `engine-noop` (the no-op engine pkg). If
-// the selected agent's auth probe came back `false`, a banner surfaces
-// the hint but Continue stays enabled — auth gaps can be fixed later
-// from Settings.
+// Renders a fixed list of supported engines as cards with skeleton rows
+// while their PATH lookups resolve. Each engine probe fires independently
+// so the slowest one never blocks the fastest from revealing. The chosen
+// engineId is written through to settings_kv via `setDefaultEngineId` so
+// the choice survives "Clear local data". Empty-state still offers the
+// engine-noop offline CTA inherited from the previous flow.
 //
-// Mirrors prototypes `02-coding-agent.html` + `02-coding-agent-empty.html`.
+// Tests rely on `OFFLINE_PAYLOAD`, `agentToPayload`, `shouldShowAuthWarning`,
+// and `findEngineNoopEntry` — keep those exports stable.
 
 import { useEffect, useState } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation } from '@tanstack/react-query';
 import { open as openExternal } from '@tauri-apps/plugin-shell';
 
 import { Button } from '@/components/ui/button';
 import { cn } from '@/components/ui/utils';
-import {
-	type DetectedAgent,
-	detectAgents,
-	pkgInstallFromRegistry,
-	pkgKernelStatus,
-} from '@/lib/tauri-cmd';
+import { type DetectedAgent, pkgInstallFromRegistry, pkgKernelStatus } from '@/lib/tauri-cmd';
 import {
 	fetchIndex,
 	fetchPkgDetail,
@@ -29,13 +25,13 @@ import {
 	type RegistryIndex,
 } from '@/lib/registry/client';
 import { useShellStore } from '@/lib/shell/shell-store';
+import { type AgentDetectEntry, useAgentDetect } from '@/lib/shell/use-agent-detect';
+import { setDefaultEngineId } from '@/chat/default-adapter';
 
 import { useOnboardingStep } from './use-onboarding-step';
 
 export interface AgentStepPayload {
 	agentId: string;
-	/** Snapshot of the selected agent for the summary screen. May be
-	 *  null when the user picked the no-op offline engine. */
 	display?: string;
 	executablePath?: string;
 	version?: string | null;
@@ -46,47 +42,64 @@ interface AgentBodyProps {
 	onContinue: () => void;
 }
 
-const QUERY_KEY = ['onboarding', 'agents'] as const;
-
 const OFFLINE_AGENT_ID = 'engine-noop';
 const ENGINE_NOOP_NPM_NAME = '@ikenga/pkg-engine-noop';
 const ENGINE_NOOP_PKG_ID = 'com.ikenga.engine-noop';
 const REGISTRY_UNREACHABLE_MSG =
 	"Couldn't reach the registry — you can install the offline engine later from Packages → Browse.";
 
-// Install-hint links surfaced under "Don't see yours?" when a known agent
-// is missing from the detected list. We keep these short — full setup
-// docs live on the agent's own site.
-const INSTALL_HINTS: Record<string, { display: string; url: string; cmd?: string }> = {
-	'claude-code': {
+// Stable display order. The Rust side already knows about these ids in
+// `KNOWN_AGENTS`; the wizard surfaces them whether the binary is present
+// or not so the user sees the full menu of supported engines.
+const SUPPORTED_ENGINES: ReadonlyArray<{
+	id: string;
+	display: string;
+	description: string;
+	binaryHint: string;
+	docsUrl: string;
+	installCmd?: string;
+}> = [
+	{
+		id: 'claude-code',
 		display: 'Claude Code',
-		url: 'https://docs.anthropic.com/en/docs/claude-code',
-		cmd: 'npm install -g @anthropic-ai/claude-code',
+		description: 'Anthropic — full ACP capabilities, MCP, thinking, resume.',
+		binaryHint: 'claude',
+		docsUrl: 'https://docs.anthropic.com/en/docs/claude-code',
+		installCmd: 'npm install -g @anthropic-ai/claude-code',
 	},
-	codex: {
+	{
+		id: 'codex',
 		display: 'OpenAI Codex CLI',
-		url: 'https://platform.openai.com/docs/guides/codex',
-		cmd: 'npm install -g @openai/codex',
+		description: 'OpenAI — streaming + tool use. No MCP yet.',
+		binaryHint: 'codex',
+		docsUrl: 'https://platform.openai.com/docs/guides/codex',
+		installCmd: 'npm install -g @openai/codex',
 	},
-	'gemini-cli': {
+	{
+		id: 'gemini-cli',
 		display: 'Gemini CLI',
-		url: 'https://github.com/google-gemini/gemini-cli',
-		cmd: 'npm install -g @google/gemini-cli',
+		description: 'Google — streaming + tool use.',
+		binaryHint: 'gemini',
+		docsUrl: 'https://github.com/google-gemini/gemini-cli',
+		installCmd: 'npm install -g @google/gemini-cli',
 	},
-	'cursor-agent': {
+	{
+		id: 'cursor-agent',
 		display: 'Cursor Agent',
-		url: 'https://docs.cursor.com/en/cli',
+		description: 'Cursor — streaming, tool use, MCP.',
+		binaryHint: 'cursor-agent',
+		docsUrl: 'https://docs.cursor.com/en/cli',
 	},
-	opencode: {
-		display: 'OpenCode',
-		url: 'https://opencode.ai',
+	{
+		id: 'ollama',
+		display: 'Ollama',
+		description: 'Local models — chat only, no tool use yet.',
+		binaryHint: 'ollama',
+		docsUrl: 'https://ollama.com',
 	},
-	aider: {
-		display: 'Aider',
-		url: 'https://aider.chat',
-		cmd: 'pip install aider-chat',
-	},
-};
+];
+
+const SUPPORTED_ENGINE_IDS = SUPPORTED_ENGINES.map((e) => e.id);
 
 export function AgentBody({ onContinue }: AgentBodyProps) {
 	const { record, setPayload } = useOnboardingStep<AgentStepPayload>('agent');
@@ -94,57 +107,84 @@ export function AgentBody({ onContinue }: AgentBodyProps) {
 	const setSelectedAgentId = useShellStore((s) => s.setSelectedAgentId);
 	const setChatAdapterId = useShellStore((s) => s.setChatAdapterId);
 
-	const { data, isLoading, isError, error, refetch } = useQuery<DetectedAgent[]>({
-		queryKey: QUERY_KEY,
-		queryFn: detectAgents,
-		refetchOnWindowFocus: false,
-	});
-
-	const agents = data ?? [];
-	const selected = agents.find((a) => a.id === selectedAgentId) ?? null;
+	const { results, refresh } = useAgentDetect(SUPPORTED_ENGINE_IDS);
 	const isOffline = selectedAgentId === OFFLINE_AGENT_ID;
-	const missingAuth = !!(selected && selected.authed === false);
+	const selectedAgent = selectedAgentId ? (results[selectedAgentId]?.agent ?? null) : null;
+	const missingAuth = !!(selectedAgent && selectedAgent.authed === false);
 
-	// Pre-select the first detected agent the first time the user lands
-	// here. Honour any existing choice (e.g. user came back from a later
-	// step via Settings).
+	// Pre-select the first detected engine the first time the user lands
+	// here. Honour any existing choice so re-entering from Settings keeps
+	// the user's prior pick highlighted.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: `applySelection` closes over stable Zustand setters; including it would re-run on every render without changing behaviour.
 	useEffect(() => {
-		if (isLoading) return;
 		if (selectedAgentId) return;
-		const first = agents[0];
-		if (first) {
-			setSelectedAgentId(first.id);
-			// Mirror onto the canonical chat-adapter id so the chat surface
-			// has a default the moment the wizard hands off.
-			setChatAdapterId(first.id);
-			setPayload({
-				agentId: first.id,
-				display: first.display,
-				executablePath: first.executable_path,
-				version: first.version,
-				authed: first.authed,
-			});
-		}
-	}, [agents, isLoading, selectedAgentId, setPayload, setSelectedAgentId, setChatAdapterId]);
+		const firstDetected = SUPPORTED_ENGINE_IDS.find((id) => results[id]?.status === 'detected');
+		if (!firstDetected) return;
+		const agent = results[firstDetected]?.agent;
+		if (!agent) return;
+		applySelection(agent);
+	}, [results, selectedAgentId]);
 
-	const handleSelect = (a: DetectedAgent) => {
-		setSelectedAgentId(a.id);
-		setChatAdapterId(a.id);
-		setPayload({
-			agentId: a.id,
-			display: a.display,
-			executablePath: a.executable_path,
-			version: a.version,
-			authed: a.authed,
-		});
+	function applySelection(agent: DetectedAgent) {
+		setSelectedAgentId(agent.id);
+		setChatAdapterId(agent.id);
+		setPayload(agentToPayload(agent));
+		void setDefaultEngineId(agent.id);
+	}
+
+	const handleSelect = (agent: DetectedAgent) => {
+		applySelection(agent);
 	};
 
+	// ─── Manual override ──────────────────────────────────────────────────
+	const [overridePath, setOverridePath] = useState('');
+	const [overrideError, setOverrideError] = useState<string | null>(null);
+	const [overrideBusy, setOverrideBusy] = useState(false);
+
+	async function handleOverrideApply() {
+		const path = overridePath.trim();
+		if (!path) {
+			setOverrideError('Enter an absolute path to the binary.');
+			return;
+		}
+		if (!path.startsWith('/') && !/^[A-Za-z]:\\/.test(path)) {
+			setOverrideError('Use an absolute path (start with / on Unix or a drive letter on Windows).');
+			return;
+		}
+		setOverrideBusy(true);
+		setOverrideError(null);
+		try {
+			// Spawn-and-respond is the only verification we owe the user — the
+			// chat adapter will surface a clear error if the binary fails on
+			// first send. Pin a generic 'custom' id and stash the path in the
+			// payload so the adapter can pick it up.
+			const customAgent: DetectedAgent = {
+				id: 'custom',
+				display: 'Custom binary',
+				executable_path: path,
+				version: null,
+				authed: null,
+				auth_hint: null,
+				capabilities: {
+					streaming: true,
+					tool_use: false,
+					thinking: false,
+					artifacts: false,
+					mcp: false,
+					session_resume: false,
+				},
+			};
+			applySelection(customAgent);
+		} finally {
+			setOverrideBusy(false);
+		}
+	}
+
+	// ─── Offline fallback (engine-noop install) ───────────────────────────
 	const [offlineError, setOfflineError] = useState<string | null>(null);
 
 	const offlineMut = useMutation({
 		mutationFn: async () => {
-			// Fast-path: engine-noop already installed (re-opening onboarding,
-			// or it was installed from Packages → Browse earlier).
 			const status = await pkgKernelStatus();
 			if (status.installed.some((p) => p.id === ENGINE_NOOP_PKG_ID)) return;
 
@@ -166,9 +206,6 @@ export function AgentBody({ onContinue }: AgentBodyProps) {
 						sourceUrl: step.tarball,
 					});
 				} catch (e) {
-					// Kernel rejects "already installed at conflicting path" as an
-					// error; for this CTA the pkg ending up registered is the goal,
-					// so swallow that specific case.
 					const msg = String((e as Error).message ?? e).toLowerCase();
 					if (msg.includes('already installed') || msg.includes('already registered')) {
 						continue;
@@ -180,19 +217,12 @@ export function AgentBody({ onContinue }: AgentBodyProps) {
 		onSuccess: () => {
 			setOfflineError(null);
 			setSelectedAgentId(OFFLINE_AGENT_ID);
-			// Offline mode → no adapter (chat surface stays dormant).
 			setChatAdapterId(null);
-			setPayload({
-				agentId: OFFLINE_AGENT_ID,
-				display: 'Offline (no engine)',
-				authed: null,
-			});
+			setPayload(OFFLINE_PAYLOAD);
+			void setDefaultEngineId(OFFLINE_AGENT_ID);
 		},
 		onError: (e) => {
 			const raw = (e as Error).message ?? String(e);
-			// Log the precise failure mode for debugging, but show a single
-			// user-facing surface — sig-verify and integrity mismatches are not
-			// actionable for the user mid-onboarding.
 			if (/signature|sig|verify/i.test(raw)) {
 				console.error('[onboarding] engine-noop install: signature verification failed', e);
 			} else if (/integrity|sha-?512/i.test(raw)) {
@@ -209,6 +239,10 @@ export function AgentBody({ onContinue }: AgentBodyProps) {
 		setOfflineError(null);
 		offlineMut.mutate();
 	};
+
+	const anyDetected = SUPPORTED_ENGINE_IDS.some((id) => results[id]?.status === 'detected');
+	const anyPending = SUPPORTED_ENGINE_IDS.some((id) => results[id]?.status === 'pending');
+	const allMissing = !anyPending && !anyDetected;
 
 	const offlineButtonLabel = (long: boolean) => {
 		if (offlineMut.isPending) return 'Installing offline engine…';
@@ -230,164 +264,132 @@ export function AgentBody({ onContinue }: AgentBodyProps) {
 						Which coding agent should drive your workspace?
 					</h1>
 					<p className="mt-2 max-w-[60ch] text-sm" style={{ color: 'var(--fg-muted)' }}>
-						{isLoading
-							? 'Scanning your $PATH and the usual install locations…'
-							: agents.length > 0
-								? `We found ${agents.length} on your machine. You can switch later from Settings → Engine.`
-								: "We couldn't find any agents. Install one below or continue offline."}
+						{anyPending
+							? 'Scanning your $PATH for each agent in parallel…'
+							: anyDetected
+								? 'Pick one to continue. You can switch later from Settings → Engine.'
+								: "We couldn't find any on $PATH. Install one below, point at a custom binary, or continue offline."}
 					</p>
 				</div>
-				{!isLoading && (
-					<Button
-						variant="secondary"
-						size="sm"
-						onClick={() => refetch()}
-						data-testid="agents-rescan"
-					>
-						Re-scan
-					</Button>
-				)}
+				<Button variant="secondary" size="sm" onClick={() => refresh()} data-testid="agents-rescan">
+					Re-scan
+				</Button>
 			</div>
 
-			{isError && (
-				<div
-					className="mb-6 rounded-md border p-4 text-sm"
-					style={{
-						borderColor: 'var(--danger)',
-						color: 'var(--fg)',
-						background: 'var(--danger-soft)',
-					}}
-					data-testid="agents-error"
-				>
-					Detection failed: {String((error as Error)?.message ?? error)}
-				</div>
-			)}
-
-			{/* ── Detected agents grid ─────────────────────────────────────── */}
-			{!isLoading && agents.length > 0 && (
-				<div className="grid gap-4 md:grid-cols-2" data-testid="agents-grid">
-					{agents.map((agent) => (
-						<AgentCard
-							key={agent.id}
-							agent={agent}
-							selected={selectedAgentId === agent.id}
-							onSelect={() => handleSelect(agent)}
+			{/* ── Engine grid (always 5 cards; status reveals per-engine) ──── */}
+			<div className="grid gap-4 md:grid-cols-2" data-testid="agents-grid">
+				{SUPPORTED_ENGINES.map((engine) => {
+					const entry = results[engine.id] ?? { status: 'pending' as const };
+					return (
+						<EngineCard
+							key={engine.id}
+							meta={engine}
+							entry={entry}
+							selected={selectedAgentId === engine.id}
+							onSelect={() => {
+								if (entry.status === 'detected' && entry.agent) {
+									handleSelect(entry.agent);
+								}
+							}}
+							onOpenDocs={() => void openExternal(engine.docsUrl).catch(() => {})}
 						/>
-					))}
-				</div>
-			)}
+					);
+				})}
+			</div>
 
-			{/* ── Empty state ──────────────────────────────────────────────── */}
-			{!isLoading && agents.length === 0 && (
-				<div
-					className="rounded-md border p-6"
-					style={{
-						borderColor: 'var(--border-soft)',
-						background: 'var(--bg-surface)',
-					}}
-					data-testid="agents-empty"
+			{/* ── Custom binary override ───────────────────────────────────── */}
+			<details
+				className="mt-6 rounded-md border p-4"
+				style={{ borderColor: 'var(--border-soft)', background: 'var(--bg-surface)' }}
+			>
+				<summary
+					className="cursor-pointer text-sm font-medium"
+					style={{ color: 'var(--fg-muted)' }}
+					data-testid="agents-override-toggle"
 				>
-					<h2 className="mb-2 text-base font-semibold">No coding agents detected</h2>
-					<p className="mb-4 text-sm" style={{ color: 'var(--fg-muted)' }}>
-						We scanned <span className="font-mono text-xs">$PATH</span> and the usual install dirs.
-						Install one of these and re-scan, or continue without an engine.
+					Pick another binary
+				</summary>
+				<div className="mt-3 grid gap-3">
+					<p className="text-xs" style={{ color: 'var(--fg-faint)' }}>
+						Absolute path to a coding-agent CLI. Use this when your install lives outside $PATH or
+						you're sandbox-testing a fork.
 					</p>
-					<div className="grid gap-2">
-						{Object.entries(INSTALL_HINTS).map(([id, hint]) => (
-							<div
-								key={id}
-								className="flex items-center justify-between gap-3 rounded-md border px-4 py-2"
-								style={{ borderColor: 'var(--border-soft)' }}
-							>
-								<div>
-									<div className="text-[13px] font-semibold">{hint.display}</div>
-									{hint.cmd && (
-										<div className="mt-0.5 font-mono text-xs" style={{ color: 'var(--fg-faint)' }}>
-											{hint.cmd}
-										</div>
-									)}
-								</div>
-								<button
-									type="button"
-									onClick={() => void openExternal(hint.url).catch(() => {})}
-									className="text-xs underline-offset-2 hover:underline"
-									style={{ color: 'var(--primary)' }}
-								>
-									Docs →
-								</button>
-							</div>
-						))}
-					</div>
-					<div className="mt-6 flex items-center justify-between gap-4 rounded-md border border-dashed p-4">
-						<div>
-							<div className="text-sm font-semibold">Use Ikenga without an agent</div>
-							<div className="mt-0.5 text-xs" style={{ color: 'var(--fg-muted)' }}>
-								Pkg management, files, terminal, project routing still work. AI features stay
-								dormant.
-							</div>
-						</div>
+					<div className="flex gap-2">
+						<input
+							type="text"
+							value={overridePath}
+							onChange={(e) => setOverridePath(e.target.value)}
+							placeholder="/usr/local/bin/my-agent"
+							className="flex-1 rounded-md border px-3 py-1.5 font-mono text-xs"
+							style={{
+								borderColor: 'var(--border-soft)',
+								background: 'var(--bg-raised)',
+								color: 'var(--fg)',
+							}}
+							data-testid="agents-override-input"
+						/>
 						<Button
 							variant="secondary"
-							onClick={handleOffline}
-							disabled={offlineMut.isPending}
-							data-testid="agents-offline-cta"
+							size="sm"
+							onClick={() => void handleOverrideApply()}
+							disabled={overrideBusy}
+							data-testid="agents-override-apply"
 						>
-							{offlineButtonLabel(true)}
+							{overrideBusy ? 'Verifying…' : 'Use this binary'}
 						</Button>
 					</div>
-					{offlineError && (
+					{overrideError && (
 						<div
-							className="mt-3 rounded-md border p-3 text-xs"
+							className="rounded-md border p-2 text-xs"
 							style={{
 								borderColor: 'var(--danger)',
 								background: 'var(--danger-soft)',
 								color: 'var(--fg)',
 							}}
-							data-testid="agents-offline-error"
+							data-testid="agents-override-error"
 						>
-							{offlineError}
+							{overrideError}
 						</div>
 					)}
 				</div>
-			)}
+			</details>
 
-			{/* ── Don't see yours? expander ────────────────────────────────── */}
-			{!isLoading && agents.length > 0 && <DontSeeYours installedIds={agents.map((a) => a.id)} />}
-
-			{/* ── Offline-mode strip when agents *were* found ─────────────── */}
-			{!isLoading && agents.length > 0 && (
+			{/* ── Offline-mode strip ──────────────────────────────────────── */}
+			<div
+				className="mt-6 flex items-center gap-4 rounded-md border border-dashed p-4"
+				style={{ borderColor: 'var(--border-strong)' }}
+			>
 				<div
-					className="mt-6 flex items-center gap-4 rounded-md border border-dashed p-4"
-					style={{ borderColor: 'var(--border-strong)' }}
+					className="flex h-7 w-7 flex-none items-center justify-center rounded-full text-xs font-bold"
+					style={{
+						background: 'var(--info, var(--bg-raised))',
+						color: 'var(--info-fg, var(--fg))',
+					}}
+					aria-hidden="true"
 				>
-					<div
-						className="flex h-7 w-7 flex-none items-center justify-center rounded-full text-xs font-bold"
-						style={{
-							background: 'var(--info, var(--bg-raised))',
-							color: 'var(--info-fg, var(--fg))',
-						}}
-						aria-hidden="true"
-					>
-						i
-					</div>
-					<div className="flex-1">
-						<div className="text-[13px] font-semibold">Or use Ikenga without an agent</div>
-						<div className="mt-0.5 text-xs" style={{ color: 'var(--fg-muted)' }}>
-							AI features stay dormant until you connect one.
-						</div>
-					</div>
-					<Button
-						variant={isOffline ? 'default' : 'secondary'}
-						size="sm"
-						onClick={handleOffline}
-						disabled={offlineMut.isPending}
-						data-testid="agents-offline-alt"
-					>
-						{offlineButtonLabel(false)}
-					</Button>
+					i
 				</div>
-			)}
-			{offlineError && !isLoading && agents.length > 0 && (
+				<div className="flex-1">
+					<div className="text-[13px] font-semibold">
+						{allMissing
+							? 'No agents detected — use Ikenga without one'
+							: 'Or use Ikenga without an agent'}
+					</div>
+					<div className="mt-0.5 text-xs" style={{ color: 'var(--fg-muted)' }}>
+						Pkg management, files, terminal, project routing still work. AI features stay dormant.
+					</div>
+				</div>
+				<Button
+					variant={isOffline ? 'default' : 'secondary'}
+					size="sm"
+					onClick={handleOffline}
+					disabled={offlineMut.isPending}
+					data-testid="agents-offline-cta"
+				>
+					{offlineButtonLabel(false)}
+				</Button>
+			</div>
+			{offlineError && (
 				<div
 					className="mt-3 rounded-md border p-3 text-xs"
 					style={{
@@ -395,7 +397,7 @@ export function AgentBody({ onContinue }: AgentBodyProps) {
 						background: 'var(--danger-soft)',
 						color: 'var(--fg)',
 					}}
-					data-testid="agents-offline-error-alt"
+					data-testid="agents-offline-error"
 				>
 					{offlineError}
 				</div>
@@ -411,15 +413,17 @@ export function AgentBody({ onContinue }: AgentBodyProps) {
 					}}
 					data-testid="agents-auth-warning"
 				>
-					<div className="text-[13px] font-semibold">{selected?.display} isn't signed in yet</div>
+					<div className="text-[13px] font-semibold">
+						{selectedAgent?.display} isn't signed in yet
+					</div>
 					<div className="mt-1 text-xs" style={{ color: 'var(--fg-muted)' }}>
-						{selected?.auth_hint ??
+						{selectedAgent?.auth_hint ??
 							'Run the agent CLI once to authenticate, or set the relevant API key in your environment. You can finish onboarding now and fix this later from Settings → Engine.'}
 					</div>
 				</div>
 			)}
 
-			{/* ── Inline Continue (footer also has one) ───────────────────── */}
+			{/* ── Inline Continue ──────────────────────────────────────────── */}
 			<div className="mt-8 flex items-center justify-end gap-3">
 				<Button
 					onClick={onContinue}
@@ -430,8 +434,6 @@ export function AgentBody({ onContinue }: AgentBodyProps) {
 				</Button>
 			</div>
 
-			{/* Persisted record marker — used by Settings re-entry to highlight
-			    the current choice. Read-only display. */}
 			{record.payload?.agentId && record.payload.agentId !== selectedAgentId && (
 				<p
 					className="mt-3 text-right text-xs"
@@ -445,29 +447,39 @@ export function AgentBody({ onContinue }: AgentBodyProps) {
 	);
 }
 
-interface AgentCardProps {
-	agent: DetectedAgent;
+interface EngineCardProps {
+	meta: (typeof SUPPORTED_ENGINES)[number];
+	entry: AgentDetectEntry;
 	selected: boolean;
 	onSelect: () => void;
+	onOpenDocs: () => void;
 }
 
-function AgentCard({ agent, selected, onSelect }: AgentCardProps) {
+function EngineCard({ meta, entry, selected, onSelect, onOpenDocs }: EngineCardProps) {
+	const interactive = entry.status === 'detected';
 	return (
 		<button
 			type="button"
 			onClick={onSelect}
+			disabled={!interactive}
 			className={cn(
 				'relative rounded-lg border p-5 text-left transition-colors',
-				selected ? 'shadow-sm' : 'hover:border-[var(--border-strong)]'
+				selected
+					? 'shadow-sm'
+					: interactive
+						? 'hover:border-[var(--border-strong)]'
+						: 'cursor-not-allowed'
 			)}
 			style={{
 				borderColor: selected ? 'var(--primary)' : 'var(--border-soft)',
 				background: 'var(--bg-surface)',
 				boxShadow: selected ? '0 0 0 1px var(--primary)' : undefined,
+				opacity: interactive ? 1 : 0.85,
 			}}
 			data-testid="agent-card"
-			data-agent-id={agent.id}
+			data-agent-id={meta.id}
 			data-selected={selected}
+			data-status={entry.status}
 		>
 			{selected && (
 				<span
@@ -479,49 +491,138 @@ function AgentCard({ agent, selected, onSelect }: AgentCardProps) {
 				</span>
 			)}
 
-			<div className="mb-4 flex items-center gap-3">
+			<div className="mb-3 flex items-center gap-3">
 				<div
 					className="flex h-9 w-9 flex-none items-center justify-center rounded-md font-mono text-sm font-bold"
 					style={{ background: 'var(--bg-raised)', color: 'var(--fg-muted)' }}
 					aria-hidden="true"
 				>
-					{agent.display.charAt(0)}
+					{meta.display.charAt(0)}
 				</div>
 				<div className="min-w-0">
-					<div className="truncate text-[15px] font-bold leading-tight">{agent.display}</div>
+					<div className="truncate text-[15px] font-bold leading-tight">{meta.display}</div>
 					<div className="mt-0.5 text-[11.5px]" style={{ color: 'var(--fg-faint)' }}>
-						id: <span className="font-mono">{agent.id}</span>
+						{meta.description}
 					</div>
 				</div>
 			</div>
 
-			<div className="flex flex-wrap gap-1.5">
-				<AuthPill authed={agent.authed} />
-				{agent.version && (
+			<div className="flex flex-wrap items-center gap-1.5">
+				<StatusPill entry={entry} />
+				{entry.status === 'detected' && entry.agent?.version && (
 					<Pill>
-						<span className="font-mono text-[11px]">{agent.version}</span>
+						<span className="font-mono text-[11px]">{entry.agent.version}</span>
 					</Pill>
 				)}
-				{agent.capabilities.tool_use && <Pill>tools</Pill>}
-				{agent.capabilities.mcp && <Pill>mcp</Pill>}
-				{agent.capabilities.session_resume && <Pill>resume</Pill>}
-				{agent.capabilities.thinking && <Pill>thinking</Pill>}
+				{entry.status === 'detected' && <AuthPill authed={entry.agent?.authed ?? null} />}
 			</div>
 
 			<div
 				className="mt-3 border-t border-dashed pt-3 text-xs"
 				style={{ borderColor: 'var(--border-soft)' }}
 			>
-				<div className="flex gap-3">
-					<span className="w-20 flex-none" style={{ color: 'var(--fg-faint)' }}>
-						Binary
-					</span>
-					<span className="truncate font-mono text-[11.5px]" title={agent.executable_path}>
-						{agent.executable_path}
-					</span>
-				</div>
+				{entry.status === 'pending' ? (
+					<SkeletonRow />
+				) : entry.status === 'detected' && entry.agent ? (
+					<div className="flex gap-3">
+						<span className="w-20 flex-none" style={{ color: 'var(--fg-faint)' }}>
+							Binary
+						</span>
+						<span className="truncate font-mono text-[11.5px]" title={entry.agent.executable_path}>
+							{entry.agent.executable_path}
+						</span>
+					</div>
+				) : (
+					<div className="flex items-center justify-between gap-2">
+						<span style={{ color: 'var(--fg-faint)' }}>
+							Not on $PATH. Try: <span className="font-mono text-[11.5px]">{meta.binaryHint}</span>
+						</span>
+						<button
+							type="button"
+							onClick={(e) => {
+								e.stopPropagation();
+								onOpenDocs();
+							}}
+							className="text-[11.5px] underline-offset-2 hover:underline"
+							style={{ color: 'var(--primary)' }}
+						>
+							Docs →
+						</button>
+					</div>
+				)}
 			</div>
+			{entry.status === 'missing' && meta.installCmd && (
+				<div
+					className="mt-2 font-mono text-[11px]"
+					style={{ color: 'var(--fg-faint)' }}
+					data-testid="agent-install-cmd"
+				>
+					{meta.installCmd}
+				</div>
+			)}
 		</button>
+	);
+}
+
+function SkeletonRow() {
+	return (
+		<div className="flex gap-3" aria-hidden="true" data-testid="agent-skeleton">
+			<span
+				className="block h-3 w-20 animate-pulse rounded"
+				style={{ background: 'var(--bg-raised)' }}
+			/>
+			<span
+				className="block h-3 flex-1 animate-pulse rounded"
+				style={{ background: 'var(--bg-raised)' }}
+			/>
+		</div>
+	);
+}
+
+function StatusPill({ entry }: { entry: AgentDetectEntry }) {
+	if (entry.status === 'pending') {
+		return (
+			<span
+				className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium"
+				style={{ background: 'var(--bg-raised)', color: 'var(--fg-faint)' }}
+				data-testid="status-pill"
+				data-status="pending"
+			>
+				<span
+					className="h-1.5 w-1.5 animate-pulse rounded-full"
+					style={{ background: 'var(--fg-faint)' }}
+					aria-hidden="true"
+				/>
+				Scanning…
+			</span>
+		);
+	}
+	if (entry.status === 'detected') {
+		return (
+			<span
+				className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium"
+				style={{ background: 'var(--success-soft, var(--bg-raised))', color: 'var(--success)' }}
+				data-testid="status-pill"
+				data-status="detected"
+			>
+				<span
+					className="h-1.5 w-1.5 rounded-full"
+					style={{ background: 'var(--success)' }}
+					aria-hidden="true"
+				/>
+				Detected
+			</span>
+		);
+	}
+	return (
+		<span
+			className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium"
+			style={{ background: 'var(--bg-raised)', color: 'var(--fg-faint)' }}
+			data-testid="status-pill"
+			data-status="missing"
+		>
+			Not on PATH
+		</span>
 	);
 }
 
@@ -543,11 +644,6 @@ function AuthPill({ authed }: { authed: boolean | null }) {
 				className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium"
 				style={{ background: 'var(--success-soft, var(--bg-raised))', color: 'var(--success)' }}
 			>
-				<span
-					className="h-1.5 w-1.5 rounded-full"
-					style={{ background: 'var(--success)' }}
-					aria-hidden="true"
-				/>
 				signed in
 			</span>
 		);
@@ -561,66 +657,11 @@ function AuthPill({ authed }: { authed: boolean | null }) {
 					color: 'var(--warning, var(--fg-muted))',
 				}}
 			>
-				<span
-					className="h-1.5 w-1.5 rounded-full"
-					style={{ background: 'var(--warning, var(--fg-muted))' }}
-					aria-hidden="true"
-				/>
 				auth required
 			</span>
 		);
 	}
-	return (
-		<span
-			className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium"
-			style={{ background: 'var(--bg-raised)', color: 'var(--fg-faint)' }}
-		>
-			auth unknown
-		</span>
-	);
-}
-
-function DontSeeYours({ installedIds }: { installedIds: string[] }) {
-	const installed = new Set(installedIds);
-	const missing = Object.entries(INSTALL_HINTS).filter(([id]) => !installed.has(id));
-	if (missing.length === 0) return null;
-	return (
-		<details className="mt-6">
-			<summary
-				className="cursor-pointer text-sm font-medium"
-				style={{ color: 'var(--fg-muted)' }}
-				data-testid="dont-see-yours"
-			>
-				Don't see yours?
-			</summary>
-			<div className="mt-3 grid gap-2">
-				{missing.map(([id, hint]) => (
-					<div
-						key={id}
-						className="flex items-center justify-between gap-3 rounded-md border px-4 py-2"
-						style={{ borderColor: 'var(--border-soft)' }}
-					>
-						<div>
-							<div className="text-[13px] font-semibold">{hint.display}</div>
-							{hint.cmd && (
-								<div className="mt-0.5 font-mono text-xs" style={{ color: 'var(--fg-faint)' }}>
-									{hint.cmd}
-								</div>
-							)}
-						</div>
-						<button
-							type="button"
-							onClick={() => void openExternal(hint.url).catch(() => {})}
-							className="text-xs underline-offset-2 hover:underline"
-							style={{ color: 'var(--primary)' }}
-						>
-							Install docs →
-						</button>
-					</div>
-				))}
-			</div>
-		</details>
-	);
+	return null;
 }
 
 // ── Pure helpers (testable without DOM) ─────────────────────────────────
@@ -631,9 +672,7 @@ export function shouldShowAuthWarning(agent: DetectedAgent | null | undefined): 
 	return !!agent && agent.authed === false;
 }
 
-/** Build the payload we persist when an agent card is selected. Kept as
- *  a named function so tests can lock down the shape without spinning up
- *  the component. */
+/** Build the payload we persist when an agent card is selected. */
 export function agentToPayload(agent: DetectedAgent): AgentStepPayload {
 	return {
 		agentId: agent.id,
@@ -652,9 +691,7 @@ export const OFFLINE_PAYLOAD: AgentStepPayload = Object.freeze({
 	authed: null,
 });
 
-/** Look up the engine-noop entry in a verified registry index. Exported for
- *  tests; the onboarding install flow uses this to find the tarball + sig
- *  manifest to feed `pkgInstallFromRegistry`. */
+/** Look up the engine-noop entry in a verified registry index. */
 export function findEngineNoopEntry(index: RegistryIndex): RegistryEntry | undefined {
 	return index.pkgs.find((p) => p.name === ENGINE_NOOP_NPM_NAME);
 }
