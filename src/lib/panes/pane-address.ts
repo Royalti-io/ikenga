@@ -31,6 +31,24 @@ export function hasAddressBar(view: PaneView): boolean {
 	return getPaneAddress(view) !== null;
 }
 
+/** Format the address for display. For artifact views whose path matches a
+ *  pinned artifact with a stable `manifest_id`, return the canonical
+ *  `ikenga://artifact/<id>` URI instead of the on-disk path. Other views
+ *  (route, plain artifacts) round-trip through `getPaneAddress` unchanged.
+ *
+ *  Pure, by-value: the caller passes a `pathToManifestId` map so the hook
+ *  in `pane-address-bar.tsx` controls how/when it's rebuilt (and so unit
+ *  tests don't have to fake the pins-store). */
+export function formatPaneAddressForDisplay(
+	view: PaneView,
+	pathToManifestId: ReadonlyMap<string, string>
+): string | null {
+	if (view.kind !== 'artifact') return getPaneAddress(view);
+	const manifestId = pathToManifestId.get(view.path);
+	if (manifestId) return `ikenga://artifact/${manifestId}`;
+	return view.path;
+}
+
 /**
  * Parse a user-typed address into a candidate view. Returns null on parse
  * failure so the UI can ring red.

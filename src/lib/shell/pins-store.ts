@@ -8,6 +8,7 @@
 // `createSection` and `addPin`. The "fuzzy match → prompt to create"
 // dialog is UI; the host is the source of truth for what exists.
 
+import { useMemo } from 'react';
 import { create } from 'zustand';
 import {
 	activityPinsAdd,
@@ -244,6 +245,22 @@ export function dispatchPinSelection(pin: Pin, store: PinDispatchTarget): void {
 		return;
 	}
 	store.placeView(store.focusedId, { kind: 'artifact', path: pin.target }, 'append');
+}
+
+/** Selector hook returning a stable Map<path, manifestId> built from the
+ *  current pin set. Used by `formatPaneAddressForDisplay` so the URL bar
+ *  can swap a file path for its canonical `ikenga://artifact/<id>` URI on
+ *  pinned artifacts. Memoized on the pins-array reference so renders that
+ *  don't touch pins (the common case) don't allocate a new Map. */
+export function usePathToManifestId(): ReadonlyMap<string, string> {
+	const pins = usePinsStore((s) => s.pins);
+	return useMemo(() => {
+		const map = new Map<string, string>();
+		for (const pin of pins) {
+			if (pin.manifestId) map.set(pin.target, pin.manifestId);
+		}
+		return map;
+	}, [pins]);
 }
 
 /** Compute the desired ordered id list for a same-section drag-and-drop

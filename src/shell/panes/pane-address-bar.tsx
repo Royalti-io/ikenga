@@ -12,11 +12,11 @@ import { ArrowLeft, ArrowRight, Pin as PinGlyph, RefreshCw } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { cn } from '@/components/ui/utils';
 import { Input } from '@/components/ui/input';
-import { getPaneAddress, parsePaneAddress } from '@/lib/panes/pane-address';
+import { formatPaneAddressForDisplay, parsePaneAddress } from '@/lib/panes/pane-address';
 import { resolveArtifactAddress } from '@/lib/panes/pane-address-resolver';
 import type { PaneId, PaneView } from '@/lib/panes/types';
 import { usePaneHistory } from '@/lib/panes/use-pane-history';
-import { usePinsStore } from '@/lib/shell/pins-store';
+import { usePathToManifestId, usePinsStore } from '@/lib/shell/pins-store';
 import { PinArtifactDialog } from './pin-artifact-dialog';
 
 interface PaneAddressBarProps {
@@ -29,7 +29,12 @@ const INVALID_FLASH_MS = 600;
 export function PaneAddressBar({ paneId, view }: PaneAddressBarProps) {
 	const { canGoBack, canGoForward, back, forward, replace, bumpKey } = usePaneHistory(paneId, view);
 
-	const address = getPaneAddress(view) ?? '';
+	// Display rule (Phase 3): pinned artifacts show their canonical
+	// `ikenga://artifact/<id>` URI; everything else shows the raw path. The
+	// URI survives renames + makes it obvious what the canonical address is
+	// for sharing or pasting elsewhere.
+	const pathToManifestId = usePathToManifestId();
+	const address = formatPaneAddressForDisplay(view, pathToManifestId) ?? '';
 	const [draft, setDraft] = useState(address);
 	const [invalid, setInvalid] = useState(false);
 	const inputRef = useRef<HTMLInputElement | null>(null);
@@ -66,12 +71,14 @@ export function PaneAddressBar({ paneId, view }: PaneAddressBarProps) {
 		}
 		// No-op if it matches the current address exactly (avoid cluttering
 		// history when the user just hits Enter on what's already loaded).
-		if (getPaneAddress(resolved) === address) {
+		// Compare via the display formatter so typing the URI for the
+		// currently-shown URI counts as a refresh, not a navigation.
+		if (formatPaneAddressForDisplay(resolved, pathToManifestId) === address) {
 			bumpKey();
 			return;
 		}
 		replace(resolved);
-	}, [draft, address, replace, bumpKey, flashInvalid]);
+	}, [draft, address, pathToManifestId, replace, bumpKey, flashInvalid]);
 
 	// Pin button is artifact-only and lights up amber when this exact path
 	// is already pinned (so the user knows clicking again would be a dup).
