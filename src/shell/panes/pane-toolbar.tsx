@@ -34,15 +34,19 @@ export function PaneToolbar({ paneId }: PaneToolbarProps) {
 	const splitTitle = splitDisabled ? 'Max 6 panes' : undefined;
 	const closeDisabled = leafCount <= 1;
 
+	const showStudioToggle =
+		(activeView?.kind === 'artifact' || activeView?.kind === 'artifact-studio') &&
+		isHtmlArtifactPath(activeView.path);
+
 	return (
 		<div className="flex items-center gap-0.5">
-			{activeView?.kind === 'artifact' && (
+			{showStudioToggle && activeView.kind === 'artifact' && (
 				<StudioToggleButton
 					mode="open"
 					onClick={() => replaceView(paneId, { kind: 'artifact-studio', path: activeView.path })}
 				/>
 			)}
-			{activeView?.kind === 'artifact-studio' && (
+			{showStudioToggle && activeView.kind === 'artifact-studio' && (
 				<StudioToggleButton
 					mode="close"
 					onClick={() => replaceView(paneId, { kind: 'artifact', path: activeView.path })}
@@ -81,6 +85,11 @@ export function PaneToolbar({ paneId }: PaneToolbarProps) {
 			</ToolButton>
 		</div>
 	);
+}
+
+function isHtmlArtifactPath(path: string): boolean {
+	const lower = path.toLowerCase();
+	return lower.endsWith('.html') || lower.endsWith('.htm');
 }
 
 interface ToolButtonProps {
