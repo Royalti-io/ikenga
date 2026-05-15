@@ -246,6 +246,42 @@ export function dispatchPinSelection(pin: Pin, store: PinDispatchTarget): void {
 	store.placeView(store.focusedId, { kind: 'artifact', path: pin.target }, 'append');
 }
 
+/** Compute the desired ordered id list for a same-section drag-and-drop
+ *  reorder. `pins` is the section's current order, `srcIdx` is the dragged
+ *  pin's index, `dstIdx` is the index it should land at *as if the source
+ *  were removed first*. Returns an empty array if the inputs are invalid;
+ *  callers should treat that as "no-op, don't post to the host".
+ *
+ *  Extracted from the settings page so the off-by-one math is unit-tested
+ *  once instead of being argued about per call site. */
+export function computeReorderIds<T extends { id: string }>(
+	pins: readonly T[],
+	srcIdx: number,
+	dstIdx: number
+): string[] {
+	if (srcIdx < 0 || srcIdx >= pins.length) return [];
+	const src = pins[srcIdx];
+	if (!src) return [];
+	const ids = pins.filter((_, i) => i !== srcIdx).map((p) => p.id);
+	const insertAt = Math.min(Math.max(dstIdx, 0), ids.length);
+	ids.splice(insertAt, 0, src.id);
+	return ids;
+}
+
+/** Compute the desired ordered id list for a cross-section drop. `pins` is
+ *  the *destination* section's current order, `pinId` is the moved pin,
+ *  `dstIdx` is where it should land. */
+export function computeCrossSectionReorderIds<T extends { id: string }>(
+	pins: readonly T[],
+	pinId: string,
+	dstIdx: number
+): string[] {
+	const ids = pins.map((p) => p.id);
+	const insertAt = Math.min(Math.max(dstIdx, 0), ids.length);
+	ids.splice(insertAt, 0, pinId);
+	return ids;
+}
+
 /** Selector hook returning pins grouped by section, plus a loose group for
  *  section-less pins. Consumers iterate `sections` to render headers in
  *  user order, then look up `pinsBySection.get(section.id)`. */

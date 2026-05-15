@@ -4,6 +4,7 @@ import {
 	HardDrive,
 	Info,
 	KeyRound,
+	LayoutGrid,
 	Package,
 	Palette,
 	Plug,
@@ -33,6 +34,7 @@ const NAV: NavSection[] = [
 		items: [
 			{ to: '/settings/appearance', label: 'Appearance', Icon: Palette },
 			{ to: '/settings/projects', label: 'Projects', Icon: FolderKanban },
+			{ to: '/settings/activity-bar', label: 'Activity bar', Icon: LayoutGrid },
 			{ to: '/settings/agent', label: 'Agent', Icon: Bot },
 			{ to: '/settings/packages', label: 'Packages', Icon: Package },
 			{ to: '/settings/onboarding', label: 'Onboarding', Icon: Sparkles },

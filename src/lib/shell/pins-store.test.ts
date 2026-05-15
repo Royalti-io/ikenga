@@ -100,6 +100,8 @@ vi.mock('@/lib/tauri-cmd', () => {
 
 import * as cmd from '@/lib/tauri-cmd';
 import {
+	computeCrossSectionReorderIds,
+	computeReorderIds,
 	dispatchPinSelection,
 	fuzzyMatchSection,
 	slugifySectionId,
@@ -396,5 +398,67 @@ describe('dispatchPinSelection', () => {
 			{ kind: 'artifact', path: 'https://example.com/dash' },
 			'append'
 		);
+	});
+});
+
+describe('computeReorderIds (same-section drag)', () => {
+	const list = (...ids: string[]) => ids.map((id) => ({ id }));
+
+	it('moves the first item one slot down', () => {
+		// dstIdx is the index AFTER removal. With [a,b,c], dragging a to "after b"
+		// means: remove a -> [b,c]; insert a at idx 1 -> [b,a,c].
+		expect(computeReorderIds(list('a', 'b', 'c'), 0, 1)).toEqual(['b', 'a', 'c']);
+	});
+
+	it('moves the last item to the front', () => {
+		expect(computeReorderIds(list('a', 'b', 'c'), 2, 0)).toEqual(['c', 'a', 'b']);
+	});
+
+	it('handles dstIdx beyond the end (clamped to tail)', () => {
+		expect(computeReorderIds(list('a', 'b', 'c'), 0, 99)).toEqual(['b', 'c', 'a']);
+	});
+
+	it('handles negative dstIdx (clamped to head)', () => {
+		expect(computeReorderIds(list('a', 'b', 'c'), 2, -5)).toEqual(['c', 'a', 'b']);
+	});
+
+	it('returns [] for an out-of-range source index', () => {
+		expect(computeReorderIds(list('a', 'b'), 5, 0)).toEqual([]);
+		expect(computeReorderIds(list('a', 'b'), -1, 0)).toEqual([]);
+	});
+
+	it('returns the original order when srcIdx == dstIdx', () => {
+		// Removing src then inserting at the same index reproduces the original.
+		expect(computeReorderIds(list('a', 'b', 'c'), 1, 1)).toEqual(['a', 'b', 'c']);
+	});
+});
+
+describe('computeCrossSectionReorderIds (cross-section drop)', () => {
+	const list = (...ids: string[]) => ids.map((id) => ({ id }));
+
+	it('inserts at the front of an empty destination', () => {
+		expect(computeCrossSectionReorderIds(list(), 'x', 0)).toEqual(['x']);
+	});
+
+	it('inserts at the head of a populated destination', () => {
+		expect(computeCrossSectionReorderIds(list('a', 'b'), 'x', 0)).toEqual(['x', 'a', 'b']);
+	});
+
+	it('inserts in the middle', () => {
+		expect(computeCrossSectionReorderIds(list('a', 'b', 'c'), 'x', 2)).toEqual([
+			'a',
+			'b',
+			'x',
+			'c',
+		]);
+	});
+
+	it('appends when dstIdx is at or past the tail', () => {
+		expect(computeCrossSectionReorderIds(list('a', 'b'), 'x', 2)).toEqual(['a', 'b', 'x']);
+		expect(computeCrossSectionReorderIds(list('a', 'b'), 'x', 99)).toEqual(['a', 'b', 'x']);
+	});
+
+	it('clamps a negative dstIdx to the front', () => {
+		expect(computeCrossSectionReorderIds(list('a', 'b'), 'x', -1)).toEqual(['x', 'a', 'b']);
 	});
 });

@@ -6,11 +6,16 @@ import {
 	Monitor,
 	Moon,
 	Package,
+	Pencil,
 	Pin as PinGlyph,
+	PinOff,
 	Plus,
 	Settings,
+	Settings2,
+	SquareDashed,
 	SquareTerminal,
 	Sun,
+	Trash2,
 	type LucideIcon,
 } from 'lucide-react';
 import { useShellStore, type ActivityMode, type CoreMode } from '@/lib/shell/shell-store';
@@ -22,9 +27,26 @@ import {
 	useActivityBarPins,
 	usePinsStore,
 	type Pin,
+	type Section,
 } from '@/lib/shell/pins-store';
 import { useUpdatesAvailable } from '@/lib/registry/use-updates-available';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import {
+	ContextMenu,
+	ContextMenuContent,
+	ContextMenuItem,
+	ContextMenuSeparator,
+	ContextMenuTrigger,
+} from '@/components/ui/context-menu';
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+} from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
 import type { Project } from '@/lib/tauri-cmd';
 import { PinIcon } from './pin-icon';
 
@@ -164,22 +186,37 @@ export function ActivityBar() {
 							const list = pinsBySection.get(section.id) ?? [];
 							if (list.length === 0) return null;
 							return (
-								<div
-									key={section.id}
-									className="flex flex-col items-center"
-									data-section={section.id}
-									title={section.label}
-								>
-									{list.map((pin) => (
-										<PinButton key={pin.id} pin={pin} onSelect={handleSelectPin} />
-									))}
-								</div>
+								<SectionContextWrap key={section.id} section={section} pinCount={list.length}>
+									<div
+										className="flex flex-col items-center"
+										data-section={section.id}
+										title={section.label}
+									>
+										{list.map((pin) => (
+											<PinContextWrap
+												key={pin.id}
+												pin={pin}
+												allSections={sections}
+												onOpen={handleSelectPin}
+											>
+												<PinButton pin={pin} onSelect={handleSelectPin} />
+											</PinContextWrap>
+										))}
+									</div>
+								</SectionContextWrap>
 							);
 						})}
 						{sectionLessPins.length > 0 && (
 							<div className="flex flex-col items-center" data-section="__none" title="Other">
 								{sectionLessPins.map((pin) => (
-									<PinButton key={pin.id} pin={pin} onSelect={handleSelectPin} />
+									<PinContextWrap
+										key={pin.id}
+										pin={pin}
+										allSections={sections}
+										onOpen={handleSelectPin}
+									>
+										<PinButton pin={pin} onSelect={handleSelectPin} />
+									</PinContextWrap>
 								))}
 							</div>
 						)}
@@ -472,5 +509,215 @@ function PinButton({ pin, onSelect }: PinButtonProps) {
 		>
 			<PinIcon iconLucide={pin.iconLucide} iconEmoji={pin.iconEmoji} Fallback={PinGlyph} />
 		</button>
+	);
+}
+
+interface PinContextWrapProps {
+	pin: Pin;
+	allSections: readonly Section[];
+	onOpen: (pin: Pin) => void;
+	children: React.ReactNode;
+}
+
+/** Right-click menu for a single pin. Open / Unpin / Move-to-section
+ *  (inline list of all sections + No section). Move calls reorderPins
+ *  with the pin id solo at sort_order 0 in the destination section —
+ *  good enough for v0; the settings page is the place for finer ordering. */
+function PinContextWrap({ pin, allSections, onOpen, children }: PinContextWrapProps) {
+	const removePin = usePinsStore((s) => s.removePin);
+	const reorderPins = usePinsStore((s) => s.reorderPins);
+
+	async function moveTo(sectionId: string | null) {
+		if (sectionId === pin.sectionId) return;
+		await reorderPins([pin.id], sectionId ?? '');
+	}
+
+	const otherSections = allSections.filter((s) => s.id !== pin.sectionId);
+
+	return (
+		<ContextMenu>
+			<ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
+			<ContextMenuContent>
+				<ContextMenuItem onSelect={() => onOpen(pin)}>
+					<PinGlyph className="h-3.5 w-3.5" />
+					Open {pin.label}
+				</ContextMenuItem>
+				<ContextMenuSeparator />
+				{otherSections.length > 0 && (
+					<>
+						<div className="px-2 pt-1 pb-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+							Move to
+						</div>
+						{otherSections.map((s) => (
+							<ContextMenuItem key={s.id} onSelect={() => moveTo(s.id)}>
+								<SquareDashed className="h-3.5 w-3.5" />
+								{s.label}
+							</ContextMenuItem>
+						))}
+					</>
+				)}
+				{pin.sectionId !== null && (
+					<ContextMenuItem onSelect={() => moveTo(null)}>
+						<SquareDashed className="h-3.5 w-3.5" />
+						No section
+					</ContextMenuItem>
+				)}
+				{(otherSections.length > 0 || pin.sectionId !== null) && <ContextMenuSeparator />}
+				<ContextMenuItem variant="destructive" onSelect={() => removePin(pin.id)}>
+					<PinOff className="h-3.5 w-3.5" />
+					Unpin
+				</ContextMenuItem>
+			</ContextMenuContent>
+		</ContextMenu>
+	);
+}
+
+interface SectionContextWrapProps {
+	section: Section;
+	pinCount: number;
+	children: React.ReactNode;
+}
+
+/** Right-click menu for a section group container. Rename / Delete here;
+ *  the settings page (/settings/activity-bar) is the home for richer edits
+ *  like icons. */
+function SectionContextWrap({ section, pinCount, children }: SectionContextWrapProps) {
+	const updateSection = usePinsStore((s) => s.updateSection);
+	const removeSection = usePinsStore((s) => s.removeSection);
+	const [renameOpen, setRenameOpen] = useState(false);
+	const [confirmDelete, setConfirmDelete] = useState(false);
+	const [draftLabel, setDraftLabel] = useState(section.label);
+	const [renameError, setRenameError] = useState<string | null>(null);
+
+	async function commitRename(e: React.FormEvent) {
+		e.preventDefault();
+		const trimmed = draftLabel.trim();
+		if (!trimmed) {
+			setRenameError('Label is required.');
+			return;
+		}
+		if (trimmed === section.label) {
+			setRenameOpen(false);
+			return;
+		}
+		try {
+			await updateSection({ id: section.id, label: trimmed });
+			setRenameError(null);
+			setRenameOpen(false);
+		} catch (err) {
+			setRenameError(err instanceof Error ? err.message : String(err));
+		}
+	}
+
+	async function handleConfirmDelete() {
+		try {
+			await removeSection(section.id);
+		} catch {
+			// pins-store surfaces error; don't crash the UI
+		}
+		setConfirmDelete(false);
+	}
+
+	return (
+		<>
+			<ContextMenu>
+				<ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
+				<ContextMenuContent>
+					<div className="px-2 pt-1 pb-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+						Section · {section.label}
+					</div>
+					<ContextMenuItem
+						onSelect={() => {
+							setDraftLabel(section.label);
+							setRenameError(null);
+							setRenameOpen(true);
+						}}
+					>
+						<Pencil className="h-3.5 w-3.5" />
+						Rename…
+					</ContextMenuItem>
+					<ContextMenuItem
+						onSelect={() => {
+							usePaneStore.getState().navigateFocused('/settings/activity-bar');
+						}}
+					>
+						<Settings2 className="h-3.5 w-3.5" />
+						Manage in Settings
+					</ContextMenuItem>
+					<ContextMenuSeparator />
+					<ContextMenuItem variant="destructive" onSelect={() => setConfirmDelete(true)}>
+						<Trash2 className="h-3.5 w-3.5" />
+						Delete section…
+					</ContextMenuItem>
+				</ContextMenuContent>
+			</ContextMenu>
+
+			<Dialog open={renameOpen} onOpenChange={setRenameOpen}>
+				<DialogContent className="sm:max-w-sm">
+					<form onSubmit={commitRename}>
+						<DialogHeader>
+							<DialogTitle>Rename section</DialogTitle>
+							<DialogDescription>
+								The section id (<code className="font-mono">{section.id}</code>) doesn't
+								change — pins keep their parent.
+							</DialogDescription>
+						</DialogHeader>
+						<div className="mt-4 flex flex-col gap-2">
+							<input
+								autoFocus
+								value={draftLabel}
+								onChange={(e) => {
+									setDraftLabel(e.target.value);
+									if (renameError) setRenameError(null);
+								}}
+								className="h-9 rounded border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+								aria-label="Section label"
+							/>
+							{renameError && (
+								<div className="rounded border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+									{renameError}
+								</div>
+							)}
+						</div>
+						<DialogFooter className="mt-6">
+							<Button type="button" variant="ghost" onClick={() => setRenameOpen(false)}>
+								Cancel
+							</Button>
+							<Button type="submit">Save</Button>
+						</DialogFooter>
+					</form>
+				</DialogContent>
+			</Dialog>
+
+			<Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+				<DialogContent className="sm:max-w-md">
+					<DialogHeader>
+						<DialogTitle>Delete section "{section.label}"?</DialogTitle>
+						<DialogDescription>
+							{pinCount === 0 ? (
+								<>This section has no pins. It will be removed.</>
+							) : (
+								<>
+									Its {pinCount} {pinCount === 1 ? 'pin' : 'pins'} will move to{' '}
+									<strong>No section</strong> — they won't be deleted.
+								</>
+							)}
+						</DialogDescription>
+					</DialogHeader>
+					<DialogFooter>
+						<Button type="button" variant="ghost" onClick={() => setConfirmDelete(false)}>
+							Cancel
+						</Button>
+						<Button
+							type="button"
+							className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+							onClick={handleConfirmDelete}
+						>
+							Delete section
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
+		</>
 	);
 }

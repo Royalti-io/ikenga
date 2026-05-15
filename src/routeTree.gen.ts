@@ -42,6 +42,7 @@ import { Route as SettingsIntegrationsRouteImport } from './routes/settings/inte
 import { Route as SettingsBackupRouteImport } from './routes/settings/backup'
 import { Route as SettingsAppearanceRouteImport } from './routes/settings/appearance'
 import { Route as SettingsAgentRouteImport } from './routes/settings/agent'
+import { Route as SettingsActivityBarRouteImport } from './routes/settings/activity-bar'
 import { Route as SettingsAboutRouteImport } from './routes/settings/about'
 import { Route as PackagesBrowseRouteImport } from './routes/packages_.browse'
 import { Route as OnboardingWelcomeRouteImport } from './routes/onboarding/welcome'
@@ -231,6 +232,11 @@ const SettingsAgentRoute = SettingsAgentRouteImport.update({
   path: '/agent',
   getParentRoute: () => SettingsRouteRoute,
 } as any)
+const SettingsActivityBarRoute = SettingsActivityBarRouteImport.update({
+  id: '/activity-bar',
+  path: '/activity-bar',
+  getParentRoute: () => SettingsRouteRoute,
+} as any)
 const SettingsAboutRoute = SettingsAboutRouteImport.update({
   id: '/about',
   path: '/about',
@@ -384,6 +390,7 @@ export interface FileRoutesByFullPath {
   '/onboarding/welcome': typeof OnboardingWelcomeRoute
   '/packages/browse': typeof PackagesBrowseRoute
   '/settings/about': typeof SettingsAboutRoute
+  '/settings/activity-bar': typeof SettingsActivityBarRoute
   '/settings/agent': typeof SettingsAgentRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/backup': typeof SettingsBackupRoute
@@ -437,6 +444,7 @@ export interface FileRoutesByTo {
   '/onboarding/welcome': typeof OnboardingWelcomeRoute
   '/packages/browse': typeof PackagesBrowseRoute
   '/settings/about': typeof SettingsAboutRoute
+  '/settings/activity-bar': typeof SettingsActivityBarRoute
   '/settings/agent': typeof SettingsAgentRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/backup': typeof SettingsBackupRoute
@@ -496,6 +504,7 @@ export interface FileRoutesById {
   '/onboarding/welcome': typeof OnboardingWelcomeRoute
   '/packages_/browse': typeof PackagesBrowseRoute
   '/settings/about': typeof SettingsAboutRoute
+  '/settings/activity-bar': typeof SettingsActivityBarRoute
   '/settings/agent': typeof SettingsAgentRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/backup': typeof SettingsBackupRoute
@@ -556,6 +565,7 @@ export interface FileRouteTypes {
     | '/onboarding/welcome'
     | '/packages/browse'
     | '/settings/about'
+    | '/settings/activity-bar'
     | '/settings/agent'
     | '/settings/appearance'
     | '/settings/backup'
@@ -609,6 +619,7 @@ export interface FileRouteTypes {
     | '/onboarding/welcome'
     | '/packages/browse'
     | '/settings/about'
+    | '/settings/activity-bar'
     | '/settings/agent'
     | '/settings/appearance'
     | '/settings/backup'
@@ -667,6 +678,7 @@ export interface FileRouteTypes {
     | '/onboarding/welcome'
     | '/packages_/browse'
     | '/settings/about'
+    | '/settings/activity-bar'
     | '/settings/agent'
     | '/settings/appearance'
     | '/settings/backup'
@@ -946,6 +958,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsAgentRouteImport
       parentRoute: typeof SettingsRouteRoute
     }
+    '/settings/activity-bar': {
+      id: '/settings/activity-bar'
+      path: '/activity-bar'
+      fullPath: '/settings/activity-bar'
+      preLoaderRoute: typeof SettingsActivityBarRouteImport
+      parentRoute: typeof SettingsRouteRoute
+    }
     '/settings/about': {
       id: '/settings/about'
       path: '/about'
@@ -1184,6 +1203,7 @@ const SessionsRouteRouteWithChildren = SessionsRouteRoute._addFileChildren(
 
 interface SettingsRouteRouteChildren {
   SettingsAboutRoute: typeof SettingsAboutRoute
+  SettingsActivityBarRoute: typeof SettingsActivityBarRoute
   SettingsAgentRoute: typeof SettingsAgentRoute
   SettingsAppearanceRoute: typeof SettingsAppearanceRoute
   SettingsBackupRoute: typeof SettingsBackupRoute
@@ -1199,6 +1219,7 @@ interface SettingsRouteRouteChildren {
 
 const SettingsRouteRouteChildren: SettingsRouteRouteChildren = {
   SettingsAboutRoute: SettingsAboutRoute,
+  SettingsActivityBarRoute: SettingsActivityBarRoute,
   SettingsAgentRoute: SettingsAgentRoute,
   SettingsAppearanceRoute: SettingsAppearanceRoute,
   SettingsBackupRoute: SettingsBackupRoute,
