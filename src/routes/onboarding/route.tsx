@@ -15,9 +15,15 @@ import { useShellStore, ONBOARDING_STEPS } from '@/lib/shell/shell-store';
 
 export const Route = createFileRoute('/onboarding')({
 	beforeLoad: ({ location }) => {
+		const state = useShellStore.getState();
+		// First-run finished? Don't let stale pane tabs or deep links drag the
+		// user back into the wizard. Edit-mode revisits keep working because
+		// `enterOnboardingEdit` flips `mode` to 'edit' first.
+		if (state.onboarding.mode === 'first_run' && state.onboarding.completedAt !== null) {
+			throw redirect({ to: '/' });
+		}
 		// `/onboarding` (no step) → route to the current active step.
 		if (location.pathname === '/onboarding' || location.pathname === '/onboarding/') {
-			const state = useShellStore.getState();
 			const idx = Math.min(Math.max(0, state.onboarding.activeIndex), ONBOARDING_STEPS.length - 1);
 			const activeId = ONBOARDING_STEPS[idx]!;
 			throw redirect({ to: `/onboarding/${activeId}` });
