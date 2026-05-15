@@ -54,8 +54,9 @@ use commands::{
 #[cfg(debug_assertions)]
 use commands::{bg_spike_reply, bg_spike_run, new_bg_spike_state};
 use commands::{
-    session_cancel, session_destroy, session_destroy_all, session_ensure, session_send,
-    pkg_trust_grant, pkg_trust_list, pkg_trust_preview, pkg_trust_revoke, session_tool_result,
+    pkg_permission_violations_clear, pkg_permission_violations_list, pkg_trust_grant,
+    pkg_trust_list, pkg_trust_preview, pkg_trust_revoke, session_cancel, session_destroy,
+    session_destroy_all, session_ensure, session_send, session_tool_result,
     supabase_config_clear, supabase_config_get, supabase_config_set,
     viewer_port, viewer_serve, viewer_stop, IykeRuntimeState, ScreenshotConfigState,
     ScreenshotConfigStateRef, ScreenshotPending, SecretsLock,
@@ -327,8 +328,9 @@ pub fn run() {
             // /__viewer/* to it in dev; tauri-plugin-localhost will route to
             // it in prod). Failure is non-fatal — html-frame surfaces it.
             let viewer_for_start = viewer_manager_for_start.clone();
+            let viewer_app_handle = app.handle().clone();
             if let Err(e) = tauri::async_runtime::block_on(async move {
-                viewer_for_start.start().await
+                viewer_for_start.start(&viewer_app_handle).await
             }) {
                 tracing::warn!("[viewer] start failed (continuing): {e:#}");
             }
@@ -615,6 +617,9 @@ pub fn run() {
             pkg_trust_preview,
             pkg_trust_grant,
             pkg_trust_revoke,
+            // runtime-ACL violations audit (2026-05-15)
+            pkg_permission_violations_list,
+            pkg_permission_violations_clear,
             // db
             db_query,
             db_exec,

@@ -218,12 +218,14 @@ impl SidecarSupervisor {
             }
         }
 
+        let shell_execute = pkg.manifest.permissions.shell_execute.clone();
         let supervised = Arc::new(SupervisedSidecar::new_with_app(
             pkg_id.clone(),
             server,
             install_path,
             self.app.clone(),
             self.pa_db.clone(),
+            shell_execute,
         ));
 
         {
@@ -414,12 +416,37 @@ pub struct SupervisedSidecar {
     /// crash picks up the new active id). `None` in unit tests; env
     /// injection becomes a no-op.
     pa_db: Option<Arc<crate::commands::db::PaDb>>,
+    /// Runtime-ACL phase (2026-05-15): the pkg's `permissions.shell_execute`
+    /// allowlist, snapshotted at construction. Consulted on every spawn
+    /// (`spawn_and_handshake` → `permissions_check::check_shell_execute`).
+    /// Empty allowlist + spawn attempt = denial + audit row + transition
+    /// to Crashed. The supervisor's existing 3-strikes-in-60s circuit
+    /// breaker still applies, so a misconfigured manifest parks instead
+    /// of looping forever.
+    shell_execute: Vec<String>,
 }
 
 impl SupervisedSidecar {
     #[cfg(test)]
     fn new(pkg_id: String, server: McpServer, install_path: PathBuf) -> Self {
-        Self::new_with_app(pkg_id, server, install_path, None, None)
+        // Test builder: default to a permissive allowlist matching the server
+        // command so existing tests aren't shell.execute-gated. Tests that
+        // exercise denial use `new_for_test` below.
+        let allow = vec![server.command.clone()];
+        Self::new_with_app(pkg_id, server, install_path, None, None, allow)
+    }
+
+    /// Test builder that lets the caller specify the shell.execute allowlist
+    /// directly — used by `permissions_check_denies_unauthorized_command`
+    /// and similar runtime-ACL tests.
+    #[cfg(test)]
+    fn new_with_shell_execute(
+        pkg_id: String,
+        server: McpServer,
+        install_path: PathBuf,
+        shell_execute: Vec<String>,
+    ) -> Self {
+        Self::new_with_app(pkg_id, server, install_path, None, None, shell_execute)
     }
 
     fn new_with_app(
@@ -428,6 +455,7 @@ impl SupervisedSidecar {
         install_path: PathBuf,
         app: Option<AppHandle>,
         pa_db: Option<Arc<crate::commands::db::PaDb>>,
+        shell_execute: Vec<String>,
     ) -> Self {
         Self {
             pkg_id,
@@ -441,6 +469,7 @@ impl SupervisedSidecar {
             blocked_signal: Arc::new(StdMutex::new(None)),
             app,
             pa_db,
+            shell_execute,
         }
     }
 
@@ -846,6 +875,49 @@ impl SupervisedSidecar {
     /// success. On any error the child is dropped (kill_on_drop reaps it)
     /// and Err is returned — caller handles the crash transition.
     async fn spawn_and_handshake(&self, crash_tx: oneshot::Sender<()>) -> Result<Child> {
+        // Runtime-ACL phase (2026-05-15): gate on the manifest's
+        // shell.execute allowlist before spawning. The check matches the
+        // pkg's *declared* command (`server.command`), not the resolved
+        // path: pkg authors author manifests in their terms ("bun"), and
+        // the kernel's resolution (e.g. bundled-bun lookup → absolute path)
+        // is an implementation detail that shouldn't leak into the trust
+        // surface. On deny, write an audit row (best-effort) and surface
+        // a shaped error — the supervisor caller turns it into a Crashed
+        // transition, which the 3-strikes circuit breaker will park.
+        if let Err(denial) =
+            crate::pkg::permissions_check::check_shell_execute(
+                &self.pkg_id,
+                &self.shell_execute,
+                &self.server.command,
+            )
+        {
+            log::warn!(
+                "[pkg_lifecycle] pkg `{}` blocked from spawning `{}` — \
+                 not in shell.execute allowlist (declared: `{}`)",
+                self.pkg_id,
+                self.server.command,
+                denial.declared
+            );
+            if let Some(db) = self.pa_db.as_ref() {
+                if let Ok(pool) = db.ensure_pool().await {
+                    if let Err(e) = crate::pkg::permissions_check::record_violation(
+                        &pool,
+                        "shell.execute",
+                        &denial,
+                    )
+                    .await
+                    {
+                        log::warn!("[pkg_lifecycle] audit record failed: {e:#}");
+                    }
+                }
+            }
+            return Err(anyhow!(
+                "shell.execute denied: pkg `{}` cannot spawn `{}`",
+                self.pkg_id,
+                self.server.command
+            ));
+        }
+
         let mut cmd = Command::new(crate::runtime::resolve_command(&self.server.command));
         cmd.args(&self.server.args);
         cmd.current_dir(&self.install_path);
@@ -1448,5 +1520,76 @@ mod tests {
             State::Spawning => {}
             other => panic!("expected Spawning after restart from Parked, got {other:?}"),
         }
+    }
+
+    /// Runtime-ACL phase: a supervisor whose pkg manifest declares an
+    /// empty `shell.execute` rejects spawn before touching the OS. The
+    /// caller in the supervisor loop turns the Err into a Crashed
+    /// transition via `note_crash_after_run`; here we exercise just the
+    /// gate to keep the test deterministic (the full supervisor loop
+    /// involves async tasks + tokio sleeps).
+    #[tokio::test]
+    async fn shell_execute_empty_allowlist_blocks_spawn() {
+        let sidecar = SupervisedSidecar::new_with_shell_execute(
+            "com.example.shellexec".into(),
+            McpServer {
+                name: "t".into(),
+                command: "/bin/true".into(),
+                args: vec![],
+                env: HashMap::new(),
+                lifecycle: Some("long-lived".into()),
+                restart_when_changed: vec![],
+                auto_restart: true,
+            },
+            PathBuf::from("/tmp"),
+            vec![], // empty allowlist
+        );
+        let (tx, _rx) = oneshot::channel::<()>();
+        let res = sidecar.spawn_and_handshake(tx).await;
+        let err = res.expect_err("expected shell.execute denial");
+        let msg = format!("{err:#}");
+        assert!(
+            msg.contains("shell.execute denied"),
+            "expected denial message, got: {msg}"
+        );
+        assert!(msg.contains("/bin/true"), "expected command in error: {msg}");
+    }
+
+    /// Runtime-ACL phase: glob entries match expected commands and reject
+    /// non-matching ones. Together with the empty-allowlist test this
+    /// exercises the full deny/allow surface that
+    /// `permissions_check::check_shell_execute` provides; per-perm match
+    /// semantics get their finer coverage in `permissions_check::tests`.
+    #[tokio::test]
+    async fn shell_execute_glob_allows_matching_command() {
+        let sidecar = SupervisedSidecar::new_with_shell_execute(
+            "com.example.shellexec".into(),
+            McpServer {
+                name: "t".into(),
+                command: "/bin/false".into(), // exits 1, but spawn itself succeeds
+                args: vec![],
+                env: HashMap::new(),
+                lifecycle: Some("long-lived".into()),
+                restart_when_changed: vec![],
+                auto_restart: true,
+            },
+            PathBuf::from("/tmp"),
+            vec!["/bin/*".into()],
+        );
+        let (tx, _rx) = oneshot::channel::<()>();
+        // The gate passes; spawn fails for a different reason (handshake
+        // timeout against /bin/false). We only assert the *gate* didn't
+        // produce the denial — any non-denial error means the check
+        // allowed the spawn.
+        let res = sidecar.spawn_and_handshake(tx).await;
+        if let Err(e) = res {
+            let msg = format!("{e:#}");
+            assert!(
+                !msg.contains("shell.execute denied"),
+                "gate must allow `/bin/false` matched by `/bin/*`, got denial: {msg}"
+            );
+        }
+        // Ok(...) is also acceptable on hosts where /bin/false somehow
+        // completes the MCP handshake (it won't, but don't assume).
     }
 }

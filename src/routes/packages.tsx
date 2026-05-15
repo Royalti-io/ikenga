@@ -6,6 +6,8 @@ import { useMemo, useState } from 'react';
 
 import {
 	pkgKernelStatus,
+	pkgPermissionViolationsClear,
+	pkgPermissionViolationsList,
 	pkgPreviewManifest,
 	pkgSetEnabled,
 	pkgSetScope,
@@ -15,6 +17,7 @@ import {
 	pkgUninstall,
 	type PkgInstalledSummary,
 	type PkgManifestPreview,
+	type PkgPermissionViolation,
 	type PkgScopeWire,
 	type PkgTrustEntry,
 } from '@/lib/tauri-cmd';
@@ -172,6 +175,30 @@ export function PackagesPage() {
 	// Open-Review dialog state. Holds the trust entry under review; null = closed.
 	const [reviewing, setReviewing] = useState<PkgTrustEntry | null>(null);
 
+	// Runtime-ACL violations audit. Cross-pkg list at the page level → per-pkg
+	// count map for the row badge. Rows are short-lived (each entry is one
+	// blocked spawn attempt), so refetching alongside `pkg` queries is fine.
+	const violations = useQuery({
+		queryKey: ['pkg', 'violations-list'],
+		queryFn: () => pkgPermissionViolationsList(undefined, 1000),
+		refetchOnWindowFocus: false,
+	});
+	const violationCountByPkg = useMemo(() => {
+		const out = new Map<string, number>();
+		for (const v of violations.data ?? []) {
+			out.set(v.pkg_id, (out.get(v.pkg_id) ?? 0) + 1);
+		}
+		return out;
+	}, [violations.data]);
+	const [reviewingViolations, setReviewingViolations] = useState<string | null>(null);
+	const clearViolationsMut = useMutation({
+		mutationFn: (pkgId: string) => pkgPermissionViolationsClear(pkgId),
+		onSuccess: async () => {
+			await qc.refetchQueries({ queryKey: ['pkg', 'violations-list'] });
+		},
+		onError: (e) => setError((e as Error).message ?? String(e)),
+	});
+
 	const installPaths = (status.data?.installed ?? []).map((p) => p.install_path);
 	const manifests = useQuery({
 		enabled: installPaths.length > 0,
@@ -322,6 +349,8 @@ export function PackagesPage() {
 							trustByPkg={trustByPkg}
 							onReviewTrust={setReviewing}
 							onRevokeTrust={(pkgId) => revokeMut.mutate(pkgId)}
+							violationCountByPkg={violationCountByPkg}
+							onReviewViolations={setReviewingViolations}
 						/>
 						<PkgGroup
 							title="Engine"
@@ -339,6 +368,8 @@ export function PackagesPage() {
 							trustByPkg={trustByPkg}
 							onReviewTrust={setReviewing}
 							onRevokeTrust={(pkgId) => revokeMut.mutate(pkgId)}
+							violationCountByPkg={violationCountByPkg}
+							onReviewViolations={setReviewingViolations}
 						/>
 						<PkgGroup
 							title="Installed"
@@ -356,6 +387,8 @@ export function PackagesPage() {
 							trustByPkg={trustByPkg}
 							onReviewTrust={setReviewing}
 							onRevokeTrust={(pkgId) => revokeMut.mutate(pkgId)}
+							violationCountByPkg={violationCountByPkg}
+							onReviewViolations={setReviewingViolations}
 						/>
 					</div>
 				</div>
@@ -371,6 +404,19 @@ export function PackagesPage() {
 						await grantMut.mutateAsync({ pkgId: t.pkg_id, version: t.version });
 					}}
 					busy={grantMut.isPending}
+				/>
+			)}
+
+			{reviewingViolations && (
+				<ViolationsReviewDialog
+					pkgId={reviewingViolations}
+					onClose={() => setReviewingViolations(null)}
+					onClear={async () => {
+						const id = reviewingViolations;
+						setReviewingViolations(null);
+						await clearViolationsMut.mutateAsync(id);
+					}}
+					busy={clearViolationsMut.isPending}
 				/>
 			)}
 		</div>
@@ -403,6 +449,8 @@ function PkgGroup({
 	trustByPkg,
 	onReviewTrust,
 	onRevokeTrust,
+	violationCountByPkg,
+	onReviewViolations,
 }: {
 	title: string;
 	tag: string;
@@ -419,6 +467,8 @@ function PkgGroup({
 	trustByPkg: Map<string, PkgTrustEntry>;
 	onReviewTrust: (entry: PkgTrustEntry) => void;
 	onRevokeTrust: (pkgId: string) => void;
+	violationCountByPkg: Map<string, number>;
+	onReviewViolations: (pkgId: string) => void;
 }) {
 	if (items.length === 0) return null;
 	return (
@@ -449,6 +499,8 @@ function PkgGroup({
 							trust={trustByPkg.get(row.installed.id) ?? null}
 							onReviewTrust={onReviewTrust}
 							onRevokeTrust={onRevokeTrust}
+							violationCount={violationCountByPkg.get(row.installed.id) ?? 0}
+							onReviewViolations={onReviewViolations}
 						/>
 					);
 				})}
@@ -469,6 +521,8 @@ function PkgRowItem({
 	trust,
 	onReviewTrust,
 	onRevokeTrust,
+	violationCount,
+	onReviewViolations,
 }: {
 	row: PkgRow;
 	busy: boolean;
@@ -481,6 +535,8 @@ function PkgRowItem({
 	trust: PkgTrustEntry | null;
 	onReviewTrust: (entry: PkgTrustEntry) => void;
 	onRevokeTrust: (pkgId: string) => void;
+	violationCount: number;
+	onReviewViolations: (pkgId: string) => void;
 }) {
 	const { installed, manifest, manifestError } = row;
 	const name = manifest?.name ?? installed.id;
@@ -548,6 +604,10 @@ function PkgRowItem({
 
 			<div className="flex shrink-0 items-center gap-3">
 				<TrustChip trust={trust} onReview={onReviewTrust} />
+				<ViolationsChip
+					count={violationCount}
+					onReview={() => onReviewViolations(installed.id)}
+				/>
 				<span
 					className="inline-flex min-w-[56px] items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider text-muted-foreground"
 					title={`scope: ${scope}`}
@@ -754,6 +814,115 @@ function PermsList({ perms }: { perms: PkgTrustEntry['perms'] }) {
 				</li>
 			))}
 		</ul>
+	);
+}
+
+// Runtime-ACL violations chip — neutral chrome (yellow, not red) because the
+// spawn that triggered the row was already denied. This is observability,
+// not an active security incident.
+function ViolationsChip({
+	count,
+	onReview,
+}: {
+	count: number;
+	onReview: () => void;
+}) {
+	if (count <= 0) return null;
+	const base =
+		'inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider transition-colors hover:opacity-90';
+	return (
+		<button
+			type="button"
+			onClick={onReview}
+			className={`${base} border border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-300`}
+			title="Permission violations recorded — click to review (denied spawns; no action required)"
+		>
+			{count} blocked
+		</button>
+	);
+}
+
+function ViolationsReviewDialog({
+	pkgId,
+	onClose,
+	onClear,
+	busy,
+}: {
+	pkgId: string;
+	onClose: () => void;
+	onClear: () => void | Promise<void>;
+	busy: boolean;
+}) {
+	const rows = useQuery({
+		queryKey: ['pkg', 'violations-list', pkgId],
+		queryFn: () => pkgPermissionViolationsList(pkgId, 100),
+	});
+	return (
+		<Dialog open onOpenChange={(open) => (!open ? onClose() : undefined)}>
+			<DialogContent className="sm:max-w-2xl">
+				<DialogHeader>
+					<DialogTitle>Permission violations — {pkgId}</DialogTitle>
+					<DialogDescription>
+						Each row is a kernel-level deny: the pkg attempted to spawn a binary that wasn’t in
+						its declared <code className="font-mono">shell.execute</code> allowlist. The spawn was
+						blocked; this log is for observability only.
+					</DialogDescription>
+				</DialogHeader>
+				<div className="max-h-[50vh] overflow-y-auto rounded border border-border">
+					{rows.isLoading && (
+						<p className="p-3 text-xs text-muted-foreground">Loading…</p>
+					)}
+					{rows.isError && (
+						<p className="p-3 text-xs text-red-700">
+							Could not load: {(rows.error as Error).message}
+						</p>
+					)}
+					{rows.data && rows.data.length === 0 && (
+						<p className="p-3 text-xs text-muted-foreground">No violations.</p>
+					)}
+					{rows.data && rows.data.length > 0 && (
+						<table className="w-full table-fixed text-[11.5px]">
+							<thead className="bg-[var(--bg-sunken)] text-left font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+								<tr>
+									<th className="w-1/4 px-3 py-2">When</th>
+									<th className="w-1/3 px-3 py-2">Attempted</th>
+									<th className="w-5/12 px-3 py-2">Declared</th>
+								</tr>
+							</thead>
+							<tbody className="divide-y divide-border font-mono">
+								{rows.data.map((v: PkgPermissionViolation) => (
+									<tr key={v.id}>
+										<td className="px-3 py-1.5 text-muted-foreground">
+											{new Date(v.occurred_at).toLocaleString()}
+										</td>
+										<td className="break-all px-3 py-1.5">{v.attempted}</td>
+										<td className="break-all px-3 py-1.5 text-muted-foreground">
+											{v.declared || <em className="not-italic opacity-60">empty</em>}
+										</td>
+									</tr>
+								))}
+							</tbody>
+						</table>
+					)}
+				</div>
+				<DialogFooter className="gap-2 sm:gap-2">
+					<Button
+						variant="outline"
+						onClick={onClose}
+						disabled={busy}
+					>
+						Close
+					</Button>
+					<Button
+						variant="destructive"
+						onClick={() => void onClear()}
+						disabled={busy || !rows.data || rows.data.length === 0}
+					>
+						{busy ? 'Clearing…' : 'Clear log'}
+					</Button>
+				</DialogFooter>
+			</DialogContent>
+		</Dialog>
 	);
 }
 

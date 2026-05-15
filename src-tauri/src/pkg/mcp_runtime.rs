@@ -45,13 +45,52 @@ const CALL_TIMEOUT: Duration = Duration::from_secs(5);
 /// `extra_env` is layered onto the child env BEFORE the manifest entries so
 /// a pkg can still override (e.g. set `PATH`); Phase 5 of projects-first-
 /// class threads `IKENGA_PROJECT_ID` + `IKENGA_PROJECT_ROOT` through here.
+///
+/// Runtime-ACL phase (2026-05-15): `pkg_id` + `shell_execute` are the
+/// pkg's identity and `permissions.shell_execute` allowlist. Spawn is
+/// gated against the allowlist via `permissions_check::check_shell_execute`
+/// and a denial writes a `pkg_permission_violations` audit row through the
+/// optional `audit_pool`. `audit_pool = None` skips the audit (used by
+/// callers that don't have a DB handy and accept best-effort behavior;
+/// the deny still fires).
 pub async fn call_tool(
     install_path: &Path,
     server: &McpServer,
     tool: &str,
     args: Value,
     extra_env: &HashMap<String, String>,
+    pkg_id: &str,
+    shell_execute: &[String],
+    audit_pool: Option<&sqlx::SqlitePool>,
 ) -> Result<Value> {
+    // Match against the manifest's *declared* command, not the resolved
+    // path — see lifecycle.rs::spawn_and_handshake for the rationale.
+    if let Err(denial) =
+        crate::pkg::permissions_check::check_shell_execute(pkg_id, shell_execute, &server.command)
+    {
+        log::warn!(
+            "[mcp_runtime] pkg `{pkg_id}` blocked from spawning `{}` — \
+             not in shell.execute allowlist (declared: `{}`)",
+            server.command,
+            denial.declared
+        );
+        if let Some(pool) = audit_pool {
+            if let Err(e) = crate::pkg::permissions_check::record_violation(
+                pool,
+                "shell.execute",
+                &denial,
+            )
+            .await
+            {
+                log::warn!("[mcp_runtime] audit record failed: {e:#}");
+            }
+        }
+        return Err(anyhow!(
+            "shell.execute denied: pkg `{pkg_id}` cannot spawn `{}`",
+            server.command
+        ));
+    }
+
     let mut cmd = Command::new(crate::runtime::resolve_command(&server.command));
     cmd.args(&server.args);
     cmd.current_dir(install_path);
@@ -213,4 +252,3 @@ pub fn pick_server<'a>(servers: &'a [McpServer], name: &str) -> Result<&'a McpSe
         .find(|s| s.name == name)
         .ok_or_else(|| anyhow!("no mcp server named `{name}`"))
 }
-

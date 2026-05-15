@@ -220,7 +220,21 @@ pub async fn pkg_mcp_call(
         // reflects the *current* active project (workspace pkgs) or its
         // own (project pkgs).
         let extra_env = build_pkg_env_overlay(&db, &pkg_id, &kernel.0, &app).await;
-        mcp_runtime::call_tool(&install_path, server, &tool, args, &extra_env).await
+        // Runtime-ACL phase: pass the pkg's shell.execute allowlist + a DB
+        // pool for audit. Pool is best-effort — if we can't acquire it,
+        // skip the audit and let the deny still fire.
+        let audit_pool = db.ensure_pool().await.ok();
+        mcp_runtime::call_tool(
+            &install_path,
+            server,
+            &tool,
+            args,
+            &extra_env,
+            &pkg_id,
+            &pkg.manifest.permissions.shell_execute,
+            audit_pool.as_ref(),
+        )
+        .await
     };
 
     match result {

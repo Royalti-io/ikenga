@@ -41,6 +41,7 @@ use super::handlers::{
 };
 use super::layout::{get_layout, post_layout_reset};
 use super::mcp::{get_mcp_list, post_mcp_restart};
+use super::permissions_audit::get_violations_list;
 use super::trust::{get_trust_list, get_trust_preview, post_trust_grant, post_trust_revoke};
 use super::secrets::{get_secret, get_secret_list, post_secret_delete, post_secret_set};
 use super::memory::{
@@ -177,6 +178,9 @@ pub async fn serve(
         .route("/iyke/trust/grant", post(post_trust_grant))
         .route("/iyke/trust/revoke", post(post_trust_revoke))
         .route("/iyke/trust/preview/:pkg_id", get(get_trust_preview))
+        // Runtime-ACL violations (2026-05-15). Read-only by design — clearing
+        // is a human action via Settings → Pkgs only.
+        .route("/iyke/violations/list", get(get_violations_list))
         .route("/iyke/layout/get", get(get_layout))
         .route("/iyke/layout/reset", post(post_layout_reset))
         .route("/iyke/secret/get", get(get_secret))

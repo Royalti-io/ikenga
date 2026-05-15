@@ -305,8 +305,18 @@ fn default_auto_restart() -> bool {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Permissions {
+    /// Glob patterns matched against the *declared* command of any kernel
+    /// spawn site (MCP servers via lifecycle.rs / mcp_runtime, future:
+    /// engine adapters). Authored in the pkg's terms — `"bun"`, `"claude"`,
+    /// `"/usr/local/bin/foo"`, `"pa-mypkg-*"`. The kernel's resolution
+    /// (e.g. bundled-bun lookup) doesn't change the matching surface; if
+    /// the manifest declares `"bun"`, the entry that needs to be in this
+    /// list is `"bun"`, regardless of where bun actually lives on disk.
+    /// Empty list = nothing may be spawned through the gated paths.
+    /// Enforced at runtime by `pkg::permissions_check::check_shell_execute`;
+    /// denials write `pkg_permission_violations` audit rows.
     #[serde(default, rename = "shell.execute")]
-    pub shell_execute: Vec<String>, // glob patterns under the package dir
+    pub shell_execute: Vec<String>,
 
     #[serde(default, rename = "fs.read")]
     pub fs_read: Vec<String>, // path globs (may use $pkg_data, $pkg_install, $home)

@@ -1408,6 +1408,42 @@ export async function pkgTrustRevoke(pkgId: string): Promise<void> {
 	await invoke<void>('pkg_trust_revoke', { pkgId });
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// Runtime-ACL violations audit (2026-05-15)
+// ─────────────────────────────────────────────────────────────────────────
+
+export interface PkgPermissionViolation {
+	id: number;
+	pkg_id: string;
+	scope_kind: string;
+	attempted: string;
+	declared: string;
+	occurred_at: number;
+}
+
+/**
+ * List permission-violation audit rows newest-first. `pkgId` filters to one
+ * pkg; omit for cross-pkg counts (the Settings overview badge). `limit`
+ * defaults to 100 and is hard-capped at 1000 server-side.
+ */
+export async function pkgPermissionViolationsList(
+	pkgId?: string,
+	limit?: number,
+): Promise<PkgPermissionViolation[]> {
+	return invoke<PkgPermissionViolation[]>('pkg_permission_violations_list', {
+		pkgId: pkgId ?? null,
+		limit: limit ?? null,
+	});
+}
+
+/**
+ * Delete the named pkg's audit rows. Audit-only — does not alter trust
+ * state or re-grant anything. Returns the number of rows removed.
+ */
+export async function pkgPermissionViolationsClear(pkgId: string): Promise<number> {
+	return invoke<number>('pkg_permission_violations_clear', { pkgId });
+}
+
 /**
  * Debug-only: pre-bind a port so the smoke route can verify the supervised
  * sidecar transitions to Blocked when its dev-server child sees EADDRINUSE.

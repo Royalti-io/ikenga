@@ -93,16 +93,38 @@ impl PermissionsRegistry {
             .replace("$home", &home);
 
         if expanded.contains('$') {
-            return Err(anyhow!("unresolved placeholder in `{raw}` (got `{expanded}`)"));
+            return Err(anyhow!(
+                "unresolved placeholder in `{raw}` (got `{expanded}`)"
+            ));
         }
         Ok(PathBuf::from(expanded))
     }
 
-    fn cap_id(&self, pkg: &Package, kind: &str, idx: usize) -> String {
-        // No dots: Tauri capability identifiers tolerate hyphens but multi-dot
-        // ids appeared to corrupt scope deserialization in 2.11. Spike used
-        // a single-dot id and worked; mimicking that shape.
-        format!("pkg-{}-{}-{idx}", pkg.slug(), kind.replace('.', "-"))
+    /// One capability per (kind, perm, path-index) tuple so each
+    /// `add_capability` call carries exactly one `permission_scoped`. The
+    /// 2026-05-04 EntryRaw regression reproduced when multiple
+    /// `permission_scoped` calls were chained on one builder; the dev-mode
+    /// spike (one perm per cap) is known-good. Mirror that.
+    ///
+    /// No dots: Tauri capability identifiers tolerate hyphens but multi-dot
+    /// ids appeared to corrupt scope deserialization in 2.11. Spike used a
+    /// single-dot id and worked; mimicking that shape.
+    fn cap_id_perm(&self, pkg: &Package, kind: &str, perm: &str, idx: usize) -> String {
+        // Drop the plugin prefix and `allow-` from the perm to keep ids short:
+        // `fs:allow-read-text-file` → `read-text-file`. Tauri identifiers don't
+        // permit `:`; keep this defensive even though `perm.replace(':', "-")`
+        // would also work.
+        let perm_short = perm
+            .split_once(':')
+            .map(|(_, rest)| rest)
+            .unwrap_or(perm)
+            .trim_start_matches("allow-");
+        format!(
+            "pkg-{}-{}-{}-{idx}",
+            pkg.slug(),
+            kind.replace('.', "-"),
+            perm_short
+        )
     }
 
     /// Persist a grant row. Errors are logged but not fatal — the in-memory
@@ -158,81 +180,89 @@ impl PermissionsRegistry {
     fn add_fs_read(&self, pkg: &Package, idx: usize, raw: &str) -> Result<GrantedScope> {
         let path = self.resolve_path(pkg, raw)?;
         let path_str = path.display().to_string();
-        let cap_id = self.cap_id(pkg, "fs.read", idx);
-        // Mirror the spike exactly: CapabilityBuilder + FsScopeEntry, one
-        // permission per cap. Multi-perm capabilities and JSON-string add
-        // both produced runtime EntryRaw deserialization corruption — root
-        // cause not yet isolated. Single-perm CapabilityBuilder is the
-        // proven-working shape.
-        let mut builder = CapabilityBuilder::new(&cap_id).window("main");
-        for perm in fs_read_permissions() {
-            builder = builder.permission_scoped(
-                *perm,
-                vec![FsScopeEntry { path: path_str.clone() }],
-                Vec::<FsScopeEntry>::new(),
-            );
-        }
-        self.app
-            .add_capability(builder)
-            .map_err(|e| anyhow!("add fs.read capability `{cap_id}`: {e}"))?;
+        // 2026-05-15 (runtime ACL phase): emit ONE capability per permission
+        // rather than chaining multiple `permission_scoped` calls onto one
+        // builder. The chained shape reproduced an EntryRaw deserialization
+        // regression that propagated across all in-process fs reads (see
+        // 2026-05-04 note in `fs_read_permissions`). The dev-mode spike
+        // (`commands/spike.rs`) grants one perm per cap and works cleanly;
+        // mirror that exactly.
+        let cap_ids = self.add_fs_capabilities(
+            pkg,
+            "fs.read",
+            idx,
+            &path_str,
+            fs_read_permissions(),
+        )?;
         Ok(GrantedScope {
             pkg_id: pkg.manifest.id.clone(),
             scope_kind: "fs.read".into(),
             scope_value: path_str,
-            capability_id: cap_id,
+            capability_id: cap_ids,
         })
     }
 
     fn add_fs_write(&self, pkg: &Package, idx: usize, raw: &str) -> Result<GrantedScope> {
         let path = self.resolve_path(pkg, raw)?;
         let path_str = path.display().to_string();
-        let cap_id = self.cap_id(pkg, "fs.write", idx);
-        let mut builder = CapabilityBuilder::new(&cap_id).window("main");
-        for perm in fs_write_permissions() {
-            builder = builder.permission_scoped(
-                *perm,
-                vec![FsScopeEntry { path: path_str.clone() }],
-                Vec::<FsScopeEntry>::new(),
-            );
-        }
-        self.app
-            .add_capability(builder)
-            .map_err(|e| anyhow!("add fs.write capability `{cap_id}`: {e}"))?;
+        let cap_ids = self.add_fs_capabilities(
+            pkg,
+            "fs.write",
+            idx,
+            &path_str,
+            fs_write_permissions(),
+        )?;
         Ok(GrantedScope {
             pkg_id: pkg.manifest.id.clone(),
             scope_kind: "fs.write".into(),
             scope_value: path_str,
-            capability_id: cap_id,
+            capability_id: cap_ids,
         })
     }
 
-    fn add_shell_execute(&self, pkg: &Package, idx: usize, name: &str) -> Result<GrantedScope> {
-        // Shell-scope is per-command-name, not per-path. We expect the value
-        // here to be a sidecar name from `pkg.sidecars[].name`.
-        #[derive(Serialize)]
-        struct ShellScopeEntry {
-            name: String,
-            sidecar: bool,
+    /// Add one capability per permission, all scoped to the same path. Returns
+    /// a comma-joined list of the resulting capability identifiers (recorded
+    /// in `GrantedScope.capability_id` for audit). Bails on the first failed
+    /// `add_capability`; preceding caps remain in the runtime authority
+    /// (Tauri 2.11 has no remove counterpart, same caveat as the file
+    /// header). Caller is expected to have validated all paths first via
+    /// `resolve_path` so the only realistic failure here is a Tauri-internal
+    /// resolve error.
+    fn add_fs_capabilities(
+        &self,
+        pkg: &Package,
+        kind: &str,
+        idx: usize,
+        path_str: &str,
+        perms: &[&str],
+    ) -> Result<String> {
+        let mut cap_ids: Vec<String> = Vec::with_capacity(perms.len());
+        for perm in perms {
+            let cap_id = self.cap_id_perm(pkg, kind, perm, idx);
+            let builder = CapabilityBuilder::new(&cap_id)
+                .window("main")
+                .permission_scoped(
+                    *perm,
+                    vec![FsScopeEntry {
+                        path: path_str.to_string(),
+                    }],
+                    Vec::<FsScopeEntry>::new(),
+                );
+            self.app
+                .add_capability(builder)
+                .map_err(|e| anyhow!("add `{perm}` capability `{cap_id}`: {e}"))?;
+            cap_ids.push(cap_id);
         }
-        let cap_id = self.cap_id(pkg, "shell.execute", idx);
-        let entry = ShellScopeEntry { name: name.into(), sidecar: true };
-        let builder = CapabilityBuilder::new(&cap_id)
-            .window("main")
-            .permission_scoped(
-                "shell:allow-spawn",
-                vec![entry],
-                Vec::<ShellScopeEntry>::new(),
-            );
-        self.app
-            .add_capability(builder)
-            .map_err(|e| anyhow!("add shell.execute capability `{cap_id}`: {e}"))?;
-        Ok(GrantedScope {
-            pkg_id: pkg.manifest.id.clone(),
-            scope_kind: "shell.execute".into(),
-            scope_value: name.into(),
-            capability_id: cap_id,
-        })
+        Ok(cap_ids.join(","))
     }
+
+    // shell.execute enforcement is intentionally not done via Tauri ACL.
+    // Kernel-driven sidecar spawns (`pkg::lifecycle::SidecarSupervisor::spawn`,
+    // `pkg::mcp_runtime::call_tool`) bypass `tauri-plugin-shell` and use
+    // `tokio::process::Command` directly, so a `shell:allow-spawn` grant
+    // wouldn't gate them. Enforcement lives in `pkg::permissions_check`
+    // (Phase 2 of `2026-05-15-runtime-acl-enforcement`); the manifest's
+    // declared `shell.execute` allowlist is the source of truth there.
 }
 
 impl Registry for PermissionsRegistry {
@@ -242,10 +272,7 @@ impl Registry for PermissionsRegistry {
 
     fn register(&self, pkg: &Package) -> Result<()> {
         let perms = &pkg.manifest.permissions;
-        if perms.fs_read.is_empty()
-            && perms.fs_write.is_empty()
-            && perms.shell_execute.is_empty()
-        {
+        if perms.fs_read.is_empty() && perms.fs_write.is_empty() && perms.shell_execute.is_empty() {
             return Ok(());
         }
 
@@ -254,29 +281,23 @@ impl Registry for PermissionsRegistry {
         // can't undo — validate before granting.
         let mut grants: Vec<GrantedScope> = Vec::new();
         for (i, raw) in perms.fs_read.iter().enumerate() {
-            grants.push(self.add_fs_read(pkg, i, raw).with_context(|| {
-                format!("pkg `{}` fs.read[{i}] = `{raw}`", pkg.manifest.id)
-            })?);
+            grants
+                .push(self.add_fs_read(pkg, i, raw).with_context(|| {
+                    format!("pkg `{}` fs.read[{i}] = `{raw}`", pkg.manifest.id)
+                })?);
         }
         for (i, raw) in perms.fs_write.iter().enumerate() {
-            grants.push(self.add_fs_write(pkg, i, raw).with_context(|| {
-                format!("pkg `{}` fs.write[{i}] = `{raw}`", pkg.manifest.id)
-            })?);
-        }
-        // shell.execute adds disabled — adding a scoped shell:allow-spawn
-        // via add_capability triggers cross-plugin scope deserialization
-        // failures (plugin-fs's EntryRaw deserialization breaks when shell
-        // scopes are present in the runtime ACL). Sidecars from packages
-        // already get spawn rights via the default.json's broad
-        // `shell:allow-spawn`; tightening that to per-package later, once
-        // the shell-scope shape is properly characterised.
-        if !perms.shell_execute.is_empty() {
-            log::warn!(
-                "[pkg.permissions] pkg `{}` declares shell.execute scopes — \
-                 not enforced yet (rely on default broad shell:allow-spawn)",
-                pkg.manifest.id
+            grants.push(
+                self.add_fs_write(pkg, i, raw).with_context(|| {
+                    format!("pkg `{}` fs.write[{i}] = `{raw}`", pkg.manifest.id)
+                })?,
             );
         }
+        // shell.execute is enforced at kernel spawn sites
+        // (`pkg::permissions_check`), not via Tauri ACL — see header comment
+        // on `add_shell_execute`'s removal site for why. The allowlist is
+        // read directly from `pkg.manifest.permissions.shell_execute` at
+        // spawn time, so nothing to do here at register time.
 
         // Persist + record in-memory.
         for g in &grants {
@@ -306,7 +327,10 @@ impl Registry for PermissionsRegistry {
         };
         let entries: Vec<Value> = map
             .values()
-            .flat_map(|v| v.iter().map(|g| serde_json::to_value(g).unwrap_or(json!(null))))
+            .flat_map(|v| {
+                v.iter()
+                    .map(|g| serde_json::to_value(g).unwrap_or(json!(null)))
+            })
             .collect();
         json!({
             "count": entries.len(),
@@ -320,16 +344,16 @@ impl Registry for PermissionsRegistry {
 /// Listing every variant is intentional — without `fs:allow-read-text-file`
 /// JS-side `readTextFile` fails with the long-permission-list error, even
 /// though `fs:allow-read-file` is granted. Spike caught this on day one.
+///
+/// 2026-05-15: both variants restored after the runtime-ACL phase split
+/// each entry into one-capability-per-permission (see `add_fs_capabilities`).
+/// The 2026-05-04 EntryRaw regression was triggered by chaining multiple
+/// `permission_scoped` calls on a single builder, not by listing both
+/// permissions per se.
 fn fs_read_permissions() -> &'static [&'static str] {
-    // 2026-05-04: down to one permission while debugging a runtime
-    // EntryRaw deserialization error that propagates across all fs reads
-    // in-process once the perms registry adds a capability. Spike grants
-    // the same single permission via CapabilityBuilder and works fine; the
-    // registry's path is materially different in some way still being
-    // identified. Adding `fs:allow-read-file` (binary) back once stable.
-    &["fs:allow-read-text-file"]
+    &["fs:allow-read-text-file", "fs:allow-read-file"]
 }
 
 fn fs_write_permissions() -> &'static [&'static str] {
-    &["fs:allow-write-text-file"]
+    &["fs:allow-write-text-file", "fs:allow-write-file"]
 }
