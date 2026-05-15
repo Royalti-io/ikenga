@@ -1,6 +1,6 @@
 //! Phase 9 — `restart_when_changed` file-watcher subsystem.
 //!
-//! Wraps `notify::RecommendedWatcher` with a manual 250 ms debounce so
+//! Wraps `notify-debouncer-mini` (notify's official 250 ms debouncer) so
 //! editor saves that fire several events in quick succession only trigger
 //! one restart. Glob matching uses the `glob` crate (which supports `**`,
 //! unlike `commands::secrets::glob_match` which is intentionally minimal
@@ -9,8 +9,8 @@
 //! Lifetime: one watcher task per Running cycle of a supervised pkg. The
 //! supervisor spawns it after handshake-success and drops the cancel
 //! sender on cycle exit (clean exit, crash, shutdown). Dropping the cancel
-//! sender closes the channel; the watcher task observes that and tears
-//! down the underlying `notify` watcher.
+//! sender closes the channel; the watcher task observes that and drops
+//! the underlying `Debouncer`, which stops its worker thread.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -18,9 +18,9 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use glob::Pattern;
-use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::RecursiveMode;
+use notify_debouncer_mini::{new_debouncer, DebounceEventResult};
 use tokio::sync::mpsc;
-use tokio::time::{sleep, Instant};
 
 const DEBOUNCE_WINDOW: Duration = Duration::from_millis(250);
 
@@ -53,70 +53,42 @@ where
         return Ok(WatcherHandle::noop());
     }
 
-    let (event_tx, event_rx) = std::sync::mpsc::channel::<notify::Result<Event>>();
-    let mut watcher = RecommendedWatcher::new(
-        move |res| {
-            // notify's callback runs on its own thread; forward to the
-            // bounded sync channel that the async task drains.
-            let _ = event_tx.send(res);
-        },
-        notify::Config::default(),
-    )
-    .context("create RecommendedWatcher")?;
-    watcher
+    let on_change = Arc::new(on_change);
+    let patterns_for_cb = patterns.clone();
+    let install_for_cb = install_path.clone();
+    let on_change_for_cb = on_change.clone();
+
+    let mut debouncer = new_debouncer(DEBOUNCE_WINDOW, move |res: DebounceEventResult| {
+        let events = match res {
+            Ok(events) => events,
+            Err(_) => return,
+        };
+        // DebouncedEvent.path is a single PathBuf — wrap as a one-elem slice
+        // so matches_any keeps its existing &[PathBuf] signature + tests.
+        for ev in events {
+            if matches_any(std::slice::from_ref(&ev.path), &install_for_cb, &patterns_for_cb) {
+                (on_change_for_cb)();
+                break;
+            }
+        }
+    })
+    .context("create notify debouncer")?;
+    debouncer
+        .watcher()
         .watch(&install_path, RecursiveMode::Recursive)
         .with_context(|| format!("watch {}", install_path.display()))?;
 
     let (cancel_tx, mut cancel_rx) = mpsc::channel::<()>(1);
     let install_for_task = install_path.clone();
-    let on_change = Arc::new(on_change);
 
     tauri::async_runtime::spawn(async move {
-        // Hold ownership of the watcher so it lives for the task's lifetime.
-        let _keep_alive_watcher = watcher;
-        let mut last_fire: Option<Instant> = None;
-        let mut pending_fire: Option<Instant> = None;
-
-        loop {
-            tokio::select! {
-                _ = cancel_rx.recv() => {
-                    log::debug!(
-                        "[pkg_lifecycle.watcher] {} torn down",
-                        install_for_task.display()
-                    );
-                    return;
-                }
-                _ = sleep(Duration::from_millis(50)) => {
-                    // Drain any queued notify events (non-blocking).
-                    let mut matched_any = false;
-                    while let Ok(res) = event_rx.try_recv() {
-                        let Ok(event) = res else { continue };
-                        if matches_any(&event.paths, &install_for_task, &patterns) {
-                            matched_any = true;
-                        }
-                    }
-                    if matched_any {
-                        pending_fire = Some(Instant::now());
-                    }
-                    if let Some(at) = pending_fire {
-                        if at.elapsed() >= DEBOUNCE_WINDOW {
-                            // Coalesce: skip if we just fired inside the
-                            // debounce window (notify can re-emit).
-                            let should_fire = match last_fire {
-                                Some(prev) => prev.elapsed() >= DEBOUNCE_WINDOW,
-                                None => true,
-                            };
-                            if should_fire {
-                                last_fire = Some(Instant::now());
-                                let cb = on_change.clone();
-                                cb();
-                            }
-                            pending_fire = None;
-                        }
-                    }
-                }
-            }
-        }
+        // Hold the debouncer for the task's lifetime; drop ends the worker.
+        let _keep_alive = debouncer;
+        let _ = cancel_rx.recv().await;
+        log::debug!(
+            "[pkg_lifecycle.watcher] {} torn down",
+            install_for_task.display()
+        );
     });
 
     Ok(WatcherHandle {

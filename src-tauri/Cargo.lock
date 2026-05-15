@@ -2969,6 +2969,7 @@ dependencies = [
  "log",
  "mime_guess",
  "notify",
+ "notify-debouncer-mini",
  "objc2 0.5.2",
  "objc2-foundation 0.2.2",
  "portable-pty",
@@ -3925,6 +3926,16 @@ dependencies = [
  "mio 0.8.11",
  "walkdir",
  "windows-sys 0.48.0",
+]
+
+[[package]]
+name = "notify-debouncer-mini"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5d40b221972a1fc5ef4d858a2f671fb34c75983eb385463dff3780eeff6a9d43"
+dependencies = [
+ "log",
+ "notify",
 ]
 
 [[package]]
