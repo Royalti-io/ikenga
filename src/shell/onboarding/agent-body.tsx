@@ -457,17 +457,29 @@ interface EngineCardProps {
 
 function EngineCard({ meta, entry, selected, onSelect, onOpenDocs }: EngineCardProps) {
 	const interactive = entry.status === 'detected';
+	// `div role="button"` (not a real <button>) so the "Docs →" affordance can
+	// nest inside — the HTML spec and React forbid <button> inside <button>.
+	const handleKey = (e: React.KeyboardEvent<HTMLDivElement>) => {
+		if (!interactive) return;
+		if (e.key === 'Enter' || e.key === ' ') {
+			e.preventDefault();
+			onSelect();
+		}
+	};
 	return (
-		<button
-			type="button"
-			onClick={onSelect}
-			disabled={!interactive}
+		<div
+			role="button"
+			tabIndex={interactive ? 0 : -1}
+			aria-disabled={!interactive}
+			aria-pressed={selected}
+			onClick={interactive ? onSelect : undefined}
+			onKeyDown={handleKey}
 			className={cn(
 				'relative rounded-lg border p-5 text-left transition-colors',
 				selected
 					? 'shadow-sm'
 					: interactive
-						? 'hover:border-[var(--border-strong)]'
+						? 'hover:border-[var(--border-strong)] cursor-pointer'
 						: 'cursor-not-allowed'
 			)}
 			style={{
@@ -560,7 +572,7 @@ function EngineCard({ meta, entry, selected, onSelect, onOpenDocs }: EngineCardP
 					{meta.installCmd}
 				</div>
 			)}
-		</button>
+		</div>
 	);
 }
 
