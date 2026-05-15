@@ -70,9 +70,12 @@ export async function ptyListen(
 
 // ─── FS ───────────────────────────────────────────────────────────────────────
 //
-// Scoped to allowlisted dirs (~/royalti-co, ~/.claude, ~/.company). Goes
-// through the Rust side rather than tauri-plugin-fs directly so we can layer
-// extra permission checks + mime detection.
+// Main-window plugin-fs is intentionally empty-scoped — `capabilities/default.json`
+// lists the fs:* perm identifiers with empty allow arrays so no static main-window
+// fs grant exists. All app fs goes through the Rust commands below (fsRead, fsList,
+// etc.), which enforce a user-configured allowlist via `fs_roots::FsRoots` (Settings
+// → Storage → File roots). Per-pkg fs is granted dynamically by the perms registry's
+// `add_capability` at install time, independent of this file.
 
 export interface FileEntry {
 	path: string;
