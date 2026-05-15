@@ -428,7 +428,7 @@ pub fn run() {
             app.manage(WebviewPanesState(webview_panes_reg));
 
             // Phase 2 (projects-first-class): subscribe to
-            // `projects.active-changed` and reconcile pkg liveness on
+            // `projects:active-changed` and reconcile pkg liveness on
             // every switch. Debounced 250ms because rapid ⌘P spamming
             // through the picker emits one event per step.
             {
@@ -438,7 +438,7 @@ pub fn run() {
                 let pa_db_for_listener = pa_db.clone();
                 let debounce_token: Arc<std::sync::atomic::AtomicU64> =
                     Arc::new(std::sync::atomic::AtomicU64::new(0));
-                app_for_listener.clone().listen("projects.active-changed", move |evt| {
+                app_for_listener.clone().listen("projects:active-changed", move |evt| {
                     // Pull `id` out of the payload.
                     let active = serde_json::from_str::<serde_json::Value>(evt.payload())
                         .ok()
@@ -477,7 +477,7 @@ pub fn run() {
                 let app_for_secrets = app.handle().clone();
                 app_for_secrets
                     .clone()
-                    .listen("projects.active-changed", move |_evt| {
+                    .listen("projects:active-changed", move |_evt| {
                         let app_for_dump = app_for_secrets.clone();
                         std::thread::spawn(move || {
                             match commands::secrets::dump_to_runtime_file(&app_for_dump) {

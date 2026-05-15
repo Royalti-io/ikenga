@@ -111,7 +111,7 @@ pub async fn post_project_set_active(
     set_active_project_id(&pool, &body.id)
         .await
         .map_err(map_err)?;
-    let _ = app.emit("projects.active-changed", json!({ "id": body.id }));
+    let _ = app.emit("projects:active-changed", json!({ "id": body.id }));
     Ok(Json(json!({ "ok": true, "id": body.id })))
 }
 

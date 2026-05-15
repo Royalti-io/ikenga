@@ -5,7 +5,7 @@
 //!
 //! The active project id lives in `settings_kv` at key
 //! `shell.activeProjectId`. `project_set_active` writes that row and
-//! emits a Tauri event `projects.active-changed` so the frontend can
+//! emits a Tauri event `projects:active-changed` so the frontend can
 //! invalidate `project-scoped` TanStack queries.
 //!
 //! Slug validation: `^[a-z0-9][a-z0-9_-]{0,63}$`. The reserved id
@@ -591,7 +591,7 @@ pub async fn project_set_active(
 ) -> Result<(), String> {
     let pool = db.ensure_pool().await?;
     set_active_project_id(&pool, &id).await?;
-    let _ = app.emit("projects.active-changed", serde_json::json!({ "id": id }));
+    let _ = app.emit("projects:active-changed", serde_json::json!({ "id": id }));
     Ok(())
 }
 

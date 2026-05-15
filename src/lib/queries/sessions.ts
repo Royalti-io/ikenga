@@ -36,7 +36,7 @@ export function sessionsListQueryOptions(projectDir?: string | null, limit?: num
  * surface for "all sessions Claude has ever seen on this machine"; the
  * thread view is the canonical "what threads belong to this project".
  *
- * Key prefix `project-scoped` so a `projects.active-changed` listener
+ * Key prefix `project-scoped` so a `projects:active-changed` listener
  * can invalidate every project-scoped query in one shot.
  */
 export function chatThreadsByProjectQueryOptions(

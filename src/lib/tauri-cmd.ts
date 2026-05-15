@@ -2055,7 +2055,7 @@ export async function scaffoldAgentConfig(
 // memory, etc. Migration 0015 introduces the `projects` + `project_settings`
 // tables; a Default project ships in the seed and cannot be archived. The
 // active project id is mirrored in `settings_kv` under `shell.activeProjectId`
-// (Rust-owned). Switches emit a Tauri event `projects.active-changed` so
+// (Rust-owned). Switches emit a Tauri event `projects:active-changed` so
 // project-scoped queries can invalidate.
 //
 // Wire format mirrors `src-tauri/src/commands/projects.rs` exactly: snake_case
@@ -2124,13 +2124,16 @@ export async function projectGetActive(): Promise<Project> {
 	return invoke<Project>('project_get_active');
 }
 
-/** Subscribe to project-switch events. The Rust side emits `projects.active-changed`
+/** Subscribe to project-switch events. The Rust side emits `projects:active-changed`
  *  with `{ id }` payload whenever `project_set_active` succeeds. Consumers
- *  typically just call `queryClient.invalidateQueries({ queryKey: ['project-scoped'] })`. */
+ *  typically just call `queryClient.invalidateQueries({ queryKey: ['project-scoped'] })`.
+ *
+ *  Tauri 2.11+ enforces event-name validation: dots aren't allowed in names
+ *  (`IllegalEventName`), so the canonical separator here is `:`. */
 export async function projectListenActiveChanged(
 	callback: (payload: { id: string }) => void
 ): Promise<UnlistenFn> {
-	return listen<{ id: string }>('projects.active-changed', (e) => callback(e.payload));
+	return listen<{ id: string }>('projects:active-changed', (e) => callback(e.payload));
 }
 
 // ─── Phase 0.5 background-execution spike (debug-only) ────────────────────────

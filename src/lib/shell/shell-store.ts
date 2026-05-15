@@ -244,7 +244,7 @@ interface ShellState {
 	projects: Project[];
 	activeProjectId: string;
 	/** Switch the active project. Updates Rust side first, then refreshes
-	 *  the local list. The Rust emit of `projects.active-changed` is what
+	 *  the local list. The Rust emit of `projects:active-changed` is what
 	 *  drives TanStack invalidation in the workspace-level listener. */
 	setActiveProject: (id: string) => Promise<void>;
 	/** Pull the project list + active project id from Rust. Safe to call
@@ -582,7 +582,7 @@ export const useShellStore = create<ShellState>()(
 			setActiveProject: async (id: string) => {
 				// Optimistic local update so the activity-bar indicator and
 				// any indicator-derived UI flip instantly. Rust emits the
-				// `projects.active-changed` event which the workspace-level
+				// `projects:active-changed` event which the workspace-level
 				// listener uses to invalidate project-scoped queries.
 				const prev = get().activeProjectId;
 				if (prev === id) return;

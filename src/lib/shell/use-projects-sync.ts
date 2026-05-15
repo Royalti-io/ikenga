@@ -1,5 +1,5 @@
 // Phase 0 project-switch subscriber. Listens for the Rust-side
-// `projects.active-changed` Tauri event and:
+// `projects:active-changed` Tauri event and:
 //
 //   1. Invalidates every TanStack Query whose key starts with
 //      `'project-scoped'`. Phase 0 doesn't define those queries yet — this
