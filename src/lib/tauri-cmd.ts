@@ -2429,3 +2429,122 @@ export async function listenPinRouted(
 ): Promise<UnlistenFn> {
 	return listen<PinRoutedEvent>('pin://routed', (e) => handler(e.payload));
 }
+
+// ─── Artifact-studio chat threads (unified Studio, D3) ────────────────────
+//
+// See plans/shell/2026-05-16-artifact-studio-unified.md §"Chat thread model".
+// One thread per folder; the scope chip (folder · artifact · element · compare)
+// travels with each message rather than forking the thread. Schema in
+// migration 0023.
+
+export type StudioRole = 'user' | 'claude' | 'tool';
+
+export type StudioScopeKind = 'folder' | 'artifact' | 'element' | 'compare';
+
+/** Shape stored in `scopeChipJson`. The backend doesn't introspect this — the
+ *  renderer parses and falls back gracefully on unknown kinds. New scope
+ *  kinds can ship without a migration. */
+export type StudioScopeChip =
+	| { kind: 'folder'; target: string }
+	| { kind: 'artifact'; target: string }
+	| {
+			kind: 'element';
+			target: string;
+			selector: string;
+			pinId?: number | null;
+	  }
+	| {
+			kind: 'compare';
+			target: string;
+			left: string;
+			right: string;
+	  };
+
+export interface StudioThread {
+	id: string;
+	folderPath: string;
+	createdAt: number;
+	lastMessageAt: number;
+}
+
+export interface StudioMessage {
+	id: number;
+	threadId: string;
+	role: StudioRole;
+	contentMd: string;
+	/** Raw JSON string (server-side opaque). Use `parseStudioScopeChip` to read. */
+	scopeChipJson: string | null;
+	createdAt: number;
+}
+
+/** Idempotent: returns the existing thread for this folder, or creates a new
+ *  one. Call on Studio pane mount. */
+export async function studioThreadGetOrCreate(folderPath: string): Promise<StudioThread> {
+	return invoke<StudioThread>('studio_thread_get_or_create', { folderPath });
+}
+
+export async function studioThreadGet(id: string): Promise<StudioThread> {
+	return invoke<StudioThread>('studio_thread_get', { id });
+}
+
+/** Recently-active threads, sorted by `lastMessageAt` desc. Default limit 50,
+ *  clamped server-side to [1, 500]. */
+export async function studioThreadListRecent(limit?: number): Promise<StudioThread[]> {
+	return invoke<StudioThread[]>('studio_thread_list_recent', {
+		limit: limit ?? null,
+	});
+}
+
+/** Hard delete a thread and all its messages (cascade). No undo. Confirm
+ *  before calling. */
+export async function studioThreadDelete(id: string): Promise<void> {
+	return invoke('studio_thread_delete', { id });
+}
+
+export async function studioMessageAppend(args: {
+	threadId: string;
+	role: StudioRole;
+	contentMd: string;
+	scopeChip?: StudioScopeChip | null;
+}): Promise<StudioMessage> {
+	return invoke<StudioMessage>('studio_message_append', {
+		threadId: args.threadId,
+		role: args.role,
+		contentMd: args.contentMd,
+		scopeChipJson: args.scopeChip ? JSON.stringify(args.scopeChip) : null,
+	});
+}
+
+/** List messages in a thread, oldest first. `beforeCreatedAt` pages backwards
+ *  for scroll-up history. Default limit 500, clamped to [1, 2000]. */
+export async function studioMessageList(args: {
+	threadId: string;
+	limit?: number;
+	beforeCreatedAt?: number;
+}): Promise<StudioMessage[]> {
+	return invoke<StudioMessage[]>('studio_message_list', {
+		threadId: args.threadId,
+		limit: args.limit ?? null,
+		beforeCreatedAt: args.beforeCreatedAt ?? null,
+	});
+}
+
+/** Best-effort parse of `scopeChipJson`. Returns null on missing/invalid JSON
+ *  or unknown `kind`. Caller decides how to render the fallback. */
+export function parseStudioScopeChip(json: string | null): StudioScopeChip | null {
+	if (!json) return null;
+	try {
+		const parsed = JSON.parse(json) as { kind?: string };
+		switch (parsed.kind) {
+			case 'folder':
+			case 'artifact':
+			case 'element':
+			case 'compare':
+				return parsed as StudioScopeChip;
+			default:
+				return null;
+		}
+	} catch {
+		return null;
+	}
+}

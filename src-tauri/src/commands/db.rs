@@ -198,6 +198,11 @@ async fn ensure_schema(pool: &sqlx::SqlitePool) -> Result<(), String> {
             "0022_artifact_comments",
             include_str!("../../migrations/0022_artifact_comments.sql"),
         ),
+        (
+            23,
+            "0023_studio_threads",
+            include_str!("../../migrations/0023_studio_threads.sql"),
+        ),
     ];
 
     for (id, name, sql) in migrations {

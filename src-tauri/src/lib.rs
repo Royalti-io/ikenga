@@ -51,8 +51,10 @@ use commands::{
     secrets_delete_scoped, secrets_get, secrets_get_scoped, secrets_list_keys,
     secrets_list_keys_scoped, secrets_set, secrets_set_scoped, secrets_vault_status, set_dock_badge,
     settings_clear_all, settings_get, settings_get_all, settings_set, spike_grant_fs_read,
-    spike_setup_test_file, KernelState, PkgContentState, PkgSettingsState, SidecarSupervisorState,
-    SidecarsRegistryState, WebviewPanesState,
+    spike_setup_test_file, studio_message_append, studio_message_list, studio_thread_delete,
+    studio_thread_get, studio_thread_get_or_create, studio_thread_list_recent, KernelState,
+    PkgContentState, PkgSettingsState, SidecarSupervisorState, SidecarsRegistryState,
+    WebviewPanesState,
 };
 #[cfg(debug_assertions)]
 use commands::{bg_spike_reply, bg_spike_run, new_bg_spike_state};
@@ -754,6 +756,13 @@ pub fn run() {
             comment_delete,
             comment_route,
             pin_screenshot_write,
+            // artifact-studio chat threads (one per folder, D3)
+            studio_thread_get_or_create,
+            studio_thread_get,
+            studio_thread_list_recent,
+            studio_thread_delete,
+            studio_message_append,
+            studio_message_list,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

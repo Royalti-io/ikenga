@@ -30,6 +30,7 @@ pub mod screenshot;
 pub mod secrets;
 pub mod settings_kv;
 pub mod spike;
+pub mod studio_threads;
 pub mod supabase_config;
 pub mod trust;
 pub mod viewer;
@@ -103,6 +104,10 @@ pub use secrets::{
 };
 pub use settings_kv::{settings_clear_all, settings_get, settings_get_all, settings_set};
 pub use spike::{spike_grant_fs_read, spike_setup_test_file};
+pub use studio_threads::{
+    studio_message_append, studio_message_list, studio_thread_delete, studio_thread_get,
+    studio_thread_get_or_create, studio_thread_list_recent,
+};
 pub use supabase_config::{supabase_config_clear, supabase_config_get, supabase_config_set};
 pub use permissions_audit::{
     pkg_permission_violations_clear, pkg_permission_violations_list,
