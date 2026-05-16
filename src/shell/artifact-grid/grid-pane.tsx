@@ -179,9 +179,21 @@ export function ArtifactGridPane({ path, paneId }: GridPaneProps) {
 
 	// Always fetch all pins; we filter in memory so both segment counts
 	// (Open · All) derive from a single source of truth.
+	//
+	// `comment_list` only supports an exact artifactPath match; the grid is
+	// a *folder* view, so we fetch global and prefix-filter here. Anything
+	// inside `path/` belongs to this grid (covers both top-level artifacts
+	// and variant subfolders, since pins for variants live at their absolute
+	// paths under the folder root).
 	const pinsQuery = useQuery({
 		queryKey: ['artifact-grid', path, 'pins', 'all'],
-		queryFn: () => commentList({ includeResolved: true }),
+		queryFn: async () => {
+			const all = await commentList({ includeResolved: true });
+			const prefix = path.endsWith('/') ? path : path + '/';
+			return all.filter(
+				(p) => p.artifactPath === path || p.artifactPath.startsWith(prefix)
+			);
+		},
 		staleTime: 1_000,
 	});
 
