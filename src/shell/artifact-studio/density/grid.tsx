@@ -1,16 +1,18 @@
-// Artifact-grid pane — built-in mini-app (NOT a pkgs/* package).
+// Studio · grid density — Lightroom-style contact-sheet view over a
+// folder of HTML artifacts. Variants stack under their parent (`./foo/`
+// next to `./foo.html`). Pins overlay each thumbnail at the targeted
+// element's normalized position; clicking a pin runs the routing
+// dispatcher.
 //
-// Lightroom-style contact-sheet view over a folder of HTML artifacts.
-// Variants stack under their parent (`./foo/` next to `./foo.html`).
-// Pins overlay each thumbnail at the targeted element's normalized
-// position; clicking a pin runs the routing dispatcher.
-//
-// See plans/shell/2026-05-16-artifact-grid-brainstorm.md.
+// Per the unified plan §"Right rail tabs", the grid-density rail is
+// Chat-only. The Phase 1 `Chat | Pins` tab pair has been replaced with
+// Chat + a slide-in pin overlay (active pin or "inbox" button opens it).
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Inbox, MessageSquare, Settings } from 'lucide-react';
+import { Inbox, Settings, X } from 'lucide-react';
+import { cn } from '@/components/ui/utils';
 import { StudioFolderChat } from '@/shell/artifact-studio/studio-folder-chat';
 import {
 	commentList,
@@ -37,7 +39,7 @@ import {
 	loadSettings,
 	setFolderDefaultSink,
 	setFolderStackMode,
-} from './settings';
+} from '@/shell/artifact-studio/grid-settings';
 
 function showResolvedKey(path: string): string {
 	return `artifact-grid:show-resolved:${path}`;
@@ -124,7 +126,7 @@ function fmtAgo(ms: number): string {
 	return `T-${Math.floor(h / 24)}d`;
 }
 
-export function ArtifactGridPane({ path, paneId }: GridPaneProps) {
+export function StudioGrid({ path, paneId }: GridPaneProps) {
 	const qc = useQueryClient();
 	const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
 	const [activePin, setActivePin] = useState<{
@@ -141,10 +143,11 @@ export function ArtifactGridPane({ path, paneId }: GridPaneProps) {
 	} | null>(null);
 	const [settingsOpen, setSettingsOpen] = useState(false);
 
-	// Right-rail tab. 'chat' is the unified-Studio default (Phase 1 of
-	// 2026-05-16-artifact-studio-unified.md); 'pins' preserves the existing
-	// inbox / pin-detail surfaces that pre-date the unified plan.
-	const [rightTab, setRightTab] = useState<'chat' | 'pins'>('chat');
+	// Grid-density right rail is Chat-only per the unified plan. Pin
+	// detail / inbox surface as a slide-in overlay over the rail; opens
+	// automatically when the user clicks a pin and can be summoned via
+	// the inbox button.
+	const [pinsOverlayOpen, setPinsOverlayOpen] = useState(false);
 
 	const settingsQuery = useQuery({
 		queryKey: SETTINGS_QK(path),
@@ -181,12 +184,11 @@ export function ArtifactGridPane({ path, paneId }: GridPaneProps) {
 		[path]
 	);
 
-	// Auto-switch to the Pins tab when the user clicks a pin so the routing
-	// detail / inbox is immediately visible. The user can flip back to Chat
-	// manually; we don't force-switch back when the pin clears so a
-	// resolve-and-keep-chatting flow stays in Chat.
+	// Auto-open the pins overlay when the user clicks a pin so routing
+	// detail is immediately visible. Closing the overlay drops back to
+	// Chat without clearing the active pin selection.
 	useEffect(() => {
-		if (activePin) setRightTab('pins');
+		if (activePin) setPinsOverlayOpen(true);
 	}, [activePin]);
 
 	const listingQuery = useQuery({
@@ -454,12 +456,12 @@ export function ArtifactGridPane({ path, paneId }: GridPaneProps) {
 					</div>
 				</div>
 				<RightRail
-					tab={rightTab}
-					onChangeTab={setRightTab}
-					hasActivePin={!!activePin}
 					inboxCount={inboxRows.length}
+					hasActivePin={!!activePin}
+					overlayOpen={pinsOverlayOpen}
+					onToggleOverlay={() => setPinsOverlayOpen((v) => !v)}
 					chat={<StudioFolderChat folderPath={path} />}
-					pins={
+					pinsOverlay={
 						inboxRows.length >= INBOX_THRESHOLD ? (
 							<GridSidebarInbox
 								rows={inboxRows}
@@ -472,6 +474,7 @@ export function ArtifactGridPane({ path, paneId }: GridPaneProps) {
 							<GridSidebar activePin={activePin} claudePty={claudePty} onResolve={onResolvePin} />
 						)
 					}
+					onCloseOverlay={() => setPinsOverlayOpen(false)}
 				/>
 			</div>
 			{overridePopover &&
@@ -499,74 +502,87 @@ export function ArtifactGridPane({ path, paneId }: GridPaneProps) {
 }
 
 interface RightRailProps {
-	tab: 'chat' | 'pins';
-	onChangeTab: (tab: 'chat' | 'pins') => void;
 	hasActivePin: boolean;
 	inboxCount: number;
+	overlayOpen: boolean;
+	onToggleOverlay: () => void;
+	onCloseOverlay: () => void;
 	chat: ReactNode;
-	pins: ReactNode;
+	pinsOverlay: ReactNode;
 }
 
-/** Tabbed right rail. Chat is the unified-Studio default; Pins preserves
- *  the existing inbox / pin-detail surfaces. Code / DOM / Manifest tabs
- *  from the unified plan are intentionally absent at grid density per
- *  plans/shell/2026-05-16-artifact-studio-unified.md §"Right rail tabs". */
-function RightRail({ tab, onChangeTab, hasActivePin, inboxCount, chat, pins }: RightRailProps) {
+/** Chat-only right rail with a slide-in pins overlay. The overlay opens
+ *  automatically when the user clicks a pin (active-pin detail) and can
+ *  be summoned via the inbox button when ≥ INBOX_THRESHOLD pins are
+ *  visible. Code / DOM / Manifest tabs from the unified plan are
+ *  intentionally absent at grid density (no single focused artifact).
+ *
+ *  See plans/shell/2026-05-16-artifact-studio-unified.md §"Right rail
+ *  tabs". */
+function RightRail({
+	hasActivePin,
+	inboxCount,
+	overlayOpen,
+	onToggleOverlay,
+	onCloseOverlay,
+	chat,
+	pinsOverlay,
+}: RightRailProps) {
+	const showInboxButton = inboxCount > 0 || hasActivePin;
+	const badge = hasActivePin ? '●' : inboxCount > 0 ? String(inboxCount) : null;
 	return (
-		<div className="flex h-full min-h-0 flex-col border-l border-border bg-background">
-			<div className="flex shrink-0 items-stretch border-b border-border bg-muted/20">
-				<RailTabButton
-					active={tab === 'chat'}
-					onClick={() => onChangeTab('chat')}
-					icon={<MessageSquare className="h-3 w-3" />}
-					label="Chat"
-				/>
-				<RailTabButton
-					active={tab === 'pins'}
-					onClick={() => onChangeTab('pins')}
-					icon={<Inbox className="h-3 w-3" />}
-					label="Pins"
-					badge={hasActivePin ? '●' : inboxCount > 0 ? String(inboxCount) : null}
-					badgeTone={hasActivePin ? 'active' : 'muted'}
-				/>
-			</div>
-			<div className="flex-1 min-h-0 overflow-hidden">{tab === 'chat' ? chat : pins}</div>
-		</div>
-	);
-}
-
-interface RailTabButtonProps {
-	active: boolean;
-	onClick: () => void;
-	icon: ReactNode;
-	label: string;
-	badge?: string | null;
-	badgeTone?: 'active' | 'muted';
-}
-
-function RailTabButton({ active, onClick, icon, label, badge, badgeTone }: RailTabButtonProps) {
-	return (
-		<button
-			type="button"
-			onClick={onClick}
-			className={`flex items-center gap-1.5 border-r border-border px-3 py-2 text-[10px] uppercase tracking-wider transition-colors ${
-				active
-					? 'border-b-2 border-b-amber-600 bg-background text-foreground dark:border-b-amber-400'
-					: 'border-b-2 border-b-transparent text-muted-foreground hover:bg-muted/30 hover:text-foreground'
-			}`}
-		>
-			{icon}
-			<span className="font-mono">{label}</span>
-			{badge ? (
-				<span
-					className={`ml-1 font-mono text-[9px] ${
-						badgeTone === 'active' ? 'text-amber-700 dark:text-amber-400' : 'text-muted-foreground'
-					}`}
-				>
-					{badge}
+		<div className="relative flex h-full min-h-0 flex-col border-l border-border bg-background">
+			<div className="flex shrink-0 items-center justify-between border-b border-border bg-muted/20 px-2 py-1.5">
+				<span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+					Chat
 				</span>
-			) : null}
-		</button>
+				{showInboxButton && (
+					<button
+						type="button"
+						onClick={onToggleOverlay}
+						aria-pressed={overlayOpen}
+						title={overlayOpen ? 'Close pin inbox' : 'Open pin inbox'}
+						className={cn(
+							'flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-[10px] transition-colors',
+							overlayOpen
+								? 'bg-accent text-accent-foreground'
+								: 'text-muted-foreground hover:bg-muted/40 hover:text-foreground'
+						)}
+					>
+						<Inbox className="h-3 w-3" />
+						{badge && (
+							<span
+								className={cn(
+									'font-mono text-[9px]',
+									hasActivePin ? 'text-amber-700 dark:text-amber-400' : 'text-muted-foreground'
+								)}
+							>
+								{badge}
+							</span>
+						)}
+					</button>
+				)}
+			</div>
+			<div className="flex-1 min-h-0 overflow-hidden">{chat}</div>
+			{overlayOpen && (
+				<div className="absolute inset-0 z-10 flex flex-col bg-background shadow-lg">
+					<div className="flex shrink-0 items-center justify-between border-b border-border bg-muted/30 px-2 py-1.5">
+						<span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+							Pins
+						</span>
+						<button
+							type="button"
+							onClick={onCloseOverlay}
+							aria-label="Close pin inbox"
+							className="rounded p-0.5 text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+						>
+							<X className="h-3 w-3" />
+						</button>
+					</div>
+					<div className="flex-1 min-h-0 overflow-hidden">{pinsOverlay}</div>
+				</div>
+			)}
+		</div>
 	);
 }
 

@@ -19,9 +19,9 @@ export function getPaneAddress(view: PaneView): string | null {
 		case 'artifact':
 			return view.path;
 		case 'artifact-studio':
-			return view.path;
-		case 'artifact-grid':
-			return view.path;
+			// At compare density the address carries `?vs=<other>` so the
+			// resolver can round-trip back to the same view from a URL bar.
+			return view.density === 'compare' && view.vs ? `${view.path}?vs=${view.vs}` : view.path;
 		case 'chat':
 		case 'terminal':
 		case 'scratchpad':

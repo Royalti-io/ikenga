@@ -7,7 +7,7 @@ import {
 	GLOBAL_KEYS,
 	setGlobalDefaultSink,
 	setGlobalStackMode,
-} from '@/shell/artifact-grid/settings';
+} from '@/shell/artifact-studio/grid-settings';
 import { settingsGet } from '@/lib/tauri-cmd';
 
 import { SettingGroup } from './-components/setting-group';
@@ -54,8 +54,8 @@ function ArtifactGridSettingsPage() {
 			<header className="space-y-1">
 				<h1 className="text-lg font-semibold text-foreground">Artifact grid</h1>
 				<p className="text-sm text-muted-foreground">
-					Defaults for the artifact-grid pane. Per-folder overrides live in the gear menu on
-					each grid header.
+					Defaults for the artifact-grid pane. Per-folder overrides live in the gear menu on each
+					grid header.
 				</p>
 			</header>
 

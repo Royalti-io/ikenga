@@ -53,12 +53,14 @@ export function attachElementPicker(
 		if (el === doc.documentElement || el === doc.body) return;
 		ev.preventDefault();
 		ev.stopPropagation();
-		void capture(iframe, el).then(onPick).catch((err) => {
-			// Surface the failure in the console; the host modal stays closed.
-			// Cropping an element should be reliable on a same-origin doc;
-			// the most likely failure is an off-screen / 0-area node.
-			console.error('[pin-picker] capture failed', err);
-		});
+		void capture(iframe, el)
+			.then(onPick)
+			.catch((err) => {
+				// Surface the failure in the console; the host modal stays closed.
+				// Cropping an element should be reliable on a same-origin doc;
+				// the most likely failure is an off-screen / 0-area node.
+				console.error('[pin-picker] capture failed', err);
+			});
 	};
 	doc.addEventListener('contextmenu', handler, true);
 

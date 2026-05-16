@@ -50,9 +50,7 @@ function segmentFor(el: Element): string {
 	// `<p>` or `<div>` peers without leaning on textual content.
 	const parent = el.parentElement;
 	if (!parent) return tag + classes;
-	const sameTagSibs = Array.from(parent.children).filter(
-		(c) => c.tagName === el.tagName
-	);
+	const sameTagSibs = Array.from(parent.children).filter((c) => c.tagName === el.tagName);
 	if (sameTagSibs.length === 1) return tag + classes;
 	const idx = sameTagSibs.indexOf(el) + 1;
 	return `${tag}${classes}:nth-of-type(${idx})`;

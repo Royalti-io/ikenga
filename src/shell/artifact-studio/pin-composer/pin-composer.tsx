@@ -7,9 +7,9 @@
 // the routing dispatcher to deliver the structured prompt (terminal claude
 // if available, otherwise side-pane Chat fallback).
 //
-// Lives under `shell/src/shell/artifact-grid/` because pins are a
-// grid-feature concept today; the surface that *creates* them is just one
-// of several consumers and may grow (Studio has its own legacy mode).
+// Lives under `shell/src/shell/artifact-studio/` because pins are a
+// Studio-surface concept after the unified plan collapsed grid into
+// Studio's grid density.
 
 import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';

@@ -134,6 +134,14 @@ export async function fsExists(path: string): Promise<boolean> {
 	return invoke('fs_exists', { path });
 }
 
+/** Cheap kind discriminator — returns `'file' | 'dir' | 'missing'` for an
+ *  allowlisted path. Backs the unified artifact-studio route resolver
+ *  (folder → grid density, file → loupe density). `'missing'` covers
+ *  both not-found and allowlist-rejected. */
+export async function fsKind(path: string): Promise<'file' | 'dir' | 'missing'> {
+	return invoke('fs_kind', { path });
+}
+
 export async function fsWrite(path: string, bytes: Uint8Array): Promise<void> {
 	return invoke('fs_write', { path, bytes: Array.from(bytes) });
 }
@@ -1378,11 +1386,7 @@ export type PkgTrustChangeReason =
 	| { kind: 'permissions_changed'; prior_version: string; added: string[]; removed: string[] }
 	| { kind: 'revoked' };
 
-export type PkgTrustState =
-	| 'auto_trusted'
-	| 'auto_granted'
-	| 'granted'
-	| 'needs_approval';
+export type PkgTrustState = 'auto_trusted' | 'auto_granted' | 'granted' | 'needs_approval';
 
 export interface PkgTrustEntry {
 	pkg_id: string;
@@ -1493,7 +1497,7 @@ export interface PkgPermissionViolation {
  */
 export async function pkgPermissionViolationsList(
 	pkgId?: string,
-	limit?: number,
+	limit?: number
 ): Promise<PkgPermissionViolation[]> {
 	return invoke<PkgPermissionViolation[]>('pkg_permission_violations_list', {
 		pkgId: pkgId ?? null,
@@ -2424,9 +2428,7 @@ export interface PinRoutedEvent {
 	screenshot_path: string | null;
 }
 
-export async function listenPinRouted(
-	handler: (e: PinRoutedEvent) => void
-): Promise<UnlistenFn> {
+export async function listenPinRouted(handler: (e: PinRoutedEvent) => void): Promise<UnlistenFn> {
 	return listen<PinRoutedEvent>('pin://routed', (e) => handler(e.payload));
 }
 

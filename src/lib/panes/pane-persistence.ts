@@ -119,6 +119,7 @@ function isViewLive(view: PaneView, liveTerminalIds: Set<string>): boolean {
 	switch (view.kind) {
 		case 'route':
 		case 'artifact':
+		case 'artifact-studio':
 		case 'scratchpad':
 			// Scratchpad tabs hydrate on mount via /iyke/scratchpad/read.
 			// If the underlying scratchpad was deleted, the view shows a

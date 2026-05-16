@@ -3,7 +3,6 @@ import { RouteView } from './views/route-view';
 import { TerminalView } from './views/terminal-view';
 import { ChatView } from './views/chat-view';
 import { ArtifactView } from './views/artifact-view';
-import { ArtifactGridView } from './views/artifact-grid-view';
 import { ArtifactStudioView } from './views/artifact-studio-view';
 import { ScratchpadView } from './views/scratchpad-view';
 import { ToolOutputView } from './views/tool-output-view';
@@ -24,9 +23,9 @@ export function PaneBody({ paneId, view }: PaneBodyProps) {
 		case 'artifact':
 			return <ArtifactView path={view.path} paneId={paneId} />;
 		case 'artifact-studio':
-			return <ArtifactStudioView path={view.path} paneId={paneId} />;
-		case 'artifact-grid':
-			return <ArtifactGridView path={view.path} paneId={paneId} />;
+			return (
+				<ArtifactStudioView path={view.path} paneId={paneId} density={view.density} vs={view.vs} />
+			);
 		case 'scratchpad':
 			return <ScratchpadView scope={view.scope} name={view.name} />;
 		case 'tool-output':
@@ -51,11 +50,8 @@ export function viewLabel(view: PaneView): string {
 		}
 		case 'artifact-studio': {
 			const name = view.path.split('/').filter(Boolean).pop();
-			return `Studio · ${name ?? 'artifact'}`;
-		}
-		case 'artifact-grid': {
-			const name = view.path.split('/').filter(Boolean).pop();
-			return `Grid · ${name ?? 'folder'}`;
+			const prefix = view.density === 'grid' ? 'Grid' : 'Studio';
+			return `${prefix} · ${name ?? (view.density === 'grid' ? 'folder' : 'artifact')}`;
 		}
 		case 'scratchpad':
 			return view.name;
@@ -77,9 +73,7 @@ export function viewSubtitle(view: PaneView): string {
 		case 'artifact':
 			return view.path;
 		case 'artifact-studio':
-			return view.path;
-		case 'artifact-grid':
-			return view.path;
+			return view.density === 'compare' && view.vs ? `${view.path} ↔ ${view.vs}` : view.path;
 		case 'scratchpad':
 			return view.scope;
 		case 'tool-output':

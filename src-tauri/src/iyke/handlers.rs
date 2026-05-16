@@ -204,9 +204,19 @@ pub async fn post_open(
         .get("kind")
         .and_then(|v| v.as_str())
         .ok_or_else(|| (StatusCode::BAD_REQUEST, "missing field: kind".into()))?;
+    // `artifact-grid` is accepted as a wire-protocol alias for the unified
+    // `artifact-studio` at grid density. New iyke skills emit
+    // `artifact-studio` with an explicit `density` field; the FE listener
+    // collapses both to the unified shape.
     if !matches!(
         kind,
-        "route" | "terminal" | "chat" | "artifact" | "artifact-grid" | "mini-app"
+        "route"
+            | "terminal"
+            | "chat"
+            | "artifact"
+            | "artifact-grid"
+            | "artifact-studio"
+            | "mini-app"
     ) {
         return Err((StatusCode::BAD_REQUEST, format!("invalid kind: {kind:?}")));
     }

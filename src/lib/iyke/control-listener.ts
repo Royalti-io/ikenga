@@ -208,13 +208,24 @@ function paneViewFromOpenPayload(payload: unknown): PaneView | null {
 		return { kind: 'artifact', path };
 	}
 
-	if (kind === 'artifact-grid') {
+	// `artifact-grid` is accepted as a wire-protocol alias for the
+	// unified artifact-studio at grid density (the iyke skill JSON
+	// still emits the old kind name until Phase 6 ships the new verbs).
+	if (kind === 'artifact-grid' || kind === 'artifact-studio') {
 		const path = p.path;
 		if (typeof path !== 'string' || path.length === 0) {
-			console.warn('[iyke] iyke:open artifact-grid ignored — missing path');
+			console.warn(`[iyke] iyke:open ${kind} ignored — missing path`);
 			return null;
 		}
-		return { kind: 'artifact-grid', path };
+		const rawDensity = p.density;
+		const density: 'grid' | 'loupe' | 'compare' =
+			rawDensity === 'loupe' || rawDensity === 'compare'
+				? rawDensity
+				: kind === 'artifact-grid'
+					? 'grid'
+					: 'loupe';
+		const vs = typeof p.vs === 'string' ? p.vs : undefined;
+		return { kind: 'artifact-studio', path, density, vs };
 	}
 
 	console.warn('[iyke] iyke:open ignored — unknown kind:', kind);

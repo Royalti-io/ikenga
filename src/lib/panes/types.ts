@@ -8,11 +8,18 @@ export type PaneView = (
 	| { kind: 'terminal'; sessionId: string }
 	| { kind: 'chat'; sessionId: string }
 	| { kind: 'artifact'; path: string }
-	| { kind: 'artifact-studio'; path: string }
-	// Folder rendered as a Lightroom-style contact-sheet of artifact
-	// thumbnails. See plans/shell/2026-05-16-artifact-grid-brainstorm.md.
-	// `path` is the folder path on disk.
-	| { kind: 'artifact-grid'; path: string }
+	// Unified Artifact Studio with three densities:
+	//   grid    — folder (Lightroom-style contact sheet of artifact thumbnails)
+	//   loupe   — single artifact (preview + version strip + right rail)
+	//   compare — two artifacts side-by-side (requires `vs`)
+	// `path` is the canonical target; `vs` is the second artifact at
+	// compare density. See plans/shell/2026-05-16-artifact-studio-unified.md.
+	| {
+			kind: 'artifact-studio';
+			path: string;
+			density: 'grid' | 'loupe' | 'compare';
+			vs?: string;
+	  }
 	| { kind: 'scratchpad'; scope: string; name: string }
 	// ADR-011 phase 2: dedicated viewer for a tool call result. Payload is
 	// pointer-only (`threadId` + `toolUseId`); the renderer looks up the

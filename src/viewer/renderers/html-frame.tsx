@@ -17,7 +17,7 @@ import {
 	attachElementPicker,
 	PinComposer,
 	type PickResult,
-} from '@/shell/artifact-grid/pin-composer';
+} from '@/shell/artifact-studio/pin-composer';
 
 function isHtmlPath(path: string): boolean {
 	const lower = path.toLowerCase();
@@ -234,7 +234,7 @@ function OpenInStudioButton({ paneId, path }: OpenInStudioButtonProps) {
 	return (
 		<button
 			type="button"
-			onClick={() => replaceView(paneId, { kind: 'artifact-studio', path })}
+			onClick={() => replaceView(paneId, { kind: 'artifact-studio', path, density: 'loupe' })}
 			title="Open in Artifact Studio"
 			aria-label="Open in Artifact Studio"
 			className={cn(

@@ -56,6 +56,25 @@ pub async fn fs_exists(path: String) -> Result<bool, String> {
         .unwrap_or(false))
 }
 
+/// Cheap kind discriminator. Returns `'file' | 'dir' | 'missing'` for an
+/// allowlisted path. Used by the unified artifact-studio route resolver to
+/// pick density (folder → grid, file → loupe) without doing a parent
+/// `read_dir`. `'missing'` is returned both for not-found and for
+/// allowlist-rejected paths so callers can fall back uniformly.
+#[tauri::command]
+pub async fn fs_kind(path: String) -> Result<&'static str, String> {
+    let resolved = match resolve_allowlisted(&path) {
+        Ok(p) => p,
+        Err(_) => return Ok("missing"),
+    };
+    match tokio::fs::metadata(&resolved).await {
+        Ok(m) if m.is_dir() => Ok("dir"),
+        Ok(m) if m.is_file() => Ok("file"),
+        Ok(_) => Ok("missing"),
+        Err(_) => Ok("missing"),
+    }
+}
+
 /// Cheap MIME lookup that doesn't read file contents. Used by the artifact
 /// viewer's auto-router as a fallback when the JS-side extension table doesn't
 /// recognize a file. The path must be allowlisted but does not need to exist —

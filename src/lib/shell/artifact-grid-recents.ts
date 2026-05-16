@@ -58,13 +58,13 @@ export async function removeRecent(path: string): Promise<RecentGridFolder[]> {
 	return next;
 }
 
-/** Open `path` as an artifact-grid tab in the focused leaf and record the
- *  recent. Single shared entry point so every surface (activity-bar
- *  quick-launcher, files-mode context menu, future ones) keeps the recents
- *  list in sync. */
+/** Open `path` as an artifact-studio grid-density tab in the focused
+ *  leaf and record the recent. Single shared entry point so every
+ *  surface (activity-bar quick-launcher, files-mode context menu,
+ *  future ones) keeps the recents list in sync. */
 export async function openArtifactGrid(path: string): Promise<void> {
 	const { focusedId, addTab } = usePaneStore.getState();
-	addTab(focusedId, { kind: 'artifact-grid', path });
+	addTab(focusedId, { kind: 'artifact-studio', path, density: 'grid' });
 	await recordOpen(path).catch((e) => {
 		console.error('[artifact-grid-recents] recordOpen failed', e);
 	});
