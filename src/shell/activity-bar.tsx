@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import {
 	Folder,
 	FolderKanban,
+	FolderOpen,
+	Grid3x3,
 	LayoutGrid,
 	Monitor,
 	Moon,
@@ -18,6 +20,7 @@ import {
 	Trash2,
 	type LucideIcon,
 } from 'lucide-react';
+import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { useShellStore, type ActivityMode, type CoreMode } from '@/lib/shell/shell-store';
 import { usePaneStore } from '@/lib/panes/pane-store';
 import { useIkengaStore, type IkengaMode, type IkengaWorkspace } from '@/lib/ikenga/theme-store';
@@ -49,6 +52,12 @@ import {
 import { Button } from '@/components/ui/button';
 import type { Project } from '@/lib/tauri-cmd';
 import { PinIcon } from './pin-icon';
+import {
+	loadRecents,
+	openArtifactGrid,
+	removeRecent,
+	type RecentGridFolder,
+} from '@/lib/shell/artifact-grid-recents';
 
 interface CoreItem {
 	mode: CoreMode;
@@ -172,6 +181,7 @@ export function ActivityBar() {
 						badgeCount={0}
 					/>
 				))}
+				<ArtifactGridQuickLaunch />
 			</div>
 
 			{hasAnyPins && (
@@ -444,6 +454,105 @@ function RailButton({
 				</span>
 			)}
 		</button>
+	);
+}
+
+function ArtifactGridQuickLaunch() {
+	const [open, setOpen] = useState(false);
+	const [recents, setRecents] = useState<RecentGridFolder[]>([]);
+
+	useEffect(() => {
+		if (!open) return;
+		void loadRecents().then(setRecents);
+	}, [open]);
+
+	async function pick(path: string) {
+		setOpen(false);
+		await openArtifactGrid(path);
+	}
+
+	async function browse() {
+		setOpen(false);
+		try {
+			const picked = await openDialog({ directory: true, multiple: false });
+			if (typeof picked === 'string' && picked) {
+				await openArtifactGrid(picked);
+			}
+		} catch (e) {
+			console.error('[artifact-grid] folder-picker failed', e);
+		}
+	}
+
+	async function drop(path: string) {
+		const next = await removeRecent(path);
+		setRecents(next);
+	}
+
+	return (
+		<Popover open={open} onOpenChange={setOpen}>
+			<PopoverTrigger asChild>
+				<button
+					type="button"
+					title="Artifact grid"
+					aria-label="Artifact grid quick-launcher"
+					className={cn(
+						'relative my-0.5 grid h-9 w-9 place-items-center rounded-md transition-colors',
+						'hover:bg-card'
+					)}
+					style={{ color: 'var(--fg-faint)' }}
+				>
+					<Grid3x3 className="h-[18px] w-[18px]" />
+				</button>
+			</PopoverTrigger>
+			<PopoverContent side="right" align="start" className="w-72 p-2">
+				<div className="px-2 pb-1 pt-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+					Artifact grid · recent
+				</div>
+				{recents.length === 0 ? (
+					<div className="px-2 py-2 text-xs italic text-muted-foreground">
+						No recent folders. Use Browse… to pick one.
+					</div>
+				) : (
+					<ul className="flex max-h-72 flex-col overflow-y-auto">
+						{recents.map((r) => {
+							const name = r.path.replace(/^.+\//, '') || r.path;
+							return (
+								<li key={r.path} className="group/recent flex items-center">
+									<button
+										type="button"
+										onClick={() => void pick(r.path)}
+										className="flex flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+										title={r.path}
+									>
+										<Folder className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+										<span className="flex-1 truncate">{name}</span>
+									</button>
+									<button
+										type="button"
+										onClick={() => void drop(r.path)}
+										title="Remove from recents"
+										aria-label="Remove from recents"
+										className="invisible mr-1 rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground group-hover/recent:visible"
+									>
+										<Trash2 className="h-3 w-3" />
+									</button>
+								</li>
+							);
+						})}
+					</ul>
+				)}
+				<div className="mt-2 border-t border-border pt-2">
+					<button
+						type="button"
+						onClick={() => void browse()}
+						className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+					>
+						<FolderOpen className="h-3.5 w-3.5" />
+						Browse folder…
+					</button>
+				</div>
+			</PopoverContent>
+		</Popover>
 	);
 }
 

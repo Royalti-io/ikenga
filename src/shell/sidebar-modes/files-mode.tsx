@@ -5,6 +5,7 @@ import {
 	Folder,
 	FileText,
 	AlertCircle,
+	Grid3x3,
 	RefreshCw,
 	Pencil,
 	Trash2,
@@ -17,6 +18,7 @@ import { useFilesStore } from '@/lib/shell/files-store';
 import { usePaneStore } from '@/lib/panes/pane-store';
 import { fsList, fsRename, fsTrash, type FileEntry } from '@/lib/tauri-cmd';
 import { createTerminalSession } from '@/terminal/single-terminal';
+import { openArtifactGrid } from '@/lib/shell/artifact-grid-recents';
 import { queryKeys } from '@/lib/query-keys';
 import { cn } from '@/components/ui/utils';
 import {
@@ -320,6 +322,11 @@ function TreeNode({ entry, depth }: TreeNodeProps) {
 					)}
 					{entry.isDir && (
 						<>
+							<ContextMenuItem onSelect={() => void openArtifactGrid(entry.path)}>
+								<Grid3x3 className="h-3.5 w-3.5" />
+								Open as Artifact Grid
+							</ContextMenuItem>
+							<ContextMenuSeparator />
 							<ContextMenuItem onSelect={() => openTerminalAt(terminalCwd)}>
 								Open in Terminal
 							</ContextMenuItem>

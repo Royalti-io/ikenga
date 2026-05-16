@@ -336,6 +336,11 @@ export function ArtifactGridPane({ path, paneId }: GridPaneProps) {
 
 	const onClosePopover = useCallback(() => setOverridePopover(null), []);
 
+	const onOpenArtifact = useCallback((entry: FileEntry) => {
+		const { focusedId, addTab } = usePaneStore.getState();
+		addTab(focusedId, { kind: 'artifact', path: entry.path });
+	}, []);
+
 	if (listingQuery.isLoading) {
 		return (
 			<div className="flex h-full w-full items-center justify-center p-6 text-sm text-muted-foreground">
@@ -421,10 +426,12 @@ export function ArtifactGridPane({ path, paneId }: GridPaneProps) {
 									onPinAltClick={(p, rect) =>
 										onPinAltClick(stack.parent, p, rect)
 									}
+									onOpen={onOpenArtifact}
 									childDirPath={isExpanded ? childDirPath : undefined}
 									pinsByArtifact={pinsByArtifact}
 									onPinClickGeneric={onPinClick}
 									onPinAltClickGeneric={onPinAltClick}
+									onOpenGeneric={onOpenArtifact}
 								/>
 							);
 						})}
@@ -587,10 +594,12 @@ interface GridCellProps {
 	onToggleStack?: () => void;
 	onPinClick: (pin: Comment) => void;
 	onPinAltClick: (pin: Comment, rect: DOMRect) => void;
+	onOpen: (entry: FileEntry) => void;
 	childDirPath?: string;
 	pinsByArtifact: Map<string, Comment[]>;
 	onPinClickGeneric: (artifact: FileEntry, pin: Comment) => void;
 	onPinAltClickGeneric: (artifact: FileEntry, pin: Comment, rect: DOMRect) => void;
+	onOpenGeneric: (entry: FileEntry) => void;
 	isVariant?: boolean;
 }
 
@@ -602,17 +611,20 @@ function GridCell({
 	onToggleStack,
 	onPinClick,
 	onPinAltClick,
+	onOpen,
 	childDirPath,
 	pinsByArtifact,
 	onPinClickGeneric,
 	onPinAltClickGeneric,
+	onOpenGeneric,
 	isVariant,
 }: GridCellProps) {
 	return (
 		<>
 			<div
+				onClick={() => onOpen(entry)}
 				className={
-					'relative flex flex-col overflow-hidden rounded border border-border bg-background transition-colors hover:border-foreground/40 ' +
+					'group relative flex cursor-pointer flex-col overflow-hidden rounded border border-border bg-background transition-colors hover:border-foreground/40 ' +
 					(isVariant ? 'bg-muted/30' : '')
 				}
 				style={{ height: 240 }}
@@ -658,7 +670,10 @@ function GridCell({
 					{onToggleStack && variantCount !== 0 && (
 						<button
 							type="button"
-							onClick={onToggleStack}
+							onClick={(e) => {
+								e.stopPropagation();
+								onToggleStack();
+							}}
 							className="cursor-pointer text-emerald-600 hover:text-foreground"
 						>
 							{isExpanded ? '− collapse' : '+ var ▾'}
@@ -672,6 +687,7 @@ function GridCell({
 					pinsByArtifact={pinsByArtifact}
 					onPinClick={onPinClickGeneric}
 					onPinAltClick={onPinAltClickGeneric}
+					onOpen={onOpenGeneric}
 				/>
 			)}
 		</>
@@ -683,6 +699,7 @@ interface GridStackChildrenProps {
 	pinsByArtifact: Map<string, Comment[]>;
 	onPinClick: (artifact: FileEntry, pin: Comment) => void;
 	onPinAltClick: (artifact: FileEntry, pin: Comment, rect: DOMRect) => void;
+	onOpen: (entry: FileEntry) => void;
 }
 
 function GridStackChildren({
@@ -690,6 +707,7 @@ function GridStackChildren({
 	pinsByArtifact,
 	onPinClick,
 	onPinAltClick,
+	onOpen,
 }: GridStackChildrenProps) {
 	const childrenQuery = useQuery({
 		queryKey: ['artifact-grid', 'stack-children', dirPath],
@@ -711,9 +729,11 @@ function GridStackChildren({
 					isExpanded={false}
 					onPinClick={(p) => onPinClick(child, p)}
 					onPinAltClick={(p, rect) => onPinAltClick(child, p, rect)}
+					onOpen={onOpen}
 					pinsByArtifact={pinsByArtifact}
 					onPinClickGeneric={onPinClick}
 					onPinAltClickGeneric={onPinAltClick}
+					onOpenGeneric={onOpen}
 					isVariant
 				/>
 			))}
