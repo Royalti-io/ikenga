@@ -121,12 +121,30 @@ interface ThreadViewProps {
 
 function ThreadView({ messages, folderPath }: ThreadViewProps) {
 	const scrollRef = useRef<HTMLDivElement>(null);
+	const nearBottomRef = useRef(true);
 
-	// Keep the latest message in view as new ones arrive. Cheap — only fires
-	// when messages.length actually changes.
+	// Track whether the user is "near the bottom" before each render. If
+	// they've scrolled up to read history, don't yank them back when a new
+	// message lands. Threshold = 80px — covers typical line-height + a bit
+	// of jitter without making the auto-scroll feel slow.
 	useEffect(() => {
 		const el = scrollRef.current;
 		if (!el) return;
+		const onScroll = () => {
+			const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
+			nearBottomRef.current = dist <= 80;
+		};
+		el.addEventListener('scroll', onScroll, { passive: true });
+		return () => el.removeEventListener('scroll', onScroll);
+	}, []);
+
+	// Auto-scroll when a new message arrives, but only if the user hadn't
+	// scrolled away. Cheap — only fires when messages.length actually
+	// changes.
+	useEffect(() => {
+		const el = scrollRef.current;
+		if (!el) return;
+		if (!nearBottomRef.current) return;
 		el.scrollTop = el.scrollHeight;
 	}, [messages.length]);
 
