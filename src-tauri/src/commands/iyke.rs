@@ -77,6 +77,40 @@ pub async fn iyke_dom_done(
         .map_err(|e| format!("{e:#}"))
 }
 
+/// In-shell DOM-tree probe. Same mechanism as the `/iyke/dom` HTTP
+/// endpoint (`iyke::handlers::get_dom`) but exposed as a Tauri command
+/// so the Studio's right-rail DOM tab can request a tree of the focused
+/// iframe without round-tripping through localhost HTTP.
+///
+/// `pane` mirrors the HTTP query — Phase A honors "shell" / unset (the
+/// main webview); Phase B routes other ids to iframe sidecar bridges.
+#[tauri::command]
+pub async fn iyke_dom_query(
+    app: tauri::AppHandle,
+    rpc_state: State<'_, IykeRpc>,
+    query: Option<String>,
+    all: Option<bool>,
+    pane: Option<String>,
+) -> Result<DomResult, String> {
+    let all_flag = all.unwrap_or(false);
+    rpc::request(
+        &app,
+        &rpc_state.dom,
+        "iyke://dom-request",
+        std::time::Duration::from_secs(5),
+        |request_id| {
+            serde_json::json!({
+                "request_id": request_id,
+                "pane": pane,
+                "query": query,
+                "all": all_flag,
+            })
+        },
+    )
+    .await
+    .map_err(|e| format!("{e:#}"))
+}
+
 #[tauri::command]
 pub async fn iyke_query_cache_done(
     rpc_state: State<'_, IykeRpc>,

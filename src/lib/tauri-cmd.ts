@@ -1201,6 +1201,33 @@ export async function iykeEndpoint(): Promise<IykeEndpoint> {
 	return invoke('iyke_endpoint');
 }
 
+/** DOM-tree probe result. `text` is the Playwright-style accessibility tree
+ *  snapshot; `json` is the same data as a tree of `{ role, name, ref, value,
+ *  children }` objects; `generation` bumps each snapshot so callers can
+ *  detect stale refs. */
+export interface IykeDomResult {
+	text: string;
+	json: unknown;
+	generation: number;
+}
+
+/** Query the focused iframe's accessibility tree via the iyke bridge. Same
+ *  mechanism as the `/iyke/dom` HTTP endpoint but exposed as a Tauri command
+ *  so the Studio's right-rail DOM tab can refresh without round-tripping
+ *  through localhost HTTP. `pane` is the leaf id; omit / "shell" for the
+ *  main webview (Phase A only). */
+export async function iykeDomQuery(args?: {
+	query?: string;
+	all?: boolean;
+	pane?: string;
+}): Promise<IykeDomResult> {
+	return invoke('iyke_dom_query', {
+		query: args?.query ?? null,
+		all: args?.all ?? null,
+		pane: args?.pane ?? null,
+	});
+}
+
 export async function iykeSetShell(args: {
 	mode?: string | null;
 	route?: string | null;
