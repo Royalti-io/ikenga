@@ -10,7 +10,8 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Settings } from 'lucide-react';
+import { Inbox, MessageSquare, Settings } from 'lucide-react';
+import { StudioFolderChat } from '@/shell/artifact-studio/studio-folder-chat';
 import {
 	commentList,
 	commentRoute,
@@ -42,8 +43,7 @@ function showResolvedKey(path: string): string {
 	return `artifact-grid:show-resolved:${path}`;
 }
 
-const SETTINGS_QK = (path: string) =>
-	['artifact-grid', 'settings', path] as const;
+const SETTINGS_QK = (path: string) => ['artifact-grid', 'settings', path] as const;
 
 // When the visible-pin count (post Open/All filter) hits this threshold, the
 // sidebar auto-flips from the active-pin view to inbox-mode: a flat list of
@@ -141,6 +141,11 @@ export function ArtifactGridPane({ path, paneId }: GridPaneProps) {
 	} | null>(null);
 	const [settingsOpen, setSettingsOpen] = useState(false);
 
+	// Right-rail tab. 'chat' is the unified-Studio default (Phase 1 of
+	// 2026-05-16-artifact-studio-unified.md); 'pins' preserves the existing
+	// inbox / pin-detail surfaces that pre-date the unified plan.
+	const [rightTab, setRightTab] = useState<'chat' | 'pins'>('chat');
+
 	const settingsQuery = useQuery({
 		queryKey: SETTINGS_QK(path),
 		queryFn: () => loadSettings(path),
@@ -154,20 +159,35 @@ export function ArtifactGridPane({ path, paneId }: GridPaneProps) {
 
 	useEffect(() => {
 		let cancelled = false;
-		settingsGet(showResolvedKey(path)).then((raw) => {
-			if (cancelled) return;
-			if (raw === '0') setShowResolved(false);
-			else if (raw === '1') setShowResolved(true);
-		}).catch(() => {});
-		return () => { cancelled = true; };
+		settingsGet(showResolvedKey(path))
+			.then((raw) => {
+				if (cancelled) return;
+				if (raw === '0') setShowResolved(false);
+				else if (raw === '1') setShowResolved(true);
+			})
+			.catch(() => {});
+		return () => {
+			cancelled = true;
+		};
 	}, [path]);
 
-	const toggleShowResolved = useCallback((next: boolean) => {
-		setShowResolved(next);
-		settingsSet(showResolvedKey(path), next ? '1' : '0').catch((e) => {
-			console.error('[artifact-grid] persist show-resolved failed', e);
-		});
-	}, [path]);
+	const toggleShowResolved = useCallback(
+		(next: boolean) => {
+			setShowResolved(next);
+			settingsSet(showResolvedKey(path), next ? '1' : '0').catch((e) => {
+				console.error('[artifact-grid] persist show-resolved failed', e);
+			});
+		},
+		[path]
+	);
+
+	// Auto-switch to the Pins tab when the user clicks a pin so the routing
+	// detail / inbox is immediately visible. The user can flip back to Chat
+	// manually; we don't force-switch back when the pin clears so a
+	// resolve-and-keep-chatting flow stays in Chat.
+	useEffect(() => {
+		if (activePin) setRightTab('pins');
+	}, [activePin]);
 
 	const listingQuery = useQuery({
 		queryKey: ['artifact-grid', path, 'listing'],
@@ -190,9 +210,7 @@ export function ArtifactGridPane({ path, paneId }: GridPaneProps) {
 		queryFn: async () => {
 			const all = await commentList({ includeResolved: true });
 			const prefix = path.endsWith('/') ? path : path + '/';
-			return all.filter(
-				(p) => p.artifactPath === path || p.artifactPath.startsWith(prefix)
-			);
+			return all.filter((p) => p.artifactPath === path || p.artifactPath.startsWith(prefix));
 		},
 		staleTime: 1_000,
 	});
@@ -207,10 +225,7 @@ export function ArtifactGridPane({ path, paneId }: GridPaneProps) {
 	// usePinRoutedListener so any artifact pane that creates a pin
 	// dispatches reliably — not just ones rendered inside the grid.
 
-	const stacks = useMemo(
-		() => groupStacks(listingQuery.data ?? []),
-		[listingQuery.data]
-	);
+	const stacks = useMemo(() => groupStacks(listingQuery.data ?? []), [listingQuery.data]);
 
 	// Seed `expanded` once per (path, effective stack-mode) — when the setting
 	// flips to `expanded`, every stack with children expands by default; when
@@ -324,17 +339,14 @@ export function ArtifactGridPane({ path, paneId }: GridPaneProps) {
 		[path, qc, effectiveSink]
 	);
 
-	const onPinAltClick = useCallback(
-		(artifact: FileEntry, pin: Comment, rect: DOMRect) => {
-			// Anchor the popover just below the dot, centered horizontally.
-			setOverridePopover({
-				anchor: { x: rect.left + rect.width / 2, y: rect.bottom + 6 },
-				artifact,
-				pin,
-			});
-		},
-		[]
-	);
+	const onPinAltClick = useCallback((artifact: FileEntry, pin: Comment, rect: DOMRect) => {
+		// Anchor the popover just below the dot, centered horizontally.
+		setOverridePopover({
+			anchor: { x: rect.left + rect.width / 2, y: rect.bottom + 6 },
+			artifact,
+			pin,
+		});
+	}, []);
 
 	const onOverridePick = useCallback(
 		(sink: RouteSink) => {
@@ -392,9 +404,7 @@ export function ArtifactGridPane({ path, paneId }: GridPaneProps) {
 						<div className="mb-4 text-sm text-foreground">
 							drop <code className="rounded bg-muted px-1 text-xs">.html</code> files into{' '}
 							<code className="rounded bg-muted px-1 text-xs">{path}</code>, or run{' '}
-							<code className="rounded bg-muted px-1 text-xs">
-								iyke artifact new --in {path}
-							</code>
+							<code className="rounded bg-muted px-1 text-xs">iyke artifact new --in {path}</code>
 						</div>
 					</div>
 				</div>
@@ -429,15 +439,9 @@ export function ArtifactGridPane({ path, paneId }: GridPaneProps) {
 									pins={pinsByArtifact.get(stack.parent.path) ?? []}
 									variantCount={childDirPath ? '?' : 0}
 									isExpanded={isExpanded}
-									onToggleStack={
-										childDirPath
-											? () => toggleStack(stack.parent.path)
-											: undefined
-									}
+									onToggleStack={childDirPath ? () => toggleStack(stack.parent.path) : undefined}
 									onPinClick={(p) => onPinClick(stack.parent, p)}
-									onPinAltClick={(p, rect) =>
-										onPinAltClick(stack.parent, p, rect)
-									}
+									onPinAltClick={(p, rect) => onPinAltClick(stack.parent, p, rect)}
 									onOpen={onOpenArtifact}
 									childDirPath={isExpanded ? childDirPath : undefined}
 									pinsByArtifact={pinsByArtifact}
@@ -449,21 +453,26 @@ export function ArtifactGridPane({ path, paneId }: GridPaneProps) {
 						})}
 					</div>
 				</div>
-				{inboxRows.length >= INBOX_THRESHOLD ? (
-					<GridSidebarInbox
-						rows={inboxRows}
-						activePinId={activePin?.pin.id ?? null}
-						claudePty={claudePty}
-						onSelectAndRoute={onInboxRowClick}
-						onResolve={onResolvePin}
-					/>
-				) : (
-					<GridSidebar
-						activePin={activePin}
-						claudePty={claudePty}
-						onResolve={onResolvePin}
-					/>
-				)}
+				<RightRail
+					tab={rightTab}
+					onChangeTab={setRightTab}
+					hasActivePin={!!activePin}
+					inboxCount={inboxRows.length}
+					chat={<StudioFolderChat folderPath={path} />}
+					pins={
+						inboxRows.length >= INBOX_THRESHOLD ? (
+							<GridSidebarInbox
+								rows={inboxRows}
+								activePinId={activePin?.pin.id ?? null}
+								claudePty={claudePty}
+								onSelectAndRoute={onInboxRowClick}
+								onResolve={onResolvePin}
+							/>
+						) : (
+							<GridSidebar activePin={activePin} claudePty={claudePty} onResolve={onResolvePin} />
+						)
+					}
+				/>
 			</div>
 			{overridePopover &&
 				createPortal(
@@ -481,13 +490,83 @@ export function ArtifactGridPane({ path, paneId }: GridPaneProps) {
 						path={path}
 						settings={settings}
 						onClose={() => setSettingsOpen(false)}
-						onChanged={() =>
-							qc.invalidateQueries({ queryKey: SETTINGS_QK(path) })
-						}
+						onChanged={() => qc.invalidateQueries({ queryKey: SETTINGS_QK(path) })}
 					/>,
 					document.body
 				)}
 		</div>
+	);
+}
+
+interface RightRailProps {
+	tab: 'chat' | 'pins';
+	onChangeTab: (tab: 'chat' | 'pins') => void;
+	hasActivePin: boolean;
+	inboxCount: number;
+	chat: ReactNode;
+	pins: ReactNode;
+}
+
+/** Tabbed right rail. Chat is the unified-Studio default; Pins preserves
+ *  the existing inbox / pin-detail surfaces. Code / DOM / Manifest tabs
+ *  from the unified plan are intentionally absent at grid density per
+ *  plans/shell/2026-05-16-artifact-studio-unified.md §"Right rail tabs". */
+function RightRail({ tab, onChangeTab, hasActivePin, inboxCount, chat, pins }: RightRailProps) {
+	return (
+		<div className="flex h-full min-h-0 flex-col border-l border-border bg-background">
+			<div className="flex shrink-0 items-stretch border-b border-border bg-muted/20">
+				<RailTabButton
+					active={tab === 'chat'}
+					onClick={() => onChangeTab('chat')}
+					icon={<MessageSquare className="h-3 w-3" />}
+					label="Chat"
+				/>
+				<RailTabButton
+					active={tab === 'pins'}
+					onClick={() => onChangeTab('pins')}
+					icon={<Inbox className="h-3 w-3" />}
+					label="Pins"
+					badge={hasActivePin ? '●' : inboxCount > 0 ? String(inboxCount) : null}
+					badgeTone={hasActivePin ? 'active' : 'muted'}
+				/>
+			</div>
+			<div className="flex-1 min-h-0 overflow-hidden">{tab === 'chat' ? chat : pins}</div>
+		</div>
+	);
+}
+
+interface RailTabButtonProps {
+	active: boolean;
+	onClick: () => void;
+	icon: ReactNode;
+	label: string;
+	badge?: string | null;
+	badgeTone?: 'active' | 'muted';
+}
+
+function RailTabButton({ active, onClick, icon, label, badge, badgeTone }: RailTabButtonProps) {
+	return (
+		<button
+			type="button"
+			onClick={onClick}
+			className={`flex items-center gap-1.5 border-r border-border px-3 py-2 text-[10px] uppercase tracking-wider transition-colors ${
+				active
+					? 'border-b-2 border-b-amber-600 bg-background text-foreground dark:border-b-amber-400'
+					: 'border-b-2 border-b-transparent text-muted-foreground hover:bg-muted/30 hover:text-foreground'
+			}`}
+		>
+			{icon}
+			<span className="font-mono">{label}</span>
+			{badge ? (
+				<span
+					className={`ml-1 font-mono text-[9px] ${
+						badgeTone === 'active' ? 'text-amber-700 dark:text-amber-400' : 'text-muted-foreground'
+					}`}
+				>
+					{badge}
+				</span>
+			) : null}
+		</button>
 	);
 }
 
@@ -726,12 +805,13 @@ function GridStackChildren({
 		queryFn: () => fsList(dirPath),
 		staleTime: 2_000,
 	});
-	const children = (childrenQuery.data ?? []).filter(
-		(e) => !e.isDir && e.name.endsWith('.html')
-	);
+	const children = (childrenQuery.data ?? []).filter((e) => !e.isDir && e.name.endsWith('.html'));
 	if (children.length === 0) return null;
 	return (
-		<div className="col-span-full ml-6 mt-[-8px] border-l-2 border-border pl-4 pb-2 grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))' }}>
+		<div
+			className="col-span-full ml-6 mt-[-8px] border-l-2 border-border pl-4 pb-2 grid gap-3"
+			style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))' }}
+		>
 			{children.map((child) => (
 				<GridCell
 					key={child.path}
@@ -889,9 +969,7 @@ function FolderSettingsModal({ path, settings, onClose, onChanged }: FolderSetti
 						<div className="text-xs font-semibold uppercase tracking-[0.18em] text-foreground">
 							Folder settings
 						</div>
-						<div className="mt-0.5 font-mono text-[10px] text-muted-foreground">
-							{path}
-						</div>
+						<div className="mt-0.5 font-mono text-[10px] text-muted-foreground">{path}</div>
 					</div>
 					<button
 						type="button"
@@ -1000,7 +1078,11 @@ function SinkSegments({
 	onChange: (v: DefaultSink) => void;
 }) {
 	return (
-		<div className={'inline-flex overflow-hidden rounded border border-border ' + (disabled ? 'opacity-50' : '')}>
+		<div
+			className={
+				'inline-flex overflow-hidden rounded border border-border ' + (disabled ? 'opacity-50' : '')
+			}
+		>
 			{(['auto', 'terminal', 'sidepane'] as const).map((opt) => (
 				<button
 					key={opt}
@@ -1031,7 +1113,11 @@ function StackSegments({
 	onChange: (v: StackMode) => void;
 }) {
 	return (
-		<div className={'inline-flex overflow-hidden rounded border border-border ' + (disabled ? 'opacity-50' : '')}>
+		<div
+			className={
+				'inline-flex overflow-hidden rounded border border-border ' + (disabled ? 'opacity-50' : '')
+			}
+		>
 			{(['collapsed', 'expanded'] as const).map((opt) => (
 				<button
 					key={opt}
@@ -1076,8 +1162,8 @@ function GridSidebar({ activePin, claudePty, onResolve }: GridSidebarProps) {
 					) : (
 						<>
 							the side-pane <span className="text-amber-700">Chat</span> thread. Run{' '}
-							<span className="text-amber-700">claude</span> in a terminal pane to switch
-							routing to the terminal sink.
+							<span className="text-amber-700">claude</span> in a terminal pane to switch routing to
+							the terminal sink.
 						</>
 					)}
 				</div>
@@ -1091,7 +1177,7 @@ function GridSidebar({ activePin, claudePty, onResolve }: GridSidebarProps) {
 							k="Screenshot"
 							v={
 								activePin.pin.screenshotPath
-									? activePin.pin.screenshotPath.split('/').pop() ?? '—'
+									? (activePin.pin.screenshotPath.split('/').pop() ?? '—')
 									: '—'
 							}
 							muted
@@ -1224,7 +1310,17 @@ function InboxRowItem({ row, isActive, onClick, onResolve }: InboxRowItemProps) 
 	);
 }
 
-function Row({ k, v, highlight, muted }: { k: string; v: string; highlight?: boolean; muted?: boolean }) {
+function Row({
+	k,
+	v,
+	highlight,
+	muted,
+}: {
+	k: string;
+	v: string;
+	highlight?: boolean;
+	muted?: boolean;
+}) {
 	return (
 		<div className="grid grid-cols-[76px_1fr] gap-2.5">
 			<span className="pt-[3px] text-[9px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
