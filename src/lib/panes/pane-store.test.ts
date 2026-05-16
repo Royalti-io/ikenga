@@ -42,12 +42,12 @@ describe('closedHistory', () => {
 		const newPaneId = usePaneStore.getState().focusedId;
 		store.addTab(newPaneId, { kind: 'route', path: '/a' });
 		store.addTab(newPaneId, { kind: 'route', path: '/b' });
-		// pane has [/test, /a, /b]
+		// pane has [/, /a, /b] — splitFocused opens '/' in the new pane.
 		usePaneStore.getState().closeFocusedPane();
 		const history = usePaneStore.getState().closedHistory;
 		// All three pushed, last-in-stack is /b.
 		expect(history).toHaveLength(3);
-		expect(history.map((v) => (v as { path?: string }).path)).toEqual(['/test', '/a', '/b']);
+		expect(history.map((v) => (v as { path?: string }).path)).toEqual(['/', '/a', '/b']);
 	});
 });
 

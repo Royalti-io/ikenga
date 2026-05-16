@@ -67,7 +67,7 @@ export function splitLeaf(root: PaneNode, leafId: PaneId, direction: PaneDirecti
 	}
 	const target = findLeaf(root, leafId);
 	if (!target) return { root, newLeafId: null, ok: false };
-	const newLeaf = makeLeaf(getActiveView(target));
+	const newLeaf = makeLeaf({ kind: 'route', path: '/' });
 	const newRoot = applySplit(root, leafId, direction, newLeaf);
 	return { root: newRoot, newLeafId: newLeaf.id, ok: true };
 }

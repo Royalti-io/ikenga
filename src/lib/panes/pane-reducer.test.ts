@@ -78,7 +78,7 @@ describe('splitLeaf', () => {
 		expect(leafCount(blocked.root)).toBe(6);
 	});
 
-	it('duplicates the active tab into the new sibling', () => {
+	it('opens the home route in the new sibling instead of cloning the active tab', () => {
 		const leaf = makeLeaf({ kind: 'route', path: '/inbox' });
 		const withSecondTab = addTab(leaf, leaf.id, { kind: 'route', path: '/finance' });
 		const switched = switchTab(withSecondTab, leaf.id, 1);
@@ -87,7 +87,7 @@ describe('splitLeaf', () => {
 		const split = r.root as SplitNode;
 		const newLeaf = split.children.find((c) => c.type === 'leaf' && c.id !== leaf.id) as LeafNode;
 		expect(newLeaf.tabs).toHaveLength(1);
-		expect(newLeaf.tabs[0]).toEqual({ kind: 'route', path: '/finance' });
+		expect(newLeaf.tabs[0]).toEqual({ kind: 'route', path: '/' });
 	});
 });
 
@@ -226,11 +226,14 @@ describe('navigateFocused', () => {
 		const root = newRoute('/a');
 		const r1 = splitLeaf(root, root.id, 'horizontal');
 		const ids = leafIds(r1.root);
+		const rightBefore = findLeaf(r1.root, ids[1])! as LeafNode;
 		const r = navigateFocused(r1.root, ids[0], '/finance');
 		const left = findLeaf(r, ids[0])! as LeafNode;
 		const right = findLeaf(r, ids[1])! as LeafNode;
 		expect((left.tabs[0] as { path: string }).path).toBe('/finance');
-		expect((right.tabs[0] as { path: string }).path).toBe('/a');
+		expect((right.tabs[0] as { path: string }).path).toBe(
+			(rightBefore.tabs[0] as { path: string }).path
+		);
 	});
 });
 
