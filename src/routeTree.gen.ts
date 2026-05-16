@@ -40,6 +40,7 @@ import { Route as SettingsPackagesRouteImport } from './routes/settings/packages
 import { Route as SettingsOnboardingRouteImport } from './routes/settings/onboarding'
 import { Route as SettingsIntegrationsRouteImport } from './routes/settings/integrations'
 import { Route as SettingsBackupRouteImport } from './routes/settings/backup'
+import { Route as SettingsArtifactGridRouteImport } from './routes/settings/artifact-grid'
 import { Route as SettingsAppearanceRouteImport } from './routes/settings/appearance'
 import { Route as SettingsAgentRouteImport } from './routes/settings/agent'
 import { Route as SettingsActivityBarRouteImport } from './routes/settings/activity-bar'
@@ -222,6 +223,11 @@ const SettingsBackupRoute = SettingsBackupRouteImport.update({
   path: '/backup',
   getParentRoute: () => SettingsRouteRoute,
 } as any)
+const SettingsArtifactGridRoute = SettingsArtifactGridRouteImport.update({
+  id: '/artifact-grid',
+  path: '/artifact-grid',
+  getParentRoute: () => SettingsRouteRoute,
+} as any)
 const SettingsAppearanceRoute = SettingsAppearanceRouteImport.update({
   id: '/appearance',
   path: '/appearance',
@@ -393,6 +399,7 @@ export interface FileRoutesByFullPath {
   '/settings/activity-bar': typeof SettingsActivityBarRoute
   '/settings/agent': typeof SettingsAgentRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
+  '/settings/artifact-grid': typeof SettingsArtifactGridRoute
   '/settings/backup': typeof SettingsBackupRoute
   '/settings/integrations': typeof SettingsIntegrationsRoute
   '/settings/onboarding': typeof SettingsOnboardingRoute
@@ -447,6 +454,7 @@ export interface FileRoutesByTo {
   '/settings/activity-bar': typeof SettingsActivityBarRoute
   '/settings/agent': typeof SettingsAgentRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
+  '/settings/artifact-grid': typeof SettingsArtifactGridRoute
   '/settings/backup': typeof SettingsBackupRoute
   '/settings/integrations': typeof SettingsIntegrationsRoute
   '/settings/onboarding': typeof SettingsOnboardingRoute
@@ -507,6 +515,7 @@ export interface FileRoutesById {
   '/settings/activity-bar': typeof SettingsActivityBarRoute
   '/settings/agent': typeof SettingsAgentRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
+  '/settings/artifact-grid': typeof SettingsArtifactGridRoute
   '/settings/backup': typeof SettingsBackupRoute
   '/settings/integrations': typeof SettingsIntegrationsRoute
   '/settings/onboarding': typeof SettingsOnboardingRoute
@@ -568,6 +577,7 @@ export interface FileRouteTypes {
     | '/settings/activity-bar'
     | '/settings/agent'
     | '/settings/appearance'
+    | '/settings/artifact-grid'
     | '/settings/backup'
     | '/settings/integrations'
     | '/settings/onboarding'
@@ -622,6 +632,7 @@ export interface FileRouteTypes {
     | '/settings/activity-bar'
     | '/settings/agent'
     | '/settings/appearance'
+    | '/settings/artifact-grid'
     | '/settings/backup'
     | '/settings/integrations'
     | '/settings/onboarding'
@@ -681,6 +692,7 @@ export interface FileRouteTypes {
     | '/settings/activity-bar'
     | '/settings/agent'
     | '/settings/appearance'
+    | '/settings/artifact-grid'
     | '/settings/backup'
     | '/settings/integrations'
     | '/settings/onboarding'
@@ -942,6 +954,13 @@ declare module '@tanstack/react-router' {
       path: '/backup'
       fullPath: '/settings/backup'
       preLoaderRoute: typeof SettingsBackupRouteImport
+      parentRoute: typeof SettingsRouteRoute
+    }
+    '/settings/artifact-grid': {
+      id: '/settings/artifact-grid'
+      path: '/artifact-grid'
+      fullPath: '/settings/artifact-grid'
+      preLoaderRoute: typeof SettingsArtifactGridRouteImport
       parentRoute: typeof SettingsRouteRoute
     }
     '/settings/appearance': {
@@ -1206,6 +1225,7 @@ interface SettingsRouteRouteChildren {
   SettingsActivityBarRoute: typeof SettingsActivityBarRoute
   SettingsAgentRoute: typeof SettingsAgentRoute
   SettingsAppearanceRoute: typeof SettingsAppearanceRoute
+  SettingsArtifactGridRoute: typeof SettingsArtifactGridRoute
   SettingsBackupRoute: typeof SettingsBackupRoute
   SettingsIntegrationsRoute: typeof SettingsIntegrationsRoute
   SettingsOnboardingRoute: typeof SettingsOnboardingRoute
@@ -1222,6 +1242,7 @@ const SettingsRouteRouteChildren: SettingsRouteRouteChildren = {
   SettingsActivityBarRoute: SettingsActivityBarRoute,
   SettingsAgentRoute: SettingsAgentRoute,
   SettingsAppearanceRoute: SettingsAppearanceRoute,
+  SettingsArtifactGridRoute: SettingsArtifactGridRoute,
   SettingsBackupRoute: SettingsBackupRoute,
   SettingsIntegrationsRoute: SettingsIntegrationsRoute,
   SettingsOnboardingRoute: SettingsOnboardingRoute,

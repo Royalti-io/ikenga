@@ -208,6 +208,15 @@ function paneViewFromOpenPayload(payload: unknown): PaneView | null {
 		return { kind: 'artifact', path };
 	}
 
+	if (kind === 'artifact-grid') {
+		const path = p.path;
+		if (typeof path !== 'string' || path.length === 0) {
+			console.warn('[iyke] iyke:open artifact-grid ignored — missing path');
+			return null;
+		}
+		return { kind: 'artifact-grid', path };
+	}
+
 	console.warn('[iyke] iyke:open ignored — unknown kind:', kind);
 	return null;
 }

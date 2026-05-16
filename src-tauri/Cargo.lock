@@ -2952,7 +2952,7 @@ dependencies = [
 
 [[package]]
 name = "ikenga-desktop"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "age",
  "agent-client-protocol",
@@ -2966,6 +2966,7 @@ dependencies = [
  "glob",
  "hex",
  "include_dir",
+ "libc",
  "log",
  "mime_guess",
  "notify",

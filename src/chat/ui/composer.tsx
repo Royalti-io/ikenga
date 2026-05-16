@@ -8,7 +8,7 @@
  *   - Inline error banner with Retry when the last `send` threw.
  */
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, ImagePlus, Square, X } from 'lucide-react';
 import type { ChatStatus } from 'ai';
 import { cn } from '@/components/ui/utils';
@@ -38,6 +38,7 @@ import {
 } from '@/lib/tauri-cmd';
 import { useChatActions, useThreadState } from '../hooks';
 import { useChatStore } from '../store';
+import { usePendingPrompts } from '../pending-prompts';
 import { type ChatEffort } from '../adapter';
 import { ENGINE_CATALOG, modelLabelFor } from '../engines';
 import { filterSlashCommands, useSlashCommands, type SlashCommand } from '../slash-commands';
@@ -110,6 +111,23 @@ const MODE_IDS: AcpSessionModeId[] = ['plan', 'default', 'auto', 'bypassPermissi
 export function Composer({ threadId, className, placeholder }: ComposerProps) {
 	const [text, setText] = useState('');
 	const state = useThreadState(threadId);
+	// Pin-routing fall-through: when `pin://routed` lands on this thread,
+	// the shell-level listener (use-pin-routed-listener.ts) queues the
+	// structured prompt here. Consume it on mount + threadId change so the
+	// composer pre-fills and the user just hits Enter to send. We pull the
+	// per-thread value directly so the effect re-runs when this thread's
+	// entry appears, rather than on every other thread's enqueue churn.
+	const pendingForThread = usePendingPrompts((s) =>
+		threadId ? s.byThread[threadId] : undefined
+	);
+	const consumePendingPrompt = usePendingPrompts((s) => s.consume);
+	useEffect(() => {
+		if (!threadId || pendingForThread === undefined) return;
+		// Only adopt the queued prompt when the user hasn't started typing
+		// something else — clobbering an in-flight message would be rude.
+		setText((cur) => (cur.length === 0 ? pendingForThread : cur));
+		consumePendingPrompt(threadId);
+	}, [threadId, pendingForThread, consumePendingPrompt]);
 	const { send, cancel, isStreaming, canSend, lastError } = useChatActions(threadId);
 	const lastSentRef = useRef<string | null>(null);
 	/** Hidden file input ref. Triggered by the Attach button so users have a

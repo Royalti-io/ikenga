@@ -20,6 +20,8 @@ export function getPaneAddress(view: PaneView): string | null {
 			return view.path;
 		case 'artifact-studio':
 			return view.path;
+		case 'artifact-grid':
+			return view.path;
 		case 'chat':
 		case 'terminal':
 		case 'scratchpad':

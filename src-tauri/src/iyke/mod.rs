@@ -16,6 +16,7 @@ pub mod browser_handlers;
 pub mod browser_rpc;
 pub mod browser_sessions;
 pub mod claude;
+pub mod comments;
 pub mod handlers;
 pub mod layout;
 pub mod mcp;

@@ -12,6 +12,7 @@ import { UpdaterBanner } from './updater-banner';
 import { useIykeBridge } from '@/lib/iyke/bridge';
 import { useIykeControlListener } from '@/lib/iyke/control-listener';
 import { useIykeShellSync } from '@/lib/iyke/use-iyke-shell-sync';
+import { usePinRoutedListener } from '@/lib/iyke/use-pin-routed-listener';
 import { useProjectsSync } from '@/lib/shell/use-projects-sync';
 import { useProjectLayoutSwap } from '@/lib/shell/project-layout-swap';
 import { useShellStore } from '@/lib/shell/shell-store';
@@ -66,6 +67,12 @@ export function Workspace() {
 	// Warm the lazy artifact viewer chunks during idle so the first
 	// PDF/XLSX/code file open isn't a cold fetch.
 	usePreloadViewers();
+	// Artifact-grid: when the pin-routing dispatcher emits `pin://routed`
+	// (auto-detect fall-through to sidepane, or explicit Sidepane/Both),
+	// pre-fill the target chat thread's composer with the structured
+	// prompt. Workspace-level so a pin created from any artifact pane
+	// dispatches reliably, not just from the grid.
+	usePinRoutedListener();
 	// Note: the mbox sync scheduler that used to live here moved into the
 	// com.ikenga.email pkg's manifest cron when the strip-down landed.
 

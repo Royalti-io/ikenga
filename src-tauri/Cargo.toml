@@ -135,6 +135,10 @@ agent-client-protocol = { version = "0.11", features = ["unstable"] }
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.5"
 objc2-foundation = { version = "0.2", features = ["NSProcessInfo", "NSString"] }
+# Direct libc bindings for sysctl(KERN_PROC_PID) — used by
+# pty::foreground to read kinfo_proc.kp_eproc.e_tpgid, the macOS
+# equivalent of Linux's `/proc/<pid>/stat` tpgid field.
+libc = "0.2"
 
 # Windows-only: WebView2 controller access for the IsVisible hold (see
 # pkg/keep_awake.rs). webview2-com is already in Tauri's tree; pinning

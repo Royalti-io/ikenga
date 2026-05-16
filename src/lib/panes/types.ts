@@ -9,6 +9,10 @@ export type PaneView = (
 	| { kind: 'chat'; sessionId: string }
 	| { kind: 'artifact'; path: string }
 	| { kind: 'artifact-studio'; path: string }
+	// Folder rendered as a Lightroom-style contact-sheet of artifact
+	// thumbnails. See plans/shell/2026-05-16-artifact-grid-brainstorm.md.
+	// `path` is the folder path on disk.
+	| { kind: 'artifact-grid'; path: string }
 	| { kind: 'scratchpad'; scope: string; name: string }
 	// ADR-011 phase 2: dedicated viewer for a tool call result. Payload is
 	// pointer-only (`threadId` + `toolUseId`); the renderer looks up the

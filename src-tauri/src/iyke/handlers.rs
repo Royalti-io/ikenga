@@ -206,7 +206,7 @@ pub async fn post_open(
         .ok_or_else(|| (StatusCode::BAD_REQUEST, "missing field: kind".into()))?;
     if !matches!(
         kind,
-        "route" | "terminal" | "chat" | "artifact" | "mini-app"
+        "route" | "terminal" | "chat" | "artifact" | "artifact-grid" | "mini-app"
     ) {
         return Err((StatusCode::BAD_REQUEST, format!("invalid kind: {kind:?}")));
     }

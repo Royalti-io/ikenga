@@ -10,6 +10,8 @@ pub mod backup;
 pub mod bg_spike;
 pub mod claude;
 pub mod claude_config;
+pub mod comment_route;
+pub mod comments;
 pub mod db;
 pub mod desktop;
 pub mod fs;
@@ -53,6 +55,11 @@ pub use claude_config::{
     claude_asset_list_pins, claude_asset_pin, claude_asset_unpin, claude_assets_discover,
     claude_config_load, claude_config_read_file, claude_config_unwatch, claude_config_watch,
 };
+pub use comment_route::comment_route;
+pub use comments::{
+    comment_create, comment_delete, comment_get, comment_list, comment_record_routing,
+    comment_set_status, pin_screenshot_write,
+};
 pub use db::{db_exec, db_query};
 pub use desktop::{iyke_mcp_info, set_dock_badge, IykeMcpInfo};
 pub use fs::{
@@ -82,7 +89,9 @@ pub use projects::{
     project_archive, project_create, project_get_active, project_list, project_set_active,
     project_update,
 };
-pub use pty::{pty_kill, pty_resize, pty_spawn, pty_write};
+pub use pty::{
+    pty_foreground, pty_foreground_snapshot, pty_kill, pty_resize, pty_spawn, pty_write,
+};
 pub use screenshot::{
     screenshot_capture_done, screenshot_capture_failed, screenshot_get_config, screenshot_pane,
     screenshot_set_dir, screenshot_window, ScreenshotConfigState, ScreenshotConfigStateRef,

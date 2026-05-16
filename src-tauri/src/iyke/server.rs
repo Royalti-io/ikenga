@@ -33,6 +33,7 @@ use super::browser_sessions::{
 use super::claude::{
     get_claude_asset_pins, get_claude_assets_list, post_claude_asset_pin, post_claude_asset_unpin,
 };
+use super::comments::{get_pin_read, post_pin_acknowledge, post_pin_resolve};
 use super::handlers::{
     get_dom, get_iframe_state, get_logs, get_network, get_pkg_list, get_query_cache, get_state,
     post_click, post_close, post_devtools, post_focus, post_go, post_iframe_message, post_key,
@@ -209,6 +210,11 @@ pub async fn serve(
         .route("/iyke/timer/schedule", post(post_timer_schedule))
         .route("/iyke/timer/cancel", post(post_timer_cancel))
         .route("/iyke/timer/list", get(get_timer_list))
+        // Artifact-grid pin comments (see migration 0022). Claude reads pin
+        // context via read; lifecycle transitions via acknowledge/resolve.
+        .route("/iyke/pin/read", get(get_pin_read))
+        .route("/iyke/pin/acknowledge", post(post_pin_acknowledge))
+        .route("/iyke/pin/resolve", post(post_pin_resolve))
         // Catch-all for package-installed routes. The dispatcher reads the
         // method+path off the request and consults `IykeRoutesRegistry`.
         .route("/pkg/*path", get(pkg_dispatch).post(pkg_dispatch))

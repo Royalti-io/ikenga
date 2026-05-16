@@ -8,6 +8,8 @@
 //!    encodes them, and emits them on the `pty://{id}` Tauri event
 //!  - a child waiter that emits `pty://{id}/exit` with the exit code on death
 
+pub mod foreground;
+
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
@@ -266,6 +268,50 @@ impl PtyManager {
             pixel_height: 0,
         })?;
         Ok(())
+    }
+
+    /// PID of the shell process attached to this PTY (the process-group leader
+    /// of the slave side). Used by `foreground::lookup` to find what the user
+    /// has running in the terminal at the moment. Returns `None` when the
+    /// session has died or the platform doesn't surface a PGL.
+    pub fn process_group_leader(&self, id: &str) -> Option<i32> {
+        let session = self.sessions.get(id)?.clone();
+        let master = session.master.lock().ok()?;
+        master.process_group_leader()
+    }
+
+    /// Look up the foreground command running in this PTY (the process whose
+    /// PGID matches the controlling terminal's foreground PG). Returns `None`
+    /// when the session has died or the platform isn't yet supported.
+    pub fn foreground(&self, id: &str) -> Option<foreground::ForegroundProcess> {
+        let pid = self.process_group_leader(id)?;
+        foreground::lookup(pid)
+    }
+
+    /// True when the foreground command for this PTY is `claude` (or a
+    /// `claude-*` variant). The routing dispatcher uses this to filter PTYs
+    /// when picking the active claude session for pin delivery.
+    pub fn is_claude_foreground(&self, id: &str) -> bool {
+        match self.process_group_leader(id) {
+            Some(pid) => foreground::is_claude(pid),
+            None => false,
+        }
+    }
+
+    /// Snapshot the foreground command for every live PTY. Used by the
+    /// routing dispatcher to pick the most-recently-touched claude PTY when
+    /// dispatching a pin. The map is keyed by PTY id (the same id `pty_spawn`
+    /// returns); only PTYs whose lookup succeeded appear in the result.
+    pub fn foreground_snapshot(&self) -> HashMap<String, foreground::ForegroundProcess> {
+        let mut out = HashMap::new();
+        for entry in self.sessions.iter() {
+            if let Some(pid) = entry.value().master.lock().ok().and_then(|m| m.process_group_leader()) {
+                if let Some(fg) = foreground::lookup(pid) {
+                    out.insert(entry.key().clone(), fg);
+                }
+            }
+        }
+        out
     }
 
     pub fn kill(&self, id: &str) -> Result<()> {

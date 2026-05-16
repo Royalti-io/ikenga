@@ -43,6 +43,29 @@ export async function ptyKill(id: string): Promise<void> {
 	return invoke('pty_kill', { id });
 }
 
+/** Foreground process snapshot for a single PTY — what the user is actually
+ *  running in the terminal right now (e.g. `claude`, `bash`, `vim`). Returns
+ *  `null` when the PTY is gone or the platform doesn't yet surface it
+ *  (macOS / Windows in v0). Cached for 1s per PTY in the Rust side. */
+export interface ForegroundProcess {
+	pid: number;
+	/** Executable basename — e.g. `"claude"`, `"bash"`. */
+	name: string;
+	/** Full argv, null-byte-stripped. Empty when the kernel returned nothing. */
+	args: string[];
+}
+
+export async function ptyForeground(id: string): Promise<ForegroundProcess | null> {
+	return invoke<ForegroundProcess | null>('pty_foreground', { id });
+}
+
+/** Foreground snapshot across every live PTY. Keyed by PTY id; only PTYs
+ *  whose foreground lookup succeeded appear in the result. The routing
+ *  dispatcher uses this to pick the active claude session for pin delivery. */
+export async function ptyForegroundSnapshot(): Promise<Record<string, ForegroundProcess>> {
+	return invoke<Record<string, ForegroundProcess>>('pty_foreground_snapshot');
+}
+
 /**
  * Subscribe to PTY byte stream + exit. Backend emits the data chunk as a
  * base64 string because Tauri's event system serializes payloads as JSON and
@@ -2248,4 +2271,161 @@ export async function bgSpikeRun(
 		intervalMs,
 		perPingTimeoutMs,
 	});
+}
+
+// ─── Artifact comments (artifact-grid pin overlay) ───────────────────────
+//
+// See plans/shell/2026-05-16-artifact-grid-brainstorm.md. Schema in migration
+// 0022. Routing (terminal claude vs side-pane Chat) is handled by a separate
+// dispatcher (Phase 4); these are pure persistence + lifecycle calls.
+
+export type CommentStatus = 'open' | 'in_progress' | 'resolved' | 'stale';
+export type CommentSink = 'terminal' | 'sidepane' | 'both';
+
+export interface Comment {
+	id: number;
+	artifactPath: string;
+	selector: string;
+	text: string;
+	screenshotPath: string | null;
+	status: CommentStatus;
+	positionX: number | null;
+	positionY: number | null;
+	threadId: string | null;
+	openingSessionId: string | null;
+	sink: CommentSink | null;
+	createdAt: number;
+	acknowledgedAt: number | null;
+	resolvedAt: number | null;
+}
+
+export async function commentCreate(args: {
+	artifactPath: string;
+	selector: string;
+	text: string;
+	screenshotPath?: string | null;
+	positionX?: number | null;
+	positionY?: number | null;
+}): Promise<Comment> {
+	return invoke<Comment>('comment_create', {
+		artifactPath: args.artifactPath,
+		selector: args.selector,
+		text: args.text,
+		screenshotPath: args.screenshotPath ?? null,
+		positionX: args.positionX ?? null,
+		positionY: args.positionY ?? null,
+	});
+}
+
+export async function commentGet(id: number): Promise<Comment> {
+	return invoke<Comment>('comment_get', { id });
+}
+
+/** List pin comments. Pass `artifactPath` to scope to one artifact (cell
+ *  render path), or omit for the cross-folder inbox view. Resolved pins are
+ *  hidden by default. */
+export async function commentList(args?: {
+	artifactPath?: string | null;
+	includeResolved?: boolean;
+}): Promise<Comment[]> {
+	return invoke<Comment[]>('comment_list', {
+		artifactPath: args?.artifactPath ?? null,
+		includeResolved: args?.includeResolved ?? false,
+	});
+}
+
+/** Record which sink the dispatcher chose for this pin. Stamps `sink` plus
+ *  `threadId` / `openingSessionId` audit fields. Idempotent — re-routing
+ *  the same pin overwrites `sink` but COALESCEs the session ids so the
+ *  earliest values stay. */
+export async function commentRecordRouting(args: {
+	id: number;
+	sink: CommentSink;
+	threadId?: string | null;
+	openingSessionId?: string | null;
+}): Promise<Comment> {
+	return invoke<Comment>('comment_record_routing', {
+		id: args.id,
+		sink: args.sink,
+		threadId: args.threadId ?? null,
+		openingSessionId: args.openingSessionId ?? null,
+	});
+}
+
+/** Set the pin's status. Agent transitions: open→in_progress (via
+ *  `pin_acknowledge`) and any→resolved (via `pin_resolve`). User can also
+ *  resolve manually from the grid UI. Timestamp fields are stamped on the
+ *  first transition into each state and never overwritten. */
+export async function commentSetStatus(id: number, status: CommentStatus): Promise<Comment> {
+	return invoke<Comment>('comment_set_status', { id, status });
+}
+
+export async function commentDelete(id: number): Promise<void> {
+	return invoke('comment_delete', { id });
+}
+
+/** Persist a base64-encoded PNG (from `captureToPng` on the FE) to disk
+ *  under `$app_data_dir/pin-screenshots/<uuid>.png` and return the absolute
+ *  path. Used by the pin composer to materialise an element screenshot
+ *  before stamping the path on `commentCreate`. */
+export async function pinScreenshotWrite(base64Png: string): Promise<string> {
+	return invoke<string>('pin_screenshot_write', { base64Png });
+}
+
+/** Routing sink. `terminal` writes the structured prompt to the active claude
+ *  PTY's stdin (claude pulls the full payload via `mcp-iyke.read_pin`).
+ *  `sidepane` fires a `pin://routed` Tauri event the FE listens to and posts
+ *  into the active side-pane Chat thread. `both` runs both branches. */
+export type RouteSink = 'terminal' | 'sidepane' | 'both';
+
+export interface RouteResult {
+	/** Sink actually used. `null` when nothing was reachable. */
+	sink: RouteSink | null;
+	/** PTY id used when the terminal branch fired. */
+	ptyId: string | null;
+	/** Foreground command on that PTY at routing time (e.g. `"claude"`). */
+	ptyForeground: string | null;
+	comment: Comment;
+}
+
+/** Dispatch a pin to its routing sink. Auto-detects when `overrideSink` is
+ *  omitted: most-recently-active claude PTY wins; falls back to side-pane
+ *  Chat. ⌥-click on the pin in the grid passes an explicit override. */
+export async function commentRoute(args: {
+	id: number;
+	overrideSink?: RouteSink;
+}): Promise<RouteResult> {
+	const raw = await invoke<{
+		sink: string | null;
+		pty_id: string | null;
+		pty_foreground: string | null;
+		comment: Comment;
+	}>('comment_route', {
+		id: args.id,
+		overrideSink: args.overrideSink ?? null,
+	});
+	return {
+		sink: (raw.sink as RouteSink | null) ?? null,
+		ptyId: raw.pty_id,
+		ptyForeground: raw.pty_foreground,
+		comment: raw.comment,
+	};
+}
+
+/** Payload emitted on `pin://routed` when the sidepane branch fires. The
+ *  FE listens for this and posts the structured prompt into the active
+ *  side-pane Chat thread. */
+export interface PinRoutedEvent {
+	id: number;
+	sink: 'sidepane';
+	artifact_path: string;
+	selector: string;
+	text: string;
+	screenshot_path: string | null;
+}
+
+export async function listenPinRouted(
+	handler: (e: PinRoutedEvent) => void
+): Promise<UnlistenFn> {
+	return listen<PinRoutedEvent>('pin://routed', (e) => handler(e.payload));
 }

@@ -13,6 +13,11 @@ import { registerIykeIframe } from '@/lib/iyke/iframe-registry';
 import { usePaneStore } from '@/lib/panes/pane-store';
 import { cn } from '@/components/ui/utils';
 import { pickViewerRoot } from '../lib/relative-root';
+import {
+	attachElementPicker,
+	PinComposer,
+	type PickResult,
+} from '@/shell/artifact-grid/pin-composer';
 
 function isHtmlPath(path: string): boolean {
 	const lower = path.toLowerCase();
@@ -151,6 +156,33 @@ export function HtmlFrame({ path, paneId }: HtmlFrameProps) {
 		return registerIykeIframe(paneId, el, 'html-frame');
 	}, [paneId, readySrc]);
 
+	// Pin composer state. Right-clicking an element inside the iframe pops
+	// the composer; the picker stays attached for the lifetime of the
+	// iframe element. Skipped when there's no `paneId` because grid
+	// thumbnails (which have `pointer-events-none` and pass no paneId)
+	// shouldn't be capturing contextmenu events.
+	const [pick, setPick] = useState<PickResult | null>(null);
+	useEffect(() => {
+		if (!paneId || !readySrc) return;
+		const el = iframeRef.current;
+		if (!el) return;
+		// The iframe's contentDocument isn't available until the page-load
+		// event fires. Wait for that before attaching so the picker doesn't
+		// silently no-op on the loading-blank document.
+		let detach: (() => void) | undefined;
+		const wireUp = () => {
+			detach?.();
+			detach = attachElementPicker(el, (p) => setPick(p));
+		};
+		// Attach immediately in case it's already loaded (re-mount races).
+		wireUp();
+		el.addEventListener('load', wireUp);
+		return () => {
+			el.removeEventListener('load', wireUp);
+			detach?.();
+		};
+	}, [paneId, readySrc]);
+
 	if (state.kind === 'loading') {
 		return (
 			<div className="flex h-full items-center justify-center text-xs text-muted-foreground">
@@ -181,6 +213,12 @@ export function HtmlFrame({ path, paneId }: HtmlFrameProps) {
 				src={state.src}
 				sandbox="allow-scripts allow-same-origin"
 				className="h-full w-full flex-1 border-0 bg-background"
+			/>
+			<PinComposer
+				open={pick !== null}
+				pick={pick}
+				artifactPath={path}
+				onClose={() => setPick(null)}
 			/>
 		</div>
 	);

@@ -1,6 +1,7 @@
 import {
 	Bot,
 	FolderKanban,
+	Grid3x3,
 	HardDrive,
 	Info,
 	KeyRound,
@@ -35,6 +36,7 @@ const NAV: NavSection[] = [
 			{ to: '/settings/appearance', label: 'Appearance', Icon: Palette },
 			{ to: '/settings/projects', label: 'Projects', Icon: FolderKanban },
 			{ to: '/settings/activity-bar', label: 'Activity bar', Icon: LayoutGrid },
+			{ to: '/settings/artifact-grid', label: 'Artifact grid', Icon: Grid3x3 },
 			{ to: '/settings/agent', label: 'Agent', Icon: Bot },
 			{ to: '/settings/packages', label: 'Packages', Icon: Package },
 			{ to: '/settings/onboarding', label: 'Onboarding', Icon: Sparkles },
