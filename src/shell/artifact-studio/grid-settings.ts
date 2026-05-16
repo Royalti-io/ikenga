@@ -13,7 +13,22 @@
 
 import { settingsGet, settingsSet, type RouteSink } from '@/lib/tauri-cmd';
 
-export type DefaultSink = 'auto' | 'terminal' | 'sidepane';
+/**
+ * Routing destination for pin clicks within an artifact-grid (or
+ * Studio-loupe) pane. The value selects the default `commentRoute`
+ * override for every pin click on the board.
+ *
+ * - `auto` — let the Rust dispatcher pick: active claude PTY when one
+ *   exists, side-pane Chat otherwise.
+ * - `terminal` — always send to the active claude PTY (fallback to
+ *   side-pane if none).
+ * - `sidepane` — always emit to the side-pane Chat channel.
+ * - `both` — mirror mode: every pin click fans out to terminal *and*
+ *   side-pane simultaneously. Useful when you want claude to see the
+ *   structured payload while also keeping the side-pane thread as a
+ *   user-facing audit log.
+ */
+export type DefaultSink = 'auto' | 'terminal' | 'sidepane' | 'both';
 export type StackMode = 'collapsed' | 'expanded';
 
 export const GLOBAL_KEYS = {
@@ -26,7 +41,7 @@ export function folderKey(path: string, leaf: 'default-sink' | 'stack-mode'): st
 }
 
 function parseDefaultSink(raw: string | null): DefaultSink | null {
-	if (raw === 'auto' || raw === 'terminal' || raw === 'sidepane') return raw;
+	if (raw === 'auto' || raw === 'terminal' || raw === 'sidepane' || raw === 'both') return raw;
 	return null;
 }
 

@@ -1099,7 +1099,7 @@ function SinkSegments({
 				'inline-flex overflow-hidden rounded border border-border ' + (disabled ? 'opacity-50' : '')
 			}
 		>
-			{(['auto', 'terminal', 'sidepane'] as const).map((opt) => (
+			{(['auto', 'terminal', 'sidepane', 'both'] as const).map((opt) => (
 				<button
 					key={opt}
 					type="button"

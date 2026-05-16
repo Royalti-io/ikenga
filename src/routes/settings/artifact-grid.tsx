@@ -89,7 +89,7 @@ function SegmentedSink({
 }) {
 	return (
 		<div className="inline-flex overflow-hidden rounded border border-border">
-			{(['auto', 'terminal', 'sidepane'] as const).map((opt) => (
+			{(['auto', 'terminal', 'sidepane', 'both'] as const).map((opt) => (
 				<button
 					key={opt}
 					type="button"
