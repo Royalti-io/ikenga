@@ -29,6 +29,7 @@ export const NAV_GROUPS: NavGroup[] = [
 	{
 		label: null,
 		items: [
+			{ to: '/', label: 'Home', Icon: Home },
 			{ to: '/sessions', label: 'Sessions', Icon: TerminalIcon },
 			{ to: '/claude', label: 'Claude', Icon: Bot },
 		],

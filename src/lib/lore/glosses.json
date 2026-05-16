@@ -1,0 +1,47 @@
+{
+	"_doc": "Tier-1 surface vocabulary glosses. Shown on first encounter inline or via tooltip; folded away after acknowledgement. Locked list per design/shell/05-lore-and-nomenclature.md §2 (Tier 1).",
+	"glosses": [
+		{
+			"term": "Ikenga",
+			"english": "personal seat of strength",
+			"gloss": "Your workspace itself — a personal seat of strength.",
+			"tier": 1
+		},
+		{
+			"term": "Obi",
+			"english": "meeting house, home",
+			"gloss": "Home — being-at-home in the workspace.",
+			"tier": 1
+		},
+		{
+			"term": "Chi",
+			"english": "personal god, destiny-driver",
+			"gloss": "Your AI engine, the destiny-driver of this workspace.",
+			"tier": 1
+		},
+		{
+			"term": "Iyke",
+			"english": "diminutive of Ike (strength)",
+			"gloss": "The runtime controller that drives your shell.",
+			"tier": 1
+		},
+		{
+			"term": "Consecration",
+			"english": "bringing the Ikenga to life",
+			"gloss": "First-run setup — giving your Ikenga its purpose.",
+			"tier": 1
+		},
+		{
+			"term": "Daily address",
+			"english": "speaking to the Ikenga before ventures",
+			"gloss": "The greeting on app open — addressing your Ikenga before today's work.",
+			"tier": 1
+		},
+		{
+			"term": "Share kola",
+			"english": "the kola-nut consecration",
+			"gloss": "A consent moment — sharing kola before granting access.",
+			"tier": 1
+		}
+	]
+}

@@ -1,0 +1,47 @@
+{
+	"_doc": "Quotes — surface copy for splash, daily-address, empty states, error states, consecration. Locked list per design/shell/05-lore-and-nomenclature.md §4. Anything not in this file needs an amendment to that doc before use.",
+	"quotes": [
+		{
+			"id": "achebe-chap4",
+			"text": "When a man says yes, his chi says yes also.",
+			"source": "Chinua Achebe",
+			"work": "Things Fall Apart, ch. 4",
+			"fits": ["welcome", "consent", "daily-address"]
+		},
+		{
+			"id": "achebe-chap14",
+			"text": "A man's chi is one thing and his life-course another.",
+			"source": "Chinua Achebe",
+			"work": "Things Fall Apart, ch. 14",
+			"fits": ["soft-fail", "daily-address"]
+		},
+		{
+			"id": "achebe-clan",
+			"text": "No man however great was greater than his people; no one ever won judgment against his clan.",
+			"source": "Chinua Achebe",
+			"work": "Things Fall Apart",
+			"fits": ["team-upgrade"]
+		},
+		{
+			"id": "achebe-mask",
+			"text": "The world is like a Mask dancing. If you want to see it well, you do not stand in one place.",
+			"source": "Chinua Achebe",
+			"work": "Arrow of God",
+			"fits": ["multi-pane-empty", "daily-address"]
+		},
+		{
+			"id": "proverb-chi-agrees",
+			"text": "Onye kwe, chi ya ekwe.",
+			"gloss": "If one agrees, one's chi agrees.",
+			"source": "Igbo proverb",
+			"fits": ["consent", "daily-address"]
+		},
+		{
+			"id": "proverb-dirty-hands",
+			"text": "Aka aja aja na-ebute ọnụ mmanụ mmanụ.",
+			"gloss": "Dirty hands bring an oily mouth.",
+			"source": "Igbo proverb",
+			"fits": ["empty-tasks", "outbox-empty", "daily-address"]
+		}
+	]
+}

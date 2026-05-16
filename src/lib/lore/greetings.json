@@ -1,0 +1,40 @@
+{
+	"_doc": "Daily-address greetings + microcopy templates. Igbo terms use proper Unicode diacritics per design/shell/05-lore-and-nomenclature.md §5 and open-question 3.",
+	"timeOfDay": {
+		"morning": { "igbo": "Ụtụtụ ọma", "english": "Good morning", "hoursStart": 5, "hoursEnd": 12 },
+		"afternoon": {
+			"igbo": "Ehihie ọma",
+			"english": "Good afternoon",
+			"hoursStart": 12,
+			"hoursEnd": 17
+		},
+		"evening": {
+			"igbo": "Mgbede ọma",
+			"english": "Good evening",
+			"hoursStart": 17,
+			"hoursEnd": 21
+		},
+		"night": { "igbo": "Abalị ọma", "english": "Good night", "hoursStart": 21, "hoursEnd": 5 }
+	},
+	"firstRun": {
+		"title": "Welcome to your Obi.",
+		"gloss": "This is your seat of strength. Your right hand has work to do.",
+		"source": "design/shell/05-lore-and-nomenclature.md §5"
+	},
+	"microcopy": {
+		"emptyTasks": { "label": "Your right hand rests. What will you build?", "source": "Slide 3" },
+		"longRunning": { "label": "Your Chi considers…", "source": "Slide 2" },
+		"failedRetry": { "label": "Even the ram pauses. Try again.", "source": "Slide 4" },
+		"firstGreeting": { "label": "Welcome to your Obi.", "source": "Slide 6" },
+		"commission": { "label": "Commission", "source": "Slide 2" },
+		"retire": { "label": "Retire", "source": "Slide 6" },
+		"shareKola": { "label": "Share kola", "source": "Slide 6" }
+	},
+	"shapeOfDay": {
+		"noSessions": "No sessions open. A clean slate.",
+		"sessionsLiveOnly": "{n} session{plural} still open.",
+		"sessionsLiveAndIdle": "{nLive} session{nLivePlural} still open, {nPaused} paused.",
+		"momentumHigh": "There's momentum to pick back up.",
+		"momentumLow": "Pick it back up when you're ready."
+	}
+}

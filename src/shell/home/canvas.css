@@ -1,0 +1,562 @@
+/* Home canvas — free-form widget surface for the App-workspace landing.
+ *
+ * Design source: design/shell/concepts/03-screens/16-home.html (concept) and
+ * 16-home.artifact.html (live artifact). Tokens come from styles.css; this
+ * file owns only the canvas-specific selectors. Theme-aware via the shell's
+ * data-mode attribute — no @media prefers-color-scheme here.
+ */
+
+.home-canvas {
+	position: absolute;
+	inset: 0;
+	overflow: hidden;
+	background: radial-gradient(900px 600px at 50% 40%, var(--primary-soft) 0%, var(--bg-base) 70%);
+}
+
+/* Wood-grain dot pattern, pans with the stage. */
+.home-canvas-grain {
+	position: absolute;
+	inset: 0;
+	background-image: radial-gradient(circle, hsla(28, 14%, 22%, 0.55) 1px, transparent 1px);
+	background-size: 28px 28px;
+	opacity: 0.38;
+	pointer-events: none;
+	transition: opacity 180ms ease;
+}
+.home-canvas[data-mode-edit="true"] .home-canvas-grain {
+	opacity: 0.65;
+}
+[data-mode="light"] .home-canvas-grain {
+	background-image: radial-gradient(circle, hsla(28, 14%, 40%, 0.3) 1px, transparent 1px);
+	opacity: 0.35;
+}
+
+/* Stage holds widgets, translated/scaled as a whole on pan/autofit. */
+.home-stage {
+	position: absolute;
+	inset: 0;
+	transform-origin: 0 0;
+	transition: transform 260ms cubic-bezier(0.2, 0.6, 0.2, 1);
+	will-change: transform;
+}
+.home-stage.is-dragging {
+	transition: none;
+}
+
+/* Widget card */
+.home-widget {
+	position: absolute;
+	background: var(--bg-surface);
+	border: 1px solid var(--border);
+	border-radius: 12px;
+	box-shadow:
+		0 1px 2px rgba(0, 0, 0, 0.55),
+		0 4px 12px -2px rgba(0, 0, 0, 0.45);
+	overflow: hidden;
+	display: flex;
+	flex-direction: column;
+	transition:
+		border-color 120ms ease,
+		box-shadow 120ms ease;
+}
+[data-mode="light"] .home-widget {
+	box-shadow:
+		0 1px 2px rgba(28, 18, 8, 0.08),
+		0 4px 12px -2px rgba(28, 18, 8, 0.1);
+}
+.home-widget:hover {
+	border-color: var(--border-soft);
+}
+.home-widget[data-patina="warm"] {
+	box-shadow:
+		0 4px 12px -2px rgba(0, 0, 0, 0.55),
+		0 0 0 1px hsla(42, 78%, 54%, 0.14),
+		0 0 22px 2px hsla(20, 50%, 34%, 0.12);
+}
+[data-mode="light"] .home-widget[data-patina="warm"] {
+	box-shadow:
+		0 4px 12px -2px rgba(28, 18, 8, 0.1),
+		0 0 0 1px hsla(42, 78%, 42%, 0.18),
+		0 0 22px 2px hsla(20, 50%, 70%, 0.14);
+}
+
+/* Naked greeting — sits on the canvas like text on paper, no card. */
+.home-greeting {
+	position: absolute;
+	padding: 4px 8px;
+	transition:
+		outline-color 120ms ease,
+		background 120ms ease;
+	outline: 1px dashed transparent;
+	outline-offset: 6px;
+	border-radius: 4px;
+}
+.home-canvas[data-mode-edit="true"] .home-greeting {
+	outline-color: var(--border);
+	cursor: grab;
+}
+.home-canvas[data-mode-edit="true"] .home-greeting:hover {
+	outline-color: var(--achievement, hsl(42, 78%, 54%));
+	background: hsla(42, 78%, 54%, 0.04);
+}
+.home-greeting.is-selected {
+	outline-color: var(--achievement, hsl(42, 78%, 54%)) !important;
+}
+.home-greeting h1 {
+	font-family: var(--font-display, ui-serif);
+	font-weight: 500;
+	font-size: 36px;
+	line-height: 1.04;
+	letter-spacing: -0.014em;
+	margin: 0;
+	color: var(--fg);
+}
+.home-greeting h1 em {
+	font-style: italic;
+	font-weight: 400;
+	color: var(--achievement, hsl(42, 78%, 54%));
+}
+.home-greeting .gloss {
+	margin-top: 6px;
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: 8px;
+	font-family: var(--font-mono, ui-monospace);
+	font-size: 11px;
+	letter-spacing: 0.04em;
+	color: var(--fg-faint);
+}
+.home-greeting .gloss .english {
+	font-family: var(--font-display, ui-serif);
+	font-style: italic;
+	font-size: 13px;
+	letter-spacing: 0;
+	color: var(--fg-muted);
+}
+.home-greeting .gloss .sep {
+	opacity: 0.55;
+}
+.home-greeting .shape {
+	margin-top: 14px;
+	font-size: 14px;
+	color: var(--fg-muted);
+	line-height: 1.55;
+	max-width: 36em;
+}
+.home-greeting .quote {
+	margin-top: 18px;
+	padding-top: 14px;
+	border-top: 1px solid var(--border-soft);
+	max-width: 40em;
+}
+.home-greeting .quote-body {
+	font-family: var(--font-display, ui-serif);
+	font-style: italic;
+	font-size: 14px;
+	line-height: 1.55;
+	color: var(--fg);
+}
+.home-greeting .quote-gloss {
+	font-style: normal;
+	font-size: 13px;
+	color: var(--fg-faint);
+	margin-left: 6px;
+}
+.home-greeting .quote-gloss::before {
+	content: "— ";
+}
+.home-greeting .quote-attr {
+	margin-top: 6px;
+	font-family: var(--font-mono, ui-monospace);
+	font-size: 10.5px;
+	letter-spacing: 0.04em;
+	color: var(--fg-faint);
+}
+
+.home-widget .w-head {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 12px 16px;
+	border-bottom: 1px solid var(--border-soft);
+	background: linear-gradient(180deg, hsla(28, 14%, 14%, 0.4) 0%, transparent 100%);
+}
+[data-mode="light"] .home-widget .w-head {
+	background: linear-gradient(180deg, hsla(28, 14%, 86%, 0.45) 0%, transparent 100%);
+}
+.home-widget .w-icon {
+	width: 22px;
+	height: 22px;
+	border-radius: 5px;
+	background: var(--bg-raised);
+	display: grid;
+	place-items: center;
+	color: var(--fg-muted);
+}
+.home-widget .w-icon svg {
+	width: 14px;
+	height: 14px;
+}
+.home-widget .w-title {
+	font-family: var(--font-display, ui-serif);
+	font-weight: 500;
+	font-size: 14px;
+	color: var(--fg);
+	line-height: 1;
+}
+.home-widget .w-tag {
+	font-family: var(--font-mono, ui-monospace);
+	font-size: 10px;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+	color: var(--fg-faint);
+	margin-left: auto;
+}
+.home-widget[data-patina="warm"] .w-tag {
+	color: var(--achievement, hsl(42, 78%, 54%));
+}
+.home-widget .w-body {
+	flex: 1;
+	padding: 12px 16px;
+	font-size: 13px;
+	color: var(--fg-muted);
+	line-height: 1.5;
+	overflow: auto;
+}
+
+.home-widget .w-row {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	padding: 7px 0;
+	border-bottom: 1px solid var(--border-soft);
+}
+.home-widget .w-row:last-child {
+	border-bottom: 0;
+}
+.home-widget .w-dot {
+	width: 7px;
+	height: 7px;
+	border-radius: 50%;
+	background: var(--fg-faint);
+	flex-shrink: 0;
+}
+.home-widget .w-dot.live {
+	background: var(--live, hsl(150, 48%, 52%));
+	box-shadow: 0 0 0 3px hsla(150, 48%, 52%, 0.16);
+}
+.home-widget .w-dot.warm {
+	background: var(--achievement, hsl(42, 78%, 54%));
+}
+.home-widget .w-dot.danger {
+	background: var(--danger);
+}
+.home-widget .w-dot.agent {
+	background: var(--agent, hsl(265, 52%, 64%));
+}
+.home-widget .w-label {
+	flex: 1;
+	color: var(--fg);
+	font-size: 13px;
+	min-width: 0;
+}
+.home-widget .w-meta {
+	font-family: var(--font-mono, ui-monospace);
+	font-size: 10.5px;
+	letter-spacing: 0.04em;
+	color: var(--fg-faint);
+	flex-shrink: 0;
+}
+.home-widget .w-agent-tag {
+	color: var(--fg-faint);
+	font-family: var(--font-mono, ui-monospace);
+	font-size: 10.5px;
+	letter-spacing: 0.04em;
+	margin-right: 8px;
+}
+
+/* Edit-mode adornments. */
+.home-canvas[data-mode-edit="true"] .home-widget {
+	border-style: dashed;
+	border-color: var(--border-soft);
+	cursor: grab;
+}
+.home-canvas[data-mode-edit="true"] .home-widget:hover {
+	border-color: var(--achievement, hsl(42, 78%, 54%));
+	box-shadow:
+		0 4px 12px -2px rgba(0, 0, 0, 0.55),
+		0 0 0 1px hsla(42, 78%, 54%, 0.18);
+}
+.home-canvas[data-mode-edit="true"] .home-widget.is-selected {
+	border-color: var(--achievement, hsl(42, 78%, 54%));
+	border-style: solid;
+	box-shadow:
+		0 12px 28px -8px rgba(0, 0, 0, 0.6),
+		0 0 0 1px var(--achievement, hsl(42, 78%, 54%));
+}
+
+/* Top bar — floats over the canvas. */
+.home-bar {
+	position: absolute;
+	top: 0;
+	left: 0;
+	right: 0;
+	height: 44px;
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	padding: 0 16px;
+	background: linear-gradient(180deg, var(--bg-sunken) 0%, transparent 100%);
+	z-index: 5;
+	pointer-events: none;
+}
+.home-bar > * {
+	pointer-events: auto;
+}
+.home-bar .crumb {
+	font-family: var(--font-mono, ui-monospace);
+	font-size: 11px;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+	color: var(--fg-faint);
+}
+.home-bar .crumb b {
+	color: var(--fg-muted);
+	font-weight: 500;
+}
+.home-bar .hint {
+	font-family: var(--font-mono, ui-monospace);
+	font-size: 11px;
+	color: var(--fg-faint);
+	letter-spacing: 0.04em;
+	margin-left: auto;
+}
+.home-bar .hint .kbd {
+	display: inline-block;
+	padding: 1px 5px;
+	background: var(--bg-surface);
+	border: 1px solid var(--border-soft);
+	border-radius: 3px;
+	color: var(--fg-muted);
+	font-family: var(--font-mono, ui-monospace);
+	font-size: 10px;
+}
+.home-bar .btn {
+	height: 26px;
+	padding: 0 12px;
+	border: 1px solid var(--border);
+	background: var(--bg-surface);
+	color: var(--fg-muted);
+	font-family: var(--font-mono, ui-monospace);
+	font-size: 11px;
+	letter-spacing: 0.04em;
+	border-radius: 5px;
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	cursor: pointer;
+	transition:
+		border-color 120ms ease,
+		color 120ms ease,
+		background 120ms ease;
+}
+.home-bar .btn:hover {
+	color: var(--fg);
+	border-color: var(--border-soft);
+}
+.home-bar .btn.is-primary {
+	background: hsla(42, 78%, 54%, 0.14);
+	border-color: hsla(42, 78%, 54%, 0.14);
+	color: var(--achievement, hsl(42, 78%, 54%));
+}
+.home-bar .btn svg {
+	width: 12px;
+	height: 12px;
+}
+
+/* Palette slide-in. */
+.home-palette {
+	position: absolute;
+	top: 44px;
+	right: 0;
+	bottom: 0;
+	width: 320px;
+	background: var(--bg-sunken);
+	border-left: 1px solid var(--border-soft);
+	display: none;
+	flex-direction: column;
+	z-index: 7;
+	box-shadow: -16px 0 24px -12px rgba(0, 0, 0, 0.5);
+	overflow-y: auto;
+}
+[data-mode="light"] .home-palette {
+	box-shadow: -16px 0 24px -12px rgba(28, 18, 8, 0.14);
+}
+.home-canvas[data-mode-edit="true"] .home-palette {
+	display: flex;
+}
+.home-palette .head {
+	padding: 16px 16px 12px;
+	border-bottom: 1px solid var(--border-soft);
+}
+.home-palette .head .ptag {
+	font-family: var(--font-mono, ui-monospace);
+	font-size: 10.5px;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+	color: var(--achievement, hsl(42, 78%, 54%));
+	margin-bottom: 4px;
+}
+.home-palette .head h3 {
+	margin: 0;
+	font-family: var(--font-display, ui-serif);
+	font-weight: 500;
+	font-size: 16px;
+	color: var(--fg);
+}
+.home-palette .head p {
+	margin: 4px 0 0;
+	font-size: 12px;
+	color: var(--fg-muted);
+	line-height: 1.5;
+}
+.home-palette .section {
+	padding: 12px 16px 16px;
+}
+.home-palette .section + .section {
+	border-top: 1px solid var(--border-soft);
+}
+.home-palette .section h4 {
+	margin: 0 0 8px;
+	font-family: var(--font-mono, ui-monospace);
+	font-size: 10px;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+	color: var(--fg-faint);
+	font-weight: 500;
+}
+.home-palette .list {
+	display: grid;
+	gap: 6px;
+}
+.home-palette .item {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	padding: 8px 12px;
+	background: var(--bg-surface);
+	border: 1px solid var(--border-soft);
+	border-radius: 5px;
+	cursor: grab;
+	transition:
+		border-color 120ms ease,
+		transform 120ms ease;
+}
+.home-palette .item:hover {
+	border-color: var(--achievement, hsl(42, 78%, 54%));
+	transform: translateX(-2px);
+}
+.home-palette .item .pic {
+	width: 24px;
+	height: 24px;
+	background: var(--bg-raised);
+	border-radius: 3px;
+	display: grid;
+	place-items: center;
+	color: var(--fg-muted);
+}
+.home-palette .item .pic svg {
+	width: 13px;
+	height: 13px;
+}
+.home-palette .item .title {
+	font-size: 13px;
+	color: var(--fg);
+}
+.home-palette .item .meta {
+	margin-left: auto;
+	font-family: var(--font-mono, ui-monospace);
+	font-size: 10px;
+	letter-spacing: 0.04em;
+	color: var(--fg-faint);
+}
+.home-palette .item.is-placed {
+	opacity: 0.45;
+	cursor: default;
+}
+.home-palette .item.is-placed:hover {
+	border-color: var(--border-soft);
+	transform: none;
+}
+
+/* Quick-actions widget — distinct row shape with kbd column. */
+.home-widget .qrow {
+	display: grid;
+	grid-template-columns: 1fr auto auto;
+	gap: 12px;
+	align-items: center;
+	padding: 7px 0;
+	border-bottom: 1px solid var(--border-soft);
+}
+.home-widget .qrow:last-child {
+	border-bottom: 0;
+}
+.home-widget .qrow > span:first-child {
+	color: var(--fg);
+	font-size: 13px;
+}
+.home-widget .qrow .qmeta {
+	color: var(--fg-faint);
+	font-family: var(--font-mono, ui-monospace);
+	font-size: 10.5px;
+}
+.home-widget .qrow .kbd {
+	display: inline-block;
+	padding: 2px 6px;
+	background: var(--bg-raised);
+	border: 1px solid var(--border);
+	border-radius: 3px;
+	color: var(--fg-muted);
+	font-family: var(--font-mono, ui-monospace);
+	font-size: 10px;
+}
+
+/* Scratchpad — pull-quote feel. */
+.home-widget.w-pad .w-body {
+	font-family: var(--font-display, ui-serif);
+	font-style: italic;
+	color: var(--fg);
+	font-size: 14px;
+	line-height: 1.6;
+}
+.home-widget.w-pad .pad-meta {
+	margin-top: 12px;
+	font-style: normal;
+	font-family: var(--font-mono, ui-monospace);
+	font-size: 10.5px;
+	letter-spacing: 0.04em;
+	color: var(--fg-faint);
+}
+
+/* Finance — single big figure + spark. */
+.home-widget.w-finance .figure {
+	font-family: var(--font-display, ui-serif);
+	font-weight: 500;
+	font-size: 36px;
+	color: var(--fg);
+	letter-spacing: -0.018em;
+	line-height: 1;
+	margin: 8px 0 12px;
+}
+.home-widget.w-finance .figure em {
+	font-style: normal;
+	color: var(--achievement, hsl(42, 78%, 54%));
+	font-size: 18px;
+	margin-left: 8px;
+	letter-spacing: 0;
+}
+.home-widget.w-finance .spark {
+	height: 32px;
+	margin-top: 4px;
+}
