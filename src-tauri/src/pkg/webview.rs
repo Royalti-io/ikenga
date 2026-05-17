@@ -730,3 +730,32 @@ fn partition_dir(app: &AppHandle, pkg_id: &str, partition: &str) -> Result<PathB
     let pkg_slug = pkg_id.replace('.', "-");
     Ok(base.join("webjars").join(pkg_slug).join(partition))
 }
+
+/// Hop to the GTK / NSApplication main thread and run `f` there, awaiting
+/// its result. All `WebviewPanesRegistry` methods that touch Tauri builder
+/// APIs (`build`, `set_position`, `set_size`, `webview.eval`, `webview.close`,
+/// `webview.navigate`) post to the main loop synchronously and block until
+/// it pumps. Calling them from a tokio worker (axum handler, async Tauri
+/// command) without this hop hangs on Linux WebKitGTK because the main
+/// loop never gets a tick while our task is blocked.
+///
+/// Both caller surfaces are expected to wrap their kernel invocations in
+/// this helper — Phase 3c report (`plans/shell/2026-05-13-pkg-browser-
+/// phase-3c-report.md`) walks through the original diagnosis. The legacy
+/// `on_main` in `iyke/browser_handlers.rs` is kept as a thin axum-typed
+/// adapter so the StatusCode error surface there stays unchanged; this
+/// version returns `anyhow::Result` for use from Tauri commands.
+pub async fn run_on_main<F, R>(app: &tauri::AppHandle, f: F) -> Result<R>
+where
+    F: FnOnce() -> Result<R> + Send + 'static,
+    R: Send + 'static,
+{
+    use tauri::Manager as _;
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    app.run_on_main_thread(move || {
+        let _ = tx.send(f());
+    })
+    .map_err(|e| anyhow!("run_on_main_thread: {e}"))?;
+    rx.await
+        .map_err(|e| anyhow!("main-thread channel closed: {e}"))?
+}
