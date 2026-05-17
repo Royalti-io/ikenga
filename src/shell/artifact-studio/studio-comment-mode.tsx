@@ -3,9 +3,9 @@
 // When the user toggles comment mode on (Studio chrome), this component
 // mounts above the rendered artifact iframe. It reaches into the iframe's
 // same-origin document, attaches pointer listeners, draws a highlight
-// around the hovered element, and — on click — derives a stable selector
-// via `deriveSelector` and reports it up so the engine chat can pin it
-// as a chip.
+// around the hovered element, and — on click — captures a `PickResult`
+// (selector + screenshot + position) via the shared `capture` helper so
+// the unified `PinComposer` modal handles the rest.
 //
 // Same-origin access is safe here: the artifact iframe is served by the
 // shell's own viewer-server, so `iframe.contentDocument` is reachable
@@ -14,11 +14,11 @@
 // the right CSP / sandbox flags for this access pattern.
 
 import { useEffect, useRef, useState } from 'react';
-import { deriveSelector } from '@/lib/artifact/selector';
+import { capture, type PickResult } from '@/shell/artifact-studio/pin-composer';
 
 interface StudioCommentModeProps {
 	paneId: string;
-	onSelect: (selector: string) => void;
+	onPick: (result: PickResult) => void;
 }
 
 interface Rect {
@@ -28,9 +28,10 @@ interface Rect {
 	height: number;
 }
 
-export function StudioCommentMode({ paneId, onSelect }: StudioCommentModeProps) {
+export function StudioCommentMode({ paneId, onPick }: StudioCommentModeProps) {
 	const overlayRef = useRef<HTMLDivElement | null>(null);
 	const [highlight, setHighlight] = useState<Rect | null>(null);
+	const [busy, setBusy] = useState(false);
 
 	useEffect(() => {
 		// Find the artifact iframe by walking up to the Studio pane root and
@@ -49,7 +50,7 @@ export function StudioCommentMode({ paneId, onSelect }: StudioCommentModeProps) 
 			const iframe = root.querySelector('iframe');
 			if (!iframe?.contentDocument) return;
 			attached = true;
-			teardown = attachListeners(iframe, overlayRef.current, setHighlight, onSelect);
+			teardown = attachListeners(iframe, overlayRef.current, setHighlight, onPick, setBusy);
 		};
 
 		tryAttach();
@@ -62,13 +63,17 @@ export function StudioCommentMode({ paneId, onSelect }: StudioCommentModeProps) 
 			window.clearTimeout(stop);
 			if (teardown) teardown();
 		};
-	}, [paneId, onSelect]);
+	}, [paneId, onPick]);
 
 	return (
 		<div ref={overlayRef} className="pointer-events-none absolute inset-0 z-10">
 			{highlight && (
 				<div
-					className="absolute rounded-sm border-2 border-amber-500 bg-amber-500/10 transition-all duration-75"
+					className={
+						busy
+							? 'absolute rounded-sm border-2 border-amber-300 bg-amber-300/20 transition-all duration-75'
+							: 'absolute rounded-sm border-2 border-amber-500 bg-amber-500/10 transition-all duration-75'
+					}
 					style={{
 						top: highlight.top,
 						left: highlight.left,
@@ -88,7 +93,8 @@ function attachListeners(
 	iframe: HTMLIFrameElement,
 	overlay: HTMLElement | null,
 	setHighlight: (r: Rect | null) => void,
-	onSelect: (selector: string) => void
+	onPick: (result: PickResult) => void,
+	setBusy: (b: boolean) => void
 ): () => void {
 	const doc = iframe.contentDocument;
 	if (!doc) return () => undefined;
@@ -115,23 +121,32 @@ function attachListeners(
 			height: rect.height,
 		});
 	};
+	let cancelled = false;
 	const onClick = (e: MouseEvent) => {
-		console.warn('[comment-mode] click', e.target);
 		if (!(e.target instanceof Element)) {
 			// Cross-frame `instanceof Element` (iframe.contentWindow.Element !==
 			// window.Element) can fail even for real elements. Fall back to a
 			// duck-typed nodeType check before bailing.
-			const t = e.target as { nodeType?: number; getBoundingClientRect?: unknown } | null;
-			if (!t || t.nodeType !== 1) {
-				console.warn('[comment-mode] target not an Element', e.target);
-				return;
-			}
+			const t = e.target as { nodeType?: number } | null;
+			if (!t || t.nodeType !== 1) return;
 		}
+		const el = e.target as Element;
+		// Skip bare <html>/<body> — same guard as the right-click picker.
+		if (el === doc.documentElement || el === doc.body) return;
 		e.preventDefault();
 		e.stopPropagation();
-		const selector = deriveSelector(e.target as Element);
-		console.warn('[comment-mode] selector', selector);
-		if (selector) onSelect(selector);
+		setBusy(true);
+		capture(iframe, el)
+			.then((result) => {
+				if (cancelled) return;
+				onPick(result);
+			})
+			.catch((err) => {
+				console.error('[comment-mode] capture failed', err);
+			})
+			.finally(() => {
+				if (!cancelled) setBusy(false);
+			});
 	};
 
 	const onLeave = () => setHighlight(null);
@@ -139,11 +154,9 @@ function attachListeners(
 	doc.addEventListener('mousemove', onMove, true);
 	doc.addEventListener('click', onClick, true);
 	doc.addEventListener('mouseleave', onLeave, true);
-	// Block scroll-into-view / form submits while comment-mode is on. The
-	// listeners are attached in capture phase so they fire before the
-	// artifact's own handlers.
 
 	return () => {
+		cancelled = true;
 		doc.removeEventListener('mousemove', onMove, true);
 		doc.removeEventListener('click', onClick, true);
 		doc.removeEventListener('mouseleave', onLeave, true);

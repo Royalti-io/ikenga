@@ -44,7 +44,11 @@ interface PinComposerProps {
 	open: boolean;
 	pick: PickResult | null;
 	artifactPath: string;
-	onClose: () => void;
+	/** Called when the modal closes. `committed` is true when the close
+	 *  happened after a successful pin submit, false on cancel / dismiss /
+	 *  Escape. Used by the Studio loupe to differentiate "pin landed, drop
+	 *  comment-mode" from "user backed out, keep comment-mode armed". */
+	onClose: (committed: boolean) => void;
 }
 
 export function PinComposer({ open, pick, artifactPath, onClose }: PinComposerProps) {
@@ -101,7 +105,7 @@ export function PinComposer({ open, pick, artifactPath, onClose }: PinComposerPr
 			);
 			// Bust the grid's pins query so the new pin pops in immediately.
 			void qc.invalidateQueries({ queryKey: ['artifact-grid'] });
-			onClose();
+			onClose(true);
 		} catch (e) {
 			setError(e instanceof Error ? e.message : String(e));
 		} finally {
@@ -113,7 +117,7 @@ export function PinComposer({ open, pick, artifactPath, onClose }: PinComposerPr
 		<Dialog
 			open={open && pick !== null}
 			onOpenChange={(o) => {
-				if (!o && !busy) onClose();
+				if (!o && !busy) onClose(false);
 			}}
 		>
 			<DialogContent className="sm:max-w-lg">
@@ -161,7 +165,7 @@ export function PinComposer({ open, pick, artifactPath, onClose }: PinComposerPr
 				{error && <p className="text-xs text-destructive">{error}</p>}
 
 				<DialogFooter>
-					<Button variant="ghost" disabled={busy} onClick={onClose}>
+					<Button variant="ghost" disabled={busy} onClick={() => onClose(false)}>
 						Cancel
 					</Button>
 					<Button disabled={busy || !text.trim()} onClick={() => void submit()}>

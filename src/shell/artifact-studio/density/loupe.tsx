@@ -43,6 +43,7 @@ import { StudioEngineChat } from '@/shell/artifact-studio/studio-engine-chat';
 import { StudioCommentMode } from '@/shell/artifact-studio/studio-comment-mode';
 import { StudioPromoteDialog } from '@/shell/artifact-studio/studio-promote-dialog';
 import { StudioTextEditMode } from '@/shell/artifact-studio/studio-text-edit-mode';
+import { PinComposer, type PickResult } from '@/shell/artifact-studio/pin-composer';
 import {
 	StudioSinkPopover,
 	studioSinkToPreferredPtyId,
@@ -72,7 +73,7 @@ export function StudioLoupe({ path, paneId }: StudioLoupeProps) {
 	const [textEditMode, setTextEditMode] = useState(false);
 	const [promoteOpen, setPromoteOpen] = useState(false);
 	const [sinkOpen, setSinkOpen] = useState(false);
-	const [pendingCommentChip, setPendingCommentChip] = useState<{ selector: string } | null>(null);
+	const [pendingPick, setPendingPick] = useState<PickResult | null>(null);
 	const [rightTab, setRightTab] = useRightRailTab('chat');
 	const { sink, setSink } = useArtifactSink(path);
 
@@ -239,12 +240,7 @@ export function StudioLoupe({ path, paneId }: StudioLoupeProps) {
 						<div className="relative h-full w-full">
 							<Renderer path={path} paneId={paneId} density="loupe" source="pane" />
 							<LoupePinOverlay path={path} paneId={paneId} sink={sink} />
-							{commentMode && (
-								<StudioCommentMode
-									paneId={paneId}
-									onSelect={(selector) => setPendingCommentChip({ selector })}
-								/>
-							)}
+							{commentMode && <StudioCommentMode paneId={paneId} onPick={setPendingPick} />}
 							{textEditMode && source !== null && (
 								<StudioTextEditMode
 									paneId={paneId}
@@ -260,14 +256,7 @@ export function StudioLoupe({ path, paneId }: StudioLoupeProps) {
 							tab={rightTab}
 							onChangeTab={setRightTab}
 							slots={{
-								chat: (
-									<StudioEngineChat
-										path={path}
-										pendingChip={pendingCommentChip}
-										onConsumeChip={() => setPendingCommentChip(null)}
-										onEngineEdit={applyEngineEdit}
-									/>
-								),
+								chat: <StudioEngineChat path={path} onEngineEdit={applyEngineEdit} />,
 								code: <StudioSourceEditor value={source} onChange={setSource} />,
 								dom: <DomInspector paneId={paneId} path={path} />,
 								manifest: (
@@ -288,6 +277,18 @@ export function StudioLoupe({ path, paneId }: StudioLoupeProps) {
 				path={path}
 				source={source}
 				manifest={manifest}
+			/>
+			<PinComposer
+				open={pendingPick !== null}
+				pick={pendingPick}
+				artifactPath={path}
+				onClose={(committed) => {
+					setPendingPick(null);
+					// Drop comment-mode after a successful pin so the user isn't
+					// stuck in capture-mode. On cancel/dismiss, leave it armed
+					// — they may have mis-clicked and want another try.
+					if (committed) setCommentMode(false);
+				}}
 			/>
 			<StudioSinkPopover
 				open={sinkOpen}

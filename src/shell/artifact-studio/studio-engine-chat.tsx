@@ -5,27 +5,17 @@
 // artifact's on-disk path so re-opening Studio resumes the same conversation
 // — mapping kept in localStorage under STUDIO_THREAD_KEY_PREFIX.
 //
-// Two Studio-specific affordances on top of the standard chat:
-//
-//   1. **Pending comment chip.** When the comment-mode selector picker
-//      freezes an element, the parent passes a `{selector}` chip in via
-//      props. The chip renders above the input and, on submit, gets
-//      prepended as a structured line so the engine sees both the
-//      targeted element and the user's instruction.
-//
-//   2. **Engine-edit auto-save.** The parent passes `onEngineEdit`; the
-//      Studio chat surfaces a (future) hook for the engine to write back
-//      file contents. v0 wires the prop but does not yet round-trip
-//      engine-driven file rewrites — the plumbing is here for the
-//      next pass (ACP tool-result interception lands in Phase 4 follow-up).
-//
-// The Composer used here is intentionally smaller than the full one in
+// The composer is intentionally smaller than the full one in
 // `chat/ui/composer.tsx`: no slash-command palette, no image upload, no
 // model/effort dropdowns. Studio's chat is scoped to "edit this artifact"
 // — the noise belongs on the main chat surface.
+//
+// `onEngineEdit` is wired but engine-driven file rewrites aren't yet
+// round-tripped through ACP tool-results — the handler is here so the
+// next pass can plug in.
 
-import { Loader2, MessageSquare, Square, X } from 'lucide-react';
-import { useCallback, useMemo, useState } from 'react';
+import { Loader2, MessageSquare, Square } from 'lucide-react';
+import { useCallback, useState } from 'react';
 import { Thread, useChatActions, useThread, useThreadState } from '@/chat';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -34,15 +24,12 @@ import { useStudioThreadId } from '@/lib/artifact/studio-thread';
 
 interface StudioEngineChatProps {
 	path: string;
-	pendingChip: { selector: string } | null;
-	onConsumeChip: () => void;
 	/** v0: prop is wired but engine-driven rewrites aren't yet round-tripped
-	 *  through ACP tool-results. The handler is here so the chip+submit flow
-	 *  can hand off a candidate rewrite when we add that next. */
+	 *  through ACP tool-results. Reserved for the next pass. */
 	onEngineEdit: (next: string) => Promise<void>;
 }
 
-export function StudioEngineChat({ path, pendingChip, onConsumeChip }: StudioEngineChatProps) {
+export function StudioEngineChat({ path }: StudioEngineChatProps) {
 	const threadId = useStudioThreadId(path);
 	const { loading, error } = useThread(threadId);
 
@@ -68,22 +55,16 @@ export function StudioEngineChat({ path, pendingChip, onConsumeChip }: StudioEng
 				<span className="font-mono">{threadId.slice(0, 8)}…</span>
 			</div>
 			<Thread threadId={threadId} className="flex-1" />
-			<StudioComposer
-				threadId={threadId}
-				pendingChip={pendingChip}
-				onConsumeChip={onConsumeChip}
-			/>
+			<StudioComposer threadId={threadId} />
 		</div>
 	);
 }
 
 interface StudioComposerProps {
 	threadId: string;
-	pendingChip: { selector: string } | null;
-	onConsumeChip: () => void;
 }
 
-function StudioComposer({ threadId, pendingChip, onConsumeChip }: StudioComposerProps) {
+function StudioComposer({ threadId }: StudioComposerProps) {
 	const [draft, setDraft] = useState('');
 	const actions = useChatActions(threadId);
 	const state = useThreadState(threadId);
@@ -91,37 +72,13 @@ function StudioComposer({ threadId, pendingChip, onConsumeChip }: StudioComposer
 
 	const submit = useCallback(async () => {
 		const text = draft.trim();
-		if (!text && !pendingChip) return;
-		const composed = pendingChip
-			? `[Selector: \`${pendingChip.selector}\`]\n\n${text || '(no instruction — review this element)'}`
-			: text;
+		if (!text) return;
 		setDraft('');
-		if (pendingChip) onConsumeChip();
-		await actions.send(composed);
-	}, [draft, pendingChip, actions, onConsumeChip]);
-
-	const placeholder = useMemo(() => {
-		if (pendingChip) return 'Describe what to do with this element…';
-		return 'Edit the artifact…';
-	}, [pendingChip]);
+		await actions.send(text);
+	}, [draft, actions]);
 
 	return (
 		<div className="shrink-0 border-t border-border bg-background p-2">
-			{pendingChip && (
-				<div className="mb-2 flex items-center gap-1.5 rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-[10px]">
-					<span className="font-mono text-amber-700 dark:text-amber-400">
-						{pendingChip.selector}
-					</span>
-					<button
-						type="button"
-						onClick={onConsumeChip}
-						className="ml-auto text-muted-foreground hover:text-foreground"
-						aria-label="Clear comment target"
-					>
-						<X className="h-3 w-3" />
-					</button>
-				</div>
-			)}
 			<Textarea
 				value={draft}
 				onChange={(e) => setDraft(e.target.value)}
@@ -131,9 +88,9 @@ function StudioComposer({ threadId, pendingChip, onConsumeChip }: StudioComposer
 						void submit();
 					}
 				}}
-				placeholder={placeholder}
+				placeholder="Edit the artifact…"
 				className={cn('min-h-[2.5rem] resize-none text-xs', streaming && 'opacity-60')}
-				disabled={streaming && !pendingChip}
+				disabled={streaming}
 			/>
 			<div className="mt-1.5 flex items-center justify-between gap-2">
 				<span className="text-[9px] text-muted-foreground">
@@ -153,7 +110,7 @@ function StudioComposer({ threadId, pendingChip, onConsumeChip }: StudioComposer
 					<Button
 						size="sm"
 						onClick={() => void submit()}
-						disabled={!actions.canSend || (!draft.trim() && !pendingChip)}
+						disabled={!actions.canSend || !draft.trim()}
 						className="h-6 px-3 text-[10px]"
 					>
 						Send

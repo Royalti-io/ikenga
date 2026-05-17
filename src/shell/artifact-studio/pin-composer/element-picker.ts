@@ -77,7 +77,10 @@ export function attachElementPicker(
 	return teardown;
 }
 
-async function capture(iframe: HTMLIFrameElement, el: Element): Promise<PickResult> {
+/** Capture a `PickResult` for the given element in an iframe. Shared by the
+ *  right-click picker and the Studio's comment-mode click handler so both
+ *  pin-creation surfaces produce byte-identical selectors + screenshots. */
+export async function capture(iframe: HTMLIFrameElement, el: Element): Promise<PickResult> {
 	const doc = iframe.contentDocument!;
 	const root = doc.documentElement;
 	const rect = el.getBoundingClientRect();
