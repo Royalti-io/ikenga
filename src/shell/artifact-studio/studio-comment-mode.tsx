@@ -88,17 +88,21 @@ function attachListeners(
 	iframe: HTMLIFrameElement,
 	overlay: HTMLElement | null,
 	setHighlight: (r: Rect | null) => void,
-	onSelect: (selector: string) => void,
+	onSelect: (selector: string) => void
 ): () => void {
 	const doc = iframe.contentDocument;
 	if (!doc) return () => undefined;
 
 	const onMove = (e: MouseEvent) => {
-		if (!(e.target instanceof Element)) {
+		// Cross-frame `instanceof Element` is unreliable when `e.target` lives
+		// in the iframe's document (different Element constructor). Duck-type
+		// against `nodeType === 1` so iframe elements pass the check.
+		const t = e.target as { nodeType?: number; getBoundingClientRect?: () => DOMRect } | null;
+		if (!t || t.nodeType !== 1 || typeof t.getBoundingClientRect !== 'function') {
 			setHighlight(null);
 			return;
 		}
-		const rect = e.target.getBoundingClientRect();
+		const rect = t.getBoundingClientRect();
 		const iframeRect = iframe.getBoundingClientRect();
 		const overlayRect = overlay?.getBoundingClientRect();
 		// The overlay sits over the iframe. Translate the iframe-doc rect into
@@ -111,12 +115,22 @@ function attachListeners(
 			height: rect.height,
 		});
 	};
-
 	const onClick = (e: MouseEvent) => {
-		if (!(e.target instanceof Element)) return;
+		console.warn('[comment-mode] click', e.target);
+		if (!(e.target instanceof Element)) {
+			// Cross-frame `instanceof Element` (iframe.contentWindow.Element !==
+			// window.Element) can fail even for real elements. Fall back to a
+			// duck-typed nodeType check before bailing.
+			const t = e.target as { nodeType?: number; getBoundingClientRect?: unknown } | null;
+			if (!t || t.nodeType !== 1) {
+				console.warn('[comment-mode] target not an Element', e.target);
+				return;
+			}
+		}
 		e.preventDefault();
 		e.stopPropagation();
-		const selector = deriveSelector(e.target);
+		const selector = deriveSelector(e.target as Element);
+		console.warn('[comment-mode] selector', selector);
 		if (selector) onSelect(selector);
 	};
 

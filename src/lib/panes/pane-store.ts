@@ -113,6 +113,13 @@ function viewsMatch(a: PaneView, b: PaneView): boolean {
 			return a.sessionId === (b as Extract<PaneView, { kind: 'chat' }>).sessionId;
 		case 'artifact':
 			return a.path === (b as Extract<PaneView, { kind: 'artifact' }>).path;
+		case 'artifact-studio': {
+			// Match on path + density + vs so that a density transition (grid ↔
+			// loupe ↔ compare) or swap of the compare sibling pushes a new
+			// history entry rather than collapsing onto the previous one.
+			const bb = b as Extract<PaneView, { kind: 'artifact-studio' }>;
+			return a.path === bb.path && a.density === bb.density && (a.vs ?? null) === (bb.vs ?? null);
+		}
 		case 'scratchpad': {
 			const bb = b as Extract<PaneView, { kind: 'scratchpad' }>;
 			return a.scope === bb.scope && a.name === bb.name;
