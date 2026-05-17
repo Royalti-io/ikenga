@@ -6,6 +6,7 @@
 // + per-pkg detail.
 
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from '@tanstack/react-router';
 import type { PkgRowV2 } from '@/lib/pkgs/use-derived';
 import { usePkgsDerived } from '@/lib/pkgs/use-derived';
 import { PkgGroup } from './pkg-row';
@@ -15,14 +16,22 @@ import { PkgsTitlebar } from './pkgs-titlebar';
 import { PkgsTrustBanner } from './pkgs-trust-banner';
 
 export type FilterKey = 'all' | 'installed' | 'updates' | 'store' | 'review' | 'disabled';
+export type InstallTab = 'manifest-url' | 'local-path' | 'registry';
 
 export interface PkgsSurfaceProps {
 	/** Initial filter seeded from the URL (?filter=) or sidebar click. */
 	initialFilter?: FilterKey;
+	/** Open the install sheet on mount, pre-focused on this tab. From
+	 *  ?install= search param (sidebar's "Install from path" item). */
+	initialInstallTab?: InstallTab;
 }
 
-export function PkgsSurface({ initialFilter = 'all' }: PkgsSurfaceProps = {}) {
+export function PkgsSurface({
+	initialFilter = 'all',
+	initialInstallTab,
+}: PkgsSurfaceProps = {}) {
 	const d = usePkgsDerived();
+	const navigate = useNavigate();
 
 	const [filter, setFilter] = useState<FilterKey>(initialFilter);
 	// Re-sync if the parent route flips the search param after mount (sidebar
@@ -33,8 +42,25 @@ export function PkgsSurface({ initialFilter = 'all' }: PkgsSurfaceProps = {}) {
 	const [query, setQuery] = useState('');
 	const [loupePkg, setLoupePkg] = useState<PkgRowV2 | null>(null);
 	const [loupeTab, setLoupeTab] = useState<LoupeTab>('overview');
-	const [installOpen, setInstallOpen] = useState(false);
+	const [installOpen, setInstallOpen] = useState(Boolean(initialInstallTab));
+	const [installTab, setInstallTab] = useState<InstallTab>(initialInstallTab ?? 'manifest-url');
 	const [installPkg, setInstallPkg] = useState<PkgRowV2 | null>(null);
+	// Open + tab-focus the sheet when the URL param flips (sidebar click while
+	// already on /packages). Clear the param after consuming so a refresh
+	// doesn't re-open the sheet involuntarily.
+	useEffect(() => {
+		if (initialInstallTab) {
+			setInstallPkg(null);
+			setInstallTab(initialInstallTab);
+			setInstallOpen(true);
+			void navigate({
+				to: '/packages',
+				search: (prev) => ({ ...prev, install: undefined }),
+				replace: true,
+			});
+		}
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [initialInstallTab]);
 
 	const visible = useMemo(() => {
 		const q = query.trim().toLowerCase();
@@ -93,7 +119,9 @@ export function PkgsSurface({ initialFilter = 'all' }: PkgsSurfaceProps = {}) {
 			<PkgsTrustBanner
 				d={d}
 				onReview={() => {
-					setFilter('review');
+					// URL-sync so a refresh preserves the focused filter and the
+					// sidebar's active highlight tracks the banner click.
+					void navigate({ to: '/packages', search: { filter: 'review' } });
 				}}
 			/>
 			<div className="flex-1 overflow-y-auto px-6 py-5">
@@ -143,7 +171,12 @@ export function PkgsSurface({ initialFilter = 'all' }: PkgsSurfaceProps = {}) {
 					setInstallOpen(true);
 				}}
 			/>
-			<PkgInstallSheet open={installOpen} onOpenChange={setInstallOpen} pkg={installPkg} />
+			<PkgInstallSheet
+				open={installOpen}
+				onOpenChange={setInstallOpen}
+				pkg={installPkg}
+				defaultTab={installTab}
+			/>
 		</div>
 	);
 }

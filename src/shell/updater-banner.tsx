@@ -9,7 +9,10 @@
 
 import { Download, RefreshCw, X } from 'lucide-react';
 import { Link } from '@tanstack/react-router';
+import { useShallow } from 'zustand/react/shallow';
 import { Button } from '@/components/ui/button';
+import { findLeaf } from '@/lib/panes/pane-reducer';
+import { usePaneStore } from '@/lib/panes/pane-store';
 import { useUpdater } from '@/lib/updater/use-updater';
 import { useUpdaterSnooze } from '@/lib/updater/snooze';
 
@@ -17,7 +20,19 @@ export function UpdaterBanner() {
 	const { available, installing, bytesDownloaded, totalBytes, error, install } = useUpdater();
 	const snooze = useUpdaterSnooze();
 	const isSnoozed = snooze.isSnoozed(available?.version ?? null);
+	// Hide on /settings/about — the user is already on the dedicated surface
+	// for shell updates, so the banner is redundant noise there.
+	const onAboutPage = usePaneStore(
+		useShallow((s) => {
+			const leaf = findLeaf(s.root, s.focusedId);
+			if (!leaf) return false;
+			const tab = leaf.tabs[leaf.activeTabIdx];
+			if (!tab || tab.kind !== 'route') return false;
+			return tab.path.split('?')[0] === '/settings/about';
+		})
+	);
 
+	if (onAboutPage) return null;
 	if (!available && !error) return null;
 	if (available && isSnoozed) return null;
 

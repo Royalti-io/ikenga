@@ -18,10 +18,13 @@ import { usePkgsDerived } from '@/lib/pkgs/use-derived';
 import { useUpdater } from '@/lib/updater/use-updater';
 
 type FilterKey = 'all' | 'installed' | 'updates' | 'store' | 'review' | 'disabled';
+type InstallTab = 'manifest-url' | 'local-path' | 'registry';
 
 interface NavItem {
 	to: string;
 	filter?: FilterKey;
+	/** Deep-link that opens the install sheet at this tab on mount. */
+	install?: InstallTab;
 	label: string;
 	Icon: LucideIcon;
 	count?: number;
@@ -116,7 +119,12 @@ export function PkgsMode() {
 					tone: shellUpdateCount ? 'attention' : undefined,
 				},
 				{ to: '/pkg-kernel-status', label: 'Kernel status', Icon: Activity },
-				{ to: '/install', label: 'Install from path', Icon: PackagePlus },
+				{
+					to: '/packages',
+					install: 'local-path',
+					label: 'Install from path',
+					Icon: PackagePlus,
+				},
 				{ to: '/settings/about', label: 'About Ikenga', Icon: Info },
 			],
 		},
@@ -124,6 +132,9 @@ export function PkgsMode() {
 
 	function isActive(item: NavItem): boolean {
 		if (item.to !== active.path) return false;
+		// "Install from path" is a one-shot trigger — never the active row
+		// (the surface clears ?install= immediately on mount).
+		if (item.install) return false;
 		// For the /packages route, also match the filter param. `all` is the
 		// default and matches both an explicit `?filter=all` and a bare URL.
 		if (item.to === '/packages' && item.filter) {
@@ -134,7 +145,9 @@ export function PkgsMode() {
 	}
 
 	function go(item: NavItem) {
-		if (item.to === '/packages' && item.filter && item.filter !== 'all') {
+		if (item.install) {
+			navigateFocused(`${item.to}?install=${item.install}`);
+		} else if (item.to === '/packages' && item.filter && item.filter !== 'all') {
 			navigateFocused(`${item.to}?filter=${item.filter}`);
 		} else {
 			navigateFocused(item.to);
@@ -164,7 +177,7 @@ export function PkgsMode() {
 									>
 										<item.Icon className="h-4 w-4 shrink-0" />
 										<span className="flex-1 truncate">{item.label}</span>
-										{typeof item.count === 'number' && (
+										{typeof item.count === 'number' && item.count > 0 && (
 											<span
 												className={cn(
 													'rounded-sm border px-1.5 py-px font-mono text-[10px]',
