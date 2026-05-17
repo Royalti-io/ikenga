@@ -377,6 +377,49 @@ interface ResolvedPin {
 	rect: { x: number; y: number } | null; // null = stale
 }
 
+/** Spread pins whose dots would otherwise stack on the same coordinates
+ *  (i.e. multiple pins targeting the same DOM element). Without this the
+ *  top dot eats all clicks and the underlying pins are unreachable. The
+ *  first pin in a cluster keeps the centre; the rest fan out clockwise
+ *  on a small ring (12px radius). */
+function spreadOverlaps(pins: ResolvedPin[]): ResolvedPin[] {
+	const RADIUS = 12;
+	const TOL = 2; // px tolerance when bucketing
+	const buckets = new Map<string, ResolvedPin[]>();
+	const order: string[] = [];
+	for (const p of pins) {
+		if (!p.rect) continue;
+		const key = `${Math.round(p.rect.x / TOL)},${Math.round(p.rect.y / TOL)}`;
+		if (!buckets.has(key)) {
+			buckets.set(key, []);
+			order.push(key);
+		}
+		buckets.get(key)!.push(p);
+	}
+	const offsetByPinId = new Map<number, { dx: number; dy: number }>();
+	for (const key of order) {
+		const cluster = buckets.get(key)!;
+		if (cluster.length < 2) continue;
+		// Distribute around a circle, starting at angle 0 (right). The first
+		// pin stays at centre; siblings sit at evenly-spaced angles.
+		const siblings = cluster.length - 1;
+		for (let i = 1; i < cluster.length; i++) {
+			const angle = ((i - 1) / siblings) * Math.PI * 2;
+			offsetByPinId.set(cluster[i].pin.id, {
+				dx: Math.cos(angle) * RADIUS,
+				dy: Math.sin(angle) * RADIUS,
+			});
+		}
+	}
+	if (offsetByPinId.size === 0) return pins;
+	return pins.map((p) => {
+		if (!p.rect) return p;
+		const off = offsetByPinId.get(p.pin.id);
+		if (!off) return p;
+		return { ...p, rect: { x: p.rect.x + off.dx, y: p.rect.y + off.dy } };
+	});
+}
+
 function LoupePinOverlay({
 	path,
 	paneId,
@@ -435,7 +478,7 @@ function LoupePinOverlay({
 				const y = iframeRect.top + er.top + er.height / 2 - overlayRect.top;
 				return { pin, numbering: i + 1, rect: { x, y } };
 			});
-			setResolved(next);
+			setResolved(spreadOverlaps(next));
 		};
 
 		const schedule = () => {
