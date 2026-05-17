@@ -1,12 +1,13 @@
 // Artifact creation wizard — single-screen variant.
 //
 // Picks project + archetype + folder + name, then:
-//   1. Spawns claude in a chat pane on the focused leaf.
-//   2. Auto-sends the kickoff prompt naming the archetype + suggested file.
+//   1. Spawns `claude` in a terminal pane on the focused leaf.
+//   2. Types the kickoff prompt into the PTY once it's ready, naming the
+//      archetype + suggested file.
 //   3. Watches the chosen folder for the first new `.html` and opens it in
-//      a Studio loupe next to the chat pane.
+//      a Studio loupe next to the terminal pane.
 //
-// The wizard closes as soon as the chat thread is set up — the chat pane is
+// The wizard closes as soon as the terminal is up — the terminal pane is
 // the new surface; no separate success state.
 //
 // Mounted by:
@@ -163,8 +164,8 @@ export function ArtifactWizard({ open, onOpenChange, prefill }: ArtifactWizardPr
 				<DialogHeader>
 					<DialogTitle>New artifact</DialogTitle>
 					<DialogDescription>
-						Brief claude in the project's context. A chat pane opens next to this one; the loupe
-						lights up when the agent writes the file.
+						Brief claude in the project's context. A terminal pane opens with claude running; the
+						loupe lights up when the agent writes the file.
 					</DialogDescription>
 				</DialogHeader>
 

@@ -1,23 +1,22 @@
-// startArtifact — wires up the chat + Studio loupe handoff for a new artifact.
+// startArtifact — wires up the terminal + Studio loupe handoff.
 //
 // Flow:
-//   1. Mint a chat thread tied to the active project + chosen archetype.
-//   2. Open the thread as a chat pane on the focused leaf.
-//   3. Auto-send the kickoff prompt so the agent starts answering immediately.
-//   4. Watch the chosen folder (via project-root recursive watcher with a
+//   1. Spawn `claude` in a terminal pane on the focused leaf, cwd = project
+//      root so `.claude/skills/`, commands, and CLAUDE.md resolve.
+//   2. Wait for the PTY id to land, then write the kickoff prompt into it
+//      so claude sees the brief without the user having to paste anything.
+//   3. Watch the chosen folder (via project-root recursive watcher with a
 //      prefix filter) for the first new `.html` file. When one lands, open
-//      a Studio loupe pointed at it next to the chat pane.
+//      a Studio loupe pointed at it next to the terminal pane.
 //
-// The watcher outlives the wizard component — it's spun up as a fire-and-
-// forget side effect with a 30-minute self-timeout so it doesn't leak if
-// the agent never writes anything.
+// The watcher outlives the wizard component — fire-and-forget side effect
+// with a 30-minute self-timeout so it doesn't leak if the agent never
+// writes anything.
 
-import { mintThreadId, defaultChatAdapterId } from '@/chat';
-import { createThread, appendUserTurn } from '@/chat/persist';
-import { getAdapter } from '@/chat/registry';
-import { useChatStore } from '@/chat/store';
-import { fsListenWatch, fsUnwatch, fsWatch, sessionEnsure, type Project } from '@/lib/tauri-cmd';
+import { fsListenWatch, fsUnwatch, fsWatch, ptyWrite, type Project } from '@/lib/tauri-cmd';
 import { usePaneStore } from '@/lib/panes/pane-store';
+import { createTerminalSession } from '@/terminal/single-terminal';
+import { useTerminalStore } from '@/terminal/session-store';
 import { type Archetype, slugifyName } from '@/shell/artifact-wizard/archetypes';
 
 export interface StartArgs {
@@ -33,113 +32,108 @@ export interface StartArgs {
 }
 
 export interface StartResult {
-	threadId: string;
+	terminalSessionId: string;
 	slug: string;
 	kickoffPrompt: string;
 }
 
 const WATCHER_TIMEOUT_MS = 30 * 60 * 1000;
+const PTY_READY_TIMEOUT_MS = 10_000;
+/** Delay between PTY-ready and prompt write. Gives claude time to render
+ *  its splash and reach an input-ready state before we type. */
+const PROMPT_TYPING_DELAY_MS = 1500;
+/** Delay between bracketed paste end and the submit Enter. Without this
+ *  claude's TUI batches the Enter into the paste payload and treats it as
+ *  another newline instead of a submit. */
+const POST_PASTE_DELAY_MS = 200;
 
 export async function startArtifact(args: StartArgs): Promise<StartResult> {
 	const slug = slugifyName(args.name);
-	const kickoffPrompt = renderKickoff(args, slug);
-
-	const threadId = mintThreadId();
-	const adapterId = defaultChatAdapterId();
-	const cwd = args.project.root_path ?? args.folder;
-	const title = `${args.archetype.label}: ${args.name}`;
-	const now = Date.now();
-
-	// Register the Rust-side session row up front so the streaming child
-	// can spawn on the first prompt (idempotent — adapter.attach also
-	// calls this).
-	await sessionEnsure(threadId, cwd, {});
-
-	// Persist the thread so it survives a reload.
-	await createThread({
-		id: threadId,
-		adapterId,
-		cwd,
-		claudeSessionId: null,
-		model: null,
-		title,
-		projectId: args.project.id,
-	});
-
-	// Mirror into the in-memory store so the chat pane mounts with the
-	// thread already known. Without this the pane has to wait for the
-	// DB→store hydration loop, which races with the kickoff send below.
-	useChatStore.getState().upsertThread({
-		id: threadId,
-		adapterId,
-		title,
-		cwd,
-		model: null,
-		claudeSessionId: null,
-		ptyId: null,
-		projectId: args.project.id,
-		createdAt: now,
-		updatedAt: now,
-	});
-
-	// Open the chat pane on the focused leaf. The user sees the agent
-	// thinking immediately.
-	const paneStore = usePaneStore.getState();
-	paneStore.addTab(paneStore.focusedId, { kind: 'chat', sessionId: threadId });
-
-	// Auto-send the kickoff prompt. Fire and forget — the chat UI shows
-	// the streaming response as it arrives.
-	void autoSend(threadId, adapterId, kickoffPrompt);
-
-	// Watch the project root recursively and pop the loupe when a new
-	// .html lands under the chosen folder. Project root always exists;
-	// the folder may not yet.
-	if (args.project.root_path) {
-		void watchForArtifact(args.project.root_path, args.folder);
-	}
-
-	return { threadId, slug, kickoffPrompt };
-}
-
-function renderKickoff(args: StartArgs, slug: string): string {
-	return args.archetype.kickoffPrompt({
+	const kickoffPrompt = args.archetype.kickoffPrompt({
 		project: {
 			display_name: args.project.display_name,
 			root_path: args.project.root_path,
 		},
 		slug,
 	});
+
+	// Spawn the terminal at the project root so claude sees the right
+	// `.claude/` and CLAUDE.md. D3 + D9 in the projects-as-context plan.
+	const cwd = args.project.root_path ?? args.folder;
+	const terminalSessionId = createTerminalSession({
+		cwd,
+		cmd: ['claude'],
+		title: `claude · ${args.archetype.label.toLowerCase()}`,
+	});
+
+	// Mount the terminal in the focused pane.
+	const paneStore = usePaneStore.getState();
+	paneStore.addTab(paneStore.focusedId, {
+		kind: 'terminal',
+		sessionId: terminalSessionId,
+	});
+
+	// Type the kickoff prompt into the PTY once it's ready. Fire and forget.
+	void typeKickoff(terminalSessionId, kickoffPrompt);
+
+	// Watch the project root recursively and pop the loupe when a new
+	// .html lands under the chosen folder.
+	if (args.project.root_path) {
+		void watchForArtifact(args.project.root_path, args.folder);
+	}
+
+	return { terminalSessionId, slug, kickoffPrompt };
 }
 
-async function autoSend(threadId: string, adapterId: string, text: string): Promise<void> {
-	try {
-		const turn = await appendUserTurn(threadId, text);
-		useChatStore.getState().appendEvents(threadId, [
-			{
-				kind: 'user_turn',
-				text: turn.text,
-				sequence: turn.sequence,
-				createdAt: turn.createdAt,
-			},
-		]);
-
-		const adapter = getAdapter(adapterId);
-		useChatStore.getState().setStatus(threadId, 'streaming');
-		const { iterable } = adapter.send({ threadId, text });
-		try {
-			for await (const _ev of iterable) {
-				// drain — the adapter's own listeners persist + push events.
-			}
-		} finally {
-			if (useChatStore.getState().threads[threadId]?.status === 'streaming') {
-				useChatStore.getState().setStatus(threadId, 'idle');
-			}
-		}
-	} catch (e) {
-		const msg = e instanceof Error ? e.message : String(e);
-		console.error('[wizard] auto-send failed:', e);
-		useChatStore.getState().setStatus(threadId, 'error', msg);
+/** Wait for the PTY id to land in the session-store, give claude a beat to
+ *  finish its splash, then bracket-paste the prompt and submit with a
+ *  separate Enter keystroke.
+ *
+ *  Bracketed paste (`\x1b[200~ … \x1b[201~`) signals to claude's TUI input
+ *  that the multi-line payload is a single pasted block — without it,
+ *  embedded `\n`s in the prompt fire intermediate newlines and the trailing
+ *  CR is absorbed as another newline instead of a submit. The follow-up
+ *  `\r` after a short delay then submits cleanly. */
+async function typeKickoff(sessionId: string, prompt: string): Promise<void> {
+	const ptyId = await awaitPtyId(sessionId, PTY_READY_TIMEOUT_MS);
+	if (!ptyId) {
+		console.warn('[wizard] PTY never reported a ptyId — prompt not typed');
+		return;
 	}
+	await wait(PROMPT_TYPING_DELAY_MS);
+	try {
+		await ptyWrite(ptyId, `\x1b[200~${prompt}\x1b[201~`);
+		await wait(POST_PASTE_DELAY_MS);
+		await ptyWrite(ptyId, '\r');
+	} catch (e) {
+		console.error('[wizard] ptyWrite failed:', e);
+	}
+}
+
+function awaitPtyId(sessionId: string, timeoutMs: number): Promise<string | null> {
+	return new Promise((resolve) => {
+		const initial = useTerminalStore.getState().tabs.find((t) => t.id === sessionId)?.ptyId ?? null;
+		if (initial) {
+			resolve(initial);
+			return;
+		}
+		const timer = setTimeout(() => {
+			unsub();
+			resolve(null);
+		}, timeoutMs);
+		const unsub = useTerminalStore.subscribe((state) => {
+			const tab = state.tabs.find((t) => t.id === sessionId);
+			if (tab?.ptyId) {
+				clearTimeout(timer);
+				unsub();
+				resolve(tab.ptyId);
+			}
+		});
+	});
+}
+
+function wait(ms: number): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /** Watch the project root recursively for the first new `.html` whose path
