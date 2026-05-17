@@ -1590,6 +1590,11 @@ export async function pkgSettingsSet(pkgId: string, key: string, value: unknown)
 
 /** Parsed manifest as raw JSON. Includes whatever optional blocks the
  *  manifest declared: permissions, settings, mcp, sidecars, ui, etc. */
+export interface PkgManifestScreenshot {
+	path: string;
+	caption?: string | null;
+}
+
 export interface PkgManifestPreview {
 	id: string;
 	name: string;
@@ -1605,11 +1610,22 @@ export interface PkgManifestPreview {
 	skills?: string | null;
 	commands?: string | null;
 	agents?: string | null;
+	screenshots?: PkgManifestScreenshot[];
 	[key: string]: unknown;
 }
 
 export async function pkgPreviewManifest(installPath: string): Promise<PkgManifestPreview> {
 	return invoke<PkgManifestPreview>('pkg_preview_manifest', { installPath });
+}
+
+/**
+ * Read a pkg-declared screenshot and return a base64 data URL. `path` must
+ * match one declared in the pkg's `manifest.screenshots[].path`; the kernel
+ * resolves it against the pkg's install_path and rejects `../` escapes.
+ * Result is cacheable indefinitely (immutable per pkg version).
+ */
+export async function pkgScreenshot(pkgId: string, path: string): Promise<string> {
+	return invoke<string>('pkg_screenshot', { pkgId, path });
 }
 
 // ─── Pkg content (iframe mount) ─────────────────────────────────────────
@@ -2421,10 +2437,17 @@ export interface RouteResult {
 
 /** Dispatch a pin to its routing sink. Auto-detects when `overrideSink` is
  *  omitted: most-recently-active claude PTY wins; falls back to side-pane
- *  Chat. ⌥-click on the pin in the grid passes an explicit override. */
+ *  Chat. ⌥-click on the pin in the grid passes an explicit override.
+ *
+ *  `preferredPtyId` lets the caller pin delivery to a specific terminal
+ *  (typically the most-recently-focused tab) so two concurrent claude PTYs
+ *  don't race for the route. The dispatcher honours the hint only if that
+ *  PTY's foreground is still claude; otherwise it falls back to the snapshot
+ *  scan. */
 export async function commentRoute(args: {
 	id: number;
 	overrideSink?: RouteSink;
+	preferredPtyId?: string | null;
 }): Promise<RouteResult> {
 	const raw = await invoke<{
 		sink: string | null;
@@ -2434,6 +2457,7 @@ export async function commentRoute(args: {
 	}>('comment_route', {
 		id: args.id,
 		overrideSink: args.overrideSink ?? null,
+		preferredPtyId: args.preferredPtyId ?? null,
 	});
 	return {
 		sink: (raw.sink as RouteSink | null) ?? null,

@@ -8,6 +8,7 @@
 // surface Chat-only rails per the unified plan).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 import {
 	FolderTree,
@@ -20,14 +21,19 @@ import {
 } from 'lucide-react';
 import { cn } from '@/components/ui/utils';
 import {
+	commentList,
+	commentRoute,
+	commentSetStatus,
 	fsListenWatch,
 	fsRead,
 	fsUnwatch,
 	fsWatch,
 	fsWrite,
 	iykeDomQuery,
+	type Comment,
 	type IykeDomResult,
 } from '@/lib/tauri-cmd';
+import { useTerminalStore } from '@/terminal/session-store';
 import { RefreshCw, TreePine } from 'lucide-react';
 import { usePaneStore } from '@/lib/panes/pane-store';
 import { useChatStore } from '@/chat';
@@ -230,6 +236,7 @@ export function StudioLoupe({ path, paneId }: StudioLoupeProps) {
 					<Panel defaultSize={70} minSize={30}>
 						<div className="relative h-full w-full">
 							<Renderer path={path} paneId={paneId} density="loupe" source="pane" />
+							<LoupePinOverlay path={path} paneId={paneId} />
 							{commentMode && (
 								<StudioCommentMode
 									paneId={paneId}
@@ -293,6 +300,380 @@ export function StudioLoupe({ path, paneId }: StudioLoupeProps) {
 				sink={sink}
 				onSinkChange={(next) => void setSink(next)}
 			/>
+		</div>
+	);
+}
+
+// ─── Pin overlay ─────────────────────────────────────────────────────
+//
+// Renders open + in-progress pins over the renderer panel. Each pin's
+// live rect is resolved by `iframe.contentDocument.querySelector(selector)`
+// (same-origin: the viewer-server serves the artifact, the picker already
+// uses this path). Re-projects on iframe content scroll, host resize, and
+// post-edit DOM mutations.
+//
+// Pins whose selector no longer matches surface as a stale strip on the
+// right edge — they remain reachable for review/resolve even when the
+// element they pointed at has been refactored away. Resolved pins are
+// hidden; loupe is the "focused work" surface.
+
+interface ResolvedPin {
+	pin: Comment;
+	numbering: number;
+	rect: { x: number; y: number } | null; // null = stale
+}
+
+function LoupePinOverlay({ path, paneId }: { path: string; paneId: string }) {
+	const qc = useQueryClient();
+	const overlayRef = useRef<HTMLDivElement | null>(null);
+	const [resolved, setResolved] = useState<ResolvedPin[]>([]);
+	const [activePin, setActivePin] = useState<Comment | null>(null);
+
+	const pinsQuery = useQuery({
+		queryKey: ['artifact-studio', 'loupe', 'pins', path],
+		queryFn: () => commentList({ artifactPath: path, includeResolved: false }),
+		staleTime: 1_000,
+	});
+	const pins = useMemo(() => pinsQuery.data ?? [], [pinsQuery.data]);
+
+	// Project each pin's selector through the same-origin iframe to a host-
+	// viewport rect, then into overlay-local coords. Re-runs whenever the
+	// iframe content scrolls / mutates / the host resizes.
+	useEffect(() => {
+		const overlay = overlayRef.current;
+		if (!overlay) return;
+		if (pins.length === 0) {
+			setResolved([]);
+			return;
+		}
+
+		let cancelled = false;
+		let raf = 0;
+		let iframe: HTMLIFrameElement | null = null;
+		const teardowns: Array<() => void> = [];
+
+		const project = () => {
+			if (cancelled || !overlay) return;
+			const overlayRect = overlay.getBoundingClientRect();
+			const doc = iframe?.contentDocument;
+			const iframeRect = iframe?.getBoundingClientRect();
+			const next: ResolvedPin[] = pins.map((pin, i) => {
+				if (!doc || !iframeRect) return { pin, numbering: i + 1, rect: null };
+				let el: Element | null = null;
+				try {
+					el = doc.querySelector(pin.selector);
+				} catch {
+					el = null;
+				}
+				if (!el) return { pin, numbering: i + 1, rect: null };
+				const er = el.getBoundingClientRect();
+				const x = iframeRect.left + er.left + er.width / 2 - overlayRect.left;
+				const y = iframeRect.top + er.top + er.height / 2 - overlayRect.top;
+				return { pin, numbering: i + 1, rect: { x, y } };
+			});
+			setResolved(next);
+		};
+
+		const schedule = () => {
+			if (raf) cancelAnimationFrame(raf);
+			raf = requestAnimationFrame(project);
+		};
+
+		const attach = () => {
+			iframe = document.querySelector<HTMLIFrameElement>(
+				`[data-pane-id="${paneId}"] iframe`
+			);
+			if (!iframe) return false;
+			const doc = iframe.contentDocument;
+			if (!doc) return false;
+
+			// Initial projection.
+			project();
+
+			// Recompute on iframe content scroll, host resize, and DOM
+			// mutations (text-edit mode commits land here too).
+			const onScroll = () => schedule();
+			doc.addEventListener('scroll', onScroll, true);
+			teardowns.push(() => doc.removeEventListener('scroll', onScroll, true));
+
+			const ro = new ResizeObserver(schedule);
+			ro.observe(overlay);
+			if (doc.documentElement) ro.observe(doc.documentElement);
+			teardowns.push(() => ro.disconnect());
+
+			const mo = new MutationObserver(schedule);
+			mo.observe(doc.documentElement ?? doc, {
+				attributes: true,
+				childList: true,
+				subtree: true,
+				characterData: true,
+			});
+			teardowns.push(() => mo.disconnect());
+
+			return true;
+		};
+
+		// Iframe may not be in the DOM yet (HtmlFrame mounts after viewer
+		// HTTP server is ready). Poll briefly until it shows up + has a
+		// contentDocument, then attach the observers.
+		let pollHandle: ReturnType<typeof setTimeout> | null = null;
+		const poll = () => {
+			if (cancelled) return;
+			if (attach()) return;
+			pollHandle = setTimeout(poll, 200);
+		};
+		poll();
+
+		return () => {
+			cancelled = true;
+			if (pollHandle) clearTimeout(pollHandle);
+			if (raf) cancelAnimationFrame(raf);
+			for (const t of teardowns) t();
+		};
+	}, [pins, paneId]);
+
+	const onRoutePin = useCallback(
+		async (pin: Comment) => {
+			const ts = useTerminalStore.getState();
+			const preferredPtyId = ts.tabs.find((t) => t.id === ts.activeId)?.ptyId ?? null;
+			try {
+				await commentRoute({ id: pin.id, preferredPtyId });
+				qc.invalidateQueries({ queryKey: ['artifact-studio', 'loupe', 'pins', path] });
+			} catch (e) {
+				console.error('[loupe] pin route failed', e);
+			}
+		},
+		[qc, path]
+	);
+
+	const onResolvePin = useCallback(
+		async (pinId: number) => {
+			try {
+				await commentSetStatus(pinId, 'resolved');
+				setActivePin(null);
+				qc.invalidateQueries({ queryKey: ['artifact-studio', 'loupe', 'pins', path] });
+			} catch (e) {
+				console.error('[loupe] pin resolve failed', e);
+			}
+		},
+		[qc, path]
+	);
+
+	const live = resolved.filter((r) => r.rect !== null);
+	const stale = resolved.filter((r) => r.rect === null);
+
+	return (
+		<div ref={overlayRef} className="pointer-events-none absolute inset-0">
+			{live.map((r) => (
+				<LoupePinDot
+					key={r.pin.id}
+					pin={r.pin}
+					numbering={r.numbering}
+					x={r.rect!.x}
+					y={r.rect!.y}
+					onClick={() => setActivePin(r.pin)}
+				/>
+			))}
+			{stale.length > 0 && (
+				<StalePinStrip pins={stale} onSelect={(pin) => setActivePin(pin)} />
+			)}
+			{activePin && (
+				<PinReviewPopover
+					pin={activePin}
+					anchorRect={
+						resolved.find((r) => r.pin.id === activePin.id)?.rect ?? null
+					}
+					onClose={() => setActivePin(null)}
+					onRoute={() => void onRoutePin(activePin)}
+					onResolve={() => void onResolvePin(activePin.id)}
+				/>
+			)}
+		</div>
+	);
+}
+
+function LoupePinDot({
+	pin,
+	numbering,
+	x,
+	y,
+	onClick,
+}: {
+	pin: Comment;
+	numbering: number;
+	x: number;
+	y: number;
+	onClick: () => void;
+}) {
+	const tone =
+		pin.status === 'open'
+			? 'bg-red-600 text-white'
+			: pin.status === 'in_progress'
+				? 'bg-amber-500 text-white'
+				: 'bg-emerald-700 text-white';
+	return (
+		<button
+			type="button"
+			onClick={(e) => {
+				e.stopPropagation();
+				onClick();
+			}}
+			className={cn(
+				'pointer-events-auto absolute flex h-5 w-5 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-background font-mono text-[10px] font-bold shadow transition-transform hover:scale-110',
+				tone
+			)}
+			style={{ left: `${x}px`, top: `${y}px` }}
+			title={`${pin.selector} — ${pin.text}`}
+		>
+			{numbering}
+		</button>
+	);
+}
+
+function StalePinStrip({
+	pins,
+	onSelect,
+}: {
+	pins: ResolvedPin[];
+	onSelect: (pin: Comment) => void;
+}) {
+	return (
+		<div className="pointer-events-auto absolute right-2 top-2 flex max-h-[60%] flex-col gap-1 overflow-y-auto rounded border border-border bg-background/95 p-1 shadow-md backdrop-blur-sm">
+			<div className="px-1 font-mono text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
+				Stale ({pins.length})
+			</div>
+			{pins.map((r) => (
+				<button
+					key={r.pin.id}
+					type="button"
+					onClick={() => onSelect(r.pin)}
+					className="flex items-center gap-1.5 rounded px-1.5 py-1 text-left font-mono text-[10px] text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+					title={`${r.pin.selector} — ${r.pin.text}`}
+				>
+					<span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-muted text-[9px] font-bold">
+						{r.numbering}
+					</span>
+					<span className="max-w-[140px] truncate">{r.pin.text}</span>
+				</button>
+			))}
+		</div>
+	);
+}
+
+function PinReviewPopover({
+	pin,
+	anchorRect,
+	onClose,
+	onRoute,
+	onResolve,
+}: {
+	pin: Comment;
+	anchorRect: { x: number; y: number } | null;
+	onClose: () => void;
+	onRoute: () => void;
+	onResolve: () => void;
+}) {
+	const [screenshotUrl, setScreenshotUrl] = useState<string | null>(null);
+
+	// Close on Escape / outside click.
+	useEffect(() => {
+		const onKey = (e: KeyboardEvent) => {
+			if (e.key === 'Escape') onClose();
+		};
+		const onDoc = (e: MouseEvent) => {
+			const t = e.target as HTMLElement | null;
+			if (t?.closest('[data-pin-review-popover]')) return;
+			onClose();
+		};
+		window.addEventListener('keydown', onKey);
+		window.addEventListener('mousedown', onDoc, true);
+		return () => {
+			window.removeEventListener('keydown', onKey);
+			window.removeEventListener('mousedown', onDoc, true);
+		};
+	}, [onClose]);
+
+	// Lazy-load the saved element screenshot from disk. Pin screenshots are
+	// small (single cropped element), so fsRead → data URL is fine.
+	useEffect(() => {
+		if (!pin.screenshotPath) return;
+		let cancelled = false;
+		(async () => {
+			try {
+				const res = await fsRead(pin.screenshotPath!);
+				if (cancelled) return;
+				const bytes = new Uint8Array(res.bytes);
+				let bin = '';
+				for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+				const b64 = btoa(bin);
+				setScreenshotUrl(`data:image/png;base64,${b64}`);
+			} catch {
+				if (!cancelled) setScreenshotUrl(null);
+			}
+		})();
+		return () => {
+			cancelled = true;
+		};
+	}, [pin.screenshotPath]);
+
+	// Anchor the popover next to the dot when one exists; otherwise centre
+	// it in the overlay (stale pins have no on-canvas anchor).
+	const style: React.CSSProperties = anchorRect
+		? { left: `${anchorRect.x + 14}px`, top: `${anchorRect.y + 14}px` }
+		: { left: '50%', top: '50%', transform: 'translate(-50%, -50%)' };
+
+	return (
+		<div
+			data-pin-review-popover
+			className="pointer-events-auto absolute z-30 w-72 rounded border border-border bg-background shadow-xl"
+			style={style}
+		>
+			<div className="flex items-center justify-between border-b border-border px-2.5 py-1.5">
+				<span className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
+					Pin #{pin.id} · {pin.status}
+				</span>
+				<button
+					type="button"
+					onClick={onClose}
+					aria-label="Close pin review"
+					className="text-muted-foreground hover:text-foreground"
+				>
+					<X className="h-3 w-3" />
+				</button>
+			</div>
+			{screenshotUrl && (
+				<div className="flex justify-center border-b border-border bg-muted/30 p-2">
+					<img
+						src={screenshotUrl}
+						alt="Pinned element"
+						className="max-h-32 max-w-full object-contain"
+					/>
+				</div>
+			)}
+			<div className="space-y-2 px-2.5 py-2 text-xs">
+				<div className="font-mono text-[10px] text-muted-foreground" title={pin.selector}>
+					<span className="truncate">{pin.selector}</span>
+				</div>
+				<div className="italic text-foreground">"{pin.text}"</div>
+			</div>
+			<div className="flex gap-1 border-t border-border p-1.5">
+				<button
+					type="button"
+					onClick={onRoute}
+					className="flex-1 rounded border border-border bg-background px-2 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.10em] hover:border-foreground/60 hover:bg-foreground/5"
+				>
+					Route
+				</button>
+				{pin.status !== 'resolved' && (
+					<button
+						type="button"
+						onClick={onResolve}
+						className="flex-1 rounded border border-emerald-700 bg-emerald-700/10 px-2 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.10em] text-emerald-800 hover:bg-emerald-700/20"
+					>
+						Resolve
+					</button>
+				)}
+			</div>
 		</div>
 	);
 }

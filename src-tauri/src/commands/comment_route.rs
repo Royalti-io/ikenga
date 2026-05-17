@@ -85,11 +85,12 @@ pub async fn comment_route(
     pty: State<'_, Arc<PtyManager>>,
     id: i64,
     override_sink: Option<RouteSink>,
+    preferred_pty_id: Option<String>,
 ) -> Result<RouteResult, String> {
     let comment = comment_get(db.clone(), id).await?;
 
     // Pick the active claude PTY, if any. This is the auto-detect path.
-    let claude_pty = pick_claude_pty(&pty);
+    let claude_pty = pick_claude_pty(&pty, preferred_pty_id.as_deref());
 
     let chosen = match override_sink {
         Some(RouteSink::Terminal) => RouteSink::Terminal,
@@ -174,14 +175,22 @@ pub async fn comment_route(
     })
 }
 
-/// Pick a PTY whose foreground command is `claude` (or `claude-*`). When
-/// multiple PTYs match, the first one returned by `foreground_snapshot()`
-/// wins — DashMap is insertion-ordered for iteration purposes, which is a
-/// good-enough "most recently spawned" heuristic in v0. A true "most
-/// recently touched" ranking would track per-PTY last-write timestamps;
-/// punt to a later patch when this hurts in practice.
-fn pick_claude_pty(pty: &PtyManager) -> Option<(String, String)> {
+/// Pick a PTY whose foreground command is `claude` (or `claude-*`).
+///
+/// When `preferred_pty_id` is supplied and that PTY's foreground is still
+/// claude, it wins — this lets the FE pin delivery to the *visible* terminal
+/// (the most-recently-focused tab) rather than letting HashMap iteration
+/// arbitrarily pick a sibling claude PTY. The fallback path scans the full
+/// snapshot.
+fn pick_claude_pty(pty: &PtyManager, preferred_pty_id: Option<&str>) -> Option<(String, String)> {
     let snap = pty.foreground_snapshot();
+    if let Some(preferred) = preferred_pty_id {
+        if let Some(fg) = snap.get(preferred) {
+            if fg.name.starts_with("claude") {
+                return Some((preferred.to_string(), fg.name.clone()));
+            }
+        }
+    }
     snap.into_iter()
         .find(|(_, fg)| fg.name.starts_with("claude"))
         .map(|(id, fg)| (id, fg.name))

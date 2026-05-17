@@ -29,6 +29,7 @@ import {
 } from '@/lib/tauri-cmd';
 import { ViewerRouter } from '@/viewer/auto-router';
 import { usePaneStore } from '@/lib/panes/pane-store';
+import { useTerminalStore } from '@/terminal/session-store';
 import {
 	type ArtifactGridSettings,
 	type DefaultSink,
@@ -287,8 +288,10 @@ export function StudioGrid({ path, paneId }: GridPaneProps) {
 			// honors the user's preference. `auto` falls through to the
 			// Rust-side foreground-PTY detection (existing behavior).
 			const sink = override ?? defaultSinkAsOverride(effectiveSink);
+			const ts = useTerminalStore.getState();
+			const preferredPtyId = ts.tabs.find((t) => t.id === ts.activeId)?.ptyId ?? null;
 			try {
-				await commentRoute({ id: pin.id, overrideSink: sink });
+				await commentRoute({ id: pin.id, overrideSink: sink, preferredPtyId });
 				// Re-fetch pins so the status flip (open → in_progress when the
 				// agent acknowledges) lands quickly.
 				qc.invalidateQueries({ queryKey: ['artifact-grid', path, 'pins'] });
@@ -331,8 +334,10 @@ export function StudioGrid({ path, paneId }: GridPaneProps) {
 		async (pin: Comment) => {
 			setActivePin({ artifactPath: pin.artifactPath, pin });
 			const sink = defaultSinkAsOverride(effectiveSink);
+			const ts = useTerminalStore.getState();
+			const preferredPtyId = ts.tabs.find((t) => t.id === ts.activeId)?.ptyId ?? null;
 			try {
-				await commentRoute({ id: pin.id, overrideSink: sink });
+				await commentRoute({ id: pin.id, overrideSink: sink, preferredPtyId });
 				qc.invalidateQueries({ queryKey: ['artifact-grid', path, 'pins'] });
 			} catch (e) {
 				console.error('[artifact-grid] route failed', e);

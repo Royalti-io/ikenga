@@ -27,7 +27,17 @@ import {
 	readArtifactSink,
 	studioSinkToRouteOverride,
 } from '@/shell/artifact-studio/studio-sink-popover';
+import { useTerminalStore } from '@/terminal/session-store';
 import type { PickResult } from './element-picker';
+
+/** PTY id of the currently-focused terminal tab, if any. The pin-route
+ *  dispatcher uses this as a hint so two concurrent claude PTYs don't race —
+ *  the visible terminal wins. */
+function activeTerminalPtyId(): string | null {
+	const s = useTerminalStore.getState();
+	const tab = s.tabs.find((t) => t.id === s.activeId);
+	return tab?.ptyId ?? null;
+}
 
 interface PinComposerProps {
 	open: boolean;
@@ -81,7 +91,8 @@ export function PinComposer({ open, pick, artifactPath, onClose }: PinComposerPr
 			// persisted, so we close the modal even if routing chokes.
 			const sink = await readArtifactSink(artifactPath);
 			const overrideSink = studioSinkToRouteOverride(sink);
-			void commentRoute({ id: created.id, overrideSink }).catch((e) =>
+			const preferredPtyId = activeTerminalPtyId();
+			void commentRoute({ id: created.id, overrideSink, preferredPtyId }).catch((e) =>
 				console.error('[pin-composer] route failed', e)
 			);
 			// Bust the grid's pins query so the new pin pops in immediately.
