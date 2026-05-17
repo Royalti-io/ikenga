@@ -1,42 +1,28 @@
-// The unified pkg surface — assembles titlebar + trust banner + action
-// tiles + filter bar + catalog body + loupe sheet + install sheet.
+// The unified pkg surface — titlebar + trust banner + catalog body + loupe
+// sheet + install sheet.
 //
-// Designed so it can be dropped into /packages (Phase 3) or rendered in
-// isolation from a smoke route (Phase 1).
+// Filters and counts live in the Packages-mode sidebar (deep-linked via
+// ?filter=). The surface itself stays tightly focused on the catalog rows
+// + per-pkg detail.
 
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from '@tanstack/react-router';
 import type { PkgRowV2 } from '@/lib/pkgs/use-derived';
 import { usePkgsDerived } from '@/lib/pkgs/use-derived';
-import { useUpdater } from '@/lib/updater/use-updater';
-import { useShellVersion } from '@/lib/updater/use-shell-version';
 import { PkgGroup } from './pkg-row';
 import { PkgInstallSheet } from './pkg-install-sheet';
 import { PkgLoupe, type LoupeTab } from './pkg-loupe';
-import { PkgsActionTiles } from './pkgs-action-tiles';
-import { PkgsFilterBar, type FilterKey } from './pkgs-filter-bar';
 import { PkgsTitlebar } from './pkgs-titlebar';
 import { PkgsTrustBanner } from './pkgs-trust-banner';
 
+export type FilterKey = 'all' | 'installed' | 'updates' | 'store' | 'review' | 'disabled';
+
 export interface PkgsSurfaceProps {
-	/** Initial filter pill seeded from the URL (?filter=) or sidebar click. */
+	/** Initial filter seeded from the URL (?filter=) or sidebar click. */
 	initialFilter?: FilterKey;
 }
 
 export function PkgsSurface({ initialFilter = 'all' }: PkgsSurfaceProps = {}) {
 	const d = usePkgsDerived();
-	const navigate = useNavigate();
-	// Lightweight shell-update read — autoPoll: false here because the workspace
-	// UpdaterBanner owns the 6h polling timer. We just need the latest value
-	// for the cross-link line in the Updates tile.
-	const updater = useUpdater({ autoPoll: false });
-	const shellVersion = useShellVersion();
-	const shellUpdate = updater.available
-		? {
-				currentVersion: updater.available.currentVersion ?? shellVersion ?? '—',
-				version: updater.available.version,
-			}
-		: null;
 
 	const [filter, setFilter] = useState<FilterKey>(initialFilter);
 	// Re-sync if the parent route flips the search param after mount (sidebar
@@ -97,6 +83,8 @@ export function PkgsSurface({ initialFilter = 'all' }: PkgsSurfaceProps = {}) {
 		<div className="flex h-full flex-col bg-background">
 			<PkgsTitlebar
 				d={d}
+				query={query}
+				onQueryChange={setQuery}
 				onInstallPkg={() => {
 					setInstallPkg(null);
 					setInstallOpen(true);
@@ -107,22 +95,6 @@ export function PkgsSurface({ initialFilter = 'all' }: PkgsSurfaceProps = {}) {
 				onReview={() => {
 					setFilter('review');
 				}}
-			/>
-			<PkgsActionTiles
-				d={d}
-				shellUpdate={shellUpdate}
-				onShellUpdate={() => navigate({ to: '/settings/about' })}
-				onReviewUpdates={() => setFilter('updates')}
-				onReviewTrust={() => setFilter('review')}
-				onReviewViolations={() => setFilter('review')}
-				onBrowseRegistry={() => setFilter('store')}
-			/>
-			<PkgsFilterBar
-				d={d}
-				active={filter}
-				onChange={setFilter}
-				query={query}
-				onQueryChange={setQuery}
 			/>
 			<div className="flex-1 overflow-y-auto px-6 py-5">
 				{d.error && (

@@ -9,6 +9,8 @@
 
 import { Activity, ArrowUp, Ban, Box, Info, LayoutGrid, Package, PackageCheck, PackagePlus, PowerOff, Shield, type LucideIcon } from 'lucide-react';
 
+import { useShallow } from 'zustand/react/shallow';
+
 import { cn } from '@/components/ui/utils';
 import { findLeaf } from '@/lib/panes/pane-reducer';
 import { usePaneStore } from '@/lib/panes/pane-store';
@@ -38,16 +40,21 @@ export function PkgsMode() {
 
 	// Track both the path and the current filter param so an active item
 	// highlights correctly when the user is on a deep-linked view.
-	const active = usePaneStore((s) => {
-		const leaf = findLeaf(s.root, s.focusedId);
-		if (!leaf) return { path: null as string | null, filter: null as string | null };
-		const tab = leaf.tabs[leaf.activeTabIdx];
-		if (!tab || tab.kind !== 'route') return { path: null, filter: null };
-		const url = tab.path;
-		const [path, qs] = url.split('?');
-		const search = new URLSearchParams(qs ?? '');
-		return { path, filter: search.get('filter') };
-	});
+	// `useShallow` is required: this selector returns a fresh object on
+	// every call, which under Zustand v5 + React 19 trips
+	// `useSyncExternalStore`'s stability check and infinite-loops.
+	const active = usePaneStore(
+		useShallow((s) => {
+			const leaf = findLeaf(s.root, s.focusedId);
+			if (!leaf) return { path: null as string | null, filter: null as string | null };
+			const tab = leaf.tabs[leaf.activeTabIdx];
+			if (!tab || tab.kind !== 'route') return { path: null, filter: null };
+			const url = tab.path;
+			const [path, qs] = url.split('?');
+			const search = new URLSearchParams(qs ?? '');
+			return { path, filter: search.get('filter') };
+		})
+	);
 
 	const disabledCount = d.installed.filter((p) => !p.enabled).length;
 	const reviewCount = d.trust.length + d.violations.length;
