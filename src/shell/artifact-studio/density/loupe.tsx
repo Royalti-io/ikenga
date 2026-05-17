@@ -18,6 +18,7 @@ import {
 	Save,
 	Settings as SinkIcon,
 	SquareDashedMousePointer,
+	Terminal as TerminalIcon,
 	X,
 } from 'lucide-react';
 import { cn } from '@/components/ui/utils';
@@ -44,7 +45,11 @@ import { StudioEngineChat } from '@/shell/artifact-studio/studio-engine-chat';
 import { StudioCommentMode } from '@/shell/artifact-studio/studio-comment-mode';
 import { StudioPromoteDialog } from '@/shell/artifact-studio/studio-promote-dialog';
 import { StudioTextEditMode } from '@/shell/artifact-studio/studio-text-edit-mode';
-import { StudioTerminal, TerminalChip } from '@/shell/artifact-studio/studio-terminal';
+import {
+	StudioTerminal,
+	StudioTerminalAttachButton,
+	TerminalChip,
+} from '@/shell/artifact-studio/studio-terminal';
 import { PinComposer, type PickResult } from '@/shell/artifact-studio/pin-composer';
 import {
 	StudioSinkPopover,
@@ -77,12 +82,10 @@ export function StudioLoupe({ path, paneId, attachedTerminalId }: StudioLoupePro
 	const [promoteOpen, setPromoteOpen] = useState(false);
 	const [sinkOpen, setSinkOpen] = useState(false);
 	const [pendingPick, setPendingPick] = useState<PickResult | null>(null);
-	// Initial right-rail tab: 'terminal' when attached on first mount, 'chat'
-	// otherwise. We deliberately don't auto-switch later — runtime attaches
-	// happen from inside the Terminal tab via the picker, so the user is
-	// already there. Avoiding a useEffect+setState pair here also dodges a
-	// boot-time render loop seen when persisted state restores attachment.
-	const [rightTab, setRightTab] = useRightRailTab(attachedTerminalId ? 'terminal' : 'chat');
+	// Single agent slot — the chat tab's body switches between
+	// StudioEngineChat and the embedded PTY based on attachment, and its
+	// label/icon relabel accordingly. Always start on the agent slot.
+	const [rightTab, setRightTab] = useRightRailTab('chat');
 	const { sink, setSink } = useArtifactSink(path);
 
 	const onAttachTerminal = useCallback(
@@ -233,8 +236,11 @@ export function StudioLoupe({ path, paneId, attachedTerminalId }: StudioLoupePro
 				commentMode={commentMode}
 				textEditMode={textEditMode}
 				sink={sink}
+				paneId={paneId}
+				artifactPath={path}
 				attachedTerminalId={attachedTerminalId}
-				onShowTerminalTab={() => setRightTab('terminal')}
+				onAttachTerminal={onAttachTerminal}
+				onShowTerminalTab={() => setRightTab('chat')}
 				onDetachTerminal={onDetachTerminal}
 				onCommentModeToggle={() => {
 					setCommentMode((v) => !v);
@@ -295,23 +301,31 @@ export function StudioLoupe({ path, paneId, attachedTerminalId }: StudioLoupePro
 						<RightRail
 							tab={rightTab}
 							onChangeTab={setRightTab}
+							tabLabelOverrides={attachedTerminalId ? { chat: 'Terminal' } : undefined}
+							tabGlyphOverrides={
+								attachedTerminalId ? { chat: <TerminalIcon className="h-3 w-3" /> } : undefined
+							}
 							slots={{
-								chat: <StudioEngineChat path={path} onEngineEdit={applyEngineEdit} />,
+								// Agent slot — Chat thread by default, swapped to the
+								// embedded PTY when an attachment is active. Tab label
+								// + icon flip via the overrides above.
+								chat: attachedTerminalId ? (
+									<StudioTerminal
+										paneId={paneId}
+										artifactPath={path}
+										attachedTerminalId={attachedTerminalId}
+										onAttach={onAttachTerminal}
+										onDetach={onDetachTerminal}
+									/>
+								) : (
+									<StudioEngineChat path={path} onEngineEdit={applyEngineEdit} />
+								),
 								code: <StudioSourceEditor value={source} onChange={setSource} />,
 								dom: <DomInspector paneId={paneId} path={path} />,
 								manifest: (
 									<StudioManifestEditor
 										manifest={manifest}
 										onChange={(next) => updateManifest(next)}
-									/>
-								),
-								terminal: (
-									<StudioTerminal
-										paneId={paneId}
-										artifactPath={path}
-										attachedTerminalId={attachedTerminalId ?? null}
-										onAttach={onAttachTerminal}
-										onDetach={onDetachTerminal}
 									/>
 								),
 							}}
@@ -980,12 +994,15 @@ function DomInspector({ paneId, path }: { paneId: string; path: string }) {
 
 interface StudioChromeProps {
 	path: string;
+	paneId: string;
+	artifactPath: string;
 	dirty: boolean;
 	manifest: ArtifactManifest | null;
 	commentMode: boolean;
 	textEditMode: boolean;
 	sink: StudioSink;
 	attachedTerminalId?: string;
+	onAttachTerminal: (tabId: string) => void;
 	onShowTerminalTab: () => void;
 	onDetachTerminal: () => void;
 	onCommentModeToggle: () => void;
@@ -999,12 +1016,15 @@ interface StudioChromeProps {
 
 function StudioChrome({
 	path,
+	paneId,
+	artifactPath,
 	dirty,
 	manifest,
 	commentMode,
 	textEditMode,
 	sink,
 	attachedTerminalId,
+	onAttachTerminal,
 	onShowTerminalTab,
 	onDetachTerminal,
 	onCommentModeToggle,
@@ -1058,11 +1078,22 @@ function StudioChrome({
 				<ChromeButton onClick={onPromote} title="Promote to folder…" aria-label="Promote to folder">
 					<FolderTree className="h-3.5 w-3.5" />
 				</ChromeButton>
-				{attachedTerminalId && (
+				{attachedTerminalId ? (
 					<TerminalChip
 						tabId={attachedTerminalId}
 						onClick={onShowTerminalTab}
 						onDetach={onDetachTerminal}
+					/>
+				) : (
+					<StudioTerminalAttachButton
+						paneId={paneId}
+						artifactPath={artifactPath}
+						onAttach={(tabId) => {
+							onAttachTerminal(tabId);
+							// Pop the agent tab into focus so the new terminal is
+							// immediately visible.
+							onShowTerminalTab();
+						}}
 					/>
 				)}
 				<ChromeButton

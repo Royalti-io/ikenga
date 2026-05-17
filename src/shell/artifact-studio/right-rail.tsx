@@ -5,27 +5,26 @@
 // tabs" — Code/DOM/Manifest require a single focused artifact, which
 // compare doesn't have).
 //
+// The Chat slot is dual-purpose: when an embedded terminal is attached
+// to the Studio pane, the loupe swaps its body to the SingleTerminal
+// host and relabels the tab to "Terminal" via `tabLabelOverrides` /
+// `tabGlyphOverrides`. There is no separate Terminal tab — agent and
+// shell share the same rail slot, one mode at a time.
+//
 // This component is purely presentational: the parent owns the slot
 // content and decides which tabs are visible.
 
 import { useMemo, useState, type ReactNode } from 'react';
-import {
-	Code as CodeIcon,
-	MessageSquare,
-	Settings as ManifestIcon,
-	Terminal as TerminalIcon,
-	TreePine,
-} from 'lucide-react';
+import { Code as CodeIcon, MessageSquare, Settings as ManifestIcon, TreePine } from 'lucide-react';
 import { cn } from '@/components/ui/utils';
 
-export type RightRailTab = 'chat' | 'code' | 'dom' | 'manifest' | 'terminal';
+export type RightRailTab = 'chat' | 'code' | 'dom' | 'manifest';
 
 const TAB_GLYPHS: Record<RightRailTab, ReactNode> = {
 	chat: <MessageSquare className="h-3 w-3" />,
 	code: <CodeIcon className="h-3 w-3" />,
 	dom: <TreePine className="h-3 w-3" />,
 	manifest: <ManifestIcon className="h-3 w-3" />,
-	terminal: <TerminalIcon className="h-3 w-3" />,
 };
 
 const TAB_LABELS: Record<RightRailTab, string> = {
@@ -33,7 +32,6 @@ const TAB_LABELS: Record<RightRailTab, string> = {
 	code: 'Code',
 	dom: 'DOM',
 	manifest: 'Manifest',
-	terminal: 'Terminal',
 };
 
 export interface RightRailSlots {
@@ -41,24 +39,33 @@ export interface RightRailSlots {
 	code?: ReactNode;
 	dom?: ReactNode;
 	manifest?: ReactNode;
-	terminal?: ReactNode;
 }
 
 interface RightRailProps {
 	tab: RightRailTab;
 	onChangeTab: (tab: RightRailTab) => void;
 	slots: RightRailSlots;
+	/** Per-tab label override. Used by the loupe to relabel the chat tab
+	 *  to "Terminal" when an embedded PTY is attached, since the slot
+	 *  body switches accordingly. */
+	tabLabelOverrides?: Partial<Record<RightRailTab, string>>;
+	tabGlyphOverrides?: Partial<Record<RightRailTab, ReactNode>>;
 }
 
-export function RightRail({ tab, onChangeTab, slots }: RightRailProps) {
+export function RightRail({
+	tab,
+	onChangeTab,
+	slots,
+	tabLabelOverrides,
+	tabGlyphOverrides,
+}: RightRailProps) {
 	const visible = useMemo<RightRailTab[]>(() => {
 		const out: RightRailTab[] = ['chat'];
 		if (slots.code !== undefined) out.push('code');
 		if (slots.dom !== undefined) out.push('dom');
 		if (slots.manifest !== undefined) out.push('manifest');
-		if (slots.terminal !== undefined) out.push('terminal');
 		return out;
-	}, [slots.code, slots.dom, slots.manifest, slots.terminal]);
+	}, [slots.code, slots.dom, slots.manifest]);
 
 	// Defensive: if the active tab was hidden by a density change, snap to
 	// Chat so we don't render an undefined slot.
@@ -70,9 +77,10 @@ export function RightRail({ tab, onChangeTab, slots }: RightRailProps) {
 				? slots.code
 				: active === 'dom'
 					? slots.dom
-					: active === 'manifest'
-						? slots.manifest
-						: slots.terminal;
+					: slots.manifest;
+
+	const labelFor = (t: RightRailTab) => tabLabelOverrides?.[t] ?? TAB_LABELS[t];
+	const glyphFor = (t: RightRailTab) => tabGlyphOverrides?.[t] ?? TAB_GLYPHS[t];
 
 	return (
 		<div className="flex h-full min-h-0 flex-col border-l border-border bg-background">
@@ -85,8 +93,8 @@ export function RightRail({ tab, onChangeTab, slots }: RightRailProps) {
 						key={t}
 						active={active === t}
 						onClick={() => onChangeTab(t)}
-						icon={TAB_GLYPHS[t]}
-						label={TAB_LABELS[t]}
+						icon={glyphFor(t)}
+						label={labelFor(t)}
 					/>
 				))}
 			</div>

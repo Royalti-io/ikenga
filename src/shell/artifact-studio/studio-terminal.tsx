@@ -8,7 +8,8 @@
 // placeholder body while a tab is owned by Studio; this component is the
 // other half of that swap.
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ExternalLink, Plus, RefreshCcw, Terminal as TerminalIcon, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/components/ui/utils';
@@ -329,6 +330,236 @@ export function TerminalChip({ tabId, onClick, onDetach }: TerminalChipProps) {
 				<X className="h-2.5 w-2.5" />
 			</button>
 		</div>
+	);
+}
+
+// ─── Chrome attach button + popover ──────────────────────────────────
+
+interface StudioTerminalAttachButtonProps {
+	paneId: string;
+	artifactPath: string;
+	onAttach: (tabId: string) => void;
+}
+
+/** Sibling of `TerminalChip` for the chrome row when no terminal is
+ *  attached. Click reveals a small picker popover anchored to the
+ *  button (portalled to <body> to escape the panel's overflow:hidden,
+ *  same pattern as the pin-review popover). */
+export function StudioTerminalAttachButton({
+	paneId,
+	artifactPath,
+	onAttach,
+}: StudioTerminalAttachButtonProps) {
+	const [open, setOpen] = useState(false);
+	const buttonRef = useRef<HTMLButtonElement | null>(null);
+	return (
+		<>
+			<button
+				ref={buttonRef}
+				type="button"
+				onClick={() => setOpen((v) => !v)}
+				aria-label="Attach terminal to this Studio pane"
+				title="Attach terminal"
+				aria-expanded={open}
+				className="inline-flex h-6 items-center gap-1 rounded border border-dashed border-border bg-background px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-muted/30 hover:text-foreground"
+			>
+				<TerminalIcon className="h-3 w-3" />
+				<span className="font-mono">Attach…</span>
+			</button>
+			{open && (
+				<StudioTerminalAttachPopover
+					anchorEl={buttonRef.current}
+					paneId={paneId}
+					artifactPath={artifactPath}
+					onClose={() => setOpen(false)}
+					onAttach={(tabId) => {
+						setOpen(false);
+						onAttach(tabId);
+					}}
+				/>
+			)}
+		</>
+	);
+}
+
+interface StudioTerminalAttachPopoverProps {
+	anchorEl: HTMLElement | null;
+	paneId: string;
+	artifactPath: string;
+	onClose: () => void;
+	onAttach: (tabId: string) => void;
+}
+
+const ATTACH_POPOVER_WIDTH = 320;
+const ATTACH_POPOVER_MARGIN = 8;
+const ATTACH_POPOVER_EST_HEIGHT = 360;
+
+function StudioTerminalAttachPopover({
+	anchorEl,
+	paneId,
+	artifactPath,
+	onClose,
+	onAttach,
+}: StudioTerminalAttachPopoverProps) {
+	const tabs = useTerminalStore((s) => s.tabs);
+	const [conflict, setConflict] = useState<{ tabId: string; previousPaneId: string } | null>(null);
+	const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+
+	useEffect(() => {
+		if (!anchorEl) {
+			setPos(null);
+			return;
+		}
+		const rect = anchorEl.getBoundingClientRect();
+		const vw = typeof window !== 'undefined' ? window.innerWidth : 1024;
+		const vh = typeof window !== 'undefined' ? window.innerHeight : 768;
+		// Anchor below the button; flip up if it would clip the bottom.
+		const desiredLeft = rect.right - ATTACH_POPOVER_WIDTH;
+		const clampedLeft = Math.max(
+			ATTACH_POPOVER_MARGIN,
+			Math.min(desiredLeft, vw - ATTACH_POPOVER_WIDTH - ATTACH_POPOVER_MARGIN)
+		);
+		const belowTop = rect.bottom + 4;
+		const flipsUp = belowTop + ATTACH_POPOVER_EST_HEIGHT + ATTACH_POPOVER_MARGIN > vh;
+		const top = flipsUp
+			? Math.max(ATTACH_POPOVER_MARGIN, rect.top - ATTACH_POPOVER_EST_HEIGHT - 4)
+			: belowTop;
+		setPos({ top, left: clampedLeft });
+	}, [anchorEl]);
+
+	useEffect(() => {
+		const onKey = (e: KeyboardEvent) => {
+			if (e.key === 'Escape') onClose();
+		};
+		const onDoc = (e: MouseEvent) => {
+			const t = e.target as HTMLElement | null;
+			if (t?.closest('[data-studio-terminal-attach-popover]')) return;
+			if (t && anchorEl?.contains(t)) return;
+			onClose();
+		};
+		window.addEventListener('keydown', onKey);
+		window.addEventListener('mousedown', onDoc, true);
+		return () => {
+			window.removeEventListener('keydown', onKey);
+			window.removeEventListener('mousedown', onDoc, true);
+		};
+	}, [anchorEl, onClose]);
+
+	const spawnCwd = parentDir(artifactPath) ?? defaultCwd();
+	const candidates = useMemo(
+		() =>
+			tabs.filter(
+				(t) =>
+					t.status === 'running' &&
+					(t.owner.kind === 'sidepane' || (t.owner.kind === 'studio' && t.owner.paneId !== paneId))
+			),
+		[tabs, paneId]
+	);
+
+	const tryAttach = (tabId: string) => {
+		const res = useTerminalStore.getState().attachToStudio(tabId, paneId, artifactPath);
+		if (res.ok) {
+			onAttach(tabId);
+			return;
+		}
+		setConflict({ tabId, previousPaneId: res.previousPaneId });
+	};
+
+	const spawnNew = (preset: ShellPreset) => {
+		const id = createTerminalSession({ cwd: spawnCwd, cmd: preset.cmd, title: preset.title });
+		useTerminalStore.getState().attachToStudio(id, paneId, artifactPath);
+		onAttach(id);
+	};
+
+	if (!pos) return null;
+
+	return createPortal(
+		<div
+			data-studio-terminal-attach-popover
+			role="dialog"
+			aria-label="Attach a terminal"
+			className="fixed z-50 flex flex-col rounded border border-border bg-background shadow-xl"
+			style={{ top: pos.top, left: pos.left, width: ATTACH_POPOVER_WIDTH }}
+		>
+			<div className="flex shrink-0 items-center gap-1.5 border-b border-border bg-muted/20 px-2 py-1.5 text-[10px] text-muted-foreground">
+				<TerminalIcon className="h-3 w-3" />
+				<span className="font-mono">attach a terminal</span>
+			</div>
+			<div className="border-b border-border px-3 py-2">
+				<div className="mb-1.5 flex items-center gap-1 text-[10px] text-muted-foreground">
+					<Plus className="h-3 w-3 text-amber-600 dark:text-amber-400" />
+					<span className="truncate font-mono" title={spawnCwd}>
+						new in {spawnCwd}
+					</span>
+				</div>
+				<div className="flex flex-wrap gap-1">
+					{SHELL_PRESETS.map((preset) => (
+						<button
+							key={preset.title}
+							type="button"
+							onClick={() => spawnNew(preset)}
+							className="rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground transition-colors hover:bg-muted/30"
+							title={preset.cmd.join(' ')}
+						>
+							{preset.label}
+						</button>
+					))}
+				</div>
+			</div>
+			<div className="max-h-60 min-h-0 overflow-y-auto">
+				{candidates.length === 0 ? (
+					<div className="px-3 py-6 text-center text-[11px] text-muted-foreground">
+						No running terminals to attach.
+					</div>
+				) : (
+					<ul>
+						{candidates.map((t) => (
+							<li key={t.id}>
+								<button
+									type="button"
+									onClick={() => tryAttach(t.id)}
+									className="flex w-full items-start gap-2 border-b border-border px-3 py-2 text-left transition-colors hover:bg-muted/30"
+								>
+									<TerminalIcon className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground" />
+									<span className="flex-1 min-w-0">
+										<span className="block text-xs text-foreground">
+											{t.title}{' '}
+											<span className="font-mono text-[10px] text-muted-foreground">
+												· {t.id.slice(0, 6)}
+											</span>
+										</span>
+										<span className="block truncate font-mono text-[10px] text-muted-foreground">
+											{t.spec.cwd}
+											{t.owner.kind === 'studio' && ' · in Studio'}
+										</span>
+									</span>
+								</button>
+							</li>
+						))}
+					</ul>
+				)}
+			</div>
+			{conflict && (
+				<AttachmentConflictPopover
+					conflict={conflict}
+					onReclaim={() => {
+						const res = useTerminalStore
+							.getState()
+							.attachToStudio(conflict.tabId, paneId, artifactPath, { force: true });
+						if (res.ok) {
+							onAttach(conflict.tabId);
+							setConflict(null);
+						}
+					}}
+					onOpenOther={() => {
+						usePaneStore.getState().focusPane(conflict.previousPaneId);
+						setConflict(null);
+					}}
+					onDismiss={() => setConflict(null)}
+				/>
+			)}
+		</div>,
+		document.body
 	);
 }
 
