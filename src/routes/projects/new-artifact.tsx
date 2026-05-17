@@ -6,9 +6,10 @@
 // wizard navigates back so the route doesn't dead-end on an empty page.
 //
 // Search params:
-//   ?project=<id>        — pre-select project
-//   ?archetype=<slug>    — pre-select archetype
-//   ?folder=<abs path>   — override the watched folder
+//   ?project=<id>                                — pre-select project
+//   ?archetype=<slug>                            — pre-select archetype
+//   ?folder=<abs path>                           — override the watched folder
+//   ?agent=<claude|codex|gemini|custom>          — pre-select the CLI
 
 import { useState } from 'react';
 import { createFileRoute, useNavigate, useSearch } from '@tanstack/react-router';
@@ -19,6 +20,7 @@ interface NewArtifactSearch {
 	project?: string;
 	archetype?: string;
 	folder?: string;
+	agent?: string;
 }
 
 function NewArtifactRoute() {
@@ -43,6 +45,7 @@ function NewArtifactRoute() {
 					projectId: search.project ?? null,
 					archetypeSlug: search.archetype ?? null,
 					folder: search.folder ?? null,
+					agent: search.agent ?? null,
 				}}
 			/>
 		</div>
@@ -55,5 +58,6 @@ export const Route = createFileRoute('/projects/new-artifact')({
 		project: typeof s.project === 'string' ? s.project : undefined,
 		archetype: typeof s.archetype === 'string' ? s.archetype : undefined,
 		folder: typeof s.folder === 'string' ? s.folder : undefined,
+		agent: typeof s.agent === 'string' ? s.agent : undefined,
 	}),
 });

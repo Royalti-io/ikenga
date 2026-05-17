@@ -19,6 +19,12 @@ import { createTerminalSession } from '@/terminal/single-terminal';
 import { useTerminalStore } from '@/terminal/session-store';
 import { type Archetype, slugifyName } from '@/shell/artifact-wizard/archetypes';
 
+export type AgentChoice =
+	| { kind: 'claude' }
+	| { kind: 'codex' }
+	| { kind: 'gemini' }
+	| { kind: 'custom'; cmd: string[] };
+
 export interface StartArgs {
 	project: Project;
 	archetype: Archetype;
@@ -29,6 +35,22 @@ export interface StartArgs {
 	 *  project-root file watcher. The folder doesn't need to exist yet — the
 	 *  agent may create it. */
 	folder: string;
+	/** Which CLI to spawn. claude / codex / gemini are well-known; `custom`
+	 *  passes a user-supplied argv through. */
+	agent: AgentChoice;
+}
+
+function resolveAgentCmd(agent: AgentChoice): { cmd: string[]; title: string } {
+	switch (agent.kind) {
+		case 'claude':
+			return { cmd: ['claude'], title: 'claude' };
+		case 'codex':
+			return { cmd: ['codex'], title: 'codex' };
+		case 'gemini':
+			return { cmd: ['gemini'], title: 'gemini' };
+		case 'custom':
+			return { cmd: agent.cmd, title: agent.cmd[0] ?? 'agent' };
+	}
 }
 
 export interface StartResult {
@@ -39,11 +61,13 @@ export interface StartResult {
 
 const WATCHER_TIMEOUT_MS = 30 * 60 * 1000;
 const PTY_READY_TIMEOUT_MS = 10_000;
-/** Delay between PTY-ready and prompt write. Gives claude time to render
- *  its splash and reach an input-ready state before we type. */
+/** Delay between PTY-ready and prompt write. Gives the agent time to
+ *  render its splash and reach an input-ready state before we type.
+ *  claude / codex / gemini all show launch chrome and are equally
+ *  forgiving of this default. */
 const PROMPT_TYPING_DELAY_MS = 1500;
 /** Delay between bracketed paste end and the submit Enter. Without this
- *  claude's TUI batches the Enter into the paste payload and treats it as
+ *  the TUI batches the Enter into the paste payload and treats it as
  *  another newline instead of a submit. */
 const POST_PASTE_DELAY_MS = 200;
 
@@ -57,13 +81,14 @@ export async function startArtifact(args: StartArgs): Promise<StartResult> {
 		slug,
 	});
 
-	// Spawn the terminal at the project root so claude sees the right
+	// Spawn the terminal at the project root so the agent sees the right
 	// `.claude/` and CLAUDE.md. D3 + D9 in the projects-as-context plan.
 	const cwd = args.project.root_path ?? args.folder;
+	const { cmd, title: agentTitle } = resolveAgentCmd(args.agent);
 	const terminalSessionId = createTerminalSession({
 		cwd,
-		cmd: ['claude'],
-		title: `claude · ${args.archetype.label.toLowerCase()}`,
+		cmd,
+		title: `${agentTitle} · ${args.archetype.label.toLowerCase()}`,
 	});
 
 	// Mount the terminal in the focused pane.
@@ -85,15 +110,15 @@ export async function startArtifact(args: StartArgs): Promise<StartResult> {
 	return { terminalSessionId, slug, kickoffPrompt };
 }
 
-/** Wait for the PTY id to land in the session-store, give claude a beat to
- *  finish its splash, then bracket-paste the prompt and submit with a
+/** Wait for the PTY id to land in the session-store, give the agent a beat
+ *  to finish its splash, then bracket-paste the prompt and submit with a
  *  separate Enter keystroke.
  *
- *  Bracketed paste (`\x1b[200~ … \x1b[201~`) signals to claude's TUI input
- *  that the multi-line payload is a single pasted block — without it,
- *  embedded `\n`s in the prompt fire intermediate newlines and the trailing
- *  CR is absorbed as another newline instead of a submit. The follow-up
- *  `\r` after a short delay then submits cleanly. */
+ *  Bracketed paste (`\x1b[200~ … \x1b[201~`) signals to the TUI input that
+ *  the multi-line payload is a single pasted block — without it, embedded
+ *  `\n`s fire intermediate newlines and the trailing CR is absorbed as
+ *  another newline instead of a submit. The follow-up `\r` after a short
+ *  delay then submits cleanly. Works across claude / codex / gemini. */
 async function typeKickoff(sessionId: string, prompt: string): Promise<void> {
 	const ptyId = await awaitPtyId(sessionId, PTY_READY_TIMEOUT_MS);
 	if (!ptyId) {

@@ -38,7 +38,24 @@ import {
 	type ArchetypeSlug,
 	findArchetype,
 } from '@/shell/artifact-wizard/archetypes';
-import { startArtifact } from '@/shell/artifact-wizard/scaffold';
+import { type AgentChoice, startArtifact } from '@/shell/artifact-wizard/scaffold';
+
+type AgentKind = AgentChoice['kind'];
+
+const AGENT_OPTIONS: { kind: Exclude<AgentKind, 'custom'>; label: string }[] = [
+	{ kind: 'claude', label: 'claude' },
+	{ kind: 'codex', label: 'codex' },
+	{ kind: 'gemini', label: 'gemini' },
+];
+
+/** Map an onboarding-selected agent id to the wizard's agent kind. The
+ *  onboarding step records the same well-known ids (`claude`, `codex`,
+ *  `gemini`), so the mapping is identity for the known cases; anything
+ *  unrecognised falls back to claude. */
+function agentKindFromOnboarding(id: string | null): AgentKind {
+	if (id === 'codex' || id === 'gemini' || id === 'claude') return id;
+	return 'claude';
+}
 
 export interface ArtifactWizardProps {
 	open: boolean;
@@ -47,18 +64,29 @@ export interface ArtifactWizardProps {
 		projectId?: string | null;
 		archetypeSlug?: string | null;
 		folder?: string | null;
+		agent?: string | null;
 	};
 }
 
 export function ArtifactWizard({ open, onOpenChange, prefill }: ArtifactWizardProps) {
 	const projects = useShellStore((s) => s.projects);
 	const activeProjectId = useShellStore((s) => s.activeProjectId);
+	const onboardingAgentId = useShellStore((s) => s.onboarding.selectedAgentId);
 
 	const initialProjectId = useMemo(() => {
 		const fromPrefill = prefill?.projectId ?? null;
 		if (fromPrefill && projects.some((p) => p.id === fromPrefill)) return fromPrefill;
 		return activeProjectId;
 	}, [prefill?.projectId, projects, activeProjectId]);
+
+	const initialAgentKind = useMemo<AgentKind>(() => {
+		const fromPrefill = prefill?.agent ?? null;
+		if (fromPrefill === 'claude' || fromPrefill === 'codex' || fromPrefill === 'gemini') {
+			return fromPrefill;
+		}
+		if (fromPrefill === 'custom') return 'custom';
+		return agentKindFromOnboarding(onboardingAgentId);
+	}, [prefill?.agent, onboardingAgentId]);
 
 	const [projectId, setProjectId] = useState<string>(initialProjectId);
 	const [archetypeSlug, setArchetypeSlug] = useState<ArchetypeSlug | null>(
@@ -67,6 +95,8 @@ export function ArtifactWizard({ open, onOpenChange, prefill }: ArtifactWizardPr
 	const [name, setName] = useState<string>('');
 	const [folder, setFolder] = useState<string>('');
 	const [folderEdited, setFolderEdited] = useState(false);
+	const [agentKind, setAgentKind] = useState<AgentKind>(initialAgentKind);
+	const [customAgentCmd, setCustomAgentCmd] = useState<string>('');
 	const [submitting, setSubmitting] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 
@@ -79,6 +109,7 @@ export function ArtifactWizard({ open, onOpenChange, prefill }: ArtifactWizardPr
 		setProjectId(initialProjectId);
 		const pa = findArchetype(prefill?.archetypeSlug ?? null);
 		setArchetypeSlug(pa ? (pa.slug as ArchetypeSlug) : null);
+		setAgentKind(initialAgentKind);
 		setError(null);
 		setSubmitting(false);
 		if (prefill?.folder) {
@@ -87,7 +118,7 @@ export function ArtifactWizard({ open, onOpenChange, prefill }: ArtifactWizardPr
 		} else {
 			setFolderEdited(false);
 		}
-	}, [open, initialProjectId, prefill?.archetypeSlug, prefill?.folder]);
+	}, [open, initialProjectId, initialAgentKind, prefill?.archetypeSlug, prefill?.folder]);
 
 	// Auto-derive folder from project root + archetype subdir until the
 	// user types/picks something else.
@@ -116,6 +147,15 @@ export function ArtifactWizard({ open, onOpenChange, prefill }: ArtifactWizardPr
 		}
 	}
 
+	function resolveAgent(): AgentChoice | null {
+		if (agentKind === 'custom') {
+			const tokens = customAgentCmd.trim().split(/\s+/).filter(Boolean);
+			if (tokens.length === 0) return null;
+			return { kind: 'custom', cmd: tokens };
+		}
+		return { kind: agentKind };
+	}
+
 	async function submit() {
 		if (!project) {
 			setError('Pick a project.');
@@ -133,6 +173,11 @@ export function ArtifactWizard({ open, onOpenChange, prefill }: ArtifactWizardPr
 			setError('Folder path can not be empty.');
 			return;
 		}
+		const agent = resolveAgent();
+		if (!agent) {
+			setError('Custom agent needs a command — e.g. `/usr/local/bin/my-agent --flag`.');
+			return;
+		}
 		setSubmitting(true);
 		setError(null);
 		try {
@@ -141,8 +186,9 @@ export function ArtifactWizard({ open, onOpenChange, prefill }: ArtifactWizardPr
 				archetype,
 				name: name.trim(),
 				folder: folder.trim(),
+				agent,
 			});
-			// Close immediately — the chat pane is the new surface.
+			// Close immediately — the terminal pane is the new surface.
 			close();
 		} catch (e) {
 			setError(e instanceof Error ? e.message : String(e));
@@ -151,7 +197,12 @@ export function ArtifactWizard({ open, onOpenChange, prefill }: ArtifactWizardPr
 		}
 	}
 
-	const canSubmit = !!project && !!archetype && name.trim().length > 0 && folder.trim().length > 0;
+	const canSubmit =
+		!!project &&
+		!!archetype &&
+		name.trim().length > 0 &&
+		folder.trim().length > 0 &&
+		(agentKind !== 'custom' || customAgentCmd.trim().length > 0);
 
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
@@ -164,8 +215,8 @@ export function ArtifactWizard({ open, onOpenChange, prefill }: ArtifactWizardPr
 				<DialogHeader>
 					<DialogTitle>New artifact</DialogTitle>
 					<DialogDescription>
-						Brief claude in the project's context. A terminal pane opens with claude running; the
-						loupe lights up when the agent writes the file.
+						Brief an agent in the project's context. A terminal pane opens with the chosen CLI
+						running; the loupe lights up when the agent writes the file.
 					</DialogDescription>
 				</DialogHeader>
 
@@ -189,6 +240,13 @@ export function ArtifactWizard({ open, onOpenChange, prefill }: ArtifactWizardPr
 						}}
 						onPick={pickFolder}
 						projectRoot={project?.root_path ?? null}
+					/>
+
+					<AgentField
+						agentKind={agentKind}
+						onAgentKindChange={setAgentKind}
+						customAgentCmd={customAgentCmd}
+						onCustomAgentCmdChange={setCustomAgentCmd}
 					/>
 
 					{error && (
@@ -358,6 +416,65 @@ function FolderField({
 					Folder is outside the project root — the agent won't have project context.
 				</div>
 			)}
+		</div>
+	);
+}
+
+function AgentField({
+	agentKind,
+	onAgentKindChange,
+	customAgentCmd,
+	onCustomAgentCmdChange,
+}: {
+	agentKind: AgentKind;
+	onAgentKindChange: (k: AgentKind) => void;
+	customAgentCmd: string;
+	onCustomAgentCmdChange: (v: string) => void;
+}) {
+	return (
+		<div className="flex flex-col gap-1.5">
+			<label className="text-xs font-medium">Agent</label>
+			<div className="flex flex-wrap gap-1.5">
+				{AGENT_OPTIONS.map((opt) => (
+					<button
+						key={opt.kind}
+						type="button"
+						onClick={() => onAgentKindChange(opt.kind)}
+						className={cn(
+							'rounded border px-2 py-1 text-xs',
+							agentKind === opt.kind
+								? 'border-foreground bg-accent text-accent-foreground'
+								: 'border-border bg-background hover:bg-muted/30'
+						)}
+					>
+						{opt.label}
+					</button>
+				))}
+				<button
+					type="button"
+					onClick={() => onAgentKindChange('custom')}
+					className={cn(
+						'rounded border px-2 py-1 text-xs',
+						agentKind === 'custom'
+							? 'border-foreground bg-accent text-accent-foreground'
+							: 'border-border bg-background hover:bg-muted/30'
+					)}
+				>
+					custom
+				</button>
+			</div>
+			{agentKind === 'custom' && (
+				<input
+					className="rounded border border-border bg-background px-2 py-1.5 font-mono text-xs"
+					placeholder="e.g. /usr/local/bin/my-agent --flag"
+					value={customAgentCmd}
+					onChange={(e) => onCustomAgentCmdChange(e.target.value)}
+				/>
+			)}
+			<p className="text-[10px] text-muted-foreground">
+				Spawned in a terminal at the project root. The kickoff prompt is auto-pasted via bracketed
+				paste — works in claude / codex / gemini TUIs.
+			</p>
 		</div>
 	);
 }
