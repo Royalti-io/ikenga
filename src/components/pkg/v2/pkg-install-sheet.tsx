@@ -2,26 +2,44 @@
 // Local path · Registry). Launched from the toolbar [Install pkg] button or
 // from a registry row's [Install] action.
 //
-// This is a thin first-cut that wires the existing tauri commands; the
-// richer manifest-preview UI from the current /install route is folded in
-// during Phase 4.
+// Two paths actually install today:
+//   1. Local path — pkgInstallFromPath against a manifest.json directory.
+//   2. Registry, pkg-targeted — fetches the per-pkg detail, resolves a
+//      dep plan, walks it via pkgInstallFromRegistry. Mirrors the install
+//      loop that used to live in the legacy /packages/browse page.
+// Manifest URL stays parked; the signed-registry path covers the same need
+// with the signature/integrity guarantees baked in.
 
 import { Plus, X } from 'lucide-react';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { cn } from '@/components/ui/utils';
-import { pkgInstallFromPath } from '@/lib/tauri-cmd';
+import { pkgInstallFromPath, pkgInstallFromRegistry } from '@/lib/tauri-cmd';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { PkgRowV2 } from '@/lib/pkgs/use-derived';
+import {
+	useInstallPlanResolver,
+	useRefreshRegistry,
+	useRegistryIndex,
+	useRegistryPkgDetail,
+	type InstallStep,
+	type RegistryEntry,
+} from '@/lib/registry/use-registry';
 import { PkgScreenshotCarousel } from './pkg-screenshots';
 
 type InstallTab = 'manifest-url' | 'local-path' | 'registry';
 
+interface InstallProgress {
+	done: number;
+	total: number;
+	current: string;
+}
+
 export function PkgInstallSheet({
 	open,
 	onOpenChange,
-	defaultUrl,
+	defaultUrl: _defaultUrl,
 	defaultTab = 'manifest-url',
 	pkg,
 }: {
@@ -31,15 +49,29 @@ export function PkgInstallSheet({
 	defaultTab?: InstallTab;
 	/**
 	 * If set, the sheet opens in "pkg-targeted" mode: hero preview + about
-	 * + manifest preview, instead of the generic three-tab paste/path/registry
-	 * form. Comes from clicking [Install] on a specific registry row.
+	 * + manifest preview + signed-registry install, instead of the generic
+	 * three-tab paste/path/registry form. Comes from clicking [Install] on
+	 * a specific registry row.
 	 */
 	pkg?: PkgRowV2 | null;
 }) {
 	const qc = useQueryClient();
 	const [tab, setTab] = useState<InstallTab>(defaultTab);
-	const [url, setUrl] = useState(defaultUrl ?? '');
 	const [path, setPath] = useState('');
+	const [url, setUrl] = useState('');
+	const [installError, setInstallError] = useState<string | null>(null);
+	const [installProgress, setInstallProgress] = useState<InstallProgress | null>(null);
+
+	const indexQuery = useRegistryIndex();
+	const indexUrl = indexQuery.data?.indexUrl;
+	// Per-pkg detail is fetched only when this sheet is targeting a registry
+	// pkg — the catalog row's hero metadata is already enough until the user
+	// commits to installing.
+	const registryEntry: RegistryEntry | undefined =
+		pkg && pkg.origin === 'registry' && pkg.registryEntry ? pkg.registryEntry : undefined;
+	const detailQuery = useRegistryPkgDetail(indexUrl, registryEntry);
+	const planResolver = useInstallPlanResolver(indexUrl);
+	const refreshRegistry = useRefreshRegistry();
 
 	const fromPathMut = useMutation({
 		mutationFn: () => pkgInstallFromPath(path),
@@ -47,9 +79,45 @@ export function PkgInstallSheet({
 			void qc.refetchQueries({ queryKey: ['pkg'] });
 			onOpenChange(false);
 		},
+		onError: (e) => setInstallError((e as Error).message ?? String(e)),
 	});
-	// Manifest-URL install requires fetching the manifest first to extract
-	// the tarball URL + integrity hash. That wiring lands in Phase 4.
+
+	const fromRegistryMut = useMutation({
+		mutationFn: async () => {
+			if (!detailQuery.data) throw new Error('Registry detail not loaded yet');
+			const plan: InstallStep[] = await planResolver.mutateAsync({
+				root: detailQuery.data,
+			});
+			let done = 0;
+			setInstallProgress({ done: 0, total: plan.length, current: plan[0]?.name ?? '' });
+			for (const step of plan) {
+				setInstallProgress({ done, total: plan.length, current: step.name });
+				await pkgInstallFromRegistry({
+					tarball: step.tarball,
+					integrity: step.integrity,
+					pkgId: step.pkgId,
+					sourceUrl: step.tarball,
+				});
+				done += 1;
+			}
+			setInstallProgress({ done, total: plan.length, current: pkg?.name ?? '' });
+			return done;
+		},
+		onSuccess: async () => {
+			setInstallError(null);
+			await qc.invalidateQueries({ queryKey: ['pkg'] });
+			refreshRegistry();
+			// Brief pause so the user sees the final "N of N" before the sheet closes.
+			setTimeout(() => {
+				setInstallProgress(null);
+				onOpenChange(false);
+			}, 800);
+		},
+		onError: (e) => {
+			setInstallError((e as Error).message ?? String(e));
+			setInstallProgress(null);
+		},
+	});
 
 	return (
 		<Sheet open={open} onOpenChange={onOpenChange}>
@@ -150,14 +218,36 @@ export function PkgInstallSheet({
 									</p>
 								</div>
 							)}
+							{installError && (
+								<div className="rounded-sm border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-500">
+									Install failed: {installError}
+								</div>
+							)}
+							{installProgress && (
+								<InstallProgressBar progress={installProgress} />
+							)}
 						</div>
-						<div className="flex justify-end gap-2 border-t border-border bg-muted/30 px-5 py-3">
+						<div className="flex items-center gap-2 border-t border-border bg-muted/30 px-5 py-3">
+							<RegistryStatus
+								detailLoading={detailQuery.isLoading}
+								detailError={detailQuery.error as Error | null}
+								indexError={indexQuery.error as Error | null}
+							/>
+							<span className="flex-1" />
 							<Button size="sm" variant="ghost" onClick={() => onOpenChange(false)}>
 								Cancel
 							</Button>
-							<Button size="sm" disabled title="Registry install wiring lands in Phase 4">
+							<Button
+								size="sm"
+								disabled={
+									!detailQuery.data || fromRegistryMut.isPending || !!installProgress
+								}
+								onClick={() => fromRegistryMut.mutate()}
+							>
 								<Plus className="mr-1.5 h-3.5 w-3.5" />
-								Install {pkg.name}
+								{fromRegistryMut.isPending || installProgress
+									? `Installing… ${installProgress?.done ?? 0}/${installProgress?.total ?? '?'}`
+									: `Install ${pkg.name}`}
 							</Button>
 						</div>
 					</>
@@ -246,7 +336,7 @@ export function PkgInstallSheet({
 									{fromPathMut.isPending ? 'Installing…' : 'Install'}
 								</Button>
 							) : tab === 'manifest-url' ? (
-								<Button size="sm" disabled title="Phase 4 wiring in progress">
+								<Button size="sm" disabled title="Use Registry for signed installs">
 									Install
 								</Button>
 							) : null}
@@ -255,5 +345,64 @@ export function PkgInstallSheet({
 				)}
 			</SheetContent>
 		</Sheet>
+	);
+}
+
+/* ───── Subcomponents ───── */
+
+function InstallProgressBar({ progress }: { progress: InstallProgress }) {
+	const pct = progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0;
+	return (
+		<div className="space-y-1.5">
+			<div className="flex items-center justify-between font-mono text-[11px] text-muted-foreground">
+				<span>
+					Installing <span className="text-foreground">{progress.current || '…'}</span>
+				</span>
+				<span>
+					{progress.done} of {progress.total}
+				</span>
+			</div>
+			<div className="h-1.5 overflow-hidden rounded-full bg-muted">
+				<div
+					className="h-full bg-primary transition-all duration-300"
+					style={{ width: `${pct}%` }}
+				/>
+			</div>
+		</div>
+	);
+}
+
+function RegistryStatus({
+	detailLoading,
+	detailError,
+	indexError,
+}: {
+	detailLoading: boolean;
+	detailError: Error | null;
+	indexError: Error | null;
+}) {
+	if (indexError) {
+		return (
+			<span className="font-mono text-[10.5px] text-red-500">
+				registry unreachable: {indexError.message}
+			</span>
+		);
+	}
+	if (detailError) {
+		return (
+			<span className="font-mono text-[10.5px] text-red-500">
+				detail failed: {detailError.message}
+			</span>
+		);
+	}
+	if (detailLoading) {
+		return (
+			<span className="font-mono text-[10.5px] text-muted-foreground">resolving plan…</span>
+		);
+	}
+	return (
+		<span className="font-mono text-[10.5px] text-muted-foreground">
+			signature verified · ready
+		</span>
 	);
 }
