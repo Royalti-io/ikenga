@@ -26,7 +26,20 @@ export default defineConfig({
 	resolve: {
 		alias: {
 			'@': path.resolve(__dirname, './src'),
+			// jsdom + workspace hoisting via pnpm can double-load React because
+			// lucide-react / @testing-library end up in the parent monorepo's
+			// pnpm store while react itself is in shell/node_modules. Pin every
+			// import of react/react-dom to shell's copy so React.useContext
+			// returns the same value across all loaded modules.
+			react: path.resolve(__dirname, './node_modules/react'),
+			'react-dom': path.resolve(__dirname, './node_modules/react-dom'),
+			'react/jsx-runtime': path.resolve(__dirname, './node_modules/react/jsx-runtime.js'),
+			'react/jsx-dev-runtime': path.resolve(
+				__dirname,
+				'./node_modules/react/jsx-dev-runtime.js'
+			),
 		},
+		dedupe: ['react', 'react-dom'],
 	},
 
 	// Vite options tailored for Tauri development
@@ -92,5 +105,8 @@ export default defineConfig({
 	test: {
 		include: ['src/**/*.{test,spec}.{ts,tsx}'],
 		exclude: ['node_modules', 'dist', 'src-tauri'],
+		// jsdom for component-tree tests (testing-library/react needs a DOM).
+		// Pure-logic tests don't care; the env is just there if a test wants it.
+		environment: 'jsdom',
 	},
 });
