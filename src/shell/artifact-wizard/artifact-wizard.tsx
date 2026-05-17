@@ -1,19 +1,22 @@
 // Artifact creation wizard — single-screen variant.
 //
-// Picks project + archetype + name, then spawns claude in the project root
-// with a kickoff prompt that names the archetype and a suggested filename.
-// The agent decides where the artifact lives and writes the file.
+// Picks project + archetype + folder + name, then:
+//   1. Spawns claude in a chat pane on the focused leaf.
+//   2. Auto-sends the kickoff prompt naming the archetype + suggested file.
+//   3. Watches the chosen folder for the first new `.html` and opens it in
+//      a Studio loupe next to the chat pane.
 //
-// The wizard is mounted by:
+// The wizard closes as soon as the chat thread is set up — the chat pane is
+// the new surface; no separate success state.
+//
+// Mounted by:
 //   - /projects/new-artifact   (deep-link route)
 //   - command palette          ("New artifact…")
 //   - workspace keybinding     (⌘⇧N)
 //   - sidebar empty-state CTA  (consumes the same component)
-//
-// Hard rule: the wizard briefs; the agent does (D4 in
-// plans/shell/2026-05-17-projects-and-artifact-wizard.md).
 
 import { useEffect, useMemo, useState } from 'react';
+import { open as openTauriDialog } from '@tauri-apps/plugin-dialog';
 import * as Icons from 'lucide-react';
 
 import {
@@ -42,6 +45,7 @@ export interface ArtifactWizardProps {
 	prefill?: {
 		projectId?: string | null;
 		archetypeSlug?: string | null;
+		folder?: string | null;
 	};
 }
 
@@ -60,27 +64,55 @@ export function ArtifactWizard({ open, onOpenChange, prefill }: ArtifactWizardPr
 		(findArchetype(prefill?.archetypeSlug ?? null)?.slug as ArchetypeSlug | undefined) ?? null
 	);
 	const [name, setName] = useState<string>('');
+	const [folder, setFolder] = useState<string>('');
+	const [folderEdited, setFolderEdited] = useState(false);
 	const [submitting, setSubmitting] = useState(false);
 	const [error, setError] = useState<string | null>(null);
-	const [success, setSuccess] = useState<{ kickoffPrompt: string } | null>(null);
 
 	const project = projects.find((p) => p.id === projectId) ?? null;
 	const archetype = findArchetype(archetypeSlug);
 
-	// Re-anchor whenever the wizard opens so a cancel-then-reopen doesn't
-	// surface stale state from the previous attempt.
+	// Re-anchor whenever the wizard opens.
 	useEffect(() => {
 		if (!open) return;
 		setProjectId(initialProjectId);
 		const pa = findArchetype(prefill?.archetypeSlug ?? null);
 		setArchetypeSlug(pa ? (pa.slug as ArchetypeSlug) : null);
 		setError(null);
-		setSuccess(null);
 		setSubmitting(false);
-	}, [open, initialProjectId, prefill?.archetypeSlug]);
+		if (prefill?.folder) {
+			setFolder(prefill.folder);
+			setFolderEdited(true);
+		} else {
+			setFolderEdited(false);
+		}
+	}, [open, initialProjectId, prefill?.archetypeSlug, prefill?.folder]);
+
+	// Auto-derive folder from project root + archetype subdir until the
+	// user types/picks something else.
+	useEffect(() => {
+		if (folderEdited) return;
+		if (!project?.root_path || !archetype) {
+			setFolder('');
+			return;
+		}
+		setFolder(joinPath(project.root_path, archetype.defaultSubdir));
+	}, [project?.root_path, archetype, folderEdited]);
 
 	function close() {
 		onOpenChange(false);
+	}
+
+	async function pickFolder() {
+		const picked = await openTauriDialog({
+			directory: true,
+			multiple: false,
+			defaultPath: project?.root_path ?? undefined,
+		}).catch(() => null);
+		if (typeof picked === 'string' && picked.length > 0) {
+			setFolder(picked);
+			setFolderEdited(true);
+		}
 	}
 
 	async function submit() {
@@ -96,15 +128,21 @@ export function ArtifactWizard({ open, onOpenChange, prefill }: ArtifactWizardPr
 			setError('Give the artifact a name.');
 			return;
 		}
+		if (folder.trim().length === 0) {
+			setError('Folder path can not be empty.');
+			return;
+		}
 		setSubmitting(true);
 		setError(null);
 		try {
-			const result = await startArtifact({
+			await startArtifact({
 				project,
 				archetype,
 				name: name.trim(),
+				folder: folder.trim(),
 			});
-			setSuccess({ kickoffPrompt: result.kickoffPrompt });
+			// Close immediately — the chat pane is the new surface.
+			close();
 		} catch (e) {
 			setError(e instanceof Error ? e.message : String(e));
 		} finally {
@@ -112,7 +150,7 @@ export function ArtifactWizard({ open, onOpenChange, prefill }: ArtifactWizardPr
 		}
 	}
 
-	const canSubmit = !!project && !!archetype && name.trim().length > 0;
+	const canSubmit = !!project && !!archetype && name.trim().length > 0 && folder.trim().length > 0;
 
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
@@ -125,46 +163,47 @@ export function ArtifactWizard({ open, onOpenChange, prefill }: ArtifactWizardPr
 				<DialogHeader>
 					<DialogTitle>New artifact</DialogTitle>
 					<DialogDescription>
-						Brief claude in the project's context. The agent decides where the artifact lives and
-						writes the file.
+						Brief claude in the project's context. A chat pane opens next to this one; the loupe
+						lights up when the agent writes the file.
 					</DialogDescription>
 				</DialogHeader>
 
-				{success ? (
-					<SuccessPanel result={success} onClose={close} />
-				) : (
-					<div className="flex flex-col gap-4">
-						<ProjectField
-							projects={projects}
-							projectId={projectId}
-							onPick={setProjectId}
-							project={project}
-						/>
+				<div className="flex flex-col gap-4">
+					<ProjectField
+						projects={projects}
+						projectId={projectId}
+						onPick={setProjectId}
+						project={project}
+					/>
 
-						<ArchetypeGrid archetype={archetype} onPick={setArchetypeSlug} />
+					<ArchetypeGrid archetype={archetype} onPick={setArchetypeSlug} />
 
-						<NameField name={name} onChange={setName} />
+					<NameField name={name} onChange={setName} />
 
-						{error && (
-							<div className="rounded border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-								{error}
-							</div>
-						)}
-					</div>
-				)}
+					<FolderField
+						folder={folder}
+						onChange={(v) => {
+							setFolder(v);
+							setFolderEdited(true);
+						}}
+						onPick={pickFolder}
+						projectRoot={project?.root_path ?? null}
+					/>
+
+					{error && (
+						<div className="rounded border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+							{error}
+						</div>
+					)}
+				</div>
 
 				<DialogFooter className="mt-2">
-					{!success && (
-						<>
-							<Button variant="ghost" onClick={close} disabled={submitting}>
-								Cancel
-							</Button>
-							<Button onClick={submit} disabled={submitting || !canSubmit}>
-								{submitting ? 'Starting…' : 'Start'}
-							</Button>
-						</>
-					)}
-					{success && <Button onClick={close}>Done</Button>}
+					<Button variant="ghost" onClick={close} disabled={submitting}>
+						Cancel
+					</Button>
+					<Button onClick={submit} disabled={submitting || !canSubmit}>
+						{submitting ? 'Starting…' : 'Start'}
+					</Button>
 				</DialogFooter>
 			</DialogContent>
 		</Dialog>
@@ -279,50 +318,55 @@ function NameField({ name, onChange }: { name: string; onChange: (v: string) => 
 	);
 }
 
-// ─── Success ─────────────────────────────────────────────────────────────
-
-function SuccessPanel({
-	result,
-	onClose,
+function FolderField({
+	folder,
+	onChange,
+	onPick,
+	projectRoot,
 }: {
-	result: { kickoffPrompt: string };
-	onClose: () => void;
+	folder: string;
+	onChange: (v: string) => void;
+	onPick: () => void;
+	projectRoot: string | null;
 }) {
-	const [copied, setCopied] = useState(false);
-	function copy() {
-		void navigator.clipboard
-			.writeText(result.kickoffPrompt)
-			.then(() => {
-				setCopied(true);
-				setTimeout(() => setCopied(false), 1500);
-			})
-			.catch(() => {});
-	}
+	const outsideProject =
+		!!projectRoot && folder.length > 0 && !folder.startsWith(projectRoot.replace(/\/+$/, ''));
 	return (
-		<div className="flex flex-col gap-3">
-			<div className="rounded border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-800 dark:text-emerald-200">
-				claude spawned in a side-pane terminal. Paste the kickoff prompt below to brief it, then
-				attach the terminal to a Studio loupe when the agent reports a file path.
+		<div className="flex flex-col gap-1.5">
+			<label className="text-xs font-medium" htmlFor="wizard-folder">
+				Folder
+			</label>
+			<div className="flex items-center gap-2">
+				<input
+					id="wizard-folder"
+					className="flex-1 rounded border border-border bg-background px-2 py-1.5 font-mono text-xs"
+					value={folder}
+					onChange={(e) => onChange(e.target.value)}
+					placeholder="/absolute/path"
+				/>
+				<Button variant="outline" size="sm" onClick={onPick}>
+					Browse…
+				</Button>
 			</div>
-			<div className="flex flex-col gap-1">
-				<div className="flex items-center justify-between">
-					<label className="text-xs font-medium">Kickoff prompt</label>
-					<Button size="sm" variant="outline" onClick={copy}>
-						{copied ? 'Copied' : 'Copy'}
-					</Button>
+			<p className="text-[10px] text-muted-foreground">
+				Watched for the agent's first <code>.html</code>. Defaults to the archetype's subdir under
+				the project root.
+			</p>
+			{outsideProject && (
+				<div className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-700 dark:text-amber-300">
+					Folder is outside the project root — the agent won't have project context.
 				</div>
-				<pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded border border-border bg-muted/40 p-2 font-mono text-[11px]">
-					{result.kickoffPrompt}
-				</pre>
-			</div>
-			<div className="flex justify-end">
-				<Button onClick={onClose}>Done</Button>
-			</div>
+			)}
 		</div>
 	);
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────
+
+function joinPath(folder: string, name: string): string {
+	const cleaned = folder.replace(/\/+$/, '');
+	return `${cleaned}/${name}`;
+}
 
 function shortenPath(p: string): string {
 	if (p.length <= 36) return p;

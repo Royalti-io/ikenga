@@ -6,8 +6,9 @@
 // wizard navigates back so the route doesn't dead-end on an empty page.
 //
 // Search params:
-//   ?project=<id>       — pre-select project
-//   ?archetype=<slug>   — pre-select archetype
+//   ?project=<id>        — pre-select project
+//   ?archetype=<slug>    — pre-select archetype
+//   ?folder=<abs path>   — override the watched folder
 
 import { useState } from 'react';
 import { createFileRoute, useNavigate, useSearch } from '@tanstack/react-router';
@@ -17,6 +18,7 @@ import { ArtifactWizard } from '@/shell/artifact-wizard/artifact-wizard';
 interface NewArtifactSearch {
 	project?: string;
 	archetype?: string;
+	folder?: string;
 }
 
 function NewArtifactRoute() {
@@ -40,6 +42,7 @@ function NewArtifactRoute() {
 				prefill={{
 					projectId: search.project ?? null,
 					archetypeSlug: search.archetype ?? null,
+					folder: search.folder ?? null,
 				}}
 			/>
 		</div>
@@ -51,5 +54,6 @@ export const Route = createFileRoute('/projects/new-artifact')({
 	validateSearch: (s: Record<string, unknown>): NewArtifactSearch => ({
 		project: typeof s.project === 'string' ? s.project : undefined,
 		archetype: typeof s.archetype === 'string' ? s.archetype : undefined,
+		folder: typeof s.folder === 'string' ? s.folder : undefined,
 	}),
 });
