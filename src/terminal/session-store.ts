@@ -185,6 +185,15 @@ function debounce<A extends unknown[]>(fn: (...args: A) => void, ms: number): (.
 	};
 }
 
+/** Clear a specific Studio pane's `attachedTerminalId`. Cross-store helper
+ *  used by attach/detach when the previous owner needs to forget the tab.
+ *  Lazy-imports pane-store to dodge a cycle. */
+function clearPaneAttachment(paneId: string): void {
+	void import('@/lib/panes/pane-store').then(({ usePaneStore }) => {
+		usePaneStore.getState().setStudioAttachedTerminal(paneId, null);
+	});
+}
+
 // --- store -----------------------------------------------------------------
 
 let nextSeq = 0;
@@ -286,22 +295,33 @@ export const useTerminalStore = create<TerminalState>((set, get) => {
 					previousPaneId: tab.owner.paneId,
 				};
 			}
+			// Capture the displaced pane (force-reclaim case) before we overwrite
+			// `owner` — its PaneView still references this tab and must be cleared
+			// or the old pane keeps mounting a SingleTerminal in parallel.
+			const displacedPaneId =
+				tab.owner.kind === 'studio' && tab.owner.paneId !== paneId ? tab.owner.paneId : null;
 			set((s) => ({
 				tabs: s.tabs.map((t) =>
 					t.id === tabId ? { ...t, owner: { kind: 'studio', paneId, artifactPath } } : t
 				),
 			}));
 			persistDebounced();
+			if (displacedPaneId) clearPaneAttachment(displacedPaneId);
 			return { ok: true };
 		},
 
 		detachFromStudio: (tabId) => {
+			// Capture the owning pane BEFORE we flip owner so we know which
+			// PaneView's `attachedTerminalId` to clear in the pane store.
+			const owner = get().tabs.find((t) => t.id === tabId)?.owner;
+			const owningPaneId = owner?.kind === 'studio' ? owner.paneId : null;
 			set((s) => ({
 				tabs: s.tabs.map((t) =>
 					t.id === tabId && t.owner.kind === 'studio' ? { ...t, owner: { kind: 'sidepane' } } : t
 				),
 			}));
 			persistDebounced();
+			if (owningPaneId) clearPaneAttachment(owningPaneId);
 		},
 
 		findStudioAttachment: (paneId) => {
