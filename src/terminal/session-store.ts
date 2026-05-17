@@ -14,6 +14,17 @@ import { create } from 'zustand';
 const STORAGE_KEY = 'terminal.tabs';
 const SQL_DB_URL = 'sqlite:pa.sqlite';
 
+/** Who currently owns the xterm renderer for this tab.
+ *
+ * - `sidepane` — default. The side-pane Terminal panel mounts the xterm.
+ * - `studio` — an Artifact Studio loupe pane has taken the xterm; the side
+ *   pane shows a placeholder body and the tab strip entry stays visible
+ *   (so the user can navigate back). The owning Studio pane is keyed by
+ *   `paneId`. `artifactPath` is recorded for the placeholder copy. */
+export type TerminalOwner =
+	| { kind: 'sidepane' }
+	| { kind: 'studio'; paneId: string; artifactPath: string };
+
 export interface TerminalTab {
 	id: string;
 	title: string;
@@ -22,6 +33,7 @@ export interface TerminalTab {
 	status: 'spawning' | 'running' | 'exited' | 'error';
 	exitCode: number | null;
 	createdAt: number;
+	owner: TerminalOwner;
 }
 
 interface TerminalState {
@@ -36,6 +48,22 @@ interface TerminalState {
 	setPtyId: (id: string, ptyId: string | null) => void;
 	setStatus: (id: string, status: TerminalTab['status'], exitCode?: number | null) => void;
 
+	/** Attempt to attach `tabId` to an Artifact Studio pane. If the tab is
+	 *  currently owned by another Studio pane, returns
+	 *  `{ ok: false, requiresConfirm: true, previousPaneId }` so the caller
+	 *  can show the "reclaim from pane X?" prompt. Pass `{ force: true }`
+	 *  to override unconditionally (the user confirmed). */
+	attachToStudio: (
+		tabId: string,
+		paneId: string,
+		artifactPath: string,
+		opts?: { force?: boolean }
+	) => { ok: true } | { ok: false; requiresConfirm: true; previousPaneId: string };
+	/** Restore ownership to the side pane. Idempotent. */
+	detachFromStudio: (tabId: string) => void;
+	/** Return the tab attached to `paneId`, if any. */
+	findStudioAttachment: (paneId: string) => TerminalTab | null;
+
 	rehydrateFromDb: () => Promise<void>;
 	persistToDb: () => Promise<void>;
 }
@@ -49,10 +77,11 @@ interface SerializedTab {
 	status: TerminalTab['status'];
 	exitCode: number | null;
 	createdAt: number;
+	owner?: TerminalOwner;
 }
 
 function serialize(tabs: TerminalTab[]): SerializedTab[] {
-	return tabs.map(({ id, title, spec, status, exitCode, createdAt }) => ({
+	return tabs.map(({ id, title, spec, status, exitCode, createdAt, owner }) => ({
 		id,
 		title,
 		spec,
@@ -60,6 +89,7 @@ function serialize(tabs: TerminalTab[]): SerializedTab[] {
 		status: status === 'running' || status === 'spawning' ? 'exited' : status,
 		exitCode,
 		createdAt,
+		owner,
 	}));
 }
 
@@ -186,6 +216,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => {
 				status: 'spawning',
 				exitCode: null,
 				createdAt: Date.now(),
+				owner: { kind: 'sidepane' },
 			};
 			set((s) => ({ tabs: [...s.tabs, tab], activeId: id }));
 			persistDebounced();
@@ -226,6 +257,40 @@ export const useTerminalStore = create<TerminalState>((set, get) => {
 			persistDebounced();
 		},
 
+		attachToStudio: (tabId, paneId, artifactPath, opts) => {
+			const state = get();
+			const tab = state.tabs.find((t) => t.id === tabId);
+			if (!tab) return { ok: true }; // gone — caller will hit stale-attachment path
+			if (tab.owner.kind === 'studio' && tab.owner.paneId !== paneId && !opts?.force) {
+				return {
+					ok: false,
+					requiresConfirm: true,
+					previousPaneId: tab.owner.paneId,
+				};
+			}
+			set((s) => ({
+				tabs: s.tabs.map((t) =>
+					t.id === tabId ? { ...t, owner: { kind: 'studio', paneId, artifactPath } } : t
+				),
+			}));
+			persistDebounced();
+			return { ok: true };
+		},
+
+		detachFromStudio: (tabId) => {
+			set((s) => ({
+				tabs: s.tabs.map((t) =>
+					t.id === tabId && t.owner.kind === 'studio' ? { ...t, owner: { kind: 'sidepane' } } : t
+				),
+			}));
+			persistDebounced();
+		},
+
+		findStudioAttachment: (paneId) => {
+			const state = get();
+			return state.tabs.find((t) => t.owner.kind === 'studio' && t.owner.paneId === paneId) ?? null;
+		},
+
 		rehydrateFromDb: async () => {
 			try {
 				const persisted = await readPersisted();
@@ -235,6 +300,12 @@ export const useTerminalStore = create<TerminalState>((set, get) => {
 					// Force restored tabs into exited state — their PTYs are gone.
 					status: 'exited',
 					exitCode: p.exitCode,
+					// Force-default ownership to sidepane on rehydrate. Studio
+					// attachments are re-established by the Studio pane on mount
+					// (saved `attachedTerminalId` in PaneView); cross-store
+					// ordering with `loadPaneTree` makes restoring the saved
+					// owner here fragile.
+					owner: { kind: 'sidepane' },
 				}));
 				set({
 					tabs: restored,

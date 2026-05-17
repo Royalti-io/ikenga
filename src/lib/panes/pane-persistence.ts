@@ -92,12 +92,27 @@ export async function loadPaneTree(projectId: string): Promise<PaneTreeSnapshot>
 	const liveTerminalIds = new Set(useTerminalStore.getState().tabs.map((t) => t.id));
 	const ob = useShellStore.getState().onboarding;
 	const dropOnboardingTabs = ob.mode === 'first_run' && ob.completedAt !== null;
-	const cleaned = filterTreeViews(
+	const filtered = filterTreeViews(
 		blob.root,
 		(view) => isViewLive(view, liveTerminalIds) && !isStaleOnboardingTab(view, dropOnboardingTabs)
 	);
 
-	if (!cleaned) return { ...buildDefault(), closedHistory: blob.closedHistory ?? [] };
+	if (!filtered) return { ...buildDefault(), closedHistory: blob.closedHistory ?? [] };
+
+	// Second pass: clear `attachedTerminalId` on any `artifact-studio` view
+	// whose referenced tab is no longer live. The Studio pane will fall
+	// through to the picker on mount instead of showing the stale-attachment
+	// notice — covered by S-2's mount effect.
+	const cleaned = mapTreeViews(filtered, (view) => {
+		if (
+			view.kind === 'artifact-studio' &&
+			view.attachedTerminalId &&
+			!liveTerminalIds.has(view.attachedTerminalId)
+		) {
+			return { ...view, attachedTerminalId: undefined };
+		}
+		return view;
+	});
 
 	const focusedId = findLeaf(cleaned, blob.focusedId)
 		? blob.focusedId
@@ -149,6 +164,16 @@ function equalSizes(n: number): number[] {
 	const sizes = new Array(n).fill(base);
 	sizes[n - 1] = 100 - base * (n - 1);
 	return sizes;
+}
+
+/** Walk every view in the tree, transforming each via `fn`. Useful for
+ *  metadata sweeps that don't drop tabs (e.g. clearing stale terminal
+ *  attachments without removing the Studio tab itself). */
+export function mapTreeViews(node: PaneNode, fn: (v: PaneView) => PaneView): PaneNode {
+	if (node.type === 'leaf') {
+		return { ...node, tabs: node.tabs.map(fn) };
+	}
+	return { ...node, children: node.children.map((c) => mapTreeViews(c, fn)) };
 }
 
 /** Exported for tests. Returns null if the entire tree was filtered out. */

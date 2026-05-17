@@ -26,6 +26,35 @@ describe('getPaneAddress', () => {
 	it('returns null for terminal views', () => {
 		expect(getPaneAddress({ kind: 'terminal', sessionId: 'tty1' })).toBeNull();
 	});
+
+	it('returns the bare path for a loupe with no attachment', () => {
+		expect(getPaneAddress({ kind: 'artifact-studio', path: '/a.html', density: 'loupe' })).toBe(
+			'/a.html'
+		);
+	});
+
+	it('appends ?term=<id> when a terminal is attached to the loupe', () => {
+		expect(
+			getPaneAddress({
+				kind: 'artifact-studio',
+				path: '/a.html',
+				density: 'loupe',
+				attachedTerminalId: 'tab-abc',
+			})
+		).toBe('/a.html?term=tab-abc');
+	});
+
+	it('combines ?vs= and ?term= at compare density', () => {
+		expect(
+			getPaneAddress({
+				kind: 'artifact-studio',
+				path: '/a.html',
+				density: 'compare',
+				vs: '/b.html',
+				attachedTerminalId: 'tab-abc',
+			})
+		).toBe('/a.html?vs=/b.html&term=tab-abc');
+	});
 });
 
 describe('hasAddressBar', () => {
@@ -138,9 +167,9 @@ describe('parsePaneAddress', () => {
 describe('formatPaneAddressForDisplay', () => {
 	it('returns the canonical URI for an artifact whose path is pinned', () => {
 		const map = new Map([['/home/me/cfo.html', 'cfo-daily']]);
-		expect(
-			formatPaneAddressForDisplay({ kind: 'artifact', path: '/home/me/cfo.html' }, map)
-		).toBe('ikenga://artifact/cfo-daily');
+		expect(formatPaneAddressForDisplay({ kind: 'artifact', path: '/home/me/cfo.html' }, map)).toBe(
+			'ikenga://artifact/cfo-daily'
+		);
 	});
 
 	it('returns the file path for an unpinned artifact', () => {
@@ -151,27 +180,21 @@ describe('formatPaneAddressForDisplay', () => {
 	});
 
 	it('returns the file path when no pins exist', () => {
-		expect(
-			formatPaneAddressForDisplay({ kind: 'artifact', path: '/x.html' }, new Map())
-		).toBe('/x.html');
+		expect(formatPaneAddressForDisplay({ kind: 'artifact', path: '/x.html' }, new Map())).toBe(
+			'/x.html'
+		);
 	});
 
 	it('returns the URL for an external artifact (https) when not pinned', () => {
 		expect(
-			formatPaneAddressForDisplay(
-				{ kind: 'artifact', path: 'https://example.com/dash' },
-				new Map()
-			)
+			formatPaneAddressForDisplay({ kind: 'artifact', path: 'https://example.com/dash' }, new Map())
 		).toBe('https://example.com/dash');
 	});
 
 	it('returns the URI when an external URL is itself the pinned target', () => {
 		const map = new Map([['https://example.com/dash', 'example-dash']]);
 		expect(
-			formatPaneAddressForDisplay(
-				{ kind: 'artifact', path: 'https://example.com/dash' },
-				map
-			)
+			formatPaneAddressForDisplay({ kind: 'artifact', path: 'https://example.com/dash' }, map)
 		).toBe('ikenga://artifact/example-dash');
 	});
 
@@ -182,9 +205,7 @@ describe('formatPaneAddressForDisplay', () => {
 	});
 
 	it('returns null for views without a natural address (chat / terminal)', () => {
-		expect(
-			formatPaneAddressForDisplay({ kind: 'chat', sessionId: 'abc' }, new Map())
-		).toBeNull();
+		expect(formatPaneAddressForDisplay({ kind: 'chat', sessionId: 'abc' }, new Map())).toBeNull();
 		expect(
 			formatPaneAddressForDisplay({ kind: 'terminal', sessionId: 'tty1' }, new Map())
 		).toBeNull();

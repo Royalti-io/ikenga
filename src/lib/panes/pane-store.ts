@@ -82,6 +82,11 @@ interface PaneStoreState {
 	/** Replace the active view of a pane and append a history entry. Used
 	 * by the URL bar: typing a new address swaps the leaf's active tab. */
 	replaceActiveViewAndPushHistory: (paneId: PaneId, view: PaneView) => void;
+	/** Set or clear the attached terminal tab id on an `artifact-studio`
+	 *  view. Mutates in place — does NOT push history (attachment is not
+	 *  navigation, see D11). No-op if the active tab isn't an
+	 *  `artifact-studio` view. */
+	setStudioAttachedTerminal: (paneId: PaneId, tabId: string | null) => void;
 	/** Move history index back. Returns the new current view, or null if
 	 * already at the oldest entry. */
 	historyBack: (paneId: PaneId) => PaneView | null;
@@ -117,6 +122,11 @@ function viewsMatch(a: PaneView, b: PaneView): boolean {
 			// Match on path + density + vs so that a density transition (grid ↔
 			// loupe ↔ compare) or swap of the compare sibling pushes a new
 			// history entry rather than collapsing onto the previous one.
+			//
+			// `attachedTerminalId` is intentionally NOT part of the match:
+			// attachment is metadata, not identity. Detach must not push a
+			// history entry; dedup must not split two Studio panes that
+			// happen to point at the same artifact with different terminals.
 			const bb = b as Extract<PaneView, { kind: 'artifact-studio' }>;
 			return a.path === bb.path && a.density === bb.density && (a.vs ?? null) === (bb.vs ?? null);
 		}
@@ -394,6 +404,19 @@ export const usePaneStore = create<PaneStoreState>((set, get) => ({
 		set({
 			history: { ...history, [paneId]: { entries: [view], index: 0 } },
 		});
+	},
+
+	setStudioAttachedTerminal: (paneId, tabId) => {
+		const { root } = get();
+		const leaf = findLeaf(root, paneId);
+		if (!leaf) return;
+		const active = leaf.tabs[leaf.activeTabIdx];
+		if (!active || active.kind !== 'artifact-studio') return;
+		const next: PaneView = tabId
+			? { ...active, attachedTerminalId: tabId }
+			: { ...active, attachedTerminalId: undefined };
+		const nextRoot = replaceActiveTab(root, paneId, next);
+		set({ root: nextRoot });
 	},
 
 	replaceActiveViewAndPushHistory: (paneId, view) => {

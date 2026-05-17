@@ -18,10 +18,16 @@ export function getPaneAddress(view: PaneView): string | null {
 			return view.path || '/';
 		case 'artifact':
 			return view.path;
-		case 'artifact-studio':
+		case 'artifact-studio': {
 			// At compare density the address carries `?vs=<other>` so the
 			// resolver can round-trip back to the same view from a URL bar.
-			return view.density === 'compare' && view.vs ? `${view.path}?vs=${view.vs}` : view.path;
+			// Loupe density carries `?term=<tabId>` when a terminal is
+			// attached so reload + history navigation preserve attachment.
+			const params: string[] = [];
+			if (view.density === 'compare' && view.vs) params.push(`vs=${view.vs}`);
+			if (view.attachedTerminalId) params.push(`term=${view.attachedTerminalId}`);
+			return params.length > 0 ? `${view.path}?${params.join('&')}` : view.path;
+		}
 		case 'chat':
 		case 'terminal':
 		case 'scratchpad':

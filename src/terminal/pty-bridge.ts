@@ -123,6 +123,11 @@ export class Pty {
 			} catch (err) {
 				console.error('[pty] data handler threw on replay', err);
 			}
+			// Drain the buffer so a later subscribe-after-yield doesn't replay
+			// bytes the first subscriber already saw. Between unsubscribe and
+			// re-subscribe (Studio attach window), new bytes go into a fresh
+			// buffer and drain into the late subscriber once it attaches.
+			this.replayBuffer = new Uint8Array(0);
 		}
 		this.dataSubs.add(handler);
 		return () => {

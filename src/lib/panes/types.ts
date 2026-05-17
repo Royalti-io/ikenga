@@ -19,6 +19,11 @@ export type PaneView = (
 			path: string;
 			density: 'grid' | 'loupe' | 'compare';
 			vs?: string;
+			/** Terminal tab id (TerminalTab.id, not ptyId) attached to this
+			 *  Studio pane. The tab id is stable across reloads; the ptyId is
+			 *  looked up from useTerminalStore at mount time. Excluded from
+			 *  `viewsMatch` so attachment is metadata, not identity. */
+			attachedTerminalId?: string;
 	  }
 	| { kind: 'scratchpad'; scope: string; name: string }
 	// ADR-011 phase 2: dedicated viewer for a tool call result. Payload is
