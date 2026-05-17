@@ -36,9 +36,10 @@ use super::claude::{
 use super::comments::{get_pin_read, post_pin_acknowledge, post_pin_resolve};
 use super::handlers::{
     get_dom, get_iframe_state, get_logs, get_network, get_pkg_list, get_query_cache, get_state,
-    post_click, post_close, post_devtools, post_focus, post_go, post_iframe_message, post_key,
-    post_mode, post_open, post_pkg_install, post_pkg_scope_set, post_pkg_uninstall, post_refresh,
-    post_resize, post_screenshot_pane, post_screenshot_window, post_split, post_type, post_wait,
+    get_terminal_read, post_click, post_close, post_devtools, post_focus, post_go,
+    post_iframe_message, post_key, post_mode, post_open, post_pkg_install, post_pkg_scope_set,
+    post_pkg_uninstall, post_refresh, post_resize, post_screenshot_pane, post_screenshot_window,
+    post_split, post_terminal_send, post_type, post_wait,
 };
 use super::layout::{get_layout, post_layout_reset};
 use super::mcp::{get_mcp_list, post_mcp_restart};
@@ -111,6 +112,8 @@ pub async fn serve(
         .route("/iyke/click", post(post_click))
         .route("/iyke/type", post(post_type))
         .route("/iyke/key", post(post_key))
+        .route("/iyke/terminal/send", post(post_terminal_send))
+        .route("/iyke/terminal/read", get(get_terminal_read))
         .route("/iyke/wait", post(post_wait))
         .route("/iyke/devtools", post(post_devtools))
         .route("/iyke/pkg/install", post(post_pkg_install))

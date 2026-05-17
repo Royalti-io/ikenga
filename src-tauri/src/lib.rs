@@ -39,7 +39,7 @@ use commands::{
     fs_exists, fs_kind, fs_list, fs_mime, fs_read, fs_rename, fs_roots_add, fs_roots_list, fs_roots_remove,
     fs_roots_reset, fs_trash, fs_unwatch, fs_watch, fs_write, iyke_dom_done, iyke_dom_query,
     iyke_endpoint, iyke_log_push, iyke_mcp_info, iyke_network_push, iyke_query_cache_done,
-    iyke_set_shell,
+    iyke_set_shell, iyke_terminal_read_done,
     iyke_wait_done, pin_screenshot_write, pkg_content_html, pkg_content_revoke, pkg_content_url, pkg_db_diag,
     pkg_discover_workspace, pkg_install_from_path, pkg_install_from_registry, pkg_kernel_status,
     pkg_mcp_call, pkg_preview_manifest, pkg_screenshot, pkg_set_enabled, pkg_set_scope, pkg_settings_get,
@@ -687,6 +687,7 @@ pub fn run() {
             iyke_dom_query,
             iyke_query_cache_done,
             iyke_wait_done,
+            iyke_terminal_read_done,
             iyke::browser_handlers::iyke_browser_reply,
             // backup / restore
             backup_export,

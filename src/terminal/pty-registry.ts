@@ -1,4 +1,5 @@
 import type { Pty } from './pty-bridge';
+import { detachCapture } from './pty-output-buffer';
 
 // Module-level PTY registry keyed by terminal session id (= terminal-store
 // tab id, also used as pane view sessionId). Lives outside React so PTY
@@ -17,6 +18,7 @@ export function getPty(sessionId: string): Pty | undefined {
 export function disposePty(sessionId: string): void {
 	const pty = registry.get(sessionId);
 	registry.delete(sessionId);
+	detachCapture(sessionId);
 	if (pty) {
 		pty.dispose().catch(() => {});
 	}

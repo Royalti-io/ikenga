@@ -4,6 +4,7 @@ import { XTermHost } from './xterm-host';
 import { Pty } from './pty-bridge';
 import { useTerminalStore } from './session-store';
 import { disposePty, getPty, registerPty } from './pty-registry';
+import { attachCapture } from './pty-output-buffer';
 
 interface SingleTerminalProps {
 	sessionId: string;
@@ -49,6 +50,10 @@ export function SingleTerminal({ sessionId }: SingleTerminalProps) {
 					setStatus(sessionId, 'exited', code);
 				});
 				registerPty(sessionId, p);
+				// Tee PTY bytes into a per-session ring buffer so iyke can read
+				// the visible/scrollback content without screenshotting xterm's
+				// canvas. Lifetime is tied to the PTY via the registry's dispose.
+				attachCapture(sessionId, p);
 				setPty(p);
 				setPtyId(sessionId, p.id);
 				setStatus(sessionId, 'running');

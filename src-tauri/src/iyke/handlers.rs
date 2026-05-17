@@ -45,6 +45,23 @@ pub struct DomResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TerminalReadResult {
+    /// Captured PTY bytes (UTF-8 decoded). When `raw` is false the
+    /// FE strips ANSI/VT escapes first.
+    pub text: String,
+    /// Number of bytes available in the ring buffer for this session
+    /// (may be ≥ `text.len()` if non-UTF-8 bytes were dropped during decode).
+    pub bytes_available: usize,
+    /// Number of bytes returned in `text` *before* ANSI stripping.
+    pub bytes_returned: usize,
+    /// Session id resolved from the pane (FE → registry lookup).
+    pub session_id: Option<String>,
+    /// Set when the requested pane has no terminal tab or no live PTY.
+    /// `text` is empty in that case.
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QueryCacheResult {
     /// Array of { queryKey, status, dataUpdatedAt, errorUpdatedAt, fetchStatus,
     ///            isStale, error?, dataPreview? }.
@@ -489,6 +506,52 @@ pub async fn get_query_cache(
     Ok(Json(result))
 }
 
+// --- terminal-read --------------------------------------------------------
+
+const TERMINAL_READ_TIMEOUT: Duration = Duration::from_secs(5);
+
+#[derive(Deserialize)]
+pub struct TerminalReadQuery {
+    /// Pane id. Defaults to the focused pane on the FE side.
+    #[serde(default)]
+    pub pane: Option<String>,
+    /// Tail size in bytes. None → return the whole buffer (cap is per-session,
+    /// 256 KiB by default). 0 is treated as "all".
+    #[serde(default)]
+    pub bytes: Option<usize>,
+    /// `false` (default) strips ANSI/VT escapes. `true` returns raw bytes
+    /// as a UTF-8 string.
+    #[serde(default)]
+    pub raw: bool,
+}
+
+pub async fn get_terminal_read(
+    Extension(app): Extension<AppHandle>,
+    Extension(rpc): Extension<IykeRpc>,
+    Query(q): Query<TerminalReadQuery>,
+) -> Result<Json<TerminalReadResult>, (StatusCode, String)> {
+    let pane = q.pane.clone();
+    let bytes = q.bytes;
+    let raw = q.raw;
+    let result = rpc::request(
+        &app,
+        &rpc.terminal_read,
+        "iyke://terminal-read-request",
+        TERMINAL_READ_TIMEOUT,
+        |request_id| {
+            serde_json::json!({
+                "request_id": request_id,
+                "pane": pane,
+                "bytes": bytes,
+                "raw": raw,
+            })
+        },
+    )
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")))?;
+    Ok(Json(result))
+}
+
 // --- wait -----------------------------------------------------------------
 
 #[derive(Deserialize)]
@@ -642,6 +705,44 @@ pub async fn post_key(
             "ref": body.r#ref,
             "selector": body.selector,
             "pane": body.pane,
+        }),
+    )?;
+    Ok(ok())
+}
+
+#[derive(Deserialize)]
+pub struct TerminalSendBody {
+    /// Optional leaf id. Defaults to the currently focused pane on the FE
+    /// side. The active tab on the resolved pane must be `kind: 'terminal'`.
+    #[serde(default)]
+    pub pane: Option<String>,
+    /// Raw text to write to the PTY. Written before any keys.
+    #[serde(default)]
+    pub data: Option<String>,
+    /// Key combos to write after `data`. Each combo is translated to its
+    /// terminal escape sequence (Enter → `\r`, Ctrl+C → `\x03`, ArrowUp →
+    /// `\x1b[A`, etc.). Multiple may be specified for chord sequences.
+    #[serde(default)]
+    pub keys: Vec<String>,
+}
+
+pub async fn post_terminal_send(
+    Extension(app): Extension<AppHandle>,
+    JsonBody(body): JsonBody<TerminalSendBody>,
+) -> Result<Json<OkResponse>, (StatusCode, String)> {
+    if body.data.is_none() && body.keys.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "must set at least one of: data, keys".into(),
+        ));
+    }
+    emit(
+        &app,
+        "iyke://terminal-send",
+        serde_json::json!({
+            "pane": body.pane,
+            "data": body.data,
+            "keys": body.keys,
         }),
     )?;
     Ok(ok())

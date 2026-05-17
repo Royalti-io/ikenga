@@ -34,6 +34,10 @@ import {
 	requestIframeDom,
 	requestIframeWait,
 } from './iframe-registry';
+import { usePaneStore } from '@/lib/panes/pane-store';
+import { findLeaf } from '@/lib/panes/pane-reducer';
+import { getPty } from '@/terminal/pty-registry';
+import { readCapture, stripAnsi } from '@/terminal/pty-output-buffer';
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -96,6 +100,27 @@ interface KeyPayload {
 	ref?: string | null;
 	selector?: string | null;
 	pane?: string | null;
+}
+
+interface TerminalSendPayload {
+	pane?: string | null;
+	data?: string | null;
+	keys?: string[] | null;
+}
+
+interface TerminalReadPayload {
+	request_id: string;
+	pane?: string | null;
+	bytes?: number | null;
+	raw?: boolean | null;
+}
+
+interface TerminalReadResult {
+	text: string;
+	bytes_available: number;
+	bytes_returned: number;
+	session_id: string | null;
+	error: string | null;
 }
 
 // ── Instrumentation (module side-effects) ────────────────────────────────
@@ -643,6 +668,159 @@ function parseCombo(combo: string): {
 	return { key, ctrl, alt, shift, meta };
 }
 
+// Map a key combo (e.g. "Enter", "Ctrl+C", "Up") to the terminal escape
+// bytes xterm.js expects. Returns null if the combo isn't recognised.
+function comboToTerminalBytes(combo: string): string | null {
+	const parsed = parseCombo(combo);
+	const key = parsed.key;
+	// Ctrl+<letter|@|[|\|]|^|_> → C0 control byte (Ctrl+C=\x03, Ctrl+D=\x04, …).
+	if (parsed.ctrl && !parsed.alt && !parsed.meta && key.length === 1) {
+		const code = key.toUpperCase().charCodeAt(0);
+		if (code >= 64 && code <= 95) return String.fromCharCode(code - 64);
+		if (code >= 97 && code <= 122) return String.fromCharCode(code - 96);
+	}
+	const ESC = '\x1b';
+	const altPrefix = parsed.alt ? ESC : '';
+	switch (key) {
+		case 'Enter':
+			return altPrefix + '\r';
+		case 'Tab':
+			return altPrefix + '\t';
+		case 'Escape':
+			return altPrefix + ESC;
+		case 'Backspace':
+			return altPrefix + '\x7f';
+		case ' ':
+			return altPrefix + ' ';
+		case 'ArrowUp':
+			return ESC + '[A';
+		case 'ArrowDown':
+			return ESC + '[B';
+		case 'ArrowRight':
+			return ESC + '[C';
+		case 'ArrowLeft':
+			return ESC + '[D';
+		case 'Home':
+			return ESC + '[H';
+		case 'End':
+			return ESC + '[F';
+		case 'Delete':
+			return ESC + '[3~';
+		case 'PageUp':
+			return ESC + '[5~';
+		case 'PageDown':
+			return ESC + '[6~';
+	}
+	const fnMatch = /^F([1-9]|1[0-2])$/i.exec(key);
+	if (fnMatch) {
+		const n = Number(fnMatch[1]);
+		// xterm: F1-F4 → SS3 (\x1bO[PQRS]); F5-F12 → CSI [n~]
+		const ss3 = ['P', 'Q', 'R', 'S'];
+		if (n <= 4) return ESC + 'O' + ss3[n - 1];
+		const csi = [15, 17, 18, 19, 20, 21, 23, 24]; // F5..F12
+		return ESC + '[' + csi[n - 5] + '~';
+	}
+	if (key.length === 1 && !parsed.ctrl && !parsed.meta) {
+		// Plain printable, optionally Alt-prefixed.
+		return altPrefix + key;
+	}
+	return null;
+}
+
+function resolveTerminalSessionId(paneId: string | null | undefined): string | null {
+	const state = usePaneStore.getState();
+	const leafId = paneId && paneId !== 'shell' ? paneId : state.focusedId;
+	const leaf = findLeaf(state.root, leafId);
+	if (!leaf || leaf.type !== 'leaf') return null;
+	const active = leaf.tabs[leaf.activeTabIdx];
+	if (!active || active.kind !== 'terminal') return null;
+	return active.sessionId;
+}
+
+async function handleTerminalReadRequest(payload: TerminalReadPayload) {
+	const actId = useIykeActivity.getState().begin({
+		kind: 'dom',
+		scope: payload.pane ?? 'focused',
+		detail: 'terminal-read',
+	});
+	const replyOk = (result: TerminalReadResult) =>
+		invoke('iyke_terminal_read_done', {
+			requestId: payload.request_id,
+			result,
+		}).catch(() => {});
+	try {
+		const sessionId = resolveTerminalSessionId(payload.pane ?? null);
+		if (!sessionId) {
+			await replyOk({
+				text: '',
+				bytes_available: 0,
+				bytes_returned: 0,
+				session_id: null,
+				error: 'pane has no active terminal tab',
+			});
+			return;
+		}
+		const buf = readCapture(sessionId);
+		if (buf === null) {
+			await replyOk({
+				text: '',
+				bytes_available: 0,
+				bytes_returned: 0,
+				session_id: sessionId,
+				error: 'no capture buffer for session (pty not registered or detached)',
+			});
+			return;
+		}
+		const tailBytes = payload.bytes && payload.bytes > 0 ? payload.bytes : buf.length;
+		const slice = tailBytes >= buf.length ? buf : buf.subarray(buf.length - tailBytes);
+		const decoded = new TextDecoder('utf-8', { fatal: false }).decode(slice);
+		const text = payload.raw ? decoded : stripAnsi(decoded);
+		await replyOk({
+			text,
+			bytes_available: buf.length,
+			bytes_returned: slice.length,
+			session_id: sessionId,
+			error: null,
+		});
+	} finally {
+		useIykeActivity.getState().end(actId);
+	}
+}
+
+async function handleTerminalSend(payload: TerminalSendPayload) {
+	const sessionId = resolveTerminalSessionId(payload.pane ?? null);
+	const actId = useIykeActivity.getState().begin({
+		kind: 'type',
+		scope: payload.pane ?? 'focused',
+		detail: 'terminal-send',
+	});
+	try {
+		if (!sessionId) {
+			console.warn('[iyke] terminal-send: pane has no active terminal tab', payload.pane);
+			return;
+		}
+		const pty = getPty(sessionId);
+		if (!pty) {
+			console.warn('[iyke] terminal-send: pty not registered for session', sessionId);
+			return;
+		}
+		let buf = '';
+		if (payload.data) buf += payload.data;
+		for (const combo of payload.keys ?? []) {
+			const bytes = comboToTerminalBytes(combo);
+			if (bytes === null) {
+				console.warn('[iyke] terminal-send: unknown key combo', combo);
+				continue;
+			}
+			buf += bytes;
+		}
+		if (buf.length === 0) return;
+		await pty.write(buf);
+	} finally {
+		useIykeActivity.getState().end(actId);
+	}
+}
+
 function handleKey(payload: KeyPayload) {
 	if (isIframePane(payload.pane)) {
 		const id = useIykeActivity.getState().begin({
@@ -736,6 +914,16 @@ export function useIykeBridge(): void {
 		track(listen<ClickPayload>('iyke://click', (e) => handleClick(e.payload)));
 		track(listen<TypePayload>('iyke://type', (e) => handleType(e.payload)));
 		track(listen<KeyPayload>('iyke://key', (e) => handleKey(e.payload)));
+		track(
+			listen<TerminalSendPayload>('iyke://terminal-send', (e) => {
+				void handleTerminalSend(e.payload);
+			})
+		);
+		track(
+			listen<TerminalReadPayload>('iyke://terminal-read-request', (e) => {
+				void handleTerminalReadRequest(e.payload);
+			})
+		);
 
 		return () => {
 			cancelled = true;

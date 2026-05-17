@@ -70,7 +70,8 @@ pub use fs::{
 pub use fs_roots::{fs_roots_add, fs_roots_list, fs_roots_remove, fs_roots_reset};
 pub use iyke::{
     iyke_dom_done, iyke_dom_query, iyke_endpoint, iyke_log_push, iyke_network_push,
-    iyke_query_cache_done, iyke_set_shell, iyke_wait_done, IykeRuntimeState,
+    iyke_query_cache_done, iyke_set_shell, iyke_terminal_read_done, iyke_wait_done,
+    IykeRuntimeState,
 };
 pub use pkg::{
     pkg_db_diag, pkg_discover_workspace, pkg_install_from_path, pkg_install_from_registry,

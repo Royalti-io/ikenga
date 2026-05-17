@@ -50,6 +50,7 @@ pub struct IykeRpc {
     pub dom: Pending<handlers::DomResult>,
     pub query_cache: Pending<handlers::QueryCacheResult>,
     pub wait: Pending<handlers::WaitResult>,
+    pub terminal_read: Pending<handlers::TerminalReadResult>,
 }
 
 impl IykeRpc {
@@ -58,6 +59,7 @@ impl IykeRpc {
             dom: new_pending(),
             query_cache: new_pending(),
             wait: new_pending(),
+            terminal_read: new_pending(),
         }
     }
 }
