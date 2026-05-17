@@ -535,16 +535,28 @@ function StudioChrome({
 	);
 }
 
-interface ChromeButtonProps {
+type ChromeButtonProps = {
 	onClick: () => void;
 	active?: boolean;
 	disabled?: boolean;
 	title?: string;
 	'aria-label': string;
 	children: React.ReactNode;
-}
+} & {
+	// Allow arbitrary data-* attributes so callers (e.g., the sink-popover
+	// anchor) can mark the underlying <button> for later DOM lookup. Typed
+	// loosely because TypeScript can't express "any key prefixed with
+	// data-" cleanly.
+	[k: `data-${string}`]: string | boolean | undefined;
+};
 
 function ChromeButton({ onClick, active, disabled, title, children, ...rest }: ChromeButtonProps) {
+	// Forward any data-* attributes onto the <button> so they end up in the
+	// DOM. Excludes aria-label which we render explicitly below.
+	const dataAttrs: Record<string, string | boolean> = {};
+	for (const [k, v] of Object.entries(rest)) {
+		if (k.startsWith('data-') && v !== undefined) dataAttrs[k] = v;
+	}
 	return (
 		<button
 			type="button"
@@ -553,6 +565,7 @@ function ChromeButton({ onClick, active, disabled, title, children, ...rest }: C
 			title={title}
 			aria-label={rest['aria-label']}
 			aria-pressed={active}
+			{...dataAttrs}
 			className={cn(
 				'flex h-6 w-6 items-center justify-center rounded transition-colors',
 				active
