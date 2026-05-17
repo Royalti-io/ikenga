@@ -4,13 +4,16 @@
 // snapshot. The pkg-aware sidebar is rendered alongside this list inside
 // AppMode so users can launch installed pkgs without needing a custom
 // per-pkg rail icon.
+//
+// Packages-related nav (catalog, updates, trust, store) lives in the
+// dedicated Packages mode (activity-bar ⌘4 → PkgsMode); it isn't a
+// concern of the main App mode anymore.
 
 import {
 	Bot,
 	CheckSquare,
 	FileText,
 	Home,
-	Package,
 	Terminal as TerminalIcon,
 } from 'lucide-react';
 
@@ -39,9 +42,5 @@ export const NAV_GROUPS: NavGroup[] = [
 			{ to: '/scratchpads', label: 'Scratchpads', Icon: FileText },
 			{ to: '/todos', label: 'Todos', Icon: CheckSquare },
 		],
-	},
-	{
-		label: 'Packages',
-		items: [{ to: '/packages', label: 'Packages', Icon: Package }],
 	},
 ];

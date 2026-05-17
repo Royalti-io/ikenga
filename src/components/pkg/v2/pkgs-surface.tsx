@@ -4,7 +4,7 @@
 // Designed so it can be dropped into /packages (Phase 3) or rendered in
 // isolation from a smoke route (Phase 1).
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import type { PkgRowV2 } from '@/lib/pkgs/use-derived';
 import { usePkgsDerived } from '@/lib/pkgs/use-derived';
@@ -18,7 +18,12 @@ import { PkgsFilterBar, type FilterKey } from './pkgs-filter-bar';
 import { PkgsTitlebar } from './pkgs-titlebar';
 import { PkgsTrustBanner } from './pkgs-trust-banner';
 
-export function PkgsSurface() {
+export interface PkgsSurfaceProps {
+	/** Initial filter pill seeded from the URL (?filter=) or sidebar click. */
+	initialFilter?: FilterKey;
+}
+
+export function PkgsSurface({ initialFilter = 'all' }: PkgsSurfaceProps = {}) {
 	const d = usePkgsDerived();
 	const navigate = useNavigate();
 	// Lightweight shell-update read — autoPoll: false here because the workspace
@@ -33,7 +38,12 @@ export function PkgsSurface() {
 			}
 		: null;
 
-	const [filter, setFilter] = useState<FilterKey>('all');
+	const [filter, setFilter] = useState<FilterKey>(initialFilter);
+	// Re-sync if the parent route flips the search param after mount (sidebar
+	// click while already on /packages).
+	useEffect(() => {
+		setFilter(initialFilter);
+	}, [initialFilter]);
 	const [query, setQuery] = useState('');
 	const [loupePkg, setLoupePkg] = useState<PkgRowV2 | null>(null);
 	const [loupeTab, setLoupeTab] = useState<LoupeTab>('overview');

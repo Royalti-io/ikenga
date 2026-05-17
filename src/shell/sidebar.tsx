@@ -1,6 +1,7 @@
 import { useShellStore } from '@/lib/shell/shell-store';
 import { AppMode } from './sidebar-modes/app-mode';
 import { FilesMode } from './sidebar-modes/files-mode';
+import { PkgsMode } from './sidebar-modes/pkgs-mode';
 import { SessionsMode } from './sidebar-modes/sessions-mode';
 import { SettingsMode } from './sidebar-modes/settings-mode';
 
@@ -33,11 +34,7 @@ export function Sidebar() {
 			break;
 		case 'pkgs':
 			title = CORE_TITLES.pkgs;
-			// Reuse AppMode for now — it already lists installed pkgs as a nav
-			// section. A pkgs-specific sidebar (recent installs, "updates
-			// available" group, registry status) can land later without
-			// touching the activity-bar wiring.
-			body = <AppMode />;
+			body = <PkgsMode />;
 			break;
 		case 'settings':
 			title = CORE_TITLES.settings;
