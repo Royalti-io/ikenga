@@ -16,6 +16,35 @@ export interface RecentGridFolder {
 	openedAtMs: number;
 }
 
+// ─── Reactive subscription ───────────────────────────────────────────────
+//
+// The recents list is small (≤8 entries) and read by both the activity-bar
+// quick-launcher popover and the artifact-grid sidebar mode. Surfaces that
+// mount continuously need to see writes that happen elsewhere (e.g. the
+// popover dropping an entry while the sidebar is open). A 10-line
+// subscriber set is enough — no need to lift the data into Zustand /
+// TanStack Query.
+
+type RecentsListener = (next: RecentGridFolder[]) => void;
+const listeners = new Set<RecentsListener>();
+
+export function subscribeRecents(fn: RecentsListener): () => void {
+	listeners.add(fn);
+	return () => {
+		listeners.delete(fn);
+	};
+}
+
+function fire(next: RecentGridFolder[]): void {
+	for (const fn of listeners) {
+		try {
+			fn(next);
+		} catch (e) {
+			console.error('[artifact-grid-recents] listener threw', e);
+		}
+	}
+}
+
 function parse(raw: string | null): RecentGridFolder[] {
 	if (!raw) return [];
 	try {
@@ -48,6 +77,7 @@ export async function recordOpen(path: string): Promise<RecentGridFolder[]> {
 	const filtered = cur.filter((r) => r.path !== path);
 	const next: RecentGridFolder[] = [{ path, openedAtMs: Date.now() }, ...filtered].slice(0, CAP);
 	await settingsSet(KEY, JSON.stringify(next));
+	fire(next);
 	return next;
 }
 
@@ -55,6 +85,7 @@ export async function removeRecent(path: string): Promise<RecentGridFolder[]> {
 	const cur = await loadRecents();
 	const next = cur.filter((r) => r.path !== path);
 	await settingsSet(KEY, JSON.stringify(next));
+	fire(next);
 	return next;
 }
 

@@ -1,261 +1,225 @@
-// Artifact-grid sidebar. Activated by the activity-bar Artifact-grid icon (⌘5).
-// Plan: plans/shell/2026-05-17-projects-and-artifact-wizard.md §B1.
+// Artifact-grid sidebar.
 //
-// Mirrors `pkgs-mode.tsx` structure: catalog / attention / tools / project
-// sections, each a list of routes (+ optional `filter` query param) that
-// `navigateFocused()` jumps to. Counts come from `artifactGridCatalogQueryOptions`
-// scoped to the active project; slots without a real data source today
-// stay `undefined` and the badge stays hidden (see TODOs).
+// Activated by the activity-bar Artifact-grid icon (⌘5). Body shows the
+// recently-opened folders the user has been working in — same data as the
+// activity-bar quick-launcher popover — plus a tools row for creating a new
+// artifact or browsing to a fresh folder. The earlier draft of this mode
+// had a catalog/attention/tools/project skeleton driven by counts that
+// don't exist yet (no project-wide artifact walker) — replaced with
+// something that does its one job today and can grow later.
 
-import {
-	ArrowDownToLine,
-	CheckCircle2,
-	FileText,
-	Folder,
-	FolderCog,
-	Globe,
-	Image,
-	LayoutGrid,
-	LayoutTemplate,
-	Layers,
-	Link2,
-	MessageSquare,
-	Plus,
-	Presentation,
-	Settings2,
-	Sparkles,
-	Star,
-	type LucideIcon,
-} from 'lucide-react';
-
-import { useQuery } from '@tanstack/react-query';
-import { useShallow } from 'zustand/react/shallow';
+import { useEffect, useState } from 'react';
+import { Folder, FolderOpen, Plus, Trash2 } from 'lucide-react';
+import { open as openDialog } from '@tauri-apps/plugin-dialog';
 
 import { cn } from '@/components/ui/utils';
-import { findLeaf } from '@/lib/panes/pane-reducer';
 import { usePaneStore } from '@/lib/panes/pane-store';
-import { artifactGridCatalogQueryOptions } from '@/lib/queries/artifact-grid';
+import {
+	type RecentGridFolder,
+	loadRecents,
+	openArtifactGrid,
+	removeRecent,
+	subscribeRecents,
+} from '@/lib/shell/artifact-grid-recents';
 import { useShellStore } from '@/lib/shell/shell-store';
-
-// Filter keys that travel through `/artifacts?filter=…`. Mirrored by the
-// `validateSearch` enum in `routes/artifacts/route.tsx` — keep in sync.
-type FilterKey =
-	| 'all'
-	| 'recent'
-	| 'starred'
-	| 'type:dashboard'
-	| 'type:one-pager'
-	| 'type:slides'
-	| 'type:social'
-	| 'type:site'
-	| 'type:scrollytelling'
-	| 'drafts'
-	| 'open-pins';
-
-interface NavItem {
-	to: string;
-	filter?: FilterKey;
-	label: string;
-	Icon: LucideIcon;
-	count?: number;
-	tone?: 'attention' | 'warn';
-	/** When true, item is greyed out / disabled (still rendered for shape). */
-	disabled?: boolean;
-}
-
-interface NavSection {
-	label: string;
-	items: NavItem[];
-}
 
 export function ArtifactGridMode() {
 	const navigateFocused = usePaneStore((s) => s.navigateFocused);
-	const { activeProjectId, projects } = useShellStore(
-		useShallow((s) => ({
-			activeProjectId: s.activeProjectId,
-			projects: s.projects,
-		}))
-	);
-	const activeProject = projects.find((p) => p.id === activeProjectId);
-	const projectRoot = activeProject?.root_path ?? null;
-
-	const catalogQuery = useQuery(artifactGridCatalogQueryOptions(activeProjectId, projectRoot));
-	const openPinsCount = catalogQuery.data?.openPins;
-	const resolvedWeekCount = catalogQuery.data?.resolvedThisWeek;
-
-	// Track both pane path and `?filter=` so the active item highlights
-	// correctly when deep-linked. `useShallow` matches the PkgsMode
-	// boot-loop guard (fresh object every selector call would otherwise
-	// trip useSyncExternalStore under Zustand v5 + React 19).
-	const active = usePaneStore(
-		useShallow((s) => {
-			const leaf = findLeaf(s.root, s.focusedId);
-			if (!leaf) return { path: null as string | null, filter: null as string | null };
-			const tab = leaf.tabs[leaf.activeTabIdx];
-			if (!tab || tab.kind !== 'route') return { path: null, filter: null };
-			const url = tab.path;
-			const [path, qs] = url.split('?');
-			const search = new URLSearchParams(qs ?? '');
-			return { path, filter: search.get('filter') };
-		})
+	const activeProject = useShellStore(
+		(s) => s.projects.find((p) => p.id === s.activeProjectId) ?? null
 	);
 
-	// TODO(phase-B+): wire `All / Recent / Starred / By type / Drafts`
-	//   counts. Today there's no project-scoped artifact enumeration
-	//   command — a recursive walk over `<root>` for `*.html` files +
-	//   per-file manifest parsing has to land before these badges can
-	//   be populated. Keep them `undefined` so the badge stays hidden.
-	const NAV: NavSection[] = [
-		{
-			label: 'Catalog',
-			items: [
-				{ to: '/artifacts', filter: 'all', label: 'All artifacts', Icon: LayoutGrid },
-				{ to: '/artifacts', filter: 'recent', label: 'Recent', Icon: Sparkles },
-				{ to: '/artifacts', filter: 'starred', label: 'Starred', Icon: Star },
-				{
-					to: '/artifacts',
-					filter: 'type:dashboard',
-					label: 'Dashboards',
-					Icon: LayoutTemplate,
-				},
-				{ to: '/artifacts', filter: 'type:one-pager', label: 'One-pagers', Icon: FileText },
-				{ to: '/artifacts', filter: 'type:slides', label: 'Slides', Icon: Presentation },
-				{ to: '/artifacts', filter: 'type:social', label: 'Social', Icon: Image },
-				{ to: '/artifacts', filter: 'type:site', label: 'Sites', Icon: Globe },
-				{
-					to: '/artifacts',
-					filter: 'type:scrollytelling',
-					label: 'Scrollytelling',
-					Icon: Layers,
-				},
-			],
-		},
-		{
-			label: 'Attention',
-			items: [
-				// TODO(phase-B+): "Drafts" heuristic — artifact whose manifest
-				//   has no `version` or starts with `0.`. Requires the catalog
-				//   walk above; leave count undefined for now.
-				{ to: '/artifacts', filter: 'drafts', label: 'Drafts', Icon: FileText },
-				{
-					to: '/artifacts',
-					filter: 'open-pins',
-					label: 'Open pins',
-					Icon: MessageSquare,
-					count: openPinsCount,
-					tone: openPinsCount && openPinsCount > 0 ? 'attention' : undefined,
-				},
-				{
-					to: '/artifacts',
-					filter: 'open-pins',
-					label: 'Resolved this week',
-					Icon: CheckCircle2,
-					count: resolvedWeekCount,
-				},
-			],
-		},
-		{
-			label: 'Tools',
-			items: [
-				// Owned by Phase C (`/projects/new-artifact`). Until that lands
-				// this link 404s — intentional, the user sees the in-flight
-				// surface as soon as it ships without sidebar churn.
-				{ to: '/projects/new-artifact', label: '+ New artifact', Icon: Plus },
-				{
-					to: '/artifacts',
-					label: 'Import from URL',
-					Icon: ArrowDownToLine,
-					disabled: true,
-				},
-				{
-					to: '/packages',
-					label: 'Browse registry',
-					Icon: Link2,
-					disabled: true,
-				},
-			],
-		},
-		{
-			label: 'Project',
-			items: [
-				{
-					to: '/settings/projects',
-					label: activeProject
-						? `Switch project · ${activeProject.display_name}`
-						: 'Switch project',
-					Icon: Folder,
-				},
-				{ to: '/settings/projects', label: 'Project settings', Icon: FolderCog },
-				{ to: '/settings/artifact-grid', label: 'Grid settings', Icon: Settings2 },
-			],
-		},
-	];
+	const [recents, setRecents] = useState<RecentGridFolder[]>([]);
+	const [hydrated, setHydrated] = useState(false);
 
-	function isActive(item: NavItem): boolean {
-		if (item.to !== active.path) return false;
-		// `/artifacts` defaults to filter=all when the URL is bare.
-		if (item.to === '/artifacts' && item.filter) {
-			const cur = active.filter ?? 'all';
-			return cur === item.filter;
-		}
-		return true;
+	// Initial load + live subscription so the list refreshes when the
+	// activity-bar popover (or any other surface) drops or re-orders an
+	// entry while this mode is mounted.
+	useEffect(() => {
+		let cancelled = false;
+		void loadRecents().then((next) => {
+			if (!cancelled) {
+				setRecents(next);
+				setHydrated(true);
+			}
+		});
+		const unsub = subscribeRecents(setRecents);
+		return () => {
+			cancelled = true;
+			unsub();
+		};
+	}, []);
+
+	async function open(path: string) {
+		await openArtifactGrid(path);
 	}
 
-	function go(item: NavItem) {
-		if (item.disabled) return;
-		if (item.to === '/artifacts' && item.filter && item.filter !== 'all') {
-			navigateFocused(`${item.to}?filter=${item.filter}`);
-		} else {
-			navigateFocused(item.to);
+	async function drop(path: string) {
+		await removeRecent(path);
+	}
+
+	async function browse() {
+		try {
+			const picked = await openDialog({ directory: true, multiple: false });
+			if (typeof picked === 'string' && picked.length > 0) {
+				await openArtifactGrid(picked);
+			}
+		} catch (e) {
+			console.error('[artifact-grid] folder-picker failed', e);
 		}
+	}
+
+	function openWizard() {
+		navigateFocused('/projects/new-artifact');
+	}
+
+	function openProjectSettings() {
+		navigateFocused('/settings/projects');
 	}
 
 	return (
-		<div className="h-full overflow-y-auto py-2">
-			{NAV.map((sec) => (
-				<div key={sec.label} className="mb-3">
-					<div className="px-4 pb-1 pt-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
-						{sec.label}
-					</div>
-					<ul className="flex flex-col">
-						{sec.items.map((item) => {
-							const isCurrent = isActive(item);
-							return (
-								<li key={`${item.to}-${item.filter ?? ''}-${item.label}`}>
-									<button
-										type="button"
-										onClick={() => go(item)}
-										disabled={item.disabled}
-										className={cn(
-											'flex w-full items-center gap-3 px-4 py-1.5 text-left text-sm transition-colors',
-											'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
-											isCurrent && 'bg-accent text-accent-foreground font-medium',
-											item.disabled && 'cursor-not-allowed opacity-50 hover:bg-transparent'
-										)}
-									>
-										<item.Icon className="h-4 w-4 shrink-0" />
-										<span className="flex-1 truncate">{item.label}</span>
-										{typeof item.count === 'number' && item.count > 0 && (
-											<span
-												className={cn(
-													'rounded-sm border px-1.5 py-px font-mono text-[10px]',
-													item.tone === 'attention'
-														? 'border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400'
-														: item.tone === 'warn'
-															? 'border-red-500/40 bg-red-500/10 text-red-500'
-															: 'border-border bg-background text-muted-foreground'
-												)}
-											>
-												{item.count}
-											</span>
-										)}
-									</button>
-								</li>
-							);
-						})}
-					</ul>
+		<div className="flex h-full flex-col">
+			{/* Project chip — clickable header anchored to the active project. */}
+			<button
+				type="button"
+				onClick={openProjectSettings}
+				className="flex items-center gap-2 border-b border-border px-4 py-2 text-left text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+				title={activeProject?.root_path ?? 'No active project'}
+			>
+				<span
+					aria-hidden
+					className="inline-block h-2.5 w-2.5 shrink-0 rounded-full border border-border"
+					style={{ background: activeProject?.color ?? '#7c7c7c' }}
+				/>
+				<span className="flex-1 truncate font-medium text-foreground">
+					{activeProject?.display_name ?? 'No project'}
+				</span>
+				{activeProject?.root_path && (
+					<span className="truncate font-mono text-[10px] opacity-70">
+						{shortRoot(activeProject.root_path)}
+					</span>
+				)}
+			</button>
+
+			{/* Recents — full-height body. */}
+			<div className="flex-1 min-h-0 overflow-y-auto">
+				<div className="px-4 pb-1 pt-3 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
+					Recent
 				</div>
-			))}
+				{!hydrated ? (
+					<div className="px-4 py-2 text-xs italic text-muted-foreground">Loading…</div>
+				) : recents.length === 0 ? (
+					<div className="px-4 py-3 text-xs italic text-muted-foreground">
+						No recent folders. Use{' '}
+						<button
+							type="button"
+							onClick={() => void browse()}
+							className="underline hover:text-foreground"
+						>
+							Browse folder…
+						</button>{' '}
+						to pick one.
+					</div>
+				) : (
+					<ul className="flex flex-col">
+						{recents.map((r) => (
+							<RecentRow
+								key={r.path}
+								recent={r}
+								onOpen={() => void open(r.path)}
+								onDrop={() => void drop(r.path)}
+							/>
+						))}
+					</ul>
+				)}
+			</div>
+
+			{/* Tools row — pinned to the bottom of the sidebar. */}
+			<div className="border-t border-border">
+				<button
+					type="button"
+					onClick={openWizard}
+					className={cn(
+						'flex w-full items-center gap-3 px-4 py-2 text-left text-sm',
+						'text-foreground transition-colors hover:bg-accent hover:text-accent-foreground'
+					)}
+				>
+					<Plus className="h-4 w-4 shrink-0" />
+					<span className="flex-1">New artifact</span>
+					<span className="font-mono text-[10px] text-muted-foreground">⌘⇧N</span>
+				</button>
+				<button
+					type="button"
+					onClick={() => void browse()}
+					className={cn(
+						'flex w-full items-center gap-3 px-4 py-2 text-left text-sm',
+						'text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground'
+					)}
+				>
+					<FolderOpen className="h-4 w-4 shrink-0" />
+					<span className="flex-1">Browse folder…</span>
+				</button>
+			</div>
 		</div>
 	);
+}
+
+function RecentRow({
+	recent,
+	onOpen,
+	onDrop,
+}: {
+	recent: RecentGridFolder;
+	onOpen: () => void;
+	onDrop: () => void;
+}) {
+	const name = recent.path.replace(/\/+$/, '').replace(/^.+\//, '') || recent.path;
+	return (
+		<li className="group/recent flex items-center">
+			<button
+				type="button"
+				onClick={onOpen}
+				className="flex flex-1 min-w-0 items-center gap-2 px-4 py-1.5 text-left text-sm text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+				title={recent.path}
+			>
+				<Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
+				<span className="flex-1 min-w-0 truncate">{name}</span>
+				<span className="shrink-0 font-mono text-[10px] text-muted-foreground/70">
+					{relativeOpenedAt(recent.openedAtMs)}
+				</span>
+			</button>
+			<button
+				type="button"
+				onClick={onDrop}
+				title="Remove from recents"
+				aria-label="Remove from recents"
+				className="invisible mr-2 rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground group-hover/recent:visible"
+			>
+				<Trash2 className="h-3 w-3" />
+			</button>
+		</li>
+	);
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────
+
+function relativeOpenedAt(ms: number): string {
+	const delta = Date.now() - ms;
+	const min = Math.round(delta / 60_000);
+	if (min < 1) return 'now';
+	if (min < 60) return `${min}m`;
+	const hr = Math.round(min / 60);
+	if (hr < 24) return `${hr}h`;
+	const day = Math.round(hr / 24);
+	if (day < 7) return `${day}d`;
+	const wk = Math.round(day / 7);
+	if (wk < 5) return `${wk}w`;
+	const mo = Math.round(day / 30);
+	return `${mo}mo`;
+}
+
+function shortRoot(root: string): string {
+	const home = root.match(/^\/home\/[^/]+/)?.[0];
+	if (home && root.startsWith(home)) return `~${root.slice(home.length)}`;
+	return root;
 }
