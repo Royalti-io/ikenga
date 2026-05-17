@@ -46,8 +46,13 @@ export function attachElementPicker(
 	}
 
 	const handler = (ev: MouseEvent) => {
-		const el = ev.target as Element | null;
-		if (!el || !(el instanceof Element)) return;
+		// Cross-frame `instanceof Element` (iframe.contentWindow.Element !==
+		// window.Element) returns false for elements that live inside the
+		// iframe's document, so duck-type on `nodeType === 1` instead — same
+		// fix as `studio-comment-mode.tsx`.
+		const t = ev.target as { nodeType?: number } | null;
+		if (!t || t.nodeType !== 1) return;
+		const el = ev.target as Element;
 		// Don't intercept on the bare <html>/<body> — that's almost never
 		// what the user means by "pin this element".
 		if (el === doc.documentElement || el === doc.body) return;
