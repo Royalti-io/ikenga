@@ -5,7 +5,7 @@ import type { LeafNode, PaneView } from '@/lib/panes/types';
 import { usePaneStore } from '@/lib/panes/pane-store';
 import { createTerminalSession } from '@/terminal/single-terminal';
 import { mintThreadId } from '@/chat';
-import { defaultCwd } from '@/lib/shell/default-cwd';
+import { activeProjectCwd } from '@/lib/shell/active-project-cwd';
 import { sessionEnsure } from '@/lib/tauri-cmd';
 import { NAV_GROUPS } from '@/shell/nav-config';
 
@@ -92,7 +92,7 @@ export function NewTabMenu({ leaf, open, onClose, anchor }: NewTabMenuProps) {
 						<MenuItem
 							onSelect={() => {
 								const threadId = mintThreadId();
-								void sessionEnsure(threadId, defaultCwd(), {}).catch((e) =>
+								void sessionEnsure(threadId, activeProjectCwd(), {}).catch((e) =>
 									console.warn('sessionEnsure (new-tab):', e)
 								);
 								commit({ kind: 'chat', sessionId: threadId });

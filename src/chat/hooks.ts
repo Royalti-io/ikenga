@@ -9,7 +9,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { defaultCwd } from '@/lib/shell/default-cwd';
+import { activeProjectCwd } from '@/lib/shell/active-project-cwd';
 import { useShellStore } from '@/lib/shell/shell-store';
 import { claudeReadJsonl, type ChatEvent } from '@/lib/tauri-cmd';
 import {
@@ -195,7 +195,7 @@ export function useThread(threadId: string | null): {
 					const adapter = getAdapter(thread.adapterId);
 					await adapter.attach?.(
 						threadId,
-						thread.cwd || defaultCwd(),
+						thread.cwd || activeProjectCwd(),
 						thread.projectId ?? activeProjectId
 					);
 				} catch (e) {

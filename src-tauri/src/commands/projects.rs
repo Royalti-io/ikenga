@@ -596,6 +596,166 @@ pub async fn project_set_active(
     Ok(())
 }
 
+// ── project_inventory: count skills/commands/mcp servers under a root ───
+//
+// Used by Settings → Projects (badge "12 skills, 4 commands, 2 MCP servers")
+// and by the artifact creation wizard (skill checklist source — D10 in the
+// plan). Pure filesystem read, no DB access. Safe to call without a root_path
+// — returns zeroed counts.
+//
+// What counts:
+// - skills:   `<root>/.claude/skills/*.md` plus directories containing a
+//             `SKILL.md` (Anthropic skill folder format).
+// - commands: `<root>/.claude/commands/*.md` (top-level only; nested files
+//             aren't first-class slash-commands in claude code).
+// - mcp:      `mcpServers` keys in `<root>/.mcp.json` (claude code's
+//             project-MCP convention). Falls back to 0 if the file is
+//             missing or unparseable.
+//
+// Empty `root_path` → all zeros. Missing `.claude/` → zeros for skills/cmds
+// but `.mcp.json` is still consulted (it lives at project root, not under
+// `.claude/`).
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ProjectInventory {
+    pub root_path: Option<String>,
+    pub has_claude_dir: bool,
+    pub skills: usize,
+    pub commands: usize,
+    pub mcp: usize,
+}
+
+fn count_skills(claude_dir: &std::path::Path) -> usize {
+    let skills_dir = claude_dir.join("skills");
+    let read = match std::fs::read_dir(&skills_dir) {
+        Ok(r) => r,
+        Err(_) => return 0,
+    };
+    let mut n = 0usize;
+    for entry in read.flatten() {
+        let path = entry.path();
+        let file_type = match entry.file_type() {
+            Ok(t) => t,
+            Err(_) => continue,
+        };
+        if file_type.is_file() {
+            if path.extension().and_then(|s| s.to_str()) == Some("md") {
+                n += 1;
+            }
+        } else if file_type.is_dir() {
+            // Anthropic skill folder: contains SKILL.md
+            if path.join("SKILL.md").is_file() {
+                n += 1;
+            }
+        }
+    }
+    n
+}
+
+fn count_commands(claude_dir: &std::path::Path) -> usize {
+    let cmds_dir = claude_dir.join("commands");
+    let read = match std::fs::read_dir(&cmds_dir) {
+        Ok(r) => r,
+        Err(_) => return 0,
+    };
+    read.flatten()
+        .filter(|e| {
+            e.file_type().map(|t| t.is_file()).unwrap_or(false)
+                && e.path().extension().and_then(|s| s.to_str()) == Some("md")
+        })
+        .count()
+}
+
+fn count_mcp_servers(root: &std::path::Path) -> usize {
+    let mcp_file = root.join(".mcp.json");
+    let raw = match std::fs::read_to_string(&mcp_file) {
+        Ok(s) => s,
+        Err(_) => return 0,
+    };
+    let v: serde_json::Value = match serde_json::from_str(&raw) {
+        Ok(v) => v,
+        Err(_) => return 0,
+    };
+    v.get("mcpServers")
+        .and_then(|s| s.as_object())
+        .map(|o| o.len())
+        .unwrap_or(0)
+}
+
+// ── project_scaffold_claude: mkdir <root>/.claude/{skills,commands} + stub
+//
+// Used by Settings → Projects "Initialise new" (A3). Creates the directories
+// claude code expects to find when it walks a project, plus a minimal
+// CLAUDE.md stub. Idempotent — leaves existing files alone, only adds what's
+// missing. The user can run `claude init` later (or hand-edit) to flesh it
+// out; this gets them past the "no project context" gate.
+
+fn write_if_missing(path: &std::path::Path, contents: &str) -> Result<(), String> {
+    if path.exists() {
+        return Ok(());
+    }
+    std::fs::write(path, contents).map_err(|e| format!("write {}: {e}", path.display()))
+}
+
+#[tauri::command]
+pub fn project_scaffold_claude(root_path: String) -> Result<(), String> {
+    let root = std::path::Path::new(&root_path);
+    if !root.is_dir() {
+        return Err(format!("root_path is not a directory: {root_path}"));
+    }
+    let claude_dir = root.join(".claude");
+    std::fs::create_dir_all(claude_dir.join("skills"))
+        .map_err(|e| format!("mkdir .claude/skills: {e}"))?;
+    std::fs::create_dir_all(claude_dir.join("commands"))
+        .map_err(|e| format!("mkdir .claude/commands: {e}"))?;
+
+    let claude_md = root.join("CLAUDE.md");
+    let project_name = root
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("Project");
+    write_if_missing(
+        &claude_md,
+        &format!(
+            "# CLAUDE.md\n\nProject-level guidance for Claude Code in `{project_name}`.\n\n## What this is\n\nDescribe the project here.\n\n## Common commands\n\nList build / test / lint commands.\n\n## Conventions\n\n- (add project-specific rules here)\n"
+        ),
+    )?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn project_inventory(root_path: Option<String>) -> Result<ProjectInventory, String> {
+    let Some(root_str) = root_path.as_ref() else {
+        return Ok(ProjectInventory {
+            root_path: None,
+            has_claude_dir: false,
+            skills: 0,
+            commands: 0,
+            mcp: 0,
+        });
+    };
+    let root = std::path::Path::new(root_str);
+    let claude_dir = root.join(".claude");
+    let has_claude_dir = claude_dir.is_dir();
+    let (skills, commands) = if has_claude_dir {
+        (count_skills(&claude_dir), count_commands(&claude_dir))
+    } else {
+        (0, 0)
+    };
+    let mcp = if root.is_dir() {
+        count_mcp_servers(root)
+    } else {
+        0
+    };
+    Ok(ProjectInventory {
+        root_path: Some(root_str.clone()),
+        has_claude_dir,
+        skills,
+        commands,
+        mcp,
+    })
+}
+
 #[tauri::command]
 pub async fn project_get_active(db: State<'_, Arc<PaDb>>) -> Result<Project, String> {
     let pool = db.ensure_pool().await?;

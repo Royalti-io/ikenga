@@ -38,7 +38,7 @@ import {
 	type AcpSessionUpdate,
 	type ChatEvent,
 } from '@/lib/tauri-cmd';
-import { defaultCwd } from '@/lib/shell/default-cwd';
+import { activeProjectCwd } from '@/lib/shell/active-project-cwd';
 
 import { useChatStore } from '../store';
 import { updateThreadMeta } from '../persist';
@@ -259,7 +259,7 @@ class AcpAdapterImpl implements ChatAdapter {
 		void (async () => {
 			try {
 				const cwd = useChatStore.getState().threads[input.threadId]?.thread.cwd || '';
-				await this.attach(input.threadId, cwd || defaultCwd());
+				await this.attach(input.threadId, cwd || activeProjectCwd());
 				useChatStore.getState().setStatus(input.threadId, 'streaming');
 
 				const prompt: AcpContentBlock[] = [{ type: 'text', text: input.text }];

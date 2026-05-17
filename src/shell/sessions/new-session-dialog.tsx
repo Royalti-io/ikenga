@@ -13,7 +13,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { mintThreadId, useChatActions, useChatStore } from '@/chat';
 import { createThread } from '@/chat';
-import { defaultCwd } from '@/lib/shell/default-cwd';
+import { activeProjectCwd } from '@/lib/shell/active-project-cwd';
 import { useShellStore } from '@/lib/shell/shell-store';
 import { sessionEnsure } from '@/lib/tauri-cmd';
 import { createTerminalSession } from '@/terminal/single-terminal';
@@ -310,7 +310,7 @@ async function sendFirstPrompt(threadId: string, prompt: string) {
 	const adapterId = threadEntry?.thread.adapterId ?? defaultChatAdapterId();
 	const adapter = getAdapter(adapterId);
 	try {
-		await adapter.attach?.(threadId, cwd || defaultCwd());
+		await adapter.attach?.(threadId, cwd || activeProjectCwd());
 	} catch (e) {
 		console.warn('attach (first prompt):', e);
 	}

@@ -45,7 +45,8 @@ use commands::{
     pkg_mcp_call, pkg_preview_manifest, pkg_screenshot, pkg_set_enabled, pkg_set_scope, pkg_settings_get,
     pkg_settings_set, pkg_sidecar_call, pkg_supervisor_restart, pkg_uninstall, pkg_webview_create,
     pkg_webview_destroy, pkg_webview_navigate, pkg_webview_set_rect, project_archive,
-    project_create, project_get_active, project_list, project_set_active, project_update,
+    project_create, project_get_active, project_inventory, project_list, project_scaffold_claude,
+    project_set_active, project_update,
     pty_foreground, pty_foreground_snapshot, pty_kill, pty_resize, pty_spawn, pty_write,
     screenshot_capture_done, screenshot_capture_failed,
     screenshot_get_config, screenshot_pane, screenshot_set_dir, screenshot_window, secrets_delete,
@@ -655,6 +656,8 @@ pub fn run() {
             project_archive,
             project_set_active,
             project_get_active,
+            project_inventory,
+            project_scaffold_claude,
             // supabase config (URL + anon key manifest)
             supabase_config_get,
             supabase_config_set,

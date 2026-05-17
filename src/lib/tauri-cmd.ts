@@ -2276,6 +2276,31 @@ export async function projectGetActive(): Promise<Project> {
 	return invoke<Project>('project_get_active');
 }
 
+export interface ProjectInventory {
+	root_path: string | null;
+	has_claude_dir: boolean;
+	skills: number;
+	commands: number;
+	mcp: number;
+}
+
+/** Filesystem inventory of a project's Claude assets. Counts `.md` skills +
+ *  `SKILL.md` folders under `<root>/.claude/skills/`, `.md` files under
+ *  `<root>/.claude/commands/`, and `mcpServers` keys in `<root>/.mcp.json`.
+ *  Pure read; safe to call any time. Returns zeroed counts when `root_path`
+ *  is null or the directory doesn't exist. */
+export async function projectInventory(rootPath: string | null): Promise<ProjectInventory> {
+	return invoke<ProjectInventory>('project_inventory', { rootPath });
+}
+
+/** Scaffold a minimal `<root>/.claude/{skills,commands}/` + `CLAUDE.md` stub
+ *  in the given folder. Idempotent — leaves existing files alone. Used by
+ *  Settings → Projects "Initialise new" so a chosen empty folder becomes a
+ *  valid Claude project root before `projectCreate`. */
+export async function projectScaffoldClaude(rootPath: string): Promise<void> {
+	return invoke('project_scaffold_claude', { rootPath });
+}
+
 /** Subscribe to project-switch events. The Rust side emits `projects:active-changed`
  *  with `{ id }` payload whenever `project_set_active` succeeds. Consumers
  *  typically just call `queryClient.invalidateQueries({ queryKey: ['project-scoped'] })`.

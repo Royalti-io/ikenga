@@ -6,9 +6,20 @@
 // ⌘P command palette; this route is for management only.
 
 import { useState } from 'react';
-import { createFileRoute } from '@tanstack/react-router';
+import { createFileRoute, useNavigate } from '@tanstack/react-router';
+import { useQuery } from '@tanstack/react-query';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
-import { Archive, FolderOpen, FolderPlus, Pencil, Plus, RotateCcw } from 'lucide-react';
+import {
+	Archive,
+	ChevronDown,
+	FolderOpen,
+	FolderPlus,
+	LogIn,
+	Pencil,
+	Plus,
+	RotateCcw,
+	Sparkles,
+} from 'lucide-react';
 
 import { iykeLayoutReset } from '@/lib/iyke/layout';
 
@@ -21,6 +32,12 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from '@/components/ui/dialog';
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/components/ui/utils';
 import { useShellStore } from '@/lib/shell/shell-store';
@@ -29,6 +46,8 @@ import {
 	type ProjectCreateArgs,
 	projectArchive,
 	projectCreate,
+	projectInventory,
+	projectScaffoldClaude,
 	projectUpdate,
 } from '@/lib/tauri-cmd';
 
@@ -49,12 +68,21 @@ const PRESET_COLORS = [
 	'#eab308',
 ];
 
+// Mode for the "Add project" dialog. `adopt` and `init` differ only in
+// whether we scaffold a `.claude/` stub before calling projectCreate.
+// `manual` keeps the original behaviour (form-only, no folder picker
+// pre-flight).
+type AddMode = 'adopt' | 'init' | 'manual' | null;
+
 function ProjectsPage() {
 	const projects = useShellStore((s) => s.projects);
 	const activeProjectId = useShellStore((s) => s.activeProjectId);
 	const refreshProjects = useShellStore((s) => s.refreshProjects);
+	const setActiveProject = useShellStore((s) => s.setActiveProject);
+	const navigate = useNavigate();
 	const [editing, setEditing] = useState<Project | null>(null);
-	const [creating, setCreating] = useState(false);
+	const [addMode, setAddMode] = useState<AddMode>(null);
+	const [prefilledRoot, setPrefilledRoot] = useState<string>('');
 	const [error, setError] = useState<string | null>(null);
 
 	const visible = projects.slice().sort((a, b) => {
@@ -81,6 +109,37 @@ function ProjectsPage() {
 			setError(null);
 		} catch (e) {
 			setError((e as Error).message);
+		}
+	}
+
+	async function handleOpenInShell(project: Project) {
+		try {
+			await setActiveProject(project.id);
+			await navigate({ to: '/' });
+			setError(null);
+		} catch (e) {
+			setError((e as Error).message);
+		}
+	}
+
+	async function handleAdoptExisting() {
+		setError(null);
+		const picked = await openDialog({ directory: true, multiple: false });
+		if (typeof picked !== 'string') return;
+		setPrefilledRoot(picked);
+		setAddMode('adopt');
+	}
+
+	async function handleInitialiseNew() {
+		setError(null);
+		const picked = await openDialog({ directory: true, multiple: false });
+		if (typeof picked !== 'string') return;
+		try {
+			await projectScaffoldClaude(picked);
+			setPrefilledRoot(picked);
+			setAddMode('init');
+		} catch (e) {
+			setError(`Could not scaffold .claude/ in ${picked}: ${(e as Error).message}`);
 		}
 	}
 
@@ -121,10 +180,49 @@ function ProjectsPage() {
 								project is built in and cannot be archived.
 							</p>
 						</div>
-						<Button size="sm" onClick={() => setCreating(true)}>
-							<Plus className="mr-1 h-3.5 w-3.5" />
-							New project
-						</Button>
+						<DropdownMenu>
+							<DropdownMenuTrigger asChild>
+								<Button size="sm">
+									<Plus className="mr-1 h-3.5 w-3.5" />
+									Add project
+									<ChevronDown className="ml-1 h-3.5 w-3.5" />
+								</Button>
+							</DropdownMenuTrigger>
+							<DropdownMenuContent align="end" className="w-64">
+								<DropdownMenuItem onSelect={() => void handleAdoptExisting()}>
+									<FolderOpen className="mr-2 h-3.5 w-3.5" />
+									<div className="flex flex-col">
+										<span>Adopt existing…</span>
+										<span className="text-[10px] text-muted-foreground">
+											Point at a folder that already has <code>.claude/</code>
+										</span>
+									</div>
+								</DropdownMenuItem>
+								<DropdownMenuItem onSelect={() => void handleInitialiseNew()}>
+									<Sparkles className="mr-2 h-3.5 w-3.5" />
+									<div className="flex flex-col">
+										<span>Initialise new…</span>
+										<span className="text-[10px] text-muted-foreground">
+											Pick a folder, scaffold <code>.claude/</code> + CLAUDE.md
+										</span>
+									</div>
+								</DropdownMenuItem>
+								<DropdownMenuItem
+									onSelect={() => {
+										setPrefilledRoot('');
+										setAddMode('manual');
+									}}
+								>
+									<Pencil className="mr-2 h-3.5 w-3.5" />
+									<div className="flex flex-col">
+										<span>Manual…</span>
+										<span className="text-[10px] text-muted-foreground">
+											Fill out the form directly, no folder pre-flight
+										</span>
+									</div>
+								</DropdownMenuItem>
+							</DropdownMenuContent>
+						</DropdownMenu>
 					</header>
 
 					{error && (
@@ -134,10 +232,10 @@ function ProjectsPage() {
 					)}
 
 					<section className="overflow-hidden rounded-lg border border-[var(--border-soft)] bg-card">
-						<header className="grid grid-cols-[2fr_1.5fr_1fr_auto] items-center gap-3 border-b border-[var(--border-soft)] bg-[var(--bg-sunken)] px-4 py-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+						<header className="grid grid-cols-[1.6fr_1.5fr_1.1fr_auto] items-center gap-3 border-b border-[var(--border-soft)] bg-[var(--bg-sunken)] px-4 py-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
 							<span>Project</span>
 							<span>Root path</span>
-							<span>Slug</span>
+							<span>Claude assets</span>
 							<span className="sr-only">Actions</span>
 						</header>
 						<ul className="divide-y divide-border">
@@ -147,89 +245,34 @@ function ProjectsPage() {
 								</li>
 							)}
 							{visible.map((p) => (
-								<li
+								<ProjectRow
 									key={p.id}
-									className={cn(
-										'grid grid-cols-[2fr_1.5fr_1fr_auto] items-center gap-3 px-4 py-2.5 text-sm',
-										p.archived_at != null && 'opacity-60'
-									)}
-								>
-									<div className="flex items-center gap-2 min-w-0">
-										<span
-											aria-hidden
-											className="inline-block h-3 w-3 shrink-0 rounded-full border border-border"
-											style={{ background: p.color ?? '#7c7c7c' }}
-										/>
-										{p.icon && <span className="text-base leading-none">{p.icon}</span>}
-										<span className="truncate font-medium text-foreground">{p.display_name}</span>
-										{p.id === activeProjectId && (
-											<span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] uppercase text-primary">
-												Active
-											</span>
-										)}
-										{p.is_default && (
-											<span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase text-muted-foreground">
-												Default
-											</span>
-										)}
-										{p.archived_at != null && (
-											<span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase text-muted-foreground">
-												Archived
-											</span>
-										)}
-									</div>
-									<div className="min-w-0 truncate font-mono text-xs text-muted-foreground">
-										{p.root_path ?? <span className="italic">(none)</span>}
-									</div>
-									<div className="min-w-0 truncate font-mono text-xs text-muted-foreground">
-										{p.id}
-									</div>
-									<div className="flex shrink-0 items-center gap-1">
-										<Button
-											variant="ghost"
-											size="sm"
-											onClick={() => setEditing(p)}
-											aria-label={`Edit ${p.display_name}`}
-										>
-											<Pencil className="h-3.5 w-3.5" />
-										</Button>
-										<Button
-											variant="ghost"
-											size="sm"
-											onClick={() => void handleResetLayout(p)}
-											disabled={p.archived_at != null}
-											aria-label={`Reset layout for ${p.display_name}`}
-											title="Reset saved pane layout for this project"
-										>
-											<RotateCcw className="h-3.5 w-3.5" />
-										</Button>
-										<Button
-											variant="ghost"
-											size="sm"
-											onClick={() => void handleArchive(p)}
-											disabled={p.is_default || p.archived_at != null}
-											aria-label={`Archive ${p.display_name}`}
-											className="text-muted-foreground hover:text-red-700"
-										>
-											<Archive className="h-3.5 w-3.5" />
-										</Button>
-									</div>
-								</li>
+									project={p}
+									isActive={p.id === activeProjectId}
+									onEdit={() => setEditing(p)}
+									onOpenInShell={() => void handleOpenInShell(p)}
+									onResetLayout={() => void handleResetLayout(p)}
+									onArchive={() => void handleArchive(p)}
+								/>
 							))}
 						</ul>
 					</section>
 				</div>
 			</div>
 
-			{creating && (
+			{addMode !== null && (
 				<ProjectDialog
 					project={null}
+					initialRootPath={prefilledRoot}
+					addMode={addMode}
 					onClose={() => {
-						setCreating(false);
+						setAddMode(null);
+						setPrefilledRoot('');
 						setError(null);
 					}}
 					onSaved={async () => {
-						setCreating(false);
+						setAddMode(null);
+						setPrefilledRoot('');
 						await refreshProjects();
 					}}
 				/>
@@ -253,15 +296,26 @@ function ProjectsPage() {
 
 interface ProjectDialogProps {
 	project: Project | null;
+	initialRootPath?: string;
+	addMode?: AddMode;
 	onClose: () => void;
 	onSaved: () => Promise<void> | void;
 }
 
-function ProjectDialog({ project, onClose, onSaved }: ProjectDialogProps) {
+function ProjectDialog({
+	project,
+	initialRootPath,
+	addMode,
+	onClose,
+	onSaved,
+}: ProjectDialogProps) {
 	const isEdit = project !== null;
-	const [displayName, setDisplayName] = useState(project?.display_name ?? '');
-	const [slug, setSlug] = useState(project?.id ?? '');
-	const [rootPath, setRootPath] = useState(project?.root_path ?? '');
+	// Pre-fill display_name from the basename of the chosen folder when the
+	// dialog is opened via Adopt/Initialise. Manual mode leaves it blank.
+	const seededName = !isEdit && initialRootPath ? basename(initialRootPath) : '';
+	const [displayName, setDisplayName] = useState(project?.display_name ?? seededName);
+	const [slug, setSlug] = useState(project?.id ?? (seededName ? slugify(seededName) : ''));
+	const [rootPath, setRootPath] = useState(project?.root_path ?? initialRootPath ?? '');
 	const [icon, setIcon] = useState(project?.icon ?? '');
 	const [color, setColor] = useState(project?.color ?? PRESET_COLORS[0]);
 	const [description, setDescription] = useState(project?.description ?? '');
@@ -327,11 +381,23 @@ function ProjectDialog({ project, onClose, onSaved }: ProjectDialogProps) {
 		<Dialog open onOpenChange={(o) => !o && onClose()}>
 			<DialogContent className="sm:max-w-md">
 				<DialogHeader>
-					<DialogTitle>{isEdit ? 'Edit project' : 'New project'}</DialogTitle>
+					<DialogTitle>
+						{isEdit
+							? 'Edit project'
+							: addMode === 'adopt'
+								? 'Adopt existing project'
+								: addMode === 'init'
+									? 'Initialise new project'
+									: 'New project'}
+					</DialogTitle>
 					<DialogDescription>
 						{isEdit
 							? 'Update this project — slug is immutable.'
-							: 'Projects scope chats, pkgs, layout, memory, and todos.'}
+							: addMode === 'init'
+								? 'A minimal .claude/ + CLAUDE.md stub was scaffolded. Confirm the name and slug.'
+								: addMode === 'adopt'
+									? 'Picked an existing folder. Confirm the name and slug.'
+									: 'Projects scope chats, pkgs, layout, memory, and todos.'}
 					</DialogDescription>
 				</DialogHeader>
 
@@ -456,6 +522,135 @@ function ProjectDialog({ project, onClose, onSaved }: ProjectDialogProps) {
 			</DialogContent>
 		</Dialog>
 	);
+}
+
+// ── ProjectRow ───────────────────────────────────────────────────────────
+
+interface ProjectRowProps {
+	project: Project;
+	isActive: boolean;
+	onEdit: () => void;
+	onOpenInShell: () => void;
+	onResetLayout: () => void;
+	onArchive: () => void;
+}
+
+function ProjectRow({
+	project: p,
+	isActive,
+	onEdit,
+	onOpenInShell,
+	onResetLayout,
+	onArchive,
+}: ProjectRowProps) {
+	const inv = useQuery({
+		queryKey: ['project-inventory', p.id, p.root_path] as const,
+		queryFn: () => projectInventory(p.root_path),
+		staleTime: 30_000,
+	});
+	const total = (inv.data?.skills ?? 0) + (inv.data?.commands ?? 0) + (inv.data?.mcp ?? 0);
+	const summary =
+		inv.isLoading || !inv.data
+			? '…'
+			: inv.data.root_path == null
+				? '(no root)'
+				: total === 0 && !inv.data.has_claude_dir
+					? 'no .claude/'
+					: `${inv.data.skills} skill${inv.data.skills === 1 ? '' : 's'} · ${inv.data.commands} cmd${inv.data.commands === 1 ? '' : 's'} · ${inv.data.mcp} mcp`;
+
+	return (
+		<li
+			className={cn(
+				'grid grid-cols-[1.6fr_1.5fr_1.1fr_auto] items-center gap-3 px-4 py-2.5 text-sm',
+				p.archived_at != null && 'opacity-60'
+			)}
+		>
+			<div className="flex flex-col min-w-0 gap-0.5">
+				<div className="flex items-center gap-2 min-w-0">
+					<span
+						aria-hidden
+						className="inline-block h-3 w-3 shrink-0 rounded-full border border-border"
+						style={{ background: p.color ?? '#7c7c7c' }}
+					/>
+					{p.icon && <span className="text-base leading-none">{p.icon}</span>}
+					<span className="truncate font-medium text-foreground">{p.display_name}</span>
+					{isActive && (
+						<span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] uppercase text-primary">
+							Active
+						</span>
+					)}
+					{p.is_default && (
+						<span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase text-muted-foreground">
+							Default
+						</span>
+					)}
+					{p.archived_at != null && (
+						<span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase text-muted-foreground">
+							Archived
+						</span>
+					)}
+				</div>
+				<span className="truncate font-mono text-[10px] text-muted-foreground">{p.id}</span>
+			</div>
+			<div
+				className="min-w-0 truncate font-mono text-xs text-muted-foreground"
+				title={p.root_path ?? ''}
+			>
+				{p.root_path ?? <span className="italic">(none)</span>}
+			</div>
+			<div className="min-w-0 truncate font-mono text-[11px] text-muted-foreground">{summary}</div>
+			<div className="flex shrink-0 items-center gap-1">
+				<Button
+					variant="ghost"
+					size="sm"
+					onClick={onOpenInShell}
+					disabled={p.archived_at != null}
+					aria-label={`Open ${p.display_name} in shell`}
+					title="Switch active project and open the workspace"
+				>
+					<LogIn className="h-3.5 w-3.5" />
+				</Button>
+				<Button variant="ghost" size="sm" onClick={onEdit} aria-label={`Edit ${p.display_name}`}>
+					<Pencil className="h-3.5 w-3.5" />
+				</Button>
+				<Button
+					variant="ghost"
+					size="sm"
+					onClick={onResetLayout}
+					disabled={p.archived_at != null}
+					aria-label={`Reset layout for ${p.display_name}`}
+					title="Reset saved pane layout for this project"
+				>
+					<RotateCcw className="h-3.5 w-3.5" />
+				</Button>
+				<Button
+					variant="ghost"
+					size="sm"
+					onClick={onArchive}
+					disabled={p.is_default || p.archived_at != null}
+					aria-label={`Archive ${p.display_name}`}
+					className="text-muted-foreground hover:text-red-700"
+				>
+					<Archive className="h-3.5 w-3.5" />
+				</Button>
+			</div>
+		</li>
+	);
+}
+
+function basename(p: string): string {
+	const trimmed = p.replace(/[/\\]+$/, '');
+	const idx = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'));
+	return idx >= 0 ? trimmed.slice(idx + 1) : trimmed;
+}
+
+function slugify(s: string): string {
+	return s
+		.toLowerCase()
+		.trim()
+		.replace(/[^a-z0-9_-]+/g, '-')
+		.replace(/^-+|-+$/g, '')
+		.slice(0, 64);
 }
 
 export const Route = createFileRoute('/settings/projects')({

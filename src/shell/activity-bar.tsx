@@ -311,7 +311,7 @@ function ProjectIndicator() {
 	const abbrev = active ? projectAbbrev(active) : '··';
 	const color = active?.color ?? '#7c7c7c';
 	const title = active
-		? `Project: ${active.display_name} (⌘P to switch)`
+		? `Project: ${active.display_name}${active.root_path ? `\nRoot: ${active.root_path}` : ''}\n(⌘P to switch)`
 		: 'No active project (⌘P to switch)';
 
 	return (
@@ -767,8 +767,8 @@ function SectionContextWrap({ section, pinCount, children }: SectionContextWrapP
 						<DialogHeader>
 							<DialogTitle>Rename section</DialogTitle>
 							<DialogDescription>
-								The section id (<code className="font-mono">{section.id}</code>) doesn't
-								change — pins keep their parent.
+								The section id (<code className="font-mono">{section.id}</code>) doesn't change —
+								pins keep their parent.
 							</DialogDescription>
 						</DialogHeader>
 						<div className="mt-4 flex flex-col gap-2">

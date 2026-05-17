@@ -16,7 +16,7 @@ import { cn } from '@/components/ui/utils';
 import { SingleTerminal, createTerminalSession } from '@/terminal/single-terminal';
 import { useTerminalStore, type TerminalTab } from '@/terminal/session-store';
 import { usePaneStore } from '@/lib/panes/pane-store';
-import { defaultCwd } from '@/lib/shell/default-cwd';
+import { activeProjectCwd } from '@/lib/shell/active-project-cwd';
 
 interface StudioTerminalProps {
 	paneId: string;
@@ -119,7 +119,7 @@ function StudioTerminalPicker({ paneId, artifactPath, onAttach }: StudioTerminal
 		setConflict({ tabId, previousPaneId: res.previousPaneId });
 	};
 
-	const spawnCwd = parentDir(artifactPath) ?? defaultCwd();
+	const spawnCwd = activeProjectCwd();
 	const spawnNew = (preset: ShellPreset) => {
 		const id = createTerminalSession({ cwd: spawnCwd, cmd: preset.cmd, title: preset.title });
 		// Attach immediately. Even if the PTY hasn't finished spawning,
@@ -445,7 +445,7 @@ function StudioTerminalAttachPopover({
 		};
 	}, [anchorEl, onClose]);
 
-	const spawnCwd = parentDir(artifactPath) ?? defaultCwd();
+	const spawnCwd = activeProjectCwd();
 	const candidates = useMemo(
 		() =>
 			tabs.filter(
@@ -561,12 +561,4 @@ function StudioTerminalAttachPopover({
 		</div>,
 		document.body
 	);
-}
-
-// ─── Helpers ─────────────────────────────────────────────────────────
-
-function parentDir(path: string): string | null {
-	const idx = path.lastIndexOf('/');
-	if (idx < 0) return null;
-	return idx === 0 ? '/' : path.slice(0, idx);
 }
