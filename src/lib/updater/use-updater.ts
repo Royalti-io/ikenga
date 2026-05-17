@@ -3,9 +3,15 @@
 //   - available: UpdateInfo | null
 //   - installing: boolean, bytesDownloaded / totalBytes for progress
 //   - install(): kicks off downloadAndInstall + relaunch
+//   - check(): manual re-check (e.g. "Check now" on the About page)
+//   - lastCheckedAt: epoch ms of the last successful check
+//   - checking: true while a check is in flight
 //
-// Render however suits the shell. The default integration is
-// `src/shell/updater-banner.tsx`, which appears in workspace.tsx.
+// Hook is intended to be used at multiple call sites (banner + About page +
+// mission-control tile) — each instance maintains its own state, but the
+// underlying Tauri command is the same global. The 6h auto-check fires from
+// the banner instance mounted in workspace.tsx; pass `{ autoPoll: false }`
+// from secondary call sites so only the banner owns the timer.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { checkForUpdate, installAndRelaunch, type UpdateInfo } from '@/lib/updater/updater';
@@ -18,20 +24,37 @@ export type UpdaterState = {
 	bytesDownloaded: number;
 	totalBytes: number | null;
 	error: string | null;
+	checking: boolean;
+	lastCheckedAt: number | null;
 	check: () => Promise<void>;
 	install: () => Promise<void>;
 };
 
-export function useUpdater(): UpdaterState {
+export interface UseUpdaterOptions {
+	/** Default true. Pass false to skip the 6h interval timer (e.g. secondary
+	 *  call sites where another instance already owns the polling). */
+	autoPoll?: boolean;
+}
+
+export function useUpdater(options?: UseUpdaterOptions): UpdaterState {
+	const autoPoll = options?.autoPoll ?? true;
 	const [available, setAvailable] = useState<UpdateInfo | null>(null);
 	const [installing, setInstalling] = useState(false);
 	const [bytesDownloaded, setBytesDownloaded] = useState(0);
 	const [totalBytes, setTotalBytes] = useState<number | null>(null);
 	const [error, setError] = useState<string | null>(null);
+	const [checking, setChecking] = useState(false);
+	const [lastCheckedAt, setLastCheckedAt] = useState<number | null>(null);
 
 	const check = useCallback(async () => {
-		const info = await checkForUpdate();
-		setAvailable(info);
+		setChecking(true);
+		try {
+			const info = await checkForUpdate();
+			setAvailable(info);
+			setLastCheckedAt(Date.now());
+		} finally {
+			setChecking(false);
+		}
 	}, []);
 
 	const install = useCallback(async () => {
@@ -52,11 +75,13 @@ export function useUpdater(): UpdaterState {
 	const intervalRef = useRef<number | null>(null);
 	useEffect(() => {
 		void check();
-		intervalRef.current = window.setInterval(() => void check(), CHECK_INTERVAL_MS);
+		if (autoPoll) {
+			intervalRef.current = window.setInterval(() => void check(), CHECK_INTERVAL_MS);
+		}
 		return () => {
 			if (intervalRef.current !== null) window.clearInterval(intervalRef.current);
 		};
-	}, [check]);
+	}, [check, autoPoll]);
 
 	return {
 		available,
@@ -64,6 +89,8 @@ export function useUpdater(): UpdaterState {
 		bytesDownloaded,
 		totalBytes,
 		error,
+		checking,
+		lastCheckedAt,
 		check,
 		install,
 	};

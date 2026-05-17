@@ -11,7 +11,6 @@ import {
 	FileText,
 	Home,
 	Package,
-	PackagePlus,
 	Terminal as TerminalIcon,
 } from 'lucide-react';
 
@@ -43,9 +42,6 @@ export const NAV_GROUPS: NavGroup[] = [
 	},
 	{
 		label: 'Packages',
-		items: [
-			{ to: '/packages', label: 'Installed', Icon: Package },
-			{ to: '/install', label: 'Install', Icon: PackagePlus },
-		],
+		items: [{ to: '/packages', label: 'Packages', Icon: Package }],
 	},
 ];
