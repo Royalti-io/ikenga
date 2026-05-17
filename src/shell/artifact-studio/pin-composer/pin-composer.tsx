@@ -25,6 +25,7 @@ import { Button } from '@/components/ui/button';
 import { commentCreate, commentRoute, pinScreenshotWrite } from '@/lib/tauri-cmd';
 import {
 	readArtifactSink,
+	studioSinkToPreferredPtyId,
 	studioSinkToRouteOverride,
 } from '@/shell/artifact-studio/studio-sink-popover';
 import { useTerminalStore } from '@/terminal/session-store';
@@ -91,7 +92,10 @@ export function PinComposer({ open, pick, artifactPath, onClose }: PinComposerPr
 			// persisted, so we close the modal even if routing chokes.
 			const sink = await readArtifactSink(artifactPath);
 			const overrideSink = studioSinkToRouteOverride(sink);
-			const preferredPtyId = activeTerminalPtyId();
+			// Prefer the PTY id encoded in the sink (terminal:<id>) over the
+			// focused-tab fallback. The Rust dispatcher validates the hint
+			// against the live PTY snapshot and falls back if it's gone.
+			const preferredPtyId = studioSinkToPreferredPtyId(sink) ?? activeTerminalPtyId();
 			void commentRoute({ id: created.id, overrideSink, preferredPtyId }).catch((e) =>
 				console.error('[pin-composer] route failed', e)
 			);

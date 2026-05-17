@@ -45,6 +45,8 @@ import { StudioPromoteDialog } from '@/shell/artifact-studio/studio-promote-dial
 import { StudioTextEditMode } from '@/shell/artifact-studio/studio-text-edit-mode';
 import {
 	StudioSinkPopover,
+	studioSinkToPreferredPtyId,
+	studioSinkToRouteOverride,
 	useArtifactSink,
 	type StudioSink,
 } from '@/shell/artifact-studio/studio-sink-popover';
@@ -236,7 +238,7 @@ export function StudioLoupe({ path, paneId }: StudioLoupeProps) {
 					<Panel defaultSize={70} minSize={30}>
 						<div className="relative h-full w-full">
 							<Renderer path={path} paneId={paneId} density="loupe" source="pane" />
-							<LoupePinOverlay path={path} paneId={paneId} />
+							<LoupePinOverlay path={path} paneId={paneId} sink={sink} />
 							{commentMode && (
 								<StudioCommentMode
 									paneId={paneId}
@@ -323,7 +325,15 @@ interface ResolvedPin {
 	rect: { x: number; y: number } | null; // null = stale
 }
 
-function LoupePinOverlay({ path, paneId }: { path: string; paneId: string }) {
+function LoupePinOverlay({
+	path,
+	paneId,
+	sink,
+}: {
+	path: string;
+	paneId: string;
+	sink: StudioSink;
+}) {
 	const qc = useQueryClient();
 	const overlayRef = useRef<HTMLDivElement | null>(null);
 	const [resolved, setResolved] = useState<ResolvedPin[]>([]);
@@ -380,9 +390,7 @@ function LoupePinOverlay({ path, paneId }: { path: string; paneId: string }) {
 		};
 
 		const attach = () => {
-			iframe = document.querySelector<HTMLIFrameElement>(
-				`[data-pane-id="${paneId}"] iframe`
-			);
+			iframe = document.querySelector<HTMLIFrameElement>(`[data-pane-id="${paneId}"] iframe`);
 			if (!iframe) return false;
 			const doc = iframe.contentDocument;
 			if (!doc) return false;
@@ -435,15 +443,20 @@ function LoupePinOverlay({ path, paneId }: { path: string; paneId: string }) {
 	const onRoutePin = useCallback(
 		async (pin: Comment) => {
 			const ts = useTerminalStore.getState();
-			const preferredPtyId = ts.tabs.find((t) => t.id === ts.activeId)?.ptyId ?? null;
+			const activeTabPtyId = ts.tabs.find((t) => t.id === ts.activeId)?.ptyId ?? null;
+			// Prefer the PTY id encoded in the sink (terminal:<id>) over the
+			// focused-tab fallback. The override sink follows the same per-
+			// artifact setting; `terminal:<id>` collapses to 'terminal'.
+			const preferredPtyId = studioSinkToPreferredPtyId(sink) ?? activeTabPtyId;
+			const overrideSink = studioSinkToRouteOverride(sink);
 			try {
-				await commentRoute({ id: pin.id, preferredPtyId });
+				await commentRoute({ id: pin.id, preferredPtyId, overrideSink });
 				qc.invalidateQueries({ queryKey: ['artifact-studio', 'loupe', 'pins', path] });
 			} catch (e) {
 				console.error('[loupe] pin route failed', e);
 			}
 		},
-		[qc, path]
+		[qc, path, sink]
 	);
 
 	const onResolvePin = useCallback(
@@ -474,15 +487,11 @@ function LoupePinOverlay({ path, paneId }: { path: string; paneId: string }) {
 					onClick={() => setActivePin(r.pin)}
 				/>
 			))}
-			{stale.length > 0 && (
-				<StalePinStrip pins={stale} onSelect={(pin) => setActivePin(pin)} />
-			)}
+			{stale.length > 0 && <StalePinStrip pins={stale} onSelect={(pin) => setActivePin(pin)} />}
 			{activePin && (
 				<PinReviewPopover
 					pin={activePin}
-					anchorRect={
-						resolved.find((r) => r.pin.id === activePin.id)?.rect ?? null
-					}
+					anchorRect={resolved.find((r) => r.pin.id === activePin.id)?.rect ?? null}
 					onClose={() => setActivePin(null)}
 					onRoute={() => void onRoutePin(activePin)}
 					onResolve={() => void onResolvePin(activePin.id)}

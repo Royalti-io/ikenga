@@ -11,11 +11,18 @@
 // set. v0 of the loupe surfaces just the per-artifact override; the
 // folder + global controls live at `/settings/artifact-grid`.
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check } from 'lucide-react';
 import { cn } from '@/components/ui/utils';
-import { type RouteSink, settingsGet, settingsSet } from '@/lib/tauri-cmd';
+import {
+	type ForegroundProcess,
+	type RouteSink,
+	ptyForegroundSnapshot,
+	settingsGet,
+	settingsSet,
+} from '@/lib/tauri-cmd';
+import { useTerminalStore } from '@/terminal/session-store';
 
 /** Per-artifact sink override.
  *
@@ -28,11 +35,24 @@ import { type RouteSink, settingsGet, settingsSet } from '@/lib/tauri-cmd';
  * - `studio` — route into the Studio's own chat rail (loupe-local;
  *   only meaningful from inside the loupe).
  * - `both` — terminal + side-pane simultaneously (mirror mode).
+ * - `terminal:<ptyId>` — pin to a specific live PTY (encoded as
+ *   `terminal:<id>`). Route override collapses to `'terminal'`; the
+ *   `<id>` suffix is threaded through as `preferred_pty_id` so the Rust
+ *   dispatcher prefers that PTY over the focused-tab fallback.
  */
-export type StudioSink = 'inherit' | 'auto' | 'terminal' | 'sidepane' | 'studio' | 'both';
+export type StudioSink =
+	| 'inherit'
+	| 'auto'
+	| 'terminal'
+	| 'sidepane'
+	| 'studio'
+	| 'both'
+	| `terminal:${string}`;
 
 const SINK_KEY = (path: string) => `artifact-studio.sink.${path}`;
 const QK = (path: string) => ['artifact-studio', 'sink', path] as const;
+
+const TERMINAL_ID_RE = /^terminal:([A-Za-z0-9_-]+)$/;
 
 function parseSink(raw: string | null): StudioSink {
 	if (
@@ -45,6 +65,9 @@ function parseSink(raw: string | null): StudioSink {
 	) {
 		return raw;
 	}
+	if (raw && TERMINAL_ID_RE.test(raw)) {
+		return raw as StudioSink;
+	}
 	return 'inherit';
 }
 
@@ -54,6 +77,7 @@ function parseSink(raw: string | null): StudioSink {
  *  Studio-chat-rail sink needs a new `RouteSink::Studio` variant on the
  *  Rust side; until that lands, it falls back to auto.) */
 export function studioSinkToRouteOverride(sink: StudioSink): RouteSink | undefined {
+	if (typeof sink === 'string' && sink.startsWith('terminal:')) return 'terminal';
 	switch (sink) {
 		case 'terminal':
 			return 'terminal';
@@ -66,6 +90,15 @@ export function studioSinkToRouteOverride(sink: StudioSink): RouteSink | undefin
 		case 'studio':
 			return undefined;
 	}
+}
+
+/** If `sink` encodes a specific PTY (`terminal:<id>`), return the id;
+ *  otherwise `null`. Used by pin routing call sites to populate the
+ *  `preferred_pty_id` hint on the Rust dispatcher. */
+export function studioSinkToPreferredPtyId(sink: StudioSink): string | null {
+	if (typeof sink !== 'string') return null;
+	const m = sink.match(TERMINAL_ID_RE);
+	return m ? m[1] : null;
 }
 
 /** Read the persisted per-artifact sink override without subscribing to a
@@ -107,13 +140,20 @@ interface StudioSinkPopoverProps {
 	onSinkChange: (next: StudioSink) => void | Promise<void>;
 }
 
-const ORDER: StudioSink[] = ['inherit', 'auto', 'studio', 'terminal', 'sidepane', 'both'];
+/** Sinks that map 1:1 to a static label (everything except the per-PTY
+ *  `terminal:<id>` form, whose label is computed from the live tab). */
+type BasicSink = Exclude<StudioSink, `terminal:${string}`>;
 
-const LABELS: Record<StudioSink, { title: string; subtitle: string }> = {
+const ORDER: BasicSink[] = ['inherit', 'auto', 'studio', 'terminal', 'sidepane', 'both'];
+
+const LABELS: Record<BasicSink, { title: string; subtitle: string }> = {
 	inherit: { title: 'Follow folder default', subtitle: '(unset — use folder / global default)' },
 	auto: { title: 'Auto', subtitle: 'Terminal claude when present, side-pane Chat otherwise' },
 	studio: { title: 'Studio chat', subtitle: 'This loupe’s chat rail thread' },
-	terminal: { title: 'Terminal', subtitle: 'Active claude/codex/gemini PTY' },
+	terminal: {
+		title: 'Terminal — Auto-detect claude PTY',
+		subtitle: 'First running claude/codex/gemini PTY',
+	},
 	sidepane: { title: 'Side-pane Chat', subtitle: 'Workspace-wide side-pane thread' },
 	both: { title: 'Mirror (both)', subtitle: 'Terminal *and* side-pane' },
 };
@@ -126,6 +166,29 @@ export function StudioSinkPopover({
 	onSinkChange,
 }: StudioSinkPopoverProps) {
 	const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
+
+	// Live PTYs surfaced under a "Terminals" subsection. Subscribe to the
+	// store's tabs slice; filter to tabs with a live ptyId. Same query key
+	// as grid.tsx so the snapshot is shared and refetched every 5s.
+	const liveTabs = useTerminalStore((s) =>
+		s.tabs.filter((t): t is typeof t & { ptyId: string } => t.ptyId !== null)
+	);
+	const foregroundQuery = useQuery({
+		queryKey: ['pty-foreground-snapshot'],
+		queryFn: () => ptyForegroundSnapshot(),
+		refetchInterval: 5_000,
+		enabled: open,
+	});
+	const foreground: Record<string, ForegroundProcess> = foregroundQuery.data ?? {};
+
+	// If the saved sink is `terminal:<id>` and that PTY isn't live, surface
+	// a greyed `(missing)` row so the user can see what they picked.
+	const savedTerminalId = studioSinkToPreferredPtyId(sink);
+	const missingTerminalId = useMemo(() => {
+		if (!savedTerminalId) return null;
+		const stillLive = liveTabs.some((t) => t.ptyId === savedTerminalId);
+		return stillLive ? null : savedTerminalId;
+	}, [savedTerminalId, liveTabs]);
 
 	useEffect(() => {
 		if (!open || !anchorEl) {
@@ -209,6 +272,67 @@ export function StudioSinkPopover({
 					);
 				})}
 			</ul>
+			{(liveTabs.length > 0 || missingTerminalId) && (
+				<>
+					<div className="border-t border-border px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+						Terminals
+					</div>
+					<ul className="py-1">
+						{liveTabs.map((tab) => {
+							const opt = `terminal:${tab.ptyId}` as StudioSink;
+							const isActive = sink === opt;
+							const fg = foreground[tab.ptyId];
+							const title = `${tab.title} · ${tab.ptyId.slice(0, 6)}`;
+							const subtitle = fg ? fg.name : '—';
+							return (
+								<li key={tab.id}>
+									<button
+										type="button"
+										role="menuitemradio"
+										aria-checked={isActive}
+										onClick={() => {
+											void onSinkChange(opt);
+											onOpenChange(false);
+										}}
+										className={cn(
+											'flex w-full items-start gap-2 px-3 py-1.5 text-left transition-colors',
+											'hover:bg-foreground/5',
+											isActive && 'bg-foreground/5'
+										)}
+									>
+										<Check
+											className={cn(
+												'mt-0.5 h-3 w-3 shrink-0',
+												isActive ? 'text-foreground' : 'text-transparent'
+											)}
+										/>
+										<span className="flex-1 min-w-0">
+											<span className="block text-xs text-foreground">{title}</span>
+											<span className="block text-[10px] text-muted-foreground">{subtitle}</span>
+										</span>
+									</button>
+								</li>
+							);
+						})}
+						{missingTerminalId && (
+							<li key={`missing:${missingTerminalId}`}>
+								<div
+									className="flex w-full items-start gap-2 px-3 py-1.5 text-left opacity-50"
+									title="The PTY this sink referenced is no longer running. Pick another sink to clear."
+								>
+									<Check className="mt-0.5 h-3 w-3 shrink-0 text-foreground" />
+									<span className="flex-1 min-w-0">
+										<span className="block text-xs text-foreground">
+											term {missingTerminalId.slice(0, 6)}
+										</span>
+										<span className="block text-[10px] text-muted-foreground">(missing)</span>
+									</span>
+								</div>
+							</li>
+						)}
+					</ul>
+				</>
+			)}
 		</div>
 	);
 }
