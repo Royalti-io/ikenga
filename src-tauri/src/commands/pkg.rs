@@ -167,6 +167,61 @@ pub fn pkg_preview_manifest(install_path: String) -> Result<serde_json::Value, S
     serde_json::to_value(&pkg.manifest).map_err(|e| format!("serialize manifest: {e}"))
 }
 
+/// Read a pkg-declared screenshot and return it as a base64 data URL the
+/// webview can stuff into `<img src>`. The path must match one declared in
+/// `manifest.screenshots[].path`; we resolve it against `install_path` and
+/// canonicalize to defend against `../` escapes.
+///
+/// We go through a Tauri command (rather than enabling the asset protocol)
+/// because screenshots are bounded (a handful per pkg, ~50KB each), the
+/// browser caches the data URL after first render, and routing through the
+/// kernel lets us enforce "must be declared in manifest" instead of
+/// blanket-trusting any path under the pkgs dir.
+#[tauri::command]
+pub fn pkg_screenshot(
+    kernel: State<'_, KernelState>,
+    pkg_id: String,
+    path: String,
+) -> Result<String, String> {
+    use base64::engine::general_purpose::STANDARD as B64;
+
+    let installed = kernel.0.status().installed;
+    let summary = installed
+        .iter()
+        .find(|p| p.id == pkg_id)
+        .ok_or_else(|| format!("pkg {pkg_id} not installed"))?;
+
+    let install_path = PathBuf::from(&summary.install_path);
+    let pkg = crate::pkg::manifest::Package::load(&install_path)
+        .map_err(|e| format!("load manifest: {e:#}"))?;
+
+    let declared = pkg.manifest.screenshots.iter().any(|s| s.path == path);
+    if !declared {
+        return Err(format!("screenshot {path:?} not declared in manifest"));
+    }
+
+    let full = install_path.join(&path);
+    let canon_full = full
+        .canonicalize()
+        .map_err(|e| format!("canonicalize screenshot: {e}"))?;
+    let canon_root = install_path
+        .canonicalize()
+        .map_err(|e| format!("canonicalize install_path: {e}"))?;
+    if !canon_full.starts_with(&canon_root) {
+        return Err("screenshot path escapes install_path".into());
+    }
+
+    let bytes = std::fs::read(&canon_full).map_err(|e| format!("read screenshot: {e}"))?;
+    let mime = match path.rsplit_once('.').map(|(_, ext)| ext.to_lowercase()) {
+        Some(ref e) if e == "png" => "image/png",
+        Some(ref e) if e == "jpg" || e == "jpeg" => "image/jpeg",
+        Some(ref e) if e == "webp" => "image/webp",
+        Some(ref e) if e == "gif" => "image/gif",
+        _ => "application/octet-stream",
+    };
+    Ok(format!("data:{mime};base64,{}", B64.encode(&bytes)))
+}
+
 /// Diagnostic: returns `(db_path, pkg_installed_count)` straight from the
 /// kernel's PaDb handle. Used to confirm the kernel is reading the same
 /// SQLite file as external tooling expects.

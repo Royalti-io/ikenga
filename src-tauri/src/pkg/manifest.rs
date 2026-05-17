@@ -116,6 +116,26 @@ pub struct Manifest {
     /// `EngineProvidesSchema` in `@ikenga/contract/engine`.
     #[serde(default)]
     pub engine: Option<EngineBlock>,
+
+    /// Optional UI preview screenshots surfaced by the package manager and
+    /// the install sheet ("here's what you'll get"). Paths are relative to
+    /// the package's install_path. Pkgs without UI (engines, MCP-only
+    /// servers) typically leave this empty; the manager renders a tinted
+    /// icon placeholder.
+    /// Mirrors `ScreenshotSchema` in `@ikenga/contract/manifest`.
+    #[serde(default)]
+    pub screenshots: Vec<Screenshot>,
+}
+
+/// A preview screenshot. `path` is relative to the package's install_path;
+/// the shell mints a webview-loadable URL for it via the `pkg_screenshot`
+/// Tauri command on render.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Screenshot {
+    pub path: String,
+    #[serde(default)]
+    pub caption: Option<String>,
 }
 
 // ---- Engine adapter manifest block (mirrors @ikenga/contract engine.ts) -----

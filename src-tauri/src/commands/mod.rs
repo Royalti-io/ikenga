@@ -74,8 +74,8 @@ pub use iyke::{
 };
 pub use pkg::{
     pkg_db_diag, pkg_discover_workspace, pkg_install_from_path, pkg_install_from_registry,
-    pkg_kernel_status, pkg_preview_manifest, pkg_set_enabled, pkg_set_scope, pkg_settings_get,
-    pkg_settings_set, pkg_uninstall, KernelState, PkgSettingsState,
+    pkg_kernel_status, pkg_preview_manifest, pkg_screenshot, pkg_set_enabled, pkg_set_scope,
+    pkg_settings_get, pkg_settings_set, pkg_uninstall, KernelState, PkgSettingsState,
 };
 pub use pkg_content::{pkg_content_html, pkg_content_revoke, pkg_content_url, PkgContentState};
 pub use pkg_mcp::{
