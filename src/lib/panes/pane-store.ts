@@ -435,6 +435,13 @@ export const usePaneStore = create<PaneStoreState>((set, get) => ({
 		if (!leaf) return;
 		const active = leaf.tabs[leaf.activeTabIdx];
 		if (!active || active.kind !== 'artifact-studio') return;
+		// No-op when the value is already what we want. Crucial: otherwise
+		// any caller that runs in render or effect with stable args would
+		// allocate a fresh tree every render and loop downstream
+		// subscribers.
+		const current = active.attachedTerminalId ?? null;
+		const desired = tabId ?? null;
+		if (current === desired) return;
 		const next: PaneView = tabId
 			? { ...active, attachedTerminalId: tabId }
 			: { ...active, attachedTerminalId: undefined };

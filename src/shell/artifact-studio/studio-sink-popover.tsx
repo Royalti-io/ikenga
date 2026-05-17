@@ -174,10 +174,14 @@ export function StudioSinkPopover({
 	const [overrideDisclosed, setOverrideDisclosed] = useState(false);
 
 	// Live PTYs surfaced under a "Terminals" subsection. Subscribe to the
-	// store's tabs slice; filter to tabs with a live ptyId. Same query key
-	// as grid.tsx so the snapshot is shared and refetched every 5s.
-	const liveTabs = useTerminalStore((s) =>
-		s.tabs.filter((t): t is typeof t & { ptyId: string } => t.ptyId !== null)
+	// raw `tabs` array (stable reference until the store mutates) and
+	// filter via useMemo — a selector that called `.filter` inline would
+	// return a new reference on every store snapshot read, tripping
+	// React 18's `getSnapshot should be cached` invariant.
+	const allTabs = useTerminalStore((s) => s.tabs);
+	const liveTabs = useMemo(
+		() => allTabs.filter((t): t is typeof t & { ptyId: string } => t.ptyId !== null),
+		[allTabs]
 	);
 	const foregroundQuery = useQuery({
 		queryKey: ['pty-foreground-snapshot'],

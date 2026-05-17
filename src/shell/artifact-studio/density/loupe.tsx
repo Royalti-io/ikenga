@@ -8,6 +8,7 @@
 // surface Chat-only rails per the unified plan).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 import {
@@ -76,19 +77,13 @@ export function StudioLoupe({ path, paneId, attachedTerminalId }: StudioLoupePro
 	const [promoteOpen, setPromoteOpen] = useState(false);
 	const [sinkOpen, setSinkOpen] = useState(false);
 	const [pendingPick, setPendingPick] = useState<PickResult | null>(null);
+	// Initial right-rail tab: 'terminal' when attached on first mount, 'chat'
+	// otherwise. We deliberately don't auto-switch later — runtime attaches
+	// happen from inside the Terminal tab via the picker, so the user is
+	// already there. Avoiding a useEffect+setState pair here also dodges a
+	// boot-time render loop seen when persisted state restores attachment.
 	const [rightTab, setRightTab] = useRightRailTab(attachedTerminalId ? 'terminal' : 'chat');
 	const { sink, setSink } = useArtifactSink(path);
-
-	// When an attachment lands (e.g. picker selection), snap the rail to the
-	// terminal tab so the embedded PTY is immediately visible. Detach leaves
-	// the rail wherever it was.
-	const lastAttachRef = useRef<string | undefined>(attachedTerminalId);
-	useEffect(() => {
-		if (attachedTerminalId && attachedTerminalId !== lastAttachRef.current) {
-			setRightTab('terminal');
-		}
-		lastAttachRef.current = attachedTerminalId;
-	}, [attachedTerminalId, setRightTab]);
 
 	const onAttachTerminal = useCallback(
 		(tabId: string) => {
@@ -544,29 +539,45 @@ function LoupePinOverlay({
 	const live = resolved.filter((r) => r.rect !== null);
 	const stale = resolved.filter((r) => r.rect === null);
 
+	// Compute the screen-space anchor for the active pin so the popover can
+	// be portalled outside the panel (which has overflow:hidden via
+	// react-resizable-panels and would otherwise clip the right edge).
+	const activeScreenAnchor = useMemo(() => {
+		if (!activePin) return null;
+		const local = resolved.find((r) => r.pin.id === activePin.id)?.rect ?? null;
+		if (!local) return null;
+		const overlayRect = overlayRef.current?.getBoundingClientRect();
+		if (!overlayRect) return null;
+		return { x: overlayRect.left + local.x, y: overlayRect.top + local.y };
+	}, [activePin, resolved]);
+
 	return (
-		<div ref={overlayRef} className="pointer-events-none absolute inset-0">
-			{live.map((r) => (
-				<LoupePinDot
-					key={r.pin.id}
-					pin={r.pin}
-					numbering={r.numbering}
-					x={r.rect!.x}
-					y={r.rect!.y}
-					onClick={() => setActivePin(r.pin)}
-				/>
-			))}
-			{stale.length > 0 && <StalePinStrip pins={stale} onSelect={(pin) => setActivePin(pin)} />}
-			{activePin && (
-				<PinReviewPopover
-					pin={activePin}
-					anchorRect={resolved.find((r) => r.pin.id === activePin.id)?.rect ?? null}
-					onClose={() => setActivePin(null)}
-					onRoute={() => void onRoutePin(activePin)}
-					onResolve={() => void onResolvePin(activePin.id)}
-				/>
-			)}
-		</div>
+		<>
+			<div ref={overlayRef} className="pointer-events-none absolute inset-0">
+				{live.map((r) => (
+					<LoupePinDot
+						key={r.pin.id}
+						pin={r.pin}
+						numbering={r.numbering}
+						x={r.rect!.x}
+						y={r.rect!.y}
+						onClick={() => setActivePin(r.pin)}
+					/>
+				))}
+				{stale.length > 0 && <StalePinStrip pins={stale} onSelect={(pin) => setActivePin(pin)} />}
+			</div>
+			{activePin &&
+				createPortal(
+					<PinReviewPopover
+						pin={activePin}
+						screenAnchor={activeScreenAnchor}
+						onClose={() => setActivePin(null)}
+						onRoute={() => void onRoutePin(activePin)}
+						onResolve={() => void onResolvePin(activePin.id)}
+					/>,
+					document.body
+				)}
+		</>
 	);
 }
 
@@ -638,15 +649,21 @@ function StalePinStrip({
 	);
 }
 
+const POPOVER_WIDTH_PX = 288; // matches w-72
+const POPOVER_MARGIN_PX = 8;
+const POPOVER_EST_HEIGHT_PX = 220;
+
 function PinReviewPopover({
 	pin,
-	anchorRect,
+	screenAnchor,
 	onClose,
 	onRoute,
 	onResolve,
 }: {
 	pin: Comment;
-	anchorRect: { x: number; y: number } | null;
+	/** Dot anchor in viewport (screen) coordinates. `null` when the pin is
+	 *  stale (no matching DOM node) — popover centres on screen instead. */
+	screenAnchor: { x: number; y: number } | null;
 	onClose: () => void;
 	onRoute: () => void;
 	onResolve: () => void;
@@ -695,15 +712,42 @@ function PinReviewPopover({
 	}, [pin.screenshotPath]);
 
 	// Anchor the popover next to the dot when one exists; otherwise centre
-	// it in the overlay (stale pins have no on-canvas anchor).
-	const style: React.CSSProperties = anchorRect
-		? { left: `${anchorRect.x + 14}px`, top: `${anchorRect.y + 14}px` }
-		: { left: '50%', top: '50%', transform: 'translate(-50%, -50%)' };
+	// it on screen (stale pins have no on-canvas anchor). Position is in
+	// viewport coords because we portal to <body> to escape the panel's
+	// overflow:hidden clipping.
+	const style: React.CSSProperties = useMemo(() => {
+		if (!screenAnchor) {
+			return {
+				position: 'fixed',
+				left: '50%',
+				top: '50%',
+				transform: 'translate(-50%, -50%)',
+			};
+		}
+		const vw = typeof window !== 'undefined' ? window.innerWidth : 1024;
+		const vh = typeof window !== 'undefined' ? window.innerHeight : 768;
+		const rightSide = screenAnchor.x + 14;
+		const leftSide = screenAnchor.x - 14 - POPOVER_WIDTH_PX;
+		// Prefer right of the dot; flip to the left if it would clip the
+		// viewport, but only if the flipped position fits.
+		const wantsLeft = rightSide + POPOVER_WIDTH_PX + POPOVER_MARGIN_PX > vw;
+		const left = wantsLeft && leftSide >= POPOVER_MARGIN_PX ? leftSide : rightSide;
+		const clampedLeft = Math.max(
+			POPOVER_MARGIN_PX,
+			Math.min(left, vw - POPOVER_WIDTH_PX - POPOVER_MARGIN_PX)
+		);
+		const rawTop = screenAnchor.y + 14;
+		const clampedTop = Math.max(
+			POPOVER_MARGIN_PX,
+			Math.min(rawTop, vh - POPOVER_EST_HEIGHT_PX - POPOVER_MARGIN_PX)
+		);
+		return { position: 'fixed', left: `${clampedLeft}px`, top: `${clampedTop}px` };
+	}, [screenAnchor]);
 
 	return (
 		<div
 			data-pin-review-popover
-			className="pointer-events-auto absolute z-30 w-72 rounded border border-border bg-background shadow-xl"
+			className="pointer-events-auto z-50 w-72 rounded border border-border bg-background shadow-xl"
 			style={style}
 		>
 			<div className="flex items-center justify-between border-b border-border px-2.5 py-1.5">

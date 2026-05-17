@@ -25,6 +25,22 @@ interface StudioTerminalProps {
 	onDetach: () => void;
 }
 
+/** Shells offered by the spawn menu in the empty-state picker. `claude` is
+ *  first (most common Studio companion), then a plain shell for general
+ *  work, then the other agentic CLIs the routing dispatcher recognises. */
+interface ShellPreset {
+	label: string;
+	title: string;
+	cmd: string[];
+}
+
+const SHELL_PRESETS: ShellPreset[] = [
+	{ label: 'claude', title: 'claude', cmd: ['claude'] },
+	{ label: 'bash', title: 'bash', cmd: ['bash', '-l'] },
+	{ label: 'codex', title: 'codex', cmd: ['codex'] },
+	{ label: 'gemini', title: 'gemini', cmd: ['gemini'] },
+];
+
 export function StudioTerminal({
 	paneId,
 	artifactPath,
@@ -102,9 +118,9 @@ function StudioTerminalPicker({ paneId, artifactPath, onAttach }: StudioTerminal
 		setConflict({ tabId, previousPaneId: res.previousPaneId });
 	};
 
-	const spawnNew = () => {
-		const cwd = parentDir(artifactPath) ?? defaultCwd();
-		const id = createTerminalSession({ cwd, cmd: ['claude'], title: 'claude' });
+	const spawnCwd = parentDir(artifactPath) ?? defaultCwd();
+	const spawnNew = (preset: ShellPreset) => {
+		const id = createTerminalSession({ cwd: spawnCwd, cmd: preset.cmd, title: preset.title });
 		// Attach immediately. Even if the PTY hasn't finished spawning,
 		// `attachToStudio` flips the owner field; the picker hides and the
 		// SingleTerminal will mount once the PTY id lands in the store.
@@ -119,19 +135,25 @@ function StudioTerminalPicker({ paneId, artifactPath, onAttach }: StudioTerminal
 				<span className="font-mono">attach a terminal</span>
 			</div>
 			<div className="flex-1 min-h-0 overflow-y-auto">
-				<button
-					type="button"
-					onClick={spawnNew}
-					className="flex w-full items-center gap-2 border-b border-border px-3 py-2 text-left transition-colors hover:bg-muted/30"
-				>
-					<Plus className="h-3 w-3 text-amber-600 dark:text-amber-400" />
-					<span className="flex-1 min-w-0">
-						<span className="block text-xs text-foreground">+ new claude</span>
-						<span className="block font-mono text-[10px] text-muted-foreground">
-							{parentDir(artifactPath) ?? defaultCwd()}
-						</span>
-					</span>
-				</button>
+				<div className="border-b border-border px-3 py-2">
+					<div className="mb-1.5 flex items-center gap-1 text-[10px] text-muted-foreground">
+						<Plus className="h-3 w-3 text-amber-600 dark:text-amber-400" />
+						<span className="font-mono">new in {spawnCwd}</span>
+					</div>
+					<div className="flex flex-wrap gap-1">
+						{SHELL_PRESETS.map((preset) => (
+							<button
+								key={preset.title}
+								type="button"
+								onClick={() => spawnNew(preset)}
+								className="rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground transition-colors hover:bg-muted/30"
+								title={preset.cmd.join(' ')}
+							>
+								{preset.label}
+							</button>
+						))}
+					</div>
+				</div>
 				{candidates.length === 0 ? (
 					<div className="px-3 py-6 text-center text-[11px] text-muted-foreground">
 						No running terminals to attach.
