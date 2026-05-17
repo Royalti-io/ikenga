@@ -27,6 +27,7 @@ import { Route as SettingsRouteRouteImport } from './routes/settings/route'
 import { Route as SessionsRouteRouteImport } from './routes/sessions/route'
 import { Route as OnboardingRouteRouteImport } from './routes/onboarding/route'
 import { Route as ClaudeRouteRouteImport } from './routes/claude/route'
+import { Route as ArtifactsRouteRouteImport } from './routes/artifacts/route'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as SettingsIndexRouteImport } from './routes/settings/index'
 import { Route as SessionsIndexRouteImport } from './routes/sessions/index'
@@ -45,6 +46,7 @@ import { Route as SettingsAppearanceRouteImport } from './routes/settings/appear
 import { Route as SettingsAgentRouteImport } from './routes/settings/agent'
 import { Route as SettingsActivityBarRouteImport } from './routes/settings/activity-bar'
 import { Route as SettingsAboutRouteImport } from './routes/settings/about'
+import { Route as ProjectsNewArtifactRouteImport } from './routes/projects/new-artifact'
 import { Route as PackagesBrowseRouteImport } from './routes/packages_.browse'
 import { Route as OnboardingWelcomeRouteImport } from './routes/onboarding/welcome'
 import { Route as OnboardingTelemetryRouteImport } from './routes/onboarding/telemetry'
@@ -158,6 +160,11 @@ const ClaudeRouteRoute = ClaudeRouteRouteImport.update({
   path: '/claude',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ArtifactsRouteRoute = ArtifactsRouteRouteImport.update({
+  id: '/artifacts',
+  path: '/artifacts',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
@@ -247,6 +254,11 @@ const SettingsAboutRoute = SettingsAboutRouteImport.update({
   id: '/about',
   path: '/about',
   getParentRoute: () => SettingsRouteRoute,
+} as any)
+const ProjectsNewArtifactRoute = ProjectsNewArtifactRouteImport.update({
+  id: '/projects/new-artifact',
+  path: '/projects/new-artifact',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const PackagesBrowseRoute = PackagesBrowseRouteImport.update({
   id: '/packages_/browse',
@@ -361,6 +373,7 @@ const PkgPkgIdSplatRoute = PkgPkgIdSplatRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/artifacts': typeof ArtifactsRouteRoute
   '/claude': typeof ClaudeRouteRouteWithChildren
   '/onboarding': typeof OnboardingRouteRouteWithChildren
   '/sessions': typeof SessionsRouteRouteWithChildren
@@ -395,6 +408,7 @@ export interface FileRoutesByFullPath {
   '/onboarding/telemetry': typeof OnboardingTelemetryRoute
   '/onboarding/welcome': typeof OnboardingWelcomeRoute
   '/packages/browse': typeof PackagesBrowseRoute
+  '/projects/new-artifact': typeof ProjectsNewArtifactRoute
   '/settings/about': typeof SettingsAboutRoute
   '/settings/activity-bar': typeof SettingsActivityBarRoute
   '/settings/agent': typeof SettingsAgentRoute
@@ -421,6 +435,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/artifacts': typeof ArtifactsRouteRoute
   '/claude-assets-smoke': typeof ClaudeAssetsSmokeRoute
   '/cron-smoke': typeof CronSmokeRoute
   '/iframe-mount-smoke': typeof IframeMountSmokeRoute
@@ -450,6 +465,7 @@ export interface FileRoutesByTo {
   '/onboarding/telemetry': typeof OnboardingTelemetryRoute
   '/onboarding/welcome': typeof OnboardingWelcomeRoute
   '/packages/browse': typeof PackagesBrowseRoute
+  '/projects/new-artifact': typeof ProjectsNewArtifactRoute
   '/settings/about': typeof SettingsAboutRoute
   '/settings/activity-bar': typeof SettingsActivityBarRoute
   '/settings/agent': typeof SettingsAgentRoute
@@ -477,6 +493,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/artifacts': typeof ArtifactsRouteRoute
   '/claude': typeof ClaudeRouteRouteWithChildren
   '/onboarding': typeof OnboardingRouteRouteWithChildren
   '/sessions': typeof SessionsRouteRouteWithChildren
@@ -511,6 +528,7 @@ export interface FileRoutesById {
   '/onboarding/telemetry': typeof OnboardingTelemetryRoute
   '/onboarding/welcome': typeof OnboardingWelcomeRoute
   '/packages_/browse': typeof PackagesBrowseRoute
+  '/projects/new-artifact': typeof ProjectsNewArtifactRoute
   '/settings/about': typeof SettingsAboutRoute
   '/settings/activity-bar': typeof SettingsActivityBarRoute
   '/settings/agent': typeof SettingsAgentRoute
@@ -539,6 +557,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/artifacts'
     | '/claude'
     | '/onboarding'
     | '/sessions'
@@ -573,6 +592,7 @@ export interface FileRouteTypes {
     | '/onboarding/telemetry'
     | '/onboarding/welcome'
     | '/packages/browse'
+    | '/projects/new-artifact'
     | '/settings/about'
     | '/settings/activity-bar'
     | '/settings/agent'
@@ -599,6 +619,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/artifacts'
     | '/claude-assets-smoke'
     | '/cron-smoke'
     | '/iframe-mount-smoke'
@@ -628,6 +649,7 @@ export interface FileRouteTypes {
     | '/onboarding/telemetry'
     | '/onboarding/welcome'
     | '/packages/browse'
+    | '/projects/new-artifact'
     | '/settings/about'
     | '/settings/activity-bar'
     | '/settings/agent'
@@ -654,6 +676,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/artifacts'
     | '/claude'
     | '/onboarding'
     | '/sessions'
@@ -688,6 +711,7 @@ export interface FileRouteTypes {
     | '/onboarding/telemetry'
     | '/onboarding/welcome'
     | '/packages_/browse'
+    | '/projects/new-artifact'
     | '/settings/about'
     | '/settings/activity-bar'
     | '/settings/agent'
@@ -715,6 +739,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ArtifactsRouteRoute: typeof ArtifactsRouteRoute
   ClaudeRouteRoute: typeof ClaudeRouteRouteWithChildren
   OnboardingRouteRoute: typeof OnboardingRouteRouteWithChildren
   SessionsRouteRoute: typeof SessionsRouteRouteWithChildren
@@ -735,6 +760,7 @@ export interface RootRouteChildren {
   UiroutesSmokeRoute: typeof UiroutesSmokeRoute
   PkgPkgIdRouteRoute: typeof PkgPkgIdRouteRouteWithChildren
   PackagesBrowseRoute: typeof PackagesBrowseRoute
+  ProjectsNewArtifactRoute: typeof ProjectsNewArtifactRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -865,6 +891,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ClaudeRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/artifacts': {
+      id: '/artifacts'
+      path: '/artifacts'
+      fullPath: '/artifacts'
+      preLoaderRoute: typeof ArtifactsRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -990,6 +1023,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/settings/about'
       preLoaderRoute: typeof SettingsAboutRouteImport
       parentRoute: typeof SettingsRouteRoute
+    }
+    '/projects/new-artifact': {
+      id: '/projects/new-artifact'
+      path: '/projects/new-artifact'
+      fullPath: '/projects/new-artifact'
+      preLoaderRoute: typeof ProjectsNewArtifactRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/packages_/browse': {
       id: '/packages_/browse'
@@ -1274,6 +1314,7 @@ const PkgPkgIdRouteRouteWithChildren = PkgPkgIdRouteRoute._addFileChildren(
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ArtifactsRouteRoute: ArtifactsRouteRoute,
   ClaudeRouteRoute: ClaudeRouteRouteWithChildren,
   OnboardingRouteRoute: OnboardingRouteRouteWithChildren,
   SessionsRouteRoute: SessionsRouteRouteWithChildren,
@@ -1294,6 +1335,7 @@ const rootRouteChildren: RootRouteChildren = {
   UiroutesSmokeRoute: UiroutesSmokeRoute,
   PkgPkgIdRouteRoute: PkgPkgIdRouteRouteWithChildren,
   PackagesBrowseRoute: PackagesBrowseRoute,
+  ProjectsNewArtifactRoute: ProjectsNewArtifactRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

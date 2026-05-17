@@ -26,10 +26,7 @@ export interface PkgsSurfaceProps {
 	initialInstallTab?: InstallTab;
 }
 
-export function PkgsSurface({
-	initialFilter = 'all',
-	initialInstallTab,
-}: PkgsSurfaceProps = {}) {
+export function PkgsSurface({ initialFilter = 'all', initialInstallTab }: PkgsSurfaceProps = {}) {
 	const d = usePkgsDerived();
 	const navigate = useNavigate();
 
@@ -55,7 +52,23 @@ export function PkgsSurface({
 			setInstallOpen(true);
 			void navigate({
 				to: '/packages',
-				search: (prev) => ({ ...prev, install: undefined }),
+				search: (prev) => {
+					// Cast: TanStack widens `prev` to the union of all route search
+					// schemas (incl. /artifacts' `filter` enum). Re-narrow here so
+					// the spread still produces a valid /packages search shape.
+					const p = prev as { filter?: string; install?: string };
+					return {
+						filter: p.filter as
+							| 'all'
+							| 'installed'
+							| 'updates'
+							| 'store'
+							| 'review'
+							| 'disabled'
+							| undefined,
+						install: undefined,
+					};
+				},
 				replace: true,
 			});
 		}

@@ -77,8 +77,12 @@ const CORE_TOP: CoreItem[] = [
 
 // Packages sits above Settings — it's a system-level surface (registry,
 // updates, install state), not a per-workspace entry like the top rail.
+// Artifact-grid is a project-scoped catalog surface (plan §B2): sits with
+// pkgs in the system rail rather than the top rail so the top stays
+// "general-purpose workspaces" only.
 const CORE_BOTTOM: CoreItem[] = [
 	{ mode: 'pkgs', label: 'Packages', Icon: Package, shortcut: '⌘4' },
+	{ mode: 'artifact-grid', label: 'Artifact grid', Icon: LayoutGrid, shortcut: '⌘5' },
 	{ mode: 'settings', label: 'Settings', Icon: Settings, shortcut: '⌘,' },
 ];
 
@@ -87,6 +91,7 @@ const SHORTCUT_MAP: Record<string, ActivityMode> = {
 	'2': 'files',
 	'3': 'sessions',
 	'4': 'pkgs',
+	'5': 'artifact-grid',
 	',': 'settings',
 };
 
@@ -96,6 +101,7 @@ const SHORTCUT_MAP: Record<string, ActivityMode> = {
 const MODE_LANDING: Partial<Record<ActivityMode, string>> = {
 	settings: '/settings/appearance',
 	pkgs: '/packages/browse',
+	'artifact-grid': '/artifacts',
 };
 
 // Workspace tint mirrors core mode 1:1 post-strip; no mini-app rollup.

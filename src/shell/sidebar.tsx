@@ -1,5 +1,6 @@
 import { useShellStore } from '@/lib/shell/shell-store';
 import { AppMode } from './sidebar-modes/app-mode';
+import { ArtifactGridMode } from './sidebar-modes/artifact-grid-mode';
 import { FilesMode } from './sidebar-modes/files-mode';
 import { PkgsMode } from './sidebar-modes/pkgs-mode';
 import { SessionsMode } from './sidebar-modes/sessions-mode';
@@ -9,6 +10,7 @@ const CORE_TITLES = {
 	app: 'Ikenga',
 	files: 'Files',
 	sessions: 'Sessions',
+	'artifact-grid': 'Artifact grid',
 	pkgs: 'Packages',
 	settings: 'Settings',
 } as const;
@@ -31,6 +33,10 @@ export function Sidebar() {
 		case 'sessions':
 			title = CORE_TITLES.sessions;
 			body = <SessionsMode />;
+			break;
+		case 'artifact-grid':
+			title = CORE_TITLES['artifact-grid'];
+			body = <ArtifactGridMode />;
 			break;
 		case 'pkgs':
 			title = CORE_TITLES.pkgs;
