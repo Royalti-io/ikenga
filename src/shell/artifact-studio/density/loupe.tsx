@@ -9,7 +9,15 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
-import { FolderTree, Pin as PinGlyph, Save, SquareDashedMousePointer, X } from 'lucide-react';
+import {
+	FolderTree,
+	Pencil,
+	Pin as PinGlyph,
+	Save,
+	Settings as SinkIcon,
+	SquareDashedMousePointer,
+	X,
+} from 'lucide-react';
 import { cn } from '@/components/ui/utils';
 import {
 	fsListenWatch,
@@ -28,6 +36,12 @@ import { StudioManifestEditor } from '@/shell/artifact-studio/studio-manifest-ed
 import { StudioEngineChat } from '@/shell/artifact-studio/studio-engine-chat';
 import { StudioCommentMode } from '@/shell/artifact-studio/studio-comment-mode';
 import { StudioPromoteDialog } from '@/shell/artifact-studio/studio-promote-dialog';
+import { StudioTextEditMode } from '@/shell/artifact-studio/studio-text-edit-mode';
+import {
+	StudioSinkPopover,
+	useArtifactSink,
+	type StudioSink,
+} from '@/shell/artifact-studio/studio-sink-popover';
 import { pickRenderer } from '@/shell/artifact-studio/renderers';
 import { RightRail, useRightRailTab } from '@/shell/artifact-studio/right-rail';
 import { VersionStrip } from '@/shell/artifact-studio/version-strip';
@@ -47,9 +61,12 @@ export function StudioLoupe({ path, paneId }: StudioLoupeProps) {
 	const [savedSource, setSavedSource] = useState<string | null>(null);
 	const [loadError, setLoadError] = useState<string | null>(null);
 	const [commentMode, setCommentMode] = useState(false);
+	const [textEditMode, setTextEditMode] = useState(false);
 	const [promoteOpen, setPromoteOpen] = useState(false);
+	const [sinkOpen, setSinkOpen] = useState(false);
 	const [pendingCommentChip, setPendingCommentChip] = useState<{ selector: string } | null>(null);
 	const [rightTab, setRightTab] = useRightRailTab('chat');
+	const { sink, setSink } = useArtifactSink(path);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -173,7 +190,19 @@ export function StudioLoupe({ path, paneId }: StudioLoupeProps) {
 				dirty={dirty}
 				manifest={manifest}
 				commentMode={commentMode}
-				onCommentModeToggle={() => setCommentMode((v) => !v)}
+				textEditMode={textEditMode}
+				sink={sink}
+				onCommentModeToggle={() => {
+					setCommentMode((v) => !v);
+					// Comment + text-edit modes are mutually exclusive — they both
+					// claim the iframe doc's click listener.
+					setTextEditMode(false);
+				}}
+				onTextEditModeToggle={() => {
+					setTextEditMode((v) => !v);
+					setCommentMode(false);
+				}}
+				onSinkOpen={() => setSinkOpen(true)}
 				onSave={save}
 				onPromote={() => setPromoteOpen(true)}
 				onClose={() =>
@@ -205,6 +234,13 @@ export function StudioLoupe({ path, paneId }: StudioLoupeProps) {
 								<StudioCommentMode
 									paneId={paneId}
 									onSelect={(selector) => setPendingCommentChip({ selector })}
+								/>
+							)}
+							{textEditMode && source !== null && (
+								<StudioTextEditMode
+									paneId={paneId}
+									source={source}
+									onCommit={(nextSource) => void applyEngineEdit(nextSource)}
 								/>
 							)}
 						</div>
@@ -243,6 +279,19 @@ export function StudioLoupe({ path, paneId }: StudioLoupeProps) {
 				path={path}
 				source={source}
 				manifest={manifest}
+			/>
+			<StudioSinkPopover
+				open={sinkOpen}
+				onOpenChange={setSinkOpen}
+				anchorEl={
+					sinkOpen
+						? (document.querySelector<HTMLElement>(
+								`[data-pane-id="${paneId}"] [data-studio-sink-anchor]`
+							) ?? null)
+						: null
+				}
+				sink={sink}
+				onSinkChange={(next) => void setSink(next)}
 			/>
 		</div>
 	);
@@ -388,7 +437,11 @@ interface StudioChromeProps {
 	dirty: boolean;
 	manifest: ArtifactManifest | null;
 	commentMode: boolean;
+	textEditMode: boolean;
+	sink: StudioSink;
 	onCommentModeToggle: () => void;
+	onTextEditModeToggle: () => void;
+	onSinkOpen: () => void;
 	onSave: () => void;
 	onPromote: () => void;
 	onPinToggle: () => void;
@@ -400,7 +453,11 @@ function StudioChrome({
 	dirty,
 	manifest,
 	commentMode,
+	textEditMode,
+	sink,
 	onCommentModeToggle,
+	onTextEditModeToggle,
+	onSinkOpen,
 	onSave,
 	onPromote,
 	onPinToggle,
@@ -430,6 +487,14 @@ function StudioChrome({
 					<SquareDashedMousePointer className="h-3.5 w-3.5" />
 				</ChromeButton>
 				<ChromeButton
+					onClick={onTextEditModeToggle}
+					active={textEditMode}
+					title="Text-edit mode — click an element to edit its text"
+					aria-label="Toggle text-edit mode"
+				>
+					<Pencil className="h-3.5 w-3.5" />
+				</ChromeButton>
+				<ChromeButton
 					onClick={onPinToggle}
 					active={pinSuggested}
 					disabled={!manifest}
@@ -440,6 +505,15 @@ function StudioChrome({
 				</ChromeButton>
 				<ChromeButton onClick={onPromote} title="Promote to folder…" aria-label="Promote to folder">
 					<FolderTree className="h-3.5 w-3.5" />
+				</ChromeButton>
+				<ChromeButton
+					onClick={onSinkOpen}
+					active={sink !== 'inherit'}
+					title={`Pin routing: ${sink}`}
+					aria-label="Pin routing destination"
+					data-studio-sink-anchor
+				>
+					<SinkIcon className="h-3.5 w-3.5" />
 				</ChromeButton>
 				<ChromeButton
 					onClick={onSave}

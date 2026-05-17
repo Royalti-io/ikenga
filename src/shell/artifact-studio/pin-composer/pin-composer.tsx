@@ -23,6 +23,10 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { commentCreate, commentRoute, pinScreenshotWrite } from '@/lib/tauri-cmd';
+import {
+	readArtifactSink,
+	studioSinkToRouteOverride,
+} from '@/shell/artifact-studio/studio-sink-popover';
 import type { PickResult } from './element-picker';
 
 interface PinComposerProps {
@@ -69,10 +73,15 @@ export function PinComposer({ open, pick, artifactPath, onClose }: PinComposerPr
 				positionX: pick.positionX,
 				positionY: pick.positionY,
 			});
-			// Fire-and-forget routing. The dispatcher logs its own errors;
-			// the pin itself is already persisted, so we close the modal
-			// even if routing chokes.
-			void commentRoute({ id: created.id }).catch((e) =>
+			// Resolve the per-artifact sink override (if any) and translate
+			// it to the Rust `RouteSink`. `inherit` / `auto` / `studio` all
+			// resolve to `undefined`, letting the dispatcher run its
+			// PTY-detection fallback. Fire-and-forget routing: the
+			// dispatcher logs its own errors and the pin itself is already
+			// persisted, so we close the modal even if routing chokes.
+			const sink = await readArtifactSink(artifactPath);
+			const overrideSink = studioSinkToRouteOverride(sink);
+			void commentRoute({ id: created.id, overrideSink }).catch((e) =>
 				console.error('[pin-composer] route failed', e)
 			);
 			// Bust the grid's pins query so the new pin pops in immediately.
