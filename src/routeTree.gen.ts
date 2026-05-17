@@ -27,7 +27,6 @@ import { Route as SettingsRouteRouteImport } from './routes/settings/route'
 import { Route as SessionsRouteRouteImport } from './routes/sessions/route'
 import { Route as OnboardingRouteRouteImport } from './routes/onboarding/route'
 import { Route as ClaudeRouteRouteImport } from './routes/claude/route'
-import { Route as ArtifactsRouteRouteImport } from './routes/artifacts/route'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as SettingsIndexRouteImport } from './routes/settings/index'
 import { Route as SessionsIndexRouteImport } from './routes/sessions/index'
@@ -158,11 +157,6 @@ const OnboardingRouteRoute = OnboardingRouteRouteImport.update({
 const ClaudeRouteRoute = ClaudeRouteRouteImport.update({
   id: '/claude',
   path: '/claude',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ArtifactsRouteRoute = ArtifactsRouteRouteImport.update({
-  id: '/artifacts',
-  path: '/artifacts',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -373,7 +367,6 @@ const PkgPkgIdSplatRoute = PkgPkgIdSplatRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/artifacts': typeof ArtifactsRouteRoute
   '/claude': typeof ClaudeRouteRouteWithChildren
   '/onboarding': typeof OnboardingRouteRouteWithChildren
   '/sessions': typeof SessionsRouteRouteWithChildren
@@ -435,7 +428,6 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/artifacts': typeof ArtifactsRouteRoute
   '/claude-assets-smoke': typeof ClaudeAssetsSmokeRoute
   '/cron-smoke': typeof CronSmokeRoute
   '/iframe-mount-smoke': typeof IframeMountSmokeRoute
@@ -493,7 +485,6 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/artifacts': typeof ArtifactsRouteRoute
   '/claude': typeof ClaudeRouteRouteWithChildren
   '/onboarding': typeof OnboardingRouteRouteWithChildren
   '/sessions': typeof SessionsRouteRouteWithChildren
@@ -557,7 +548,6 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
-    | '/artifacts'
     | '/claude'
     | '/onboarding'
     | '/sessions'
@@ -619,7 +609,6 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
-    | '/artifacts'
     | '/claude-assets-smoke'
     | '/cron-smoke'
     | '/iframe-mount-smoke'
@@ -676,7 +665,6 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
-    | '/artifacts'
     | '/claude'
     | '/onboarding'
     | '/sessions'
@@ -739,7 +727,6 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  ArtifactsRouteRoute: typeof ArtifactsRouteRoute
   ClaudeRouteRoute: typeof ClaudeRouteRouteWithChildren
   OnboardingRouteRoute: typeof OnboardingRouteRouteWithChildren
   SessionsRouteRoute: typeof SessionsRouteRouteWithChildren
@@ -889,13 +876,6 @@ declare module '@tanstack/react-router' {
       path: '/claude'
       fullPath: '/claude'
       preLoaderRoute: typeof ClaudeRouteRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/artifacts': {
-      id: '/artifacts'
-      path: '/artifacts'
-      fullPath: '/artifacts'
-      preLoaderRoute: typeof ArtifactsRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -1314,7 +1294,6 @@ const PkgPkgIdRouteRouteWithChildren = PkgPkgIdRouteRoute._addFileChildren(
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  ArtifactsRouteRoute: ArtifactsRouteRoute,
   ClaudeRouteRoute: ClaudeRouteRouteWithChildren,
   OnboardingRouteRoute: OnboardingRouteRouteWithChildren,
   SessionsRouteRoute: SessionsRouteRouteWithChildren,

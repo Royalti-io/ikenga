@@ -54,8 +54,8 @@ export function PkgsSurface({ initialFilter = 'all', initialInstallTab }: PkgsSu
 				to: '/packages',
 				search: (prev) => {
 					// Cast: TanStack widens `prev` to the union of all route search
-					// schemas (incl. /artifacts' `filter` enum). Re-narrow here so
-					// the spread still produces a valid /packages search shape.
+					// schemas. Re-narrow here so the spread still produces a valid
+					// /packages search shape.
 					const p = prev as { filter?: string; install?: string };
 					return {
 						filter: p.filter as
