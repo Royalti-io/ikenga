@@ -723,6 +723,168 @@ pub fn project_scaffold_claude(root_path: String) -> Result<(), String> {
     Ok(())
 }
 
+// ── project_skills_list: enumerate skills (project-scoped + user-global) ─
+//
+// Used by the artifact creation wizard's step-3 skill checklist (D10 in
+// the plan). Walks `<root>/.claude/skills/` and (if `include_user_global`)
+// `~/.claude/skills/`, parsing the `name` and `description` frontmatter
+// fields from each skill's `SKILL.md` (skill-folder format) or the file
+// itself (single-file format).
+//
+// The `source` tag distinguishes "project" from "user" so the UI can
+// disclose which scope a skill comes from — important because a user can
+// install the same skill at both scopes and the project version wins.
+//
+// Frontmatter parser is intentionally tiny: looks for a leading `---`
+// block, scans `key: value` lines, stops at the closing `---`. No YAML
+// dependency; skill frontmatter in practice is flat scalars.
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ProjectSkill {
+    pub slug: String,
+    pub name: Option<String>,
+    pub description: Option<String>,
+    /// "project" — under `<root>/.claude/skills/`.
+    /// "user"    — under `~/.claude/skills/`.
+    pub source: String,
+}
+
+fn parse_frontmatter_min(raw: &str) -> (Option<String>, Option<String>) {
+    let mut name: Option<String> = None;
+    let mut desc: Option<String> = None;
+    let trimmed = raw.trim_start();
+    if !trimmed.starts_with("---") {
+        return (name, desc);
+    }
+    // Skip the first --- line.
+    let after_open = match trimmed.find('\n') {
+        Some(i) => &trimmed[i + 1..],
+        None => return (name, desc),
+    };
+    for line in after_open.lines() {
+        let line_trimmed = line.trim_end();
+        if line_trimmed.starts_with("---") {
+            break;
+        }
+        if let Some((k, v)) = line_trimmed.split_once(':') {
+            let key = k.trim();
+            let mut val = v.trim().to_string();
+            // Strip surrounding quotes if any.
+            if (val.starts_with('"') && val.ends_with('"') && val.len() >= 2)
+                || (val.starts_with('\'') && val.ends_with('\'') && val.len() >= 2)
+            {
+                val = val[1..val.len() - 1].to_string();
+            }
+            match key {
+                "name" => {
+                    if name.is_none() && !val.is_empty() {
+                        name = Some(val);
+                    }
+                }
+                "description" => {
+                    if desc.is_none() && !val.is_empty() {
+                        desc = Some(val);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    (name, desc)
+}
+
+fn list_skills_in_dir(skills_dir: &std::path::Path, source: &str) -> Vec<ProjectSkill> {
+    let mut out: Vec<ProjectSkill> = Vec::new();
+    let read = match std::fs::read_dir(skills_dir) {
+        Ok(r) => r,
+        Err(_) => return out,
+    };
+    for entry in read.flatten() {
+        let path = entry.path();
+        let file_type = match entry.file_type() {
+            Ok(t) => t,
+            Err(_) => continue,
+        };
+        let (slug, body_path): (String, Option<std::path::PathBuf>) = if file_type.is_file() {
+            if path.extension().and_then(|s| s.to_str()) != Some("md") {
+                continue;
+            }
+            let stem = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_string();
+            if stem.is_empty() {
+                continue;
+            }
+            (stem, Some(path.clone()))
+        } else if file_type.is_dir() {
+            let skill_md = path.join("SKILL.md");
+            if !skill_md.is_file() {
+                continue;
+            }
+            let dir_name = path
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_string();
+            if dir_name.is_empty() {
+                continue;
+            }
+            (dir_name, Some(skill_md))
+        } else {
+            continue;
+        };
+        let (name, description) = match body_path.as_ref() {
+            Some(p) => match std::fs::read_to_string(p) {
+                Ok(raw) => parse_frontmatter_min(&raw),
+                Err(_) => (None, None),
+            },
+            None => (None, None),
+        };
+        out.push(ProjectSkill {
+            slug,
+            name,
+            description,
+            source: source.to_string(),
+        });
+    }
+    out.sort_by(|a, b| a.slug.cmp(&b.slug));
+    out
+}
+
+#[tauri::command]
+pub fn project_skills_list(
+    root_path: Option<String>,
+    include_user_global: bool,
+) -> Result<Vec<ProjectSkill>, String> {
+    let mut out: Vec<ProjectSkill> = Vec::new();
+    let mut seen_slugs: std::collections::HashSet<String> = std::collections::HashSet::new();
+    if let Some(root_str) = root_path.as_ref() {
+        let root = std::path::Path::new(root_str);
+        let skills_dir = root.join(".claude").join("skills");
+        for s in list_skills_in_dir(&skills_dir, "project") {
+            seen_slugs.insert(s.slug.clone());
+            out.push(s);
+        }
+    }
+    if include_user_global {
+        if let Some(home) = std::env::var_os("HOME").map(std::path::PathBuf::from) {
+            let global_skills = home.join(".claude").join("skills");
+            for s in list_skills_in_dir(&global_skills, "user") {
+                if seen_slugs.contains(&s.slug) {
+                    // Project scope already provides this slug — skip the
+                    // user-global duplicate so the UI doesn't show two
+                    // checkboxes that mean the same thing.
+                    continue;
+                }
+                out.push(s);
+            }
+        }
+    }
+    Ok(out)
+}
+
 #[tauri::command]
 pub fn project_inventory(root_path: Option<String>) -> Result<ProjectInventory, String> {
     let Some(root_str) = root_path.as_ref() else {

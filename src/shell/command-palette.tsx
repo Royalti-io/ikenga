@@ -22,6 +22,7 @@ import {
 	Layers,
 	Bot,
 	Pin as PinIconGlyph,
+	Sparkles,
 } from 'lucide-react';
 import { fuzzyMatchSection, slugifySectionId, usePinsStore } from '@/lib/shell/pins-store';
 import { useShellStore } from '@/lib/shell/shell-store';
@@ -200,10 +201,15 @@ export function CommandPalette({ open, mode, onOpenChange }: CommandPaletteProps
 										shortcut="⌃⇧T"
 									/>
 									<PaletteItem
+										onSelect={() => go('/projects/new-artifact')}
+										Icon={Sparkles}
+										label="New artifact…"
+										shortcut="⌘⇧N"
+									/>
+									<PaletteItem
 										onSelect={newClaudeSession}
 										Icon={Bot}
 										label="New Chat / Claude Session"
-										shortcut="⌘⇧N"
 									/>
 									<PaletteItem
 										onSelect={() => onOpenChange(false)}

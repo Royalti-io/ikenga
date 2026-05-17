@@ -89,7 +89,7 @@ pub use pkg_webview::{
 };
 pub use projects::{
     project_archive, project_create, project_get_active, project_inventory, project_list,
-    project_scaffold_claude, project_set_active, project_update,
+    project_scaffold_claude, project_set_active, project_skills_list, project_update,
 };
 pub use pty::{
     pty_foreground, pty_foreground_snapshot, pty_kill, pty_resize, pty_spawn, pty_write,

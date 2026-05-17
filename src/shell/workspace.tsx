@@ -254,6 +254,15 @@ export function Workspace() {
 				palette.setOpen(true, e.shiftKey ? 'switcher' : 'projects');
 				return;
 			}
+			// ⌘⇧N — open the artifact creation wizard from anywhere (Phase C
+			// of plans/shell/2026-05-17-projects-and-artifact-wizard.md, D8).
+			// The wizard is mounted by the /projects/new-artifact route, so
+			// we just navigate the focused pane there.
+			if (mod && e.shiftKey && !e.altKey && e.key.toLowerCase() === 'n' && !inEditable) {
+				e.preventDefault();
+				usePaneStore.getState().navigateFocused('/projects/new-artifact');
+				return;
+			}
 			// Don't intercept ⌘W while typing.
 			if (mod && !e.altKey && e.key.toLowerCase() === 'w' && !inEditable) {
 				e.preventDefault();

@@ -2293,6 +2293,32 @@ export async function projectInventory(rootPath: string | null): Promise<Project
 	return invoke<ProjectInventory>('project_inventory', { rootPath });
 }
 
+export interface ProjectSkill {
+	slug: string;
+	name: string | null;
+	description: string | null;
+	/** `'project'` — from `<root>/.claude/skills/`.
+	 *  `'user'`    — from `~/.claude/skills/`. Project entries shadow user
+	 *  entries with the same slug (project wins, matching claude code's
+	 *  resolution order). */
+	source: 'project' | 'user';
+}
+
+/** Enumerate skills available to a project. Walks `<root>/.claude/skills/`
+ *  for `*.md` (single-file format) and folders containing `SKILL.md` (skill-
+ *  folder format), and optionally `~/.claude/skills/` for user-global ones.
+ *  Pure filesystem read with light frontmatter parsing — used by the
+ *  artifact creation wizard's step-3 checklist. */
+export async function projectSkillsList(
+	rootPath: string | null,
+	includeUserGlobal = true
+): Promise<ProjectSkill[]> {
+	return invoke<ProjectSkill[]>('project_skills_list', {
+		rootPath,
+		includeUserGlobal,
+	});
+}
+
 /** Scaffold a minimal `<root>/.claude/{skills,commands}/` + `CLAUDE.md` stub
  *  in the given folder. Idempotent — leaves existing files alone. Used by
  *  Settings → Projects "Initialise new" so a chosen empty folder becomes a
