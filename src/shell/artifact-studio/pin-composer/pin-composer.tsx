@@ -44,6 +44,11 @@ interface PinComposerProps {
 	open: boolean;
 	pick: PickResult | null;
 	artifactPath: string;
+	/** Tab id of the terminal attached to the Studio pane this composer is
+	 *  hosted in, if any. When present, pins route to that PTY regardless of
+	 *  the per-artifact sink setting (attachment > sink). The bare HtmlFrame
+	 *  consumer leaves this undefined. */
+	attachedTerminalId?: string;
 	/** Called when the modal closes. `committed` is true when the close
 	 *  happened after a successful pin submit, false on cancel / dismiss /
 	 *  Escape. Used by the Studio loupe to differentiate "pin landed, drop
@@ -51,7 +56,13 @@ interface PinComposerProps {
 	onClose: (committed: boolean) => void;
 }
 
-export function PinComposer({ open, pick, artifactPath, onClose }: PinComposerProps) {
+export function PinComposer({
+	open,
+	pick,
+	artifactPath,
+	attachedTerminalId,
+	onClose,
+}: PinComposerProps) {
 	const qc = useQueryClient();
 	const [text, setText] = useState('');
 	const [busy, setBusy] = useState(false);
@@ -94,12 +105,21 @@ export function PinComposer({ open, pick, artifactPath, onClose }: PinComposerPr
 			// PTY-detection fallback. Fire-and-forget routing: the
 			// dispatcher logs its own errors and the pin itself is already
 			// persisted, so we close the modal even if routing chokes.
-			const sink = await readArtifactSink(artifactPath);
-			const overrideSink = studioSinkToRouteOverride(sink);
-			// Prefer the PTY id encoded in the sink (terminal:<id>) over the
-			// focused-tab fallback. The Rust dispatcher validates the hint
-			// against the live PTY snapshot and falls back if it's gone.
-			const preferredPtyId = studioSinkToPreferredPtyId(sink) ?? activeTerminalPtyId();
+			let overrideSink: ReturnType<typeof studioSinkToRouteOverride> = undefined;
+			let preferredPtyId: string | null = null;
+			if (attachedTerminalId) {
+				// Embedded-terminal mode wins over the sink popover choice.
+				const ts = useTerminalStore.getState();
+				preferredPtyId = ts.tabs.find((t) => t.id === attachedTerminalId)?.ptyId ?? null;
+				overrideSink = 'terminal';
+			} else {
+				const sink = await readArtifactSink(artifactPath);
+				overrideSink = studioSinkToRouteOverride(sink);
+				// Prefer the PTY id encoded in the sink (terminal:<id>) over the
+				// focused-tab fallback. The Rust dispatcher validates the hint
+				// against the live PTY snapshot and falls back if it's gone.
+				preferredPtyId = studioSinkToPreferredPtyId(sink) ?? activeTerminalPtyId();
+			}
 			void commentRoute({ id: created.id, overrideSink, preferredPtyId }).catch((e) =>
 				console.error('[pin-composer] route failed', e)
 			);

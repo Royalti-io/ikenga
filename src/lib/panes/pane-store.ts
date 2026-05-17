@@ -171,6 +171,25 @@ function pushClosed(stack: PaneView[], views: PaneView[]): PaneView[] {
 	return next.length > MAX_CLOSED_HISTORY ? next.slice(next.length - MAX_CLOSED_HISTORY) : next;
 }
 
+/** Release any Studio-attached terminals owned by the given views.
+ *  Cross-store: imports `useTerminalStore` lazily to dodge cycles.
+ *  Called from close paths so the side pane re-mounts the xterm. */
+function releaseAttachments(views: PaneView[]): void {
+	const ids: string[] = [];
+	for (const v of views) {
+		if (v.kind === 'artifact-studio' && v.attachedTerminalId) {
+			ids.push(v.attachedTerminalId);
+		}
+	}
+	if (ids.length === 0) return;
+	// Lazy import: terminal store imports nothing from pane-store, but we
+	// still avoid a top-level coupling so unit tests can mock cleanly.
+	void import('@/terminal/session-store').then(({ useTerminalStore }) => {
+		const st = useTerminalStore.getState();
+		for (const id of ids) st.detachFromStudio(id);
+	});
+}
+
 export const usePaneStore = create<PaneStoreState>((set, get) => ({
 	...initialState(),
 	closedHistory: [],
@@ -196,6 +215,7 @@ export const usePaneStore = create<PaneStoreState>((set, get) => ({
 		const leaf = findLeaf(root, id);
 		const r = closeLeaf(root, id, focusedId);
 		if (!r.ok) return;
+		if (leaf) releaseAttachments(leaf.tabs);
 		set({
 			root: r.root,
 			focusedId: r.focusedId,
@@ -208,6 +228,7 @@ export const usePaneStore = create<PaneStoreState>((set, get) => ({
 		const leaf = findLeaf(root, focusedId);
 		const r = closeLeaf(root, focusedId, focusedId);
 		if (!r.ok) return;
+		if (leaf) releaseAttachments(leaf.tabs);
 		set({
 			root: r.root,
 			focusedId: r.focusedId,
@@ -273,6 +294,7 @@ export const usePaneStore = create<PaneStoreState>((set, get) => ({
 		const closingView = leaf?.tabs[tabIdx];
 		const r = closeTab(root, id, tabIdx, focusedId);
 		if (!r.ok) return;
+		if (closingView) releaseAttachments([closingView]);
 		set({
 			root: r.root,
 			focusedId: r.focusedId,
@@ -287,6 +309,7 @@ export const usePaneStore = create<PaneStoreState>((set, get) => ({
 		const closingView = leaf.tabs[leaf.activeTabIdx];
 		const r = closeTab(root, focusedId, leaf.activeTabIdx, focusedId);
 		if (!r.ok) return;
+		if (closingView) releaseAttachments([closingView]);
 		set({
 			root: r.root,
 			focusedId: r.focusedId,

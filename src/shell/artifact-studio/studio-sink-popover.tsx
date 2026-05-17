@@ -138,6 +138,10 @@ interface StudioSinkPopoverProps {
 	anchorEl: HTMLElement | null;
 	sink: StudioSink;
 	onSinkChange: (next: StudioSink) => void | Promise<void>;
+	/** When a Studio terminal is attached, the popover collapses to a
+	 *  status line indicating routing is locked to the attachment (D6).
+	 *  The full radio list lives behind a disclosure. */
+	attachmentOverride?: { tabId: string; label: string } | null;
 }
 
 /** Sinks that map 1:1 to a static label (everything except the per-PTY
@@ -164,8 +168,10 @@ export function StudioSinkPopover({
 	anchorEl,
 	sink,
 	onSinkChange,
+	attachmentOverride,
 }: StudioSinkPopoverProps) {
 	const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
+	const [overrideDisclosed, setOverrideDisclosed] = useState(false);
 
 	// Live PTYs surfaced under a "Terminals" subsection. Subscribe to the
 	// store's tabs slice; filter to tabs with a live ptyId. Same query key
@@ -234,58 +240,38 @@ export function StudioSinkPopover({
 			role="menu"
 			aria-label="Pin routing sink"
 		>
-			<div className="border-b border-border px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-				Pin → where?
-			</div>
-			<ul className="py-1">
-				{ORDER.map((opt) => {
-					const isActive = sink === opt;
-					const { title, subtitle } = LABELS[opt];
-					return (
-						<li key={opt}>
-							<button
-								type="button"
-								role="menuitemradio"
-								aria-checked={isActive}
-								onClick={() => {
-									void onSinkChange(opt);
-									onOpenChange(false);
-								}}
-								className={cn(
-									'flex w-full items-start gap-2 px-3 py-1.5 text-left transition-colors',
-									'hover:bg-foreground/5',
-									isActive && 'bg-foreground/5'
-								)}
-							>
-								<Check
-									className={cn(
-										'mt-0.5 h-3 w-3 shrink-0',
-										isActive ? 'text-foreground' : 'text-transparent'
-									)}
-								/>
-								<span className="flex-1 min-w-0">
-									<span className="block text-xs text-foreground">{title}</span>
-									<span className="block text-[10px] text-muted-foreground">{subtitle}</span>
-								</span>
-							</button>
-						</li>
-					);
-				})}
-			</ul>
-			{(liveTabs.length > 0 || missingTerminalId) && (
-				<>
-					<div className="border-t border-border px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-						Terminals
+			{attachmentOverride ? (
+				<div className="border-b border-border px-3 py-2 text-xs">
+					<div className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+						Pin → attached terminal
 					</div>
+					<div className="mt-1 text-foreground">
+						<span className="font-mono text-amber-700 dark:text-amber-400">
+							term {attachmentOverride.tabId.slice(0, 6)}
+						</span>{' '}
+						<span className="text-muted-foreground">· {attachmentOverride.label}</span>
+					</div>
+					<button
+						type="button"
+						onClick={() => setOverrideDisclosed((v) => !v)}
+						className="mt-1 text-[10px] text-muted-foreground hover:text-foreground"
+					>
+						{overrideDisclosed ? 'Hide' : 'Override sink…'}
+					</button>
+				</div>
+			) : (
+				<div className="border-b border-border px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+					Pin → where?
+				</div>
+			)}
+			{(!attachmentOverride || overrideDisclosed) && (
+				<>
 					<ul className="py-1">
-						{liveTabs.map((tab) => {
-							const opt = `terminal:${tab.ptyId}` as StudioSink;
+						{ORDER.map((opt) => {
 							const isActive = sink === opt;
-							const fg = foreground[tab.ptyId];
-							const title = `${tab.title} · ${tab.ptyId.slice(0, 6)}`;
-							const subtitle = fg ? fg.name : '—';
+							const { title, subtitle } = LABELS[opt];
 							return (
-								<li key={tab.id}>
+								<li key={opt}>
 									<button
 										type="button"
 										role="menuitemradio"
@@ -314,23 +300,70 @@ export function StudioSinkPopover({
 								</li>
 							);
 						})}
-						{missingTerminalId && (
-							<li key={`missing:${missingTerminalId}`}>
-								<div
-									className="flex w-full items-start gap-2 px-3 py-1.5 text-left opacity-50"
-									title="The PTY this sink referenced is no longer running. Pick another sink to clear."
-								>
-									<Check className="mt-0.5 h-3 w-3 shrink-0 text-foreground" />
-									<span className="flex-1 min-w-0">
-										<span className="block text-xs text-foreground">
-											term {missingTerminalId.slice(0, 6)}
-										</span>
-										<span className="block text-[10px] text-muted-foreground">(missing)</span>
-									</span>
-								</div>
-							</li>
-						)}
 					</ul>
+					{(liveTabs.length > 0 || missingTerminalId) && (
+						<>
+							<div className="border-t border-border px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+								Terminals
+							</div>
+							<ul className="py-1">
+								{liveTabs.map((tab) => {
+									const opt = `terminal:${tab.ptyId}` as StudioSink;
+									const isActive = sink === opt;
+									const fg = foreground[tab.ptyId];
+									const title = `${tab.title} · ${tab.ptyId.slice(0, 6)}`;
+									const subtitle = fg ? fg.name : '—';
+									return (
+										<li key={tab.id}>
+											<button
+												type="button"
+												role="menuitemradio"
+												aria-checked={isActive}
+												onClick={() => {
+													void onSinkChange(opt);
+													onOpenChange(false);
+												}}
+												className={cn(
+													'flex w-full items-start gap-2 px-3 py-1.5 text-left transition-colors',
+													'hover:bg-foreground/5',
+													isActive && 'bg-foreground/5'
+												)}
+											>
+												<Check
+													className={cn(
+														'mt-0.5 h-3 w-3 shrink-0',
+														isActive ? 'text-foreground' : 'text-transparent'
+													)}
+												/>
+												<span className="flex-1 min-w-0">
+													<span className="block text-xs text-foreground">{title}</span>
+													<span className="block text-[10px] text-muted-foreground">
+														{subtitle}
+													</span>
+												</span>
+											</button>
+										</li>
+									);
+								})}
+								{missingTerminalId && (
+									<li key={`missing:${missingTerminalId}`}>
+										<div
+											className="flex w-full items-start gap-2 px-3 py-1.5 text-left opacity-50"
+											title="The PTY this sink referenced is no longer running. Pick another sink to clear."
+										>
+											<Check className="mt-0.5 h-3 w-3 shrink-0 text-foreground" />
+											<span className="flex-1 min-w-0">
+												<span className="block text-xs text-foreground">
+													term {missingTerminalId.slice(0, 6)}
+												</span>
+												<span className="block text-[10px] text-muted-foreground">(missing)</span>
+											</span>
+										</div>
+									</li>
+								)}
+							</ul>
+						</>
+					)}
 				</>
 			)}
 		</div>

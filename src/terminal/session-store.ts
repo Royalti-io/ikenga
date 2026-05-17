@@ -234,6 +234,24 @@ export const useTerminalStore = create<TerminalState>((set, get) => {
 				return { tabs, activeId };
 			});
 			persistDebounced();
+			// Clear any `artifact-studio` view referencing the removed tab so
+			// the Studio rail falls back to its picker instead of holding a
+			// stale id. Cross-store; lazy import to dodge cycles.
+			void import('@/lib/panes/pane-store').then(({ usePaneStore }) => {
+				const ps = usePaneStore.getState();
+				const visit = (node: import('@/lib/panes/types').PaneNode): void => {
+					if (node.type === 'leaf') {
+						for (const tab of node.tabs) {
+							if (tab.kind === 'artifact-studio' && tab.attachedTerminalId === id) {
+								ps.setStudioAttachedTerminal(node.id, null);
+							}
+						}
+					} else {
+						for (const c of node.children) visit(c);
+					}
+				};
+				visit(ps.root);
+			});
 		},
 
 		rename: (id, title) => {

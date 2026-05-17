@@ -5,10 +5,25 @@ interface ArtifactStudioViewProps {
 	paneId: string;
 	density: 'grid' | 'loupe' | 'compare';
 	vs?: string;
+	attachedTerminalId?: string;
 }
 
 // Pane-registry shim. `kind: 'artifact-studio'` resolves here; the actual
 // layout + chrome lives in shell/artifact-studio/.
-export function ArtifactStudioView({ path, paneId, density, vs }: ArtifactStudioViewProps) {
-	return <ArtifactStudio path={path} paneId={paneId} density={density} vs={vs} />;
+export function ArtifactStudioView({
+	path,
+	paneId,
+	density,
+	vs,
+	attachedTerminalId,
+}: ArtifactStudioViewProps) {
+	return (
+		<ArtifactStudio
+			path={path}
+			paneId={paneId}
+			density={density}
+			vs={vs}
+			attachedTerminalId={attachedTerminalId}
+		/>
+	);
 }

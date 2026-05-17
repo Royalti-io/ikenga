@@ -24,18 +24,26 @@ interface ArtifactStudioProps {
 	paneId: string;
 	density: Density;
 	vs?: string;
+	attachedTerminalId?: string;
 }
 
-export function ArtifactStudio({ path, paneId, density, vs }: ArtifactStudioProps) {
+export function ArtifactStudio({
+	path,
+	paneId,
+	density,
+	vs,
+	attachedTerminalId,
+}: ArtifactStudioProps) {
 	switch (density) {
 		case 'grid':
 			return <StudioGrid path={path} paneId={paneId} />;
 		case 'loupe':
-			return <StudioLoupe path={path} paneId={paneId} />;
+			return <StudioLoupe path={path} paneId={paneId} attachedTerminalId={attachedTerminalId} />;
 		case 'compare':
 			// `vs` is required for compare density. When missing (defensive,
 			// shouldn't happen via the route resolver), fall back to loupe.
-			if (!vs) return <StudioLoupe path={path} paneId={paneId} />;
+			if (!vs)
+				return <StudioLoupe path={path} paneId={paneId} attachedTerminalId={attachedTerminalId} />;
 			return <StudioCompare paneId={paneId} a={path} b={vs} />;
 	}
 }

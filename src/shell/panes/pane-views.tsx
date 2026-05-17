@@ -24,7 +24,13 @@ export function PaneBody({ paneId, view }: PaneBodyProps) {
 			return <ArtifactView path={view.path} paneId={paneId} />;
 		case 'artifact-studio':
 			return (
-				<ArtifactStudioView path={view.path} paneId={paneId} density={view.density} vs={view.vs} />
+				<ArtifactStudioView
+					path={view.path}
+					paneId={paneId}
+					density={view.density}
+					vs={view.vs}
+					attachedTerminalId={view.attachedTerminalId}
+				/>
 			);
 		case 'scratchpad':
 			return <ScratchpadView scope={view.scope} name={view.name} />;

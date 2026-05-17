@@ -43,6 +43,7 @@ import { StudioEngineChat } from '@/shell/artifact-studio/studio-engine-chat';
 import { StudioCommentMode } from '@/shell/artifact-studio/studio-comment-mode';
 import { StudioPromoteDialog } from '@/shell/artifact-studio/studio-promote-dialog';
 import { StudioTextEditMode } from '@/shell/artifact-studio/studio-text-edit-mode';
+import { StudioTerminal, TerminalChip } from '@/shell/artifact-studio/studio-terminal';
 import { PinComposer, type PickResult } from '@/shell/artifact-studio/pin-composer';
 import {
 	StudioSinkPopover,
@@ -63,9 +64,10 @@ import { ArtifactManifestSchema, type ArtifactManifest } from '@ikenga/contract/
 interface StudioLoupeProps {
 	path: string;
 	paneId: string;
+	attachedTerminalId?: string;
 }
 
-export function StudioLoupe({ path, paneId }: StudioLoupeProps) {
+export function StudioLoupe({ path, paneId, attachedTerminalId }: StudioLoupeProps) {
 	const [source, setSource] = useState<string | null>(null);
 	const [savedSource, setSavedSource] = useState<string | null>(null);
 	const [loadError, setLoadError] = useState<string | null>(null);
@@ -74,8 +76,43 @@ export function StudioLoupe({ path, paneId }: StudioLoupeProps) {
 	const [promoteOpen, setPromoteOpen] = useState(false);
 	const [sinkOpen, setSinkOpen] = useState(false);
 	const [pendingPick, setPendingPick] = useState<PickResult | null>(null);
-	const [rightTab, setRightTab] = useRightRailTab('chat');
+	const [rightTab, setRightTab] = useRightRailTab(attachedTerminalId ? 'terminal' : 'chat');
 	const { sink, setSink } = useArtifactSink(path);
+
+	// When an attachment lands (e.g. picker selection), snap the rail to the
+	// terminal tab so the embedded PTY is immediately visible. Detach leaves
+	// the rail wherever it was.
+	const lastAttachRef = useRef<string | undefined>(attachedTerminalId);
+	useEffect(() => {
+		if (attachedTerminalId && attachedTerminalId !== lastAttachRef.current) {
+			setRightTab('terminal');
+		}
+		lastAttachRef.current = attachedTerminalId;
+	}, [attachedTerminalId, setRightTab]);
+
+	const onAttachTerminal = useCallback(
+		(tabId: string) => {
+			usePaneStore.getState().setStudioAttachedTerminal(paneId, tabId);
+		},
+		[paneId]
+	);
+	const onDetachTerminal = useCallback(() => {
+		if (attachedTerminalId) {
+			useTerminalStore.getState().detachFromStudio(attachedTerminalId);
+		}
+		usePaneStore.getState().setStudioAttachedTerminal(paneId, null);
+	}, [paneId, attachedTerminalId]);
+
+	const attachedTabTitle = useTerminalStore((s) =>
+		attachedTerminalId ? s.tabs.find((t) => t.id === attachedTerminalId)?.title : undefined
+	);
+	const attachmentOverride = useMemo(
+		() =>
+			attachedTerminalId
+				? { tabId: attachedTerminalId, label: attachedTabTitle ?? 'terminal' }
+				: null,
+		[attachedTerminalId, attachedTabTitle]
+	);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -201,6 +238,9 @@ export function StudioLoupe({ path, paneId }: StudioLoupeProps) {
 				commentMode={commentMode}
 				textEditMode={textEditMode}
 				sink={sink}
+				attachedTerminalId={attachedTerminalId}
+				onShowTerminalTab={() => setRightTab('terminal')}
+				onDetachTerminal={onDetachTerminal}
 				onCommentModeToggle={() => {
 					setCommentMode((v) => !v);
 					// Comment + text-edit modes are mutually exclusive — they both
@@ -239,7 +279,12 @@ export function StudioLoupe({ path, paneId }: StudioLoupeProps) {
 					<Panel defaultSize={70} minSize={30}>
 						<div className="relative h-full w-full">
 							<Renderer path={path} paneId={paneId} density="loupe" source="pane" />
-							<LoupePinOverlay path={path} paneId={paneId} sink={sink} />
+							<LoupePinOverlay
+								path={path}
+								paneId={paneId}
+								sink={sink}
+								attachedTerminalId={attachedTerminalId}
+							/>
 							{commentMode && <StudioCommentMode paneId={paneId} onPick={setPendingPick} />}
 							{textEditMode && source !== null && (
 								<StudioTextEditMode
@@ -265,6 +310,15 @@ export function StudioLoupe({ path, paneId }: StudioLoupeProps) {
 										onChange={(next) => updateManifest(next)}
 									/>
 								),
+								terminal: (
+									<StudioTerminal
+										paneId={paneId}
+										artifactPath={path}
+										attachedTerminalId={attachedTerminalId ?? null}
+										onAttach={onAttachTerminal}
+										onDetach={onDetachTerminal}
+									/>
+								),
 							}}
 						/>
 					</Panel>
@@ -282,6 +336,7 @@ export function StudioLoupe({ path, paneId }: StudioLoupeProps) {
 				open={pendingPick !== null}
 				pick={pendingPick}
 				artifactPath={path}
+				attachedTerminalId={attachedTerminalId}
 				onClose={(committed) => {
 					setPendingPick(null);
 					// Drop comment-mode after a successful pin so the user isn't
@@ -302,6 +357,7 @@ export function StudioLoupe({ path, paneId }: StudioLoupeProps) {
 				}
 				sink={sink}
 				onSinkChange={(next) => void setSink(next)}
+				attachmentOverride={attachmentOverride}
 			/>
 		</div>
 	);
@@ -330,10 +386,12 @@ function LoupePinOverlay({
 	path,
 	paneId,
 	sink,
+	attachedTerminalId,
 }: {
 	path: string;
 	paneId: string;
 	sink: StudioSink;
+	attachedTerminalId?: string;
 }) {
 	const qc = useQueryClient();
 	const overlayRef = useRef<HTMLDivElement | null>(null);
@@ -444,12 +502,22 @@ function LoupePinOverlay({
 	const onRoutePin = useCallback(
 		async (pin: Comment) => {
 			const ts = useTerminalStore.getState();
-			const activeTabPtyId = ts.tabs.find((t) => t.id === ts.activeId)?.ptyId ?? null;
-			// Prefer the PTY id encoded in the sink (terminal:<id>) over the
-			// focused-tab fallback. The override sink follows the same per-
-			// artifact setting; `terminal:<id>` collapses to 'terminal'.
-			const preferredPtyId = studioSinkToPreferredPtyId(sink) ?? activeTabPtyId;
-			const overrideSink = studioSinkToRouteOverride(sink);
+			let preferredPtyId: string | null = null;
+			let overrideSink: ReturnType<typeof studioSinkToRouteOverride> = undefined;
+
+			if (attachedTerminalId) {
+				// Embedded-terminal mode: pins route to the attached PTY,
+				// bypassing the sink-popover choice entirely.
+				const attached = ts.tabs.find((t) => t.id === attachedTerminalId);
+				preferredPtyId = attached?.ptyId ?? null;
+				overrideSink = 'terminal';
+			} else {
+				// No-attachment path (Phase A): prefer sink-encoded PTY,
+				// fall back to focused tab.
+				const activeTabPtyId = ts.tabs.find((t) => t.id === ts.activeId)?.ptyId ?? null;
+				preferredPtyId = studioSinkToPreferredPtyId(sink) ?? activeTabPtyId;
+				overrideSink = studioSinkToRouteOverride(sink);
+			}
 			try {
 				await commentRoute({ id: pin.id, preferredPtyId, overrideSink });
 				qc.invalidateQueries({ queryKey: ['artifact-studio', 'loupe', 'pins', path] });
@@ -457,7 +525,7 @@ function LoupePinOverlay({
 				console.error('[loupe] pin route failed', e);
 			}
 		},
-		[qc, path, sink]
+		[qc, path, sink, attachedTerminalId]
 	);
 
 	const onResolvePin = useCallback(
@@ -830,6 +898,9 @@ interface StudioChromeProps {
 	commentMode: boolean;
 	textEditMode: boolean;
 	sink: StudioSink;
+	attachedTerminalId?: string;
+	onShowTerminalTab: () => void;
+	onDetachTerminal: () => void;
 	onCommentModeToggle: () => void;
 	onTextEditModeToggle: () => void;
 	onSinkOpen: () => void;
@@ -846,6 +917,9 @@ function StudioChrome({
 	commentMode,
 	textEditMode,
 	sink,
+	attachedTerminalId,
+	onShowTerminalTab,
+	onDetachTerminal,
 	onCommentModeToggle,
 	onTextEditModeToggle,
 	onSinkOpen,
@@ -897,6 +971,13 @@ function StudioChrome({
 				<ChromeButton onClick={onPromote} title="Promote to folder…" aria-label="Promote to folder">
 					<FolderTree className="h-3.5 w-3.5" />
 				</ChromeButton>
+				{attachedTerminalId && (
+					<TerminalChip
+						tabId={attachedTerminalId}
+						onClick={onShowTerminalTab}
+						onDetach={onDetachTerminal}
+					/>
+				)}
 				<ChromeButton
 					onClick={onSinkOpen}
 					active={sink !== 'inherit'}

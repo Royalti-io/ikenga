@@ -9,16 +9,23 @@
 // content and decides which tabs are visible.
 
 import { useMemo, useState, type ReactNode } from 'react';
-import { Code as CodeIcon, MessageSquare, Settings as ManifestIcon, TreePine } from 'lucide-react';
+import {
+	Code as CodeIcon,
+	MessageSquare,
+	Settings as ManifestIcon,
+	Terminal as TerminalIcon,
+	TreePine,
+} from 'lucide-react';
 import { cn } from '@/components/ui/utils';
 
-export type RightRailTab = 'chat' | 'code' | 'dom' | 'manifest';
+export type RightRailTab = 'chat' | 'code' | 'dom' | 'manifest' | 'terminal';
 
 const TAB_GLYPHS: Record<RightRailTab, ReactNode> = {
 	chat: <MessageSquare className="h-3 w-3" />,
 	code: <CodeIcon className="h-3 w-3" />,
 	dom: <TreePine className="h-3 w-3" />,
 	manifest: <ManifestIcon className="h-3 w-3" />,
+	terminal: <TerminalIcon className="h-3 w-3" />,
 };
 
 const TAB_LABELS: Record<RightRailTab, string> = {
@@ -26,6 +33,7 @@ const TAB_LABELS: Record<RightRailTab, string> = {
 	code: 'Code',
 	dom: 'DOM',
 	manifest: 'Manifest',
+	terminal: 'Terminal',
 };
 
 export interface RightRailSlots {
@@ -33,6 +41,7 @@ export interface RightRailSlots {
 	code?: ReactNode;
 	dom?: ReactNode;
 	manifest?: ReactNode;
+	terminal?: ReactNode;
 }
 
 interface RightRailProps {
@@ -47,8 +56,9 @@ export function RightRail({ tab, onChangeTab, slots }: RightRailProps) {
 		if (slots.code !== undefined) out.push('code');
 		if (slots.dom !== undefined) out.push('dom');
 		if (slots.manifest !== undefined) out.push('manifest');
+		if (slots.terminal !== undefined) out.push('terminal');
 		return out;
-	}, [slots.code, slots.dom, slots.manifest]);
+	}, [slots.code, slots.dom, slots.manifest, slots.terminal]);
 
 	// Defensive: if the active tab was hidden by a density change, snap to
 	// Chat so we don't render an undefined slot.
@@ -60,7 +70,9 @@ export function RightRail({ tab, onChangeTab, slots }: RightRailProps) {
 				? slots.code
 				: active === 'dom'
 					? slots.dom
-					: slots.manifest;
+					: active === 'manifest'
+						? slots.manifest
+						: slots.terminal;
 
 	return (
 		<div className="flex h-full min-h-0 flex-col border-l border-border bg-background">
