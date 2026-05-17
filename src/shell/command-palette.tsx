@@ -327,6 +327,8 @@ function viewLabelShort(view: PaneView): string {
 			return `Chat · ${view.sessionId.slice(0, 8)}`;
 		case 'artifact':
 			return `Artifact ${view.path}`;
+		case 'artifact-studio':
+			return 'Artifact studio';
 		case 'scratchpad':
 			return `Scratchpad ${view.name}`;
 		case 'tool-output':
@@ -451,6 +453,8 @@ function iconForView(view: PaneView): typeof Inbox {
 		case 'chat':
 			return MessageSquare;
 		case 'artifact':
+			return FolderOpen;
+		case 'artifact-studio':
 			return FolderOpen;
 		case 'scratchpad':
 			return FileText;

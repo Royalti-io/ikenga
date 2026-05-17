@@ -77,6 +77,8 @@ function viewTitle(view: PaneView): string {
 			return view.sessionId;
 		case 'artifact':
 			return view.path;
+		case 'artifact-studio':
+			return 'artifact-studio';
 		case 'scratchpad':
 			return `${view.scope}/${view.name}`;
 		case 'tool-output':
