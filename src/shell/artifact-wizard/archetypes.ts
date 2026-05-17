@@ -1,16 +1,10 @@
-// Archetype table for the artifact creation wizard (Phase C of
-// plans/shell/2026-05-17-projects-and-artifact-wizard.md, decision D5).
+// Archetype table for the artifact creation wizard.
 //
-// Each archetype is metadata + a starter scaffold; the actual visual
-// content is the agent's job (D4 — wizard scaffolds, agent designs).
-// `manifest.notes.kind` records the archetype slug so existing schemas
-// keep working without a schema rev (R-6).
-//
-// Starter templates embed an `ikenga-manifest` script tag using the same
-// `<script type="application/json" id="ikenga-manifest">` shape that
-// `extractManifestJson` parses (see src/lib/artifact/manifest-from-file.ts).
-// The template uses string interpolation for the manifest body so we don't
-// duplicate the JSON shape in another file.
+// Each archetype is metadata used to brief the agent. Per the post-rewrite
+// scope (2026-05-17): the wizard no longer scaffolds files. The agent
+// decides where artifacts live (or asks the user). Each archetype still
+// carries a `defaultSubdir` + slug suggestion that the kickoff prompt
+// surfaces as a hint — the agent is free to ignore it.
 
 export type ArchetypeSlug =
 	| 'dashboard'
@@ -23,135 +17,44 @@ export type ArchetypeSlug =
 
 export interface KickoffCtx {
 	project: { display_name: string; root_path: string | null };
-	folder: string;
+	/** Suggested filename slug (derived from the wizard's Name field). The
+	 *  agent uses this as a starting point; it can rename. */
 	slug: string;
-	skills: string[];
-	userIntent: string;
 }
 
 export interface Archetype {
 	slug: ArchetypeSlug;
 	label: string;
-	/** Lucide icon name. The wizard resolves these to React components via
-	 *  the `icons` map from `lucide-react` so we keep this file dependency-
-	 *  light (it has no React imports). */
+	/** Lucide icon name. Resolved at render time via `lucide-react`'s map so
+	 *  this file stays React-free. */
 	glyphName: string;
 	description: string;
+	/** Suggested default subdirectory under the project root, surfaced in
+	 *  the kickoff prompt. Not enforced — the agent picks the final path. */
 	defaultSubdir: string;
-	defaultSkills: string[];
 	kickoffPrompt: (ctx: KickoffCtx) => string;
 	viewport: { w: number; h: number };
 }
 
-// ─── Starter template ────────────────────────────────────────────────────
-//
-// Shared HTML scaffold parameterised by archetype + name. Minimal — just
-// enough to validate as an artifact (manifest tag present) and render a
-// "scaffolded by Ikenga" placeholder before the agent fills it in.
+// ─── Kickoff prompt ──────────────────────────────────────────────────────
 
-interface StarterArgs {
-	name: string;
-	slug: string;
-	archetype: ArchetypeSlug;
-	viewport: { w: number; h: number };
-	userIntent: string;
-}
-
-export function buildStarterTemplate(args: StarterArgs): string {
-	const manifest = {
-		id: args.slug,
-		name: args.name,
-		version: '0.1',
-		viewport: { w: args.viewport.w, h: args.viewport.h },
-		notes: {
-			kind: args.archetype,
-			...(args.userIntent.trim().length > 0 ? { userIntent: args.userIntent.trim() } : {}),
-		},
-	};
-	const json = JSON.stringify(manifest, null, 2);
-	return `<!DOCTYPE html>
-<html lang="en">
-<head>
-	<script type="application/json" id="ikenga-manifest">
-${json}
-	</script>
-	<meta charset="utf-8" />
-	<meta name="viewport" content="width=device-width, initial-scale=1" />
-	<title>${escapeHtml(args.name)}</title>
-	<style>
-		:root { color-scheme: light dark; }
-		* { box-sizing: border-box; }
-		html, body { margin: 0; padding: 0; }
-		body {
-			font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-			min-height: 100vh;
-			display: flex;
-			align-items: center;
-			justify-content: center;
-			background: Canvas;
-			color: CanvasText;
-		}
-		.scaffold {
-			max-width: 480px;
-			padding: 32px;
-			text-align: center;
-			border: 1px dashed currentColor;
-			border-radius: 12px;
-			opacity: 0.8;
-		}
-		.scaffold h1 { margin: 0 0 8px; font-size: 18px; font-weight: 600; }
-		.scaffold p { margin: 0; font-size: 13px; line-height: 1.5; opacity: 0.7; }
-		.kind { font-family: ui-monospace, "JetBrains Mono", monospace; font-size: 11px; opacity: 0.6; }
-	</style>
-</head>
-<body>
-	<main class="scaffold">
-		<div class="kind">archetype: ${args.archetype}</div>
-		<h1>${escapeHtml(args.name)}</h1>
-		<p>Scaffolded by Ikenga. The attached agent will replace this placeholder.</p>
-	</main>
-</body>
-</html>
-`;
-}
-
-function escapeHtml(s: string): string {
-	return s
-		.replace(/&/g, '&amp;')
-		.replace(/</g, '&lt;')
-		.replace(/>/g, '&gt;')
-		.replace(/"/g, '&quot;')
-		.replace(/'/g, '&#39;');
-}
-
-// ─── Kickoff prompt template ─────────────────────────────────────────────
-//
-// Per the plan's example (one-pager), the kickoff prompt instructs the
-// agent on the artifact path + project context + skills, then asks for a
-// short clarifying volley before the build. `userIntent` is folded in only
-// when present so blank-intent starts get a generic-enough prompt.
-
-function defaultKickoff(archetypeLabel: string) {
+function defaultKickoff(archetypeLabel: string, defaultSubdir: string) {
 	return (ctx: KickoffCtx): string => {
+		const root = ctx.project.root_path ?? '<no root>';
+		const suggestedPath = `${defaultSubdir}/${ctx.slug}.html`;
 		const lines: string[] = [];
-		const artifactPath = `${ctx.folder}/${ctx.slug}.html`;
-		lines.push(`You're building a ${archetypeLabel} at \`${artifactPath}\`.`);
-		lines.push('');
-		lines.push('Context:');
-		lines.push(`- Project: ${ctx.project.display_name} (${ctx.project.root_path ?? '<no root>'})`);
-		lines.push(`- Archetype: ${archetypeLabel}`);
-		if (ctx.skills.length > 0) {
-			lines.push(`- Skills enabled: ${ctx.skills.join(', ')}`);
-		}
-		if (ctx.userIntent.trim().length > 0) {
-			lines.push('');
-			lines.push(`User intent: ${ctx.userIntent.trim()}`);
-		}
+		lines.push(
+			`Build a ${archetypeLabel} for project **${ctx.project.display_name}** (\`${root}\`).`
+		);
 		lines.push('');
 		lines.push(
-			'Start by asking 2-3 clarifying questions about audience, tone, and structure. ' +
-				'Then propose a layout before writing the artifact. Use the ' +
-				'`ikenga-artifact-builder` skill for the build phase.'
+			`Suggested path: \`${suggestedPath}\` (under the project root). Use that, or ask me where it should live.`
+		);
+		lines.push('');
+		lines.push(
+			'Read `.claude/skills/` in this project to know which sub-skills are available, ' +
+				'then ask 2-3 clarifying questions about audience, tone, and structure before ' +
+				'writing anything. Use the `ikenga-artifact-builder` skill for the build phase.'
 		);
 		return lines.join('\n');
 	};
@@ -166,8 +69,7 @@ export const ARCHETYPES: readonly Archetype[] = [
 		glyphName: 'LayoutDashboard',
 		description: 'KPI grid, charts, tables. For status views and operational at-a-glance reads.',
 		defaultSubdir: 'dashboards',
-		defaultSkills: ['ikenga-artifact-builder', 'frontend-design'],
-		kickoffPrompt: defaultKickoff('dashboard'),
+		kickoffPrompt: defaultKickoff('dashboard', 'dashboards'),
 		viewport: { w: 1440, h: 900 },
 	},
 	{
@@ -176,8 +78,7 @@ export const ARCHETYPES: readonly Archetype[] = [
 		glyphName: 'FileText',
 		description: 'A single hero + supporting sections. Pitches, summaries, decision docs.',
 		defaultSubdir: 'one-pagers',
-		defaultSkills: ['ikenga-artifact-builder', 'frontend-design'],
-		kickoffPrompt: defaultKickoff('one-pager'),
+		kickoffPrompt: defaultKickoff('one-pager', 'one-pagers'),
 		viewport: { w: 1440, h: 900 },
 	},
 	{
@@ -186,8 +87,7 @@ export const ARCHETYPES: readonly Archetype[] = [
 		glyphName: 'Presentation',
 		description: 'Sequential slide deck with speaker notes. 16:9 viewport.',
 		defaultSubdir: 'slides',
-		defaultSkills: ['huashu-design', 'ikenga-artifact-builder'],
-		kickoffPrompt: defaultKickoff('slide deck'),
+		kickoffPrompt: defaultKickoff('slide deck', 'slides'),
 		viewport: { w: 1920, h: 1080 },
 	},
 	{
@@ -196,8 +96,7 @@ export const ARCHETYPES: readonly Archetype[] = [
 		glyphName: 'Image',
 		description: 'Square (1080×1080) social card. Single dense composition.',
 		defaultSubdir: 'social',
-		defaultSkills: ['huashu-design'],
-		kickoffPrompt: defaultKickoff('social card'),
+		kickoffPrompt: defaultKickoff('social card', 'social'),
 		viewport: { w: 1080, h: 1080 },
 	},
 	{
@@ -206,8 +105,7 @@ export const ARCHETYPES: readonly Archetype[] = [
 		glyphName: 'Globe',
 		description: 'Multi-section landing-style site embedded in a single HTML file.',
 		defaultSubdir: 'sites',
-		defaultSkills: ['frontend-design', 'ikenga-artifact-builder'],
-		kickoffPrompt: defaultKickoff('site'),
+		kickoffPrompt: defaultKickoff('site', 'sites'),
 		viewport: { w: 1440, h: 900 },
 	},
 	{
@@ -216,8 +114,7 @@ export const ARCHETYPES: readonly Archetype[] = [
 		glyphName: 'ScrollText',
 		description: 'Scroll-driven narrative with pinned sections and progressive reveals.',
 		defaultSubdir: 'scrollytelling',
-		defaultSkills: ['scrollytelling', 'frontend-design'],
-		kickoffPrompt: defaultKickoff('scrollytelling experience'),
+		kickoffPrompt: defaultKickoff('scrollytelling experience', 'scrollytelling'),
 		viewport: { w: 1440, h: 900 },
 	},
 	{
@@ -226,8 +123,7 @@ export const ARCHETYPES: readonly Archetype[] = [
 		glyphName: 'Square',
 		description: 'Empty artifact. The agent picks the structure from your intent.',
 		defaultSubdir: 'artifacts',
-		defaultSkills: ['ikenga-artifact-builder'],
-		kickoffPrompt: defaultKickoff('artifact'),
+		kickoffPrompt: defaultKickoff('artifact', 'artifacts'),
 		viewport: { w: 1440, h: 900 },
 	},
 ];
@@ -238,8 +134,8 @@ export function findArchetype(slug: string | null | undefined): Archetype | null
 }
 
 /** Derive a filesystem slug from a display name. Lowercase, ASCII-only, with
- *  `-` separators. Empty input → `'untitled'`. Used by the wizard before
- *  collision-checking against existing files. */
+ *  `-` separators. Empty input → `'untitled'`. Surfaced to the agent as a
+ *  suggestion; the agent owns the final filename. */
 export function slugifyName(name: string): string {
 	const cleaned = name
 		.toLowerCase()
