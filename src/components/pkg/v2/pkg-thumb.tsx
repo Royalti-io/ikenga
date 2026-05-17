@@ -34,7 +34,13 @@ export function useScreenshotSrc(ref: PkgScreenshotRef | null): string | null {
  * teal, gold, coral, plum, sage) instead of full random hues — keeps the
  * empty-state thumbs from clashing with the workspace theme.
  */
-const TINT_PALETTE: Array<{ bg: string; ring: string; fg: string }> = [
+export interface TintColors {
+	bg: string;
+	ring: string;
+	fg: string;
+}
+
+export const TINT_PALETTE: TintColors[] = [
 	// Each tile lays a tinted radial gradient over a neutral surface so the
 	// icon stays legible across both light + dark modes.
 	{ bg: 'hsl(20 55% 14%)', ring: 'hsl(20 55% 28%)', fg: 'hsl(20 70% 70%)' }, // warm
@@ -45,13 +51,13 @@ const TINT_PALETTE: Array<{ bg: string; ring: string; fg: string }> = [
 	{ bg: 'hsl(140 26% 12%)', ring: 'hsl(140 30% 24%)', fg: 'hsl(140 38% 60%)' }, // sage
 ];
 
-function tintFor(id: string): { bg: string; ring: string; fg: string } {
+export function tintFor(id: string): TintColors {
 	let hash = 0;
 	for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) | 0;
 	return TINT_PALETTE[Math.abs(hash) % TINT_PALETTE.length];
 }
 
-function iconForKind(kind: string) {
+export function iconForKind(kind: string) {
 	if (kind === 'engine') return Bolt;
 	if (kind === 'mcp') return Workflow;
 	if (kind === 'skill') return Cog;

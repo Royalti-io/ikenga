@@ -145,6 +145,159 @@ function descriptionFor(manifest: PkgManifestPreview | null): string {
 	return '';
 }
 
+/**
+ * Pure derivation of {@link DerivedPkgs} from raw query data. Extracted
+ * from {@link usePkgsDerived} so it can be tested without a QueryClient.
+ */
+export interface DeriveInputs {
+	statusData: { installed: PkgInstalledSummary[] } | undefined;
+	statusLoading?: boolean;
+	statusError?: Error | null;
+	trustData?: PkgTrustEntry[];
+	trustLoading?: boolean;
+	trustError?: Error | null;
+	violationsData?: PkgPermissionViolation[];
+	violationsError?: Error | null;
+	manifestsData?: Record<string, PkgManifestPreview | { _error: string }>;
+	registryEntries?: RegistryEntry[];
+}
+
+export function deriveFromQueries(inputs: DeriveInputs): DerivedPkgs {
+	const {
+		statusData,
+		statusLoading = false,
+		statusError = null,
+		trustData = [],
+		trustLoading = false,
+		trustError = null,
+		violationsData = [],
+		violationsError = null,
+		manifestsData,
+		registryEntries = [],
+	} = inputs;
+
+	const error =
+		statusError?.message ?? trustError?.message ?? violationsError?.message ?? null;
+
+	if (!statusData) {
+		return { ...EMPTY, isLoading: statusLoading, error };
+	}
+
+	const trustByPkg = new Map<string, PkgTrustEntry>();
+	for (const t of trustData) trustByPkg.set(t.pkg_id, t);
+
+	const violationsByPkg = new Map<string, PkgPermissionViolation[]>();
+	for (const v of violationsData) {
+		const list = violationsByPkg.get(v.pkg_id) ?? [];
+		list.push(v);
+		violationsByPkg.set(v.pkg_id, list);
+	}
+
+	const installedRows: PkgRowV2[] = (statusData.installed ?? []).map((s) => {
+		const m = manifestsData?.[s.install_path];
+		const manifest = m && !('_error' in m) ? (m as PkgManifestPreview) : null;
+		const kind = manifest?.kind ?? 'ui';
+		const origin = classifyOrigin(s, kind);
+		const sidecars = summarizeSidecars(manifest);
+		const state: RowState = !s.enabled ? 'disabled' : sidecars.length ? 'running' : 'idle';
+		const screenshots: PkgScreenshotRef[] = (manifest?.screenshots ?? []).map((shot) => ({
+			kind: 'installed-pkg' as const,
+			pkgId: s.id,
+			path: shot.path,
+			caption: shot.caption ?? null,
+			src: '' as const,
+		}));
+		return {
+			id: s.id,
+			name: manifest?.name ?? s.id,
+			version: s.version,
+			origin,
+			kind,
+			state,
+			enabled: s.enabled,
+			desc: descriptionFor(manifest),
+			installPath: s.install_path,
+			installedAt: s.installed_at,
+			latest: null, // filled below from registry
+			scopes: summarizeScopes(manifest?.permissions),
+			routes: summarizeRoutes(manifest),
+			sidecars,
+			trust: trustByPkg.get(s.id) ?? null,
+			violations: violationsByPkg.get(s.id) ?? [],
+			screenshots,
+			installed: s,
+			manifest,
+			registryEntry: null,
+		};
+	});
+
+	// Cross-reference registry for updates + dangling registry entries.
+	const installedById = new Set(installedRows.map((r) => r.id));
+	for (const row of installedRows) {
+		const match = registryEntries.find((e) => e.name === row.id);
+		if (match && match.latest && match.latest !== row.version) {
+			row.latest = match.latest;
+		}
+	}
+	const registryRows: PkgRowV2[] = registryEntries
+		.filter((e) => !installedById.has(e.name))
+		.map((e) => {
+			const heroShot = (e as { screenshot?: string }).screenshot ?? null;
+			const screenshots: PkgScreenshotRef[] = heroShot
+				? [{ kind: 'url' as const, src: heroShot, caption: null }]
+				: [];
+			return {
+				id: e.name,
+				name: e.name,
+				version: e.latest,
+				origin: 'registry' as const,
+				kind: e.kind ?? 'ui',
+				state: 'not-installed' as const,
+				enabled: false,
+				desc: e.description ?? '',
+				installPath: '(not installed)',
+				installedAt: null,
+				latest: e.latest,
+				scopes: [],
+				routes: [],
+				sidecars: [],
+				trust: null,
+				violations: [],
+				screenshots,
+				installed: null,
+				manifest: null,
+				registryEntry: e,
+			};
+		});
+
+	const rows = [...installedRows, ...registryRows];
+	const updates = installedRows.filter((r) => r.latest && r.latest !== r.version);
+	const trust = installedRows.filter((r) => r.trust?.state === 'needs_approval');
+	const violationsRows = installedRows.filter((r) => r.violations.length > 0);
+	const builtin = installedRows.filter((r) => r.origin === 'builtin');
+	const engine = installedRows.filter((r) => r.origin === 'engine');
+	const user = installedRows.filter((r) => r.origin === 'user');
+	const sidecarsRunning = installedRows.reduce(
+		(n, r) => n + (r.state === 'running' ? r.sidecars.length : 0),
+		0
+	);
+
+	return {
+		rows,
+		installed: installedRows,
+		registry: registryRows,
+		updates,
+		trust,
+		violations: violationsRows,
+		builtin,
+		engine,
+		user,
+		sidecarsRunning,
+		isLoading: statusLoading || trustLoading,
+		error,
+	};
+}
+
 export function usePkgsDerived(): DerivedPkgs {
 	const status = useQuery({
 		queryKey: ['pkg', 'kernel-status'],
@@ -186,145 +339,31 @@ export function usePkgsDerived(): DerivedPkgs {
 
 	const registry = useRegistryIndex();
 
-	return useMemo<DerivedPkgs>(() => {
-		const error =
-			(status.error as Error | null)?.message ??
-			(trustList.error as Error | null)?.message ??
-			(violations.error as Error | null)?.message ??
-			null;
-
-		if (!status.data) {
-			return { ...EMPTY, isLoading: status.isLoading, error };
-		}
-
-		const trustByPkg = new Map<string, PkgTrustEntry>();
-		for (const t of trustList.data ?? []) trustByPkg.set(t.pkg_id, t);
-
-		const violationsByPkg = new Map<string, PkgPermissionViolation[]>();
-		for (const v of violations.data ?? []) {
-			const list = violationsByPkg.get(v.pkg_id) ?? [];
-			list.push(v);
-			violationsByPkg.set(v.pkg_id, list);
-		}
-
-		const installedRows: PkgRowV2[] = (status.data.installed ?? []).map((s) => {
-			const m = manifests.data?.[s.install_path];
-			const manifest = m && !('_error' in m) ? (m as PkgManifestPreview) : null;
-			const kind = manifest?.kind ?? 'ui';
-			const origin = classifyOrigin(s, kind);
-			const sidecars = summarizeSidecars(manifest);
-			const state: RowState = !s.enabled ? 'disabled' : sidecars.length ? 'running' : 'idle';
-			const screenshots: PkgScreenshotRef[] = (manifest?.screenshots ?? []).map((shot) => ({
-				kind: 'installed-pkg' as const,
-				pkgId: s.id,
-				path: shot.path,
-				caption: shot.caption ?? null,
-				src: '' as const,
-			}));
-			return {
-				id: s.id,
-				name: manifest?.name ?? s.id,
-				version: s.version,
-				origin,
-				kind,
-				state,
-				enabled: s.enabled,
-				desc: descriptionFor(manifest),
-				installPath: s.install_path,
-				installedAt: s.installed_at,
-				latest: null, // filled below from registry
-				scopes: summarizeScopes(manifest?.permissions),
-				routes: summarizeRoutes(manifest),
-				sidecars,
-				trust: trustByPkg.get(s.id) ?? null,
-				violations: violationsByPkg.get(s.id) ?? [],
-				screenshots,
-				installed: s,
-				manifest,
-				registryEntry: null,
-			};
-		});
-
-		// Cross-reference registry for updates + dangling registry entries.
-		const registryEntries: RegistryEntry[] = registry.data?.index?.pkgs ?? [];
-		const installedById = new Set(installedRows.map((r) => r.id));
-		for (const row of installedRows) {
-			const match = registryEntries.find((e) => e.name === row.id);
-			if (match && match.latest && match.latest !== row.version) {
-				row.latest = match.latest;
-			}
-		}
-		const registryRows: PkgRowV2[] = registryEntries
-			.filter((e) => !installedById.has(e.name))
-			.map((e) => {
-				// Registry entries publish at most one hero screenshot URL (full
-				// per-version list lives on PkgDetail). For the catalog row that's
-				// enough; the loupe could lazy-load the detail to get the full set.
-				const heroShot = (e as { screenshot?: string }).screenshot ?? null;
-				const screenshots: PkgScreenshotRef[] = heroShot
-					? [{ kind: 'url' as const, src: heroShot, caption: null }]
-					: [];
-				return {
-					id: e.name,
-					name: e.name,
-					version: e.latest,
-					origin: 'registry' as const,
-					kind: e.kind ?? 'ui',
-					state: 'not-installed' as const,
-					enabled: false,
-					desc: e.description ?? '',
-					installPath: '(not installed)',
-					installedAt: null,
-					latest: e.latest,
-					scopes: [],
-					routes: [],
-					sidecars: [],
-					trust: null,
-					violations: [],
-					screenshots,
-					installed: null,
-					manifest: null,
-					registryEntry: e,
-				};
-			});
-
-		const rows = [...installedRows, ...registryRows];
-		const installed = installedRows;
-		const updates = installedRows.filter((r) => r.latest && r.latest !== r.version);
-		const trust = installedRows.filter((r) => r.trust?.state === 'needs_approval');
-		const violationsRows = installedRows.filter((r) => r.violations.length > 0);
-		const builtin = installedRows.filter((r) => r.origin === 'builtin');
-		const engine = installedRows.filter((r) => r.origin === 'engine');
-		const user = installedRows.filter((r) => r.origin === 'user');
-		const sidecarsRunning = installedRows.reduce(
-			(n, r) => n + (r.state === 'running' ? r.sidecars.length : 0),
-			0
-		);
-
-		return {
-			rows,
-			installed,
-			registry: registryRows,
-			updates,
-			trust,
-			violations: violationsRows,
-			builtin,
-			engine,
-			user,
-			sidecarsRunning,
-			isLoading: status.isLoading || trustList.isLoading,
-			error,
-		};
-	}, [
-		status.data,
-		status.isLoading,
-		status.error,
-		trustList.data,
-		trustList.isLoading,
-		trustList.error,
-		violations.data,
-		violations.error,
-		manifests.data,
-		registry.data,
-	]);
+	return useMemo<DerivedPkgs>(
+		() =>
+			deriveFromQueries({
+				statusData: status.data,
+				statusLoading: status.isLoading,
+				statusError: status.error as Error | null,
+				trustData: trustList.data ?? undefined,
+				trustLoading: trustList.isLoading,
+				trustError: trustList.error as Error | null,
+				violationsData: violations.data ?? undefined,
+				violationsError: violations.error as Error | null,
+				manifestsData: manifests.data,
+				registryEntries: registry.data?.index?.pkgs ?? [],
+			}),
+		[
+			status.data,
+			status.isLoading,
+			status.error,
+			trustList.data,
+			trustList.isLoading,
+			trustList.error,
+			violations.data,
+			violations.error,
+			manifests.data,
+			registry.data,
+		]
+	);
 }
