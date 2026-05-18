@@ -601,6 +601,7 @@ mod tests {
             queries: None,
             capabilities: None,
             engine: None,
+            screenshots: vec![],
         }
     }
 

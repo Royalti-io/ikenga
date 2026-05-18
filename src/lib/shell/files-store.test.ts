@@ -6,9 +6,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('@/lib/layout-state', () => ({
 	loadLayoutState: vi.fn(async (_key: string, fallback: unknown) => fallback),
 	saveLayoutState: vi.fn(async () => {}),
-	saveScopedLayoutState: vi.fn(async () => {}),
-	deleteScopedLayoutState: vi.fn(async () => {}),
-	migrateLegacyKey: vi.fn(async (_key: string, _pid: string, fallback: unknown) => fallback),
 	// Run synchronously in tests so we don't have to await the debounce.
 	// Return a callable with a `flush` no-op to mimic the real signature.
 	debounce: <A extends unknown[]>(fn: (...args: A) => void) => {
@@ -33,7 +30,6 @@ beforeEach(() => {
 		queries: {},
 		rootsCollapsed: new Set<string>(),
 		hydrated: false,
-		hydratedProjectId: null,
 	});
 });
 
@@ -71,7 +67,7 @@ describe('files-store visibility flags', () => {
 
 	it('hydrate populates flags from persisted snapshot', async () => {
 		const layoutState = await import('@/lib/layout-state');
-		(layoutState.migrateLegacyKey as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+		(layoutState.loadLayoutState as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
 			expanded: ['/a'],
 			selectedPath: '/a/file.ts',
 			scrollTop: 42,
@@ -79,26 +75,25 @@ describe('files-store visibility flags', () => {
 			showIgnored: true,
 		});
 
-		await useFilesStore.getState().hydrate('default');
+		await useFilesStore.getState().hydrate();
 		const s = useFilesStore.getState();
 		expect(s.showHidden).toBe(true);
 		expect(s.showIgnored).toBe(true);
 		expect(s.expanded.has('/a')).toBe(true);
 		expect(s.scrollTop).toBe(42);
 		expect(s.hydrated).toBe(true);
-		expect(s.hydratedProjectId).toBe('default');
 	});
 
 	it('hydrate falls back to defaults when persisted snapshot lacks flags (older format)', async () => {
 		const layoutState = await import('@/lib/layout-state');
 		// Simulate a pre-v2 record without showHidden/showIgnored.
-		(layoutState.migrateLegacyKey as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+		(layoutState.loadLayoutState as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
 			expanded: [],
 			selectedPath: null,
 			scrollTop: 0,
 		});
 
-		await useFilesStore.getState().hydrate('default');
+		await useFilesStore.getState().hydrate();
 		const s = useFilesStore.getState();
 		expect(s.showHidden).toBe(false);
 		expect(s.showIgnored).toBe(false);

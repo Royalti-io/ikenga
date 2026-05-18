@@ -142,6 +142,7 @@ mod tests {
             }),
             capabilities: None,
             engine: None,
+            screenshots: vec![],
         };
         Package {
             manifest,

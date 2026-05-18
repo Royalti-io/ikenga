@@ -8,6 +8,8 @@ import {
 	useShellStore,
 } from '@/lib/shell/shell-store';
 
+import { mirrorProjectsToFileRoots } from './roots-body';
+
 beforeEach(() => {
 	// Reset just the roots slices to defaults; the wizard's persisted state
 	// is irrelevant to these assertions.
@@ -63,5 +65,34 @@ describe('roots step — store interactions', () => {
 		for (const r of [...useShellStore.getState().claudeProjectRoots]) s.removeClaudeProjectRoot(r);
 		expect(useShellStore.getState().fileRoots).toEqual([]);
 		expect(useShellStore.getState().claudeProjectRoots).toEqual([]);
+	});
+});
+
+describe('roots step — Continue mirrors projects into file roots', () => {
+	it('copies project paths into fileRoots, skipping ones already present', () => {
+		// Start with a known file-root that overlaps one of the projects;
+		// the mirror should leave it untouched (no duplicate) and add the
+		// new path alongside.
+		useShellStore.setState({
+			fileRoots: ['~/Code/existing'],
+			claudeProjectRoots: ['~/Code/existing', '~/Code/brand-new'],
+		});
+
+		mirrorProjectsToFileRoots(useShellStore.getState().claudeProjectRoots);
+
+		const after = useShellStore.getState().fileRoots;
+		expect(after).toContain('~/Code/existing');
+		expect(after).toContain('~/Code/brand-new');
+		// No duplicate of the overlapping entry.
+		expect(after.filter((p) => p === '~/Code/existing')).toHaveLength(1);
+	});
+
+	it('is a no-op when projects list is empty', () => {
+		useShellStore.setState({
+			fileRoots: ['~/keep/this'],
+			claudeProjectRoots: [],
+		});
+		mirrorProjectsToFileRoots([]);
+		expect(useShellStore.getState().fileRoots).toEqual(['~/keep/this']);
 	});
 });

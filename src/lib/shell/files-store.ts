@@ -7,9 +7,8 @@
 import { create } from 'zustand';
 import {
 	debounce,
-	deleteScopedLayoutState,
-	migrateLegacyKey,
-	saveScopedLayoutState,
+	loadLayoutState,
+	saveLayoutState,
 } from '@/lib/layout-state';
 
 export const STORAGE_KEY = 'files.explorer.v1';
@@ -41,14 +40,7 @@ interface FilesState {
 	/** Root sections whose tree+search is collapsed. Persisted. */
 	rootsCollapsed: Set<string>;
 	hydrated: boolean;
-	/** Project id of the currently-hydrated snapshot, or null pre-hydrate. */
-	hydratedProjectId: string | null;
-	hydrate: (projectId: string) => Promise<void>;
-	/** Replace state from a saved snapshot (used by the project-layout-swap
-	 *  orchestrator). Marks the store as hydrated for the new project. */
-	applySnapshot: (projectId: string, data: Persisted) => void;
-	/** Capture the current state as a plain `Persisted` object for the swap
-	 *  orchestrator to save under the outgoing project's key. */
+	hydrate: () => Promise<void>;
 	snapshot: () => Persisted;
 	toggle: (path: string) => void;
 	expand: (path: string) => void;
@@ -65,34 +57,9 @@ interface FilesState {
 	prune: (paths: string[]) => void;
 }
 
-const persist = debounce((projectId: string, data: Persisted) => {
-	void saveScopedLayoutState(STORAGE_KEY, projectId, data);
+const persist = debounce((data: Persisted) => {
+	void saveLayoutState(STORAGE_KEY, data);
 }, 250);
-
-/** Flush + force-save the current files-store state under `projectId`.
- *  Used by the project-layout-swap orchestrator before switching. */
-export async function saveFilesStoreNow(
-	projectId: string,
-	data: Persisted
-): Promise<void> {
-	persist.flush();
-	await saveScopedLayoutState(STORAGE_KEY, projectId, data);
-}
-
-export function flushFilesStorePersist(): void {
-	persist.flush();
-}
-
-export async function resetFilesStore(projectId: string): Promise<void> {
-	await deleteScopedLayoutState(STORAGE_KEY, projectId);
-}
-
-/** Read a project's persisted files-explorer snapshot without applying
- *  it to the live store. Used by the project-layout-swap orchestrator
- *  to pre-fetch the incoming project's state before the atomic swap. */
-export async function loadFilesStateFor(projectId: string): Promise<Persisted> {
-	return migrateLegacyKey<Persisted>(STORAGE_KEY, projectId, EMPTY_PERSISTED);
-}
 
 export type FilesPersisted = Persisted;
 
@@ -122,14 +89,9 @@ function persistedFromState(s: Pick<FilesState,
 	return snapshotOf(s as FilesState);
 }
 
-function projectIdFromStore(get: () => FilesState): string | null {
-	return get().hydratedProjectId;
-}
-
 function persistCurrent(get: () => FilesState): void {
-	const pid = projectIdFromStore(get);
-	if (!pid) return;
-	persist(pid, persistedFromState(get()));
+	if (!get().hydrated) return;
+	persist(persistedFromState(get()));
 }
 
 export const useFilesStore = create<FilesState>((set, get) => ({
@@ -141,11 +103,10 @@ export const useFilesStore = create<FilesState>((set, get) => ({
 	queries: {},
 	rootsCollapsed: new Set<string>(),
 	hydrated: false,
-	hydratedProjectId: null,
 
-	hydrate: async (projectId: string) => {
-		if (get().hydrated && get().hydratedProjectId === projectId) return;
-		const data = await migrateLegacyKey<Persisted>(STORAGE_KEY, projectId, EMPTY_PERSISTED);
+	hydrate: async () => {
+		if (get().hydrated) return;
+		const data = await loadLayoutState<Persisted>(STORAGE_KEY, EMPTY_PERSISTED);
 		set({
 			expanded: new Set(data.expanded ?? []),
 			selectedPath: data.selectedPath ?? null,
@@ -155,21 +116,6 @@ export const useFilesStore = create<FilesState>((set, get) => ({
 			queries: {},
 			rootsCollapsed: new Set(data.rootsCollapsed ?? []),
 			hydrated: true,
-			hydratedProjectId: projectId,
-		});
-	},
-
-	applySnapshot: (projectId, data) => {
-		set({
-			expanded: new Set(data.expanded ?? []),
-			selectedPath: data.selectedPath ?? null,
-			scrollTop: data.scrollTop ?? 0,
-			showHidden: data.showHidden ?? false,
-			showIgnored: data.showIgnored ?? false,
-			queries: {},
-			rootsCollapsed: new Set(data.rootsCollapsed ?? []),
-			hydrated: true,
-			hydratedProjectId: projectId,
 		});
 	},
 

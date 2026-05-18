@@ -1,16 +1,20 @@
-// Step 3 — Project & file roots.
+// Step 3 — Projects.
 //
-// Two sections, both writing into `useShellStore`:
-//   • File roots (`fileRoots`)  — the FS-read allowlist defaults
-//   • Project roots (`claudeProjectRoots`) — used by the /claude browser
+// One list, two derived effects. Users pick the project folders Ikenga
+// should know about; on Continue we:
+//   • Write them to `claudeProjectRoots` (seeds the /claude config browser).
+//   • Mirror them once into `fileRoots` (the Tauri FS read/watch allowlist),
+//     so users don't have to reason about the dual-list distinction during
+//     onboarding. Settings still exposes both lists independently for
+//     power users who want to diverge them later.
 //
-// Phase 4 also adds a `~/.claude/projects/` scan so we can surface
-// project paths the user has already touched with Claude Code as
-// suggestions. The Rust command is `list_claude_projects`.
+// The pre-merge version of this file maintained two side-by-side sections
+// (file roots + project roots). User testing showed the distinction was
+// confusing — the goal here is to ask one question.
 //
-// Mirrors the Phase 1 prototype `03-project-roots.html` but adapted to
-// the actual two-list model (the prototype merged file + project roots
-// into one "detected projects" view).
+// Suggestions come from a `~/.claude/projects/` scan (Rust command
+// `list_claude_projects`); the decoder there now keeps any FS-verified
+// prefix even when the full path can't be confirmed.
 
 import { useQuery } from '@tanstack/react-query';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
@@ -20,7 +24,6 @@ import { Input } from '@/components/ui/input';
 import { cn } from '@/components/ui/utils';
 import {
 	DEFAULT_CLAUDE_PROJECT_ROOTS,
-	DEFAULT_FILE_ROOTS,
 	useShellStore,
 } from '@/lib/shell/shell-store';
 import { type ClaudeProjectEntry, listClaudeProjects } from '@/lib/tauri-cmd';
@@ -39,12 +42,20 @@ interface RootsBodyProps {
 
 const CLAUDE_PROJECTS_QUERY = ['onboarding', 'claude-projects'] as const;
 
-export function RootsBody({ onContinue }: RootsBodyProps) {
-	const fileRoots = useShellStore((s) => s.fileRoots);
-	const addFileRoot = useShellStore((s) => s.addFileRoot);
-	const removeFileRoot = useShellStore((s) => s.removeFileRoot);
-	const updateFileRoot = useShellStore((s) => s.updateFileRoot);
+/**
+ * Copy `paths` into the store's `fileRoots`, skipping any already present.
+ * Exported so the unit test can drive the same code path the Continue
+ * button does, without rendering the component.
+ */
+export function mirrorProjectsToFileRoots(paths: readonly string[]): void {
+	const state = useShellStore.getState();
+	const existing = new Set(state.fileRoots);
+	for (const p of paths) {
+		if (!existing.has(p)) state.addFileRoot(p);
+	}
+}
 
+export function RootsBody({ onContinue }: RootsBodyProps) {
 	const claudeProjectRoots = useShellStore((s) => s.claudeProjectRoots);
 	const addClaudeProjectRoot = useShellStore((s) => s.addClaudeProjectRoot);
 	const removeClaudeProjectRoot = useShellStore((s) => s.removeClaudeProjectRoot);
@@ -52,7 +63,6 @@ export function RootsBody({ onContinue }: RootsBodyProps) {
 
 	const { setPayload } = useOnboardingStep<RootsStepPayload>('roots');
 
-	const [customFilePath, setCustomFilePath] = useState('');
 	const [customProjectPath, setCustomProjectPath] = useState('');
 
 	const { data: claudeProjects } = useQuery<ClaudeProjectEntry[]>({
@@ -62,23 +72,15 @@ export function RootsBody({ onContinue }: RootsBodyProps) {
 	});
 
 	// Keep the step payload in sync with the store so the summary screen
-	// has a snapshot to render even if the user comes back later and
-	// changes the roots from elsewhere.
+	// has a snapshot to render even if the user comes back later. We
+	// snapshot fileRoots here too — the summary still shows both lists
+	// (this step just doesn't surface file roots in its own UI any more).
 	useEffect(() => {
 		setPayload({
-			fileRoots: [...fileRoots],
+			fileRoots: [...useShellStore.getState().fileRoots],
 			claudeProjectRoots: [...claudeProjectRoots],
 		});
-	}, [fileRoots, claudeProjectRoots, setPayload]);
-
-	const browseFile = async () => {
-		try {
-			const picked = await openDialog({ directory: true, multiple: false });
-			if (typeof picked === 'string' && picked.length > 0) addFileRoot(picked);
-		} catch {
-			/* user cancelled or dialog unavailable */
-		}
-	};
+	}, [claudeProjectRoots, setPayload]);
 
 	const browseProject = async () => {
 		try {
@@ -96,6 +98,15 @@ export function RootsBody({ onContinue }: RootsBodyProps) {
 		return !claudeProjectRoots.some((r) => candidates.has(r));
 	});
 
+	const handleContinue = () => {
+		// Mirror once on advance — not on every keystroke. If the user
+		// later removes a project from this step, the mirrored file root
+		// stays put (they can prune it from Settings); that's preferable
+		// to silently revoking FS access mid-edit.
+		mirrorProjectsToFileRoots(claudeProjectRoots);
+		onContinue();
+	};
+
 	return (
 		<div className="mx-auto max-w-3xl">
 			<div className="mb-6">
@@ -106,76 +117,17 @@ export function RootsBody({ onContinue }: RootsBodyProps) {
 					Where do you work?
 				</p>
 				<h1 className="text-3xl font-bold leading-tight tracking-tight">
-					Pick the folders Ikenga should know about.
+					Pick the projects Ikenga should know about.
 				</h1>
 				<p className="mt-2 max-w-[60ch] text-sm" style={{ color: 'var(--fg-muted)' }}>
-					File roots are the read/watch allowlist (anything outside is blocked at the Tauri layer).
-					Project roots seed the <span className="font-mono text-xs">/claude</span> config browser.
-					You can edit both later from Settings.
+					These are the folders Ikenga can read and the projects that show up in your sidebar. You
+					can add more later from Settings.
 				</p>
 			</div>
 
-			{/* ── File roots ───────────────────────────────────────────────── */}
 			<section className="mb-8">
 				<div className="mb-3 flex items-baseline justify-between">
-					<h3 className="text-[13px] font-semibold">File roots</h3>
-					<span className="text-[11.5px]" style={{ color: 'var(--fg-faint)' }}>
-						FS read · watch allowlist
-					</span>
-				</div>
-				<div className="grid gap-2" data-testid="file-roots-list">
-					{fileRoots.length === 0 && (
-						<div
-							className="rounded-md border border-dashed p-3 text-xs"
-							style={{
-								borderColor: 'var(--border-soft)',
-								color: 'var(--fg-muted)',
-							}}
-						>
-							No file roots — the shell will be read-only on disk until you add one. (You can also
-							continue and add roots later from Settings.)
-						</div>
-					)}
-					{fileRoots.map((path) => (
-						<RootRow
-							key={path}
-							path={path}
-							onRemove={() => removeFileRoot(path)}
-							onCommit={(next) => updateFileRoot(path, next)}
-							isDefault={(DEFAULT_FILE_ROOTS as readonly string[]).includes(path)}
-						/>
-					))}
-				</div>
-				<div className="mt-3 grid grid-cols-[1fr_auto_auto] gap-2">
-					<Input
-						placeholder="~/Code/my-project or /Users/me/projects"
-						value={customFilePath}
-						onChange={(e) => setCustomFilePath(e.target.value)}
-						className="font-mono text-xs"
-						data-testid="file-roots-input"
-					/>
-					<Button
-						variant="secondary"
-						onClick={() => {
-							if (customFilePath.trim()) {
-								addFileRoot(customFilePath.trim());
-								setCustomFilePath('');
-							}
-						}}
-						disabled={!customFilePath.trim()}
-					>
-						Add path
-					</Button>
-					<Button variant="secondary" onClick={browseFile} data-testid="file-roots-browse">
-						Browse…
-					</Button>
-				</div>
-			</section>
-
-			{/* ── Project roots ────────────────────────────────────────────── */}
-			<section className="mb-8">
-				<div className="mb-3 flex items-baseline justify-between">
-					<h3 className="text-[13px] font-semibold">Project roots</h3>
+					<h3 className="text-[13px] font-semibold">Projects</h3>
 					<span className="text-[11.5px]" style={{ color: 'var(--fg-faint)' }}>
 						scanned by <span className="font-mono">/claude</span>
 					</span>
@@ -189,7 +141,7 @@ export function RootsBody({ onContinue }: RootsBodyProps) {
 								color: 'var(--fg-muted)',
 							}}
 						>
-							No project roots yet. Personal <span className="font-mono">~/.claude/</span> is always
+							No projects yet. Personal <span className="font-mono">~/.claude/</span> is always
 							scanned in addition to whatever you add here.
 						</div>
 					)}
@@ -285,7 +237,7 @@ export function RootsBody({ onContinue }: RootsBodyProps) {
 			</section>
 
 			<div className="mt-8 flex items-center justify-end gap-3">
-				<Button onClick={onContinue} data-testid="roots-inline-continue">
+				<Button onClick={handleContinue} data-testid="roots-inline-continue">
 					Continue
 				</Button>
 			</div>

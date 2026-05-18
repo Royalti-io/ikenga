@@ -149,12 +149,13 @@ pub fn decode_claude_slug_naive(slug: &str) -> String {
 /// `verified` is true iff `metadata(path)` succeeded.
 ///
 /// Approach: tokenise on `-` after dropping the leading dash. Walk forward
-/// building up a path; for each token decide whether to join with `/` or
-/// `-` based on which (if any) candidate currently exists on disk. We
-/// always prefer the `/` candidate first — that's the canonical Claude
-/// encoding. When neither candidate exists we fall through to the naive
-/// path so the wizard at least surfaces *something* for the user to
-/// verify by hand.
+/// building up a path; for each token decide whether to join with `/`,
+/// `-`, `_`, or `.` based on which (if any) candidate currently exists on
+/// disk. We always prefer the `/` candidate first — that's the canonical
+/// Claude encoding. When no candidate exists we keep the partial-FS-aware
+/// walk (every verified prefix stays accurate; only the unknown tail
+/// defaults to `/`), because that's strictly more useful than discarding
+/// the walk in favour of an all-slashes naive form.
 pub fn decode_claude_slug_with_fs(slug: &str) -> (String, bool) {
     decode_claude_slug_with_probe(slug, |p| std::path::Path::new(p).exists())
 }
@@ -176,28 +177,31 @@ pub fn decode_claude_slug_with_probe<F: Fn(&str) -> bool>(slug: &str, exists: F)
     // FS root almost certainly contains it (`/Users`, `/home`, etc.).
     let mut acc = format!("/{}", tokens[0]);
 
+    // Probe order: '/' first (canonical Claude encoding) then '-', '_',
+    // '.'. Claude Code encodes any of these as '-' on disk, so we have to
+    // try each at every token boundary. The first existing candidate wins;
+    // when none exist we keep the '/' join (preserves any earlier verified
+    // prefix and defaults the unknown tail to canonical slashes).
+    const SEPARATORS: [char; 4] = ['/', '-', '_', '.'];
+
     for tok in &tokens[1..] {
-        let with_slash = format!("{}/{}", acc, tok);
-        let with_dash = format!("{}-{}", acc, tok);
-        // Prefer `/` (canonical) when it exists; else `-` (literal) when
-        // it exists; else stick with `/` and let the final `exists()` fail
-        // — the wizard surfaces the unverified flag in that case.
-        acc = if exists(&with_slash) {
-            with_slash
-        } else if exists(&with_dash) {
-            with_dash
-        } else {
-            with_slash
-        };
+        let candidates: Vec<String> = SEPARATORS
+            .iter()
+            .map(|sep| format!("{}{}{}", acc, sep, tok))
+            .collect();
+        acc = candidates
+            .iter()
+            .find(|p| exists(p))
+            .cloned()
+            .unwrap_or_else(|| candidates[0].clone());
     }
 
     let verified = exists(&acc);
-    if verified {
-        return (acc, true);
-    }
-    // Fall back to the naive form for display when nothing matched —
-    // gives the user something to inspect rather than a half-walked path.
-    (decode_claude_slug_naive(slug), false)
+    // Keep the partial-FS-aware result regardless of whether the final
+    // full path verifies. Any prefix that matched on disk is real; the
+    // unverified tail is still more useful than the all-slashes naive
+    // form (which would lose every dash boundary the walk just proved).
+    (acc, verified)
 }
 
 fn contract_home(path: &str, home: &std::path::Path) -> String {
@@ -275,12 +279,63 @@ mod claude_slug_tests {
     }
 
     #[test]
-    fn greedy_decoder_falls_back_to_naive_when_nothing_exists() {
+    fn greedy_decoder_returns_canonical_slashed_form_when_nothing_exists() {
+        // No FS info available. Walk defaults to '/' joins for every
+        // unknown boundary — same shape as the old naive fallback but
+        // produced by the walk itself.
         let set: HashSet<&'static str> = HashSet::new();
         let (path, verified) =
             decode_claude_slug_with_probe("-Users-alice-work-stuff-proj", probe(&set));
         assert_eq!(path, "/Users/alice/work/stuff/proj");
         assert!(!verified);
+    }
+
+    #[test]
+    fn greedy_decoder_preserves_verified_prefix_when_tail_missing() {
+        // The regression case from the onboarding screenshot:
+        // `~/royalti-co/royalti-client-2.5` doesn't exist on this machine,
+        // but `~/royalti-co` does. We must preserve the dash boundary that
+        // FS proved, instead of collapsing the whole path to slashes.
+        let set: HashSet<&'static str> =
+            ["/home/x", "/home/x/royalti-co"].into_iter().collect();
+        let (path, verified) =
+            decode_claude_slug_with_probe("-home-x-royalti-co-royalti-client-2-5", probe(&set));
+        assert_eq!(path, "/home/x/royalti-co/royalti/client/2/5");
+        assert!(!verified);
+    }
+
+    #[test]
+    fn greedy_decoder_resolves_dot_separator() {
+        // Claude Code encodes `.` as `-` in slugs, so `royalti-client-2.5`
+        // becomes `-...-royalti-client-2-5`. The greedy walk must try
+        // `2.5` as a candidate when the FS knows about it.
+        let set: HashSet<&'static str> = [
+            "/Users/alice",
+            "/Users/alice/work",
+            "/Users/alice/work/v2.5",
+        ]
+        .into_iter()
+        .collect();
+        let (path, verified) =
+            decode_claude_slug_with_probe("-Users-alice-work-v2-5", probe(&set));
+        assert_eq!(path, "/Users/alice/work/v2.5");
+        assert!(verified);
+    }
+
+    #[test]
+    fn greedy_decoder_resolves_underscore_separator() {
+        // Underscores in original paths get encoded to '-' too. The walk
+        // tries '_' once '/' and '-' both fail.
+        let set: HashSet<&'static str> = [
+            "/Users/alice",
+            "/Users/alice/my_proj",
+        ]
+        .into_iter()
+        .collect();
+        let (path, verified) =
+            decode_claude_slug_with_probe("-Users-alice-my-proj", probe(&set));
+        assert_eq!(path, "/Users/alice/my_proj");
+        assert!(verified);
     }
 
     #[test]

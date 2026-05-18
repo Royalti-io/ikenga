@@ -111,8 +111,7 @@ export async function saveLayoutState(key: string, value: unknown): Promise<void
 /** Tiny debounce — avoids pulling in lodash for this single use.
  *
  * Returns the debounced function plus a `flush` helper that fires any
- * pending call synchronously (used by the project-layout-swap orchestrator
- * so an outgoing project doesn't lose its last edits to debounce delay).
+ * pending call synchronously.
  */
 export function debounce<A extends unknown[]>(
 	fn: (...args: A) => void,
