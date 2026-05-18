@@ -1,9 +1,9 @@
 // TanStack query for the project-wide artifact walk.
 //
-// One fetch, multiple consumers — the artifact-grid sidebar, the (future)
-// Studio home page, and the "drafts" / "by type" counts all read off this
-// keyed by the active project's root_path. Walk is bounded server-side
-// (5000 files, 2MB parse cap, churn-dir skip), so 30s staleTime is fine.
+// One fetch, multiple consumers — the artifact-grid sidebar and the
+// Studio home page — keyed by the active project's root_path. Walk is
+// bounded server-side (5000 files, 2MB parse cap, churn-dir skip), so
+// 30s staleTime is fine.
 
 import { queryOptions } from '@tanstack/react-query';
 
@@ -15,10 +15,9 @@ export interface ArtifactCounts {
 	all: number;
 	recent: number;
 	starred: number;
-	drafts: number;
-	/** Rows whose manifest has no `notes.kind` (or no manifest at all). */
-	uncategorised: number;
-	/** Per-archetype counts. Keys are the archetype slugs the wizard knows. */
+	/** Per-archetype counts. Keys are the archetype slugs the wizard knows.
+	 *  Files without a manifest or without `notes.kind` are absent from
+	 *  this map. */
 	byKind: Record<string, number>;
 }
 
@@ -27,33 +26,19 @@ export interface ArtifactCatalog {
 	counts: ArtifactCounts;
 }
 
-/** Heuristic: a row is a "draft" when its manifest is missing, has no
- *  `version`, or the version starts with `0.` (i.e. pre-1.0). */
-export function isDraft(row: ArtifactRow): boolean {
-	if (!row.has_manifest) return true;
-	const v = row.version?.trim() ?? '';
-	if (v.length === 0) return true;
-	return v.startsWith('0.');
-}
-
 export function deriveCounts(rows: ArtifactRow[]): ArtifactCounts {
 	const now = Date.now();
 	let recent = 0;
 	let starred = 0;
-	let drafts = 0;
-	let uncategorised = 0;
 	const byKind: Record<string, number> = {};
 	for (const r of rows) {
 		if (now - r.modified_at < SEVEN_DAYS_MS) recent += 1;
 		if (r.starred) starred += 1;
-		if (isDraft(r)) drafts += 1;
 		if (r.kind) {
 			byKind[r.kind] = (byKind[r.kind] ?? 0) + 1;
-		} else {
-			uncategorised += 1;
 		}
 	}
-	return { all: rows.length, recent, starred, drafts, uncategorised, byKind };
+	return { all: rows.length, recent, starred, byKind };
 }
 
 /** Query factory. Keyed by `rootPath` so switching projects refetches.

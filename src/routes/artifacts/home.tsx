@@ -32,7 +32,7 @@ import {
 import { useShellStore } from '@/lib/shell/shell-store';
 import { openArtifactGrid } from '@/lib/shell/artifact-grid-recents';
 import { ARCHETYPES, type Archetype } from '@/shell/artifact-wizard/archetypes';
-import type { ArtifactRow, Project } from '@/lib/tauri-cmd';
+import type { Project } from '@/lib/tauri-cmd';
 
 export const Route = createFileRoute('/artifacts/home')({
 	component: ArtifactsHomePage,
@@ -96,12 +96,6 @@ function ArtifactsHomePage() {
 							openWizard(slug);
 						}
 					}}
-				/>
-
-				<DraftsCallout
-					catalog={catalogQuery.data}
-					loading={catalogQuery.isLoading}
-					onOpen={openLoupe}
 				/>
 
 				<RecentlyModified
@@ -218,71 +212,6 @@ function ArchetypeTile({
 	);
 }
 
-// ─── Drafts callout ──────────────────────────────────────────────────────
-
-function DraftsCallout({
-	catalog,
-	loading,
-	onOpen,
-}: {
-	catalog: ArtifactCatalog | undefined;
-	loading: boolean;
-	onOpen: (path: string) => void;
-}) {
-	const drafts = useMemo(() => {
-		if (!catalog) return [];
-		return catalog.rows
-			.filter((r) => isDraftRow(r))
-			.sort((a, b) => b.modified_at - a.modified_at)
-			.slice(0, 6);
-	}, [catalog]);
-
-	if (loading && !catalog) {
-		return (
-			<section className="flex flex-col gap-2">
-				<SectionHeading label="Drafts" />
-				<div className="rounded border border-dashed border-border px-3 py-3 text-xs text-muted-foreground">
-					Loading…
-				</div>
-			</section>
-		);
-	}
-	if (drafts.length === 0) return null;
-
-	return (
-		<section className="flex flex-col gap-2">
-			<SectionHeading
-				label="Drafts"
-				detail={`${drafts.length}${catalog && catalog.counts.drafts > drafts.length ? ` of ${catalog.counts.drafts}` : ''}`}
-				tone="warn"
-			/>
-			<ul className="flex flex-col rounded border border-amber-500/30 bg-amber-500/[0.04]">
-				{drafts.map((r) => (
-					<li key={r.path} className="border-b border-amber-500/15 last:border-b-0">
-						<button
-							type="button"
-							onClick={() => onOpen(r.path)}
-							className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-amber-500/10"
-							title={r.path}
-						>
-							<FileText className="h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
-							<span className="flex-1 truncate text-foreground">{r.name}</span>
-							{r.kind && (
-								<span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
-									{r.kind}
-								</span>
-							)}
-							<span className="font-mono text-[10px] text-muted-foreground/70">
-								{relativeAt(r.modified_at)}
-							</span>
-						</button>
-					</li>
-				))}
-			</ul>
-		</section>
-	);
-}
-
 // ─── Recently modified ───────────────────────────────────────────────────
 
 function RecentlyModified({
@@ -369,35 +298,13 @@ function NoProjectState({ onNavigateSettings }: { onNavigateSettings: () => void
 
 // ─── Helpers ─────────────────────────────────────────────────────────────
 
-function SectionHeading({
-	label,
-	detail,
-	tone,
-}: {
-	label: string;
-	detail?: string;
-	tone?: 'warn';
-}) {
+function SectionHeading({ label, detail }: { label: string; detail?: string }) {
 	return (
 		<div className="flex items-baseline justify-between text-[10px] uppercase tracking-wider">
-			<span
-				className={cn(
-					'font-medium',
-					tone === 'warn' ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground/70'
-				)}
-			>
-				{label}
-			</span>
+			<span className="font-medium text-muted-foreground/70">{label}</span>
 			{detail && <span className="font-mono text-muted-foreground/70">{detail}</span>}
 		</div>
 	);
-}
-
-function isDraftRow(r: ArtifactRow): boolean {
-	if (!r.has_manifest) return true;
-	const v = r.version?.trim() ?? '';
-	if (v.length === 0) return true;
-	return v.startsWith('0.');
 }
 
 function relativeAt(ms: number): string {

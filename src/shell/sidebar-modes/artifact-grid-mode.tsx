@@ -108,11 +108,10 @@ export function ArtifactGridMode() {
 				)}
 			</button>
 
-			{/* Catalog stripe — total / drafts / starred across the project. */}
+			{/* Catalog stripe — total / starred / recent across the project. */}
 			{activeProject?.root_path && counts && (
 				<div className="flex items-center gap-4 border-b border-border px-4 py-1.5 text-[10px] text-muted-foreground">
 					<CountChip label="all" value={counts.all} />
-					{counts.drafts > 0 && <CountChip label="drafts" value={counts.drafts} tone="warn" />}
 					{counts.starred > 0 && <CountChip label="starred" value={counts.starred} />}
 					{counts.recent > 0 && <CountChip label="recent" value={counts.recent} />}
 				</div>
@@ -229,17 +228,10 @@ function RecentRow({
 	);
 }
 
-function CountChip({ label, value, tone }: { label: string; value: number; tone?: 'warn' }) {
+function CountChip({ label, value }: { label: string; value: number }) {
 	return (
 		<span className="inline-flex items-baseline gap-1">
-			<span
-				className={cn(
-					'font-mono text-[11px]',
-					tone === 'warn' ? 'text-amber-600 dark:text-amber-400' : 'text-foreground'
-				)}
-			>
-				{value}
-			</span>
+			<span className="font-mono text-[11px] text-foreground">{value}</span>
 			<span className="uppercase tracking-wider text-muted-foreground/60">{label}</span>
 		</span>
 	);
