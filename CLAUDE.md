@@ -99,12 +99,12 @@ This project replaced an earlier Next.js predecessor. The Next.js *server* was r
 
 Captured during Phase 0 of the `pkg-browser` design. Read this before adding any pkg that wants to embed arbitrary remote pages, control a webview, or mount anything other than an iframe.
 
-### Today: pkgs mount as iframes only
+### Three mount kinds
 
-- `Manifest.ui.routes[].kind` accepts `"iframe"` and `"component"`. **No `"webview"` / `"child_webview"` kind exists.**
-- Iframe routes are served by the in-process `pkg_content/` HTTP server and rendered by `src/components/pkg/pkg-iframe-host.tsx`. Resolution path: TanStack catch-all `routes/pkg/$pkgId/$.tsx` → `pkgKernelStatus().registries.ui_routes.entries` → `PkgIframeHost`.
-- `component`-kind routes are recorded but render as `<PkgRouteUnmountable />` for non-builtins. Builtins (Tasks) bypass the catch-all by registering host routes directly.
-- Per-iframe CSP and Permission-Policy can be declared in `Manifest.ui.csp` / `Manifest.ui.permissions` and are applied by `pkg_content` when serving the iframe document.
+- `Manifest.ui.routes[].kind` accepts `"iframe"`, `"webview"`, and `"component"`.
+- **Iframe** — served by the in-process `pkg_content/` HTTP server and rendered by `src/components/pkg/pkg-iframe-host.tsx`. Resolution path: TanStack catch-all `routes/pkg/$pkgId/$.tsx` → `pkgKernelStatus().registries.ui_routes.entries` → `PkgIframeHost`. Per-iframe CSP and Permission-Policy can be declared in `Manifest.ui.csp` / `Manifest.ui.permissions` and are applied by `pkg_content` when serving the iframe document.
+- **Webview** — native child webview managed by `pkg/webview.rs::WebviewPanesRegistry` and rendered (positionally) by `src/components/pkg/pkg-webview-host.tsx`. Required for any pkg driving a site that blocks iframe embedding via CSP `frame-ancestors`. Requires `capabilities.webview.child_webviews = true` in the manifest plus a declared partition list. See *Phase 1 — final per-OS architecture* below for the macOS/Windows/Linux split.
+- **Component** — recorded but renders as `<PkgRouteUnmountable />` for non-builtins. Builtins (Tasks) bypass the catch-all by registering host routes directly.
 
 ### Not-yet-built: child webviews
 
@@ -146,6 +146,45 @@ Phase 1 ("kernel: child-webview panes") is real net-new work, not just plumbing:
 5. Background-execution mitigations from Phase 0.5 (App Nap on macOS, `CoreWebView2Controller.IsVisible` on Windows) get applied here.
 
 The macOS multi-webview rendering case is the highest-risk unknown. If `WebviewWindowBuilder` doesn't behave under WKWebView, fall back to a borderless OS window per pane positioned over the pane rect — same `eval`/cookie/MCP surface, worse UX.
+
+## Dev-mode hot reload (landed 2026-05-18)
+
+Pkgs installed via `ikenga dev <path>` (the CLI command at `cli/src/commands/dev.ts`) hot-reload on manifest changes without a shell restart. Surface lives in `pkg/kernel.rs` + `commands/pkg_dev.rs` + the iyke bridge handlers in `iyke/handlers.rs::post_pkg_dev_*`. End-to-end smoke verified against a live shell on 2026-05-18.
+
+### `InstallSource::Dev`
+
+New variant in `pkg/source.rs` next to `Builtin / Registry / Local`. Wire form: `{"kind":"dev","path":"<abs>"}`. Host-only — `contract/src/manifest.ts` does **not** mirror it, and `IKENGA_API_VERSION` stays at `1`. Boot replay (`kernel.rs::boot()`) reconstructs `Dev` rows as plain `Local` via `InstallSource::parse_or_local`, so the trust bypass below can't accidentally smuggle elevated trust into a production install across restarts.
+
+### Trust bypass
+
+`pkg/trust.rs::is_auto_trusted` returns `true` for any `Dev` source regardless of pkg id namespace. The auto-trust path in `evaluate()` checks for sensitive perms on dev pkgs and emits a single `log::warn!` so the dev sees what they've opted into — no modal blocks the loop. Tests: `dev_source_auto_trusts_regardless_of_id_namespace`.
+
+### `Kernel::reload_pkg(pkg_id)`
+
+Mirrors `resume_after_review` (the prior closest path) but adds an unregister-first phase:
+
+1. Acquire the per-pkg lock via existing `lock_for`.
+2. **Validate the new manifest before unregistering.** `Package::load` + `is_compatible()` check happens up-front; failure leaves all prior state intact (kernel keeps the old version registered).
+3. Walk `registries.iter().rev().unregister()` — per the `Registry` trait contract, unregister is a no-op on absent pkgs, so partial-failure recovery is safe.
+4. Walk forward `registries.iter().register(&pkg)` with the existing `rollback` helper on any failure.
+5. Refresh the `installed` snapshot (new version + ikenga_api; preserves source / project_id / installed_at). Re-insert into `live`.
+6. Emit a `pkg-reloaded` Tauri event: `{ pkg_id, version, registries: Vec<&str> }`.
+
+### Manifest watcher
+
+`pkg/file_watcher.rs::spawn_dev` wraps `spawn` and unconditionally adds `manifest.json` to the watched-pattern set. Combined with the existing 250ms `notify-debouncer-mini`, manifest saves trigger reload within ~300ms. The watcher handle is held in a new `Kernel::dev_watchers: RwLock<HashMap<String, WatcherHandle>>`; `pkg_dev_unregister` drops it, which tears down the underlying notify worker.
+
+### Frontend remount
+
+`pkg-iframe-host.tsx` listens for `pkg-reloaded` and bumps a `reloadKey` state; the existing fetch effect (`pkgContentHtml → srcDoc`) is keyed on `[pkgId, source, reloadKey]`, so the iframe + AppBridge tear down and reattach with the freshly-fetched HTML. `pkg-webview-host.tsx` listens too but calls `pkgWebviewNavigate(pkgId, paneId, source)` instead of destroy+recreate — that preserves the cookie partition state during dev loops (cookies persist on disk regardless, but a full recreate logs users out per save).
+
+### Tauri commands + iyke surface
+
+- `pkg_dev_register(install_path)` — Tauri command and `POST /iyke/pkg/dev/register`. Calls `install_from_path` with `InstallSource::Dev`, then spawns the watcher.
+- `pkg_dev_unregister(pkg_id)` — refuses non-Dev sources (use `pkg_uninstall` for those). Drops the watcher first, then walks `uninstall`.
+- `pkg_dev_reload(pkg_id)` — explicit-now bypass of the 250ms debounce.
+
+Smoke verified end-to-end: mount, reload on save (`0.1.0 → 0.2.0 → 0.1.0 → 0.3.0`), atomic recovery from invalid JSON (kernel keeps the prior version registered while the manifest is broken, resumes when it parses again), SIGINT → clean unregister + watcher drop.
 
 ## Phase 0.5 — background-execution spike runbook
 
