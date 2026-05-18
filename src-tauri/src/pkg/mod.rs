@@ -7,6 +7,8 @@
 //! the `pkg_*` Tauri commands in `commands::pkg`.
 
 pub mod cap_snapshot;
+pub mod engine_adapter;
+pub mod engine_adapters;
 pub mod file_watcher;
 pub mod keep_awake;
 pub mod kernel;
@@ -20,6 +22,7 @@ pub mod source;
 pub mod trust;
 pub mod webview;
 
+pub use engine_adapter::{EngineAdapter, EngineAdaptersRegistry, InstallReport};
 pub use kernel::{DiscoveredPkg, InstalledSummary, Kernel, KernelStatus};
 pub use lifecycle::SidecarSupervisor;
 pub use registry::Registry;

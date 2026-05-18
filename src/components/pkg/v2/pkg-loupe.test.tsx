@@ -11,13 +11,25 @@
 // the global document body.
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, within } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 
 import { PkgLoupe } from './pkg-loupe';
 import type { PkgRowV2 } from '@/lib/pkgs/use-derived';
+
+vi.mock('@/lib/tauri-cmd', async (orig) => {
+	const actual = await (orig() as Promise<Record<string, unknown>>);
+	return {
+		...actual,
+		pkgKernelStatus: vi.fn(async () => ({
+			installed: [],
+			registries: {},
+			api_version: 1,
+		})),
+	};
+});
 
 afterEach(cleanup);
 
@@ -237,5 +249,114 @@ describe('PkgLoupe — footer actions', () => {
 			)
 		);
 		expect(screen.getByRole('button', { name: /Approve v0\.1\.0/i })).toBeTruthy();
+	});
+});
+
+describe('PkgLoupe — engine installs (Track E)', () => {
+	it('renders nothing when no engine has touched the pkg', () => {
+		render(withQuery(<PkgLoupe row={makeRow()} open onOpenChange={() => {}} />));
+		// Empty registries snapshot → section is hidden entirely.
+		expect(screen.queryByText(/engine installs/i)).toBeNull();
+	});
+
+	it('surfaces engine MCP fan-out + asset entries from the kernel snapshot', async () => {
+		const { pkgKernelStatus } = await import('@/lib/tauri-cmd');
+		(pkgKernelStatus as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+			installed: [],
+			api_version: 1,
+			registries: {
+				mcp: {
+					count: 1,
+					entries: [],
+					config_path: '~/.claude.json',
+					adapter_reports: {
+						'com.test.x': {
+							'claude-code': {
+								wrote: ['~/.claude.json#mcpServers.pkg-test-x-foo'],
+								skipped: [],
+								warnings: ['secret-bearing env var refused: FOO_API_KEY'],
+							},
+						},
+					},
+				},
+				engine_assets: {
+					count: 1,
+					entries: [
+						{
+							pkg_id: 'com.test.x',
+							engine_id: 'claude-code',
+							kind: 'skills',
+							source: '/path/to/skills',
+							target: '/home/u/.claude/skills/test-x',
+						},
+					],
+				},
+			},
+		});
+
+		render(withQuery(<PkgLoupe row={makeRow()} open onOpenChange={() => {}} />));
+
+		// Section header.
+		await waitFor(() => {
+			expect(screen.getByText(/engine installs/i)).toBeTruthy();
+		});
+		// Engine display name + raw id chip.
+		expect(screen.getByText('Claude Code')).toBeTruthy();
+		expect(screen.getByText('claude-code')).toBeTruthy();
+		// Summary phrases — 1 wrote + 1 asset link.
+		expect(screen.getByText(/Wrote 1 MCP server/i)).toBeTruthy();
+		expect(screen.getByText(/1 asset link/i)).toBeTruthy();
+		// Warning badge surfaces.
+		expect(screen.getByText(/1 warning/i)).toBeTruthy();
+	});
+
+	it('expands to show wrote / asset paths + warnings', async () => {
+		const user = userEvent.setup();
+		const { pkgKernelStatus } = await import('@/lib/tauri-cmd');
+		(pkgKernelStatus as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+			installed: [],
+			api_version: 1,
+			registries: {
+				mcp: {
+					count: 0,
+					entries: [],
+					config_path: '~/.claude.json',
+					adapter_reports: {
+						'com.test.x': {
+							'claude-code': {
+								wrote: ['~/.claude.json#mcpServers.pkg-test-x-foo'],
+								skipped: [],
+								warnings: ['warning-line-A'],
+							},
+						},
+					},
+				},
+				engine_assets: {
+					count: 1,
+					entries: [
+						{
+							pkg_id: 'com.test.x',
+							engine_id: 'claude-code',
+							kind: 'skills',
+							source: '/src/skills',
+							target: '/home/u/.claude/skills/test-x',
+						},
+					],
+				},
+			},
+		});
+
+		render(withQuery(<PkgLoupe row={makeRow()} open onOpenChange={() => {}} />));
+
+		await waitFor(() => {
+			expect(screen.getByText('Claude Code')).toBeTruthy();
+		});
+
+		// Engine row trigger acts as a button. Click it to expand.
+		await user.click(screen.getByText('Claude Code'));
+
+		expect(screen.getByText('~/.claude.json#mcpServers.pkg-test-x-foo')).toBeTruthy();
+		expect(screen.getByText('/home/u/.claude/skills/test-x')).toBeTruthy();
+		expect(screen.getByText('warning-line-A')).toBeTruthy();
 	});
 });

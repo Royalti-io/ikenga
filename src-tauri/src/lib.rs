@@ -333,8 +333,15 @@ pub fn run() {
                 sidecars_reg.clone(),
             ));
             let ui_routes_reg = Arc::new(pkg::registries::UiRoutesRegistry::new());
-            let claude_assets_reg = Arc::new(pkg::registries::ClaudeAssetsRegistry::new());
-            let mcp_reg = Arc::new(pkg::registries::McpRegistry::new());
+            let engine_assets_reg = Arc::new(pkg::registries::EngineAssetsRegistry::new());
+            // ADR-012 Track D: kernel-resident engine adapter registry.
+            // v1 contains exactly one adapter — `ClaudeCodeAdapter` — and
+            // it's registered statically here. The McpRegistry holds an Arc
+            // to this registry and fans `register_mcp_server` out to every
+            // adapter after its own ~/.claude.json write completes.
+            let engine_adapters_reg = Arc::new(pkg::EngineAdaptersRegistry::new());
+            engine_adapters_reg.register(Arc::new(pkg::engine_adapters::ClaudeCodeAdapter::new()));
+            let mcp_reg = Arc::new(pkg::registries::McpRegistry::new(engine_adapters_reg.clone()));
             let queries_reg = Arc::new(pkg::registries::QueriesRegistry::new());
             // `webview_panes_reg` was already constructed above (before iyke::start)
             // so the HTTP bridge handlers can hold an Arc to it. It also feeds the
@@ -420,7 +427,7 @@ pub fn run() {
                     settings_reg.clone() as Arc<dyn pkg::Registry>,
                     cron_reg as Arc<dyn pkg::Registry>,
                     ui_routes_reg as Arc<dyn pkg::Registry>,
-                    claude_assets_reg as Arc<dyn pkg::Registry>,
+                    engine_assets_reg as Arc<dyn pkg::Registry>,
                     mcp_reg as Arc<dyn pkg::Registry>,
                     queries_reg as Arc<dyn pkg::Registry>,
                     webview_panes_reg.clone() as Arc<dyn pkg::Registry>,

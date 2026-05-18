@@ -20,12 +20,13 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::RwLock;
+use std::sync::{Arc, RwLock};
 
 use anyhow::{anyhow, Context, Result};
 use serde::Serialize;
 use serde_json::{json, Map, Value};
 
+use crate::pkg::engine_adapter::{EngineAdaptersRegistry, InstallReport};
 use crate::pkg::manifest::{McpServer, Package};
 use crate::pkg::registry::Registry;
 
@@ -38,15 +39,42 @@ pub struct McpEntry {
     pub key: String,
 }
 
-#[derive(Default)]
 pub struct McpRegistry {
     /// `pkg_id` → list of registered entries. Used for snapshot + uninstall.
     entries: RwLock<HashMap<String, Vec<McpEntry>>>,
+    /// ADR-012 Track D: per-pkg, per-engine fan-out reports. Populated when
+    /// `register()` walks the engine adapters after its own kernel-side
+    /// write completes. Surfaced via `snapshot()` for Track E's UI to
+    /// render "what this pkg wrote into which engine's settings file".
+    ///
+    /// Outer key: `pkg_id`. Inner key: `engine_id` (e.g. `"claude-code"`).
+    adapter_reports: RwLock<HashMap<String, HashMap<String, InstallReport>>>,
+    /// Shared handle to the kernel's engine adapter registry. v1 holds
+    /// exactly one adapter (`ClaudeCodeAdapter`); fan-out grows naturally
+    /// as Gemini / Codex adapters land. Optional for the `Default` impl
+    /// used by tests that don't care about adapter fan-out.
+    adapters: Arc<EngineAdaptersRegistry>,
+}
+
+impl Default for McpRegistry {
+    fn default() -> Self {
+        Self {
+            entries: RwLock::new(HashMap::new()),
+            adapter_reports: RwLock::new(HashMap::new()),
+            adapters: Arc::new(EngineAdaptersRegistry::new()),
+        }
+    }
 }
 
 impl McpRegistry {
-    pub fn new() -> Self {
-        Self::default()
+    /// Construct with the kernel-wide adapter registry. The Arc clone is
+    /// cheap (refcount); the registry itself is owned by `lib.rs::run`.
+    pub fn new(adapters: Arc<EngineAdaptersRegistry>) -> Self {
+        Self {
+            entries: RwLock::new(HashMap::new()),
+            adapter_reports: RwLock::new(HashMap::new()),
+            adapters,
+        }
     }
 
     fn config_path() -> Result<PathBuf> {
@@ -174,6 +202,44 @@ impl Registry for McpRegistry {
             pkg.manifest.id.clone(),
             new_keys.into_iter().map(|(_, e, _)| e).collect(),
         );
+        drop(map);
+
+        // ADR-012 §4: fan out to every installed engine adapter so the
+        // server entry also lands in each engine's external settings file
+        // (`~/.claude/settings.json`, future: `~/.gemini/...`, `~/.codex/...`).
+        // The kernel-side write above already succeeded; adapter failures
+        // are best-effort — surfaced as warnings on the InstallReport, not
+        // propagated up. This mirrors the ADR's "v1 ships with disabled =
+        // true as default for long-lived servers" framing: external configs
+        // are convenience, not load-bearing for runtime.
+        let mut per_engine: HashMap<String, InstallReport> = HashMap::new();
+        for adapter in self.adapters.iter() {
+            let engine_id = adapter.id().to_string();
+            let mut bucket = InstallReport::default();
+            for server in &pkg.manifest.mcp {
+                match adapter.register_mcp_server(server, &pkg.manifest.id, &pkg.slug()) {
+                    Ok(r) => bucket.merge(r),
+                    Err(e) => {
+                        log::warn!(
+                            "[pkg.mcp] engine `{engine_id}` register `{}` for pkg `{}` failed: {e:#}",
+                            server.name,
+                            pkg.manifest.id
+                        );
+                        bucket
+                            .warnings
+                            .push(format!("engine `{engine_id}` register `{}` failed: {e}", server.name));
+                    }
+                }
+            }
+            per_engine.insert(engine_id, bucket);
+        }
+        if !per_engine.is_empty() {
+            let mut reports = self
+                .adapter_reports
+                .write()
+                .map_err(|_| anyhow!("mcp adapter_reports lock poisoned"))?;
+            reports.insert(pkg.manifest.id.clone(), per_engine);
+        }
         Ok(())
     }
 
@@ -184,6 +250,12 @@ impl Registry for McpRegistry {
             .map_err(|_| anyhow!("mcp registry lock poisoned"))?
             .remove(pkg_id)
             .unwrap_or_default();
+        // Clear the per-pkg adapter reports map regardless — even if the
+        // kernel-side entry was already gone, prior fan-out reports should
+        // not linger.
+        if let Ok(mut reports) = self.adapter_reports.write() {
+            reports.remove(pkg_id);
+        }
         if removed.is_empty() {
             return Ok(());
         }
@@ -209,6 +281,31 @@ impl Registry for McpRegistry {
                 path.display()
             );
         }
+
+        // ADR-012 §4: fan out unregister to every adapter. Best-effort —
+        // we don't have the original pkg slug here, but `McpEntry.key` was
+        // built as `pkg-<slug>-<name>` (Self::key_for); recover the slug
+        // from the entry's stored key. The TS adapter's `unregisterMcpServer`
+        // takes server-name + pkg-slug separately, so we need both. We
+        // derive slug by stripping the `pkg-` prefix and the trailing
+        // `-<name>`.
+        for adapter in self.adapters.iter() {
+            for entry in &removed {
+                let slug = entry
+                    .key
+                    .strip_prefix("pkg-")
+                    .and_then(|s| s.strip_suffix(&format!("-{}", entry.name)))
+                    .unwrap_or_default();
+                if let Err(e) = adapter.unregister_mcp_server(&entry.name, &entry.pkg_id, slug) {
+                    log::warn!(
+                        "[pkg.mcp] engine `{}` unregister `{}` for pkg `{}` failed: {e:#}",
+                        adapter.id(),
+                        entry.name,
+                        entry.pkg_id
+                    );
+                }
+            }
+        }
         Ok(())
     }
 
@@ -222,10 +319,17 @@ impl Registry for McpRegistry {
             .flatten()
             .map(|e| serde_json::to_value(e).unwrap_or(Value::Null))
             .collect();
+        // Per ADR-012 Track E: surface per-(pkg, engine) reports so the pkg
+        // manager UI can render "this pkg wrote ... into engine X".
+        let adapter_reports = match self.adapter_reports.read() {
+            Ok(g) => serde_json::to_value(&*g).unwrap_or(Value::Null),
+            Err(_) => Value::Null,
+        };
         json!({
             "count": entries.len(),
             "entries": entries,
             "config_path": Self::config_path().map(|p| p.display().to_string()).unwrap_or_default(),
+            "adapter_reports": adapter_reports,
         })
     }
 }

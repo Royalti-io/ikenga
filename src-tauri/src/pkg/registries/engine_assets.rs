@@ -1,22 +1,15 @@
-//! Claude assets registry — installs package-contributed skills, commands, and
-//! agents into the user's `~/.claude/` tree.
+//! Engine assets registry — materializes a pkg's `skills` / `commands` /
+//! `agents` folders into every installed engine's recognized config tree
+//! (see ADR-012 §3). Each `(pkg_id, engine_id)` pair is one logical entry;
+//! the in-memory map keys on `pkg_id` and stores a `Vec<AssetEntry>` so the
+//! fan-out across N engines lives inside that vec. Today only the
+//! Claude Code engine is wired in, so behavior is byte-for-byte identical
+//! to the prior `claude_assets` registry: one symlink per asset kind under
+//! `~/.claude/<kind>/<pkg-slug>/`. When Gemini / Codex `EngineAdapter`
+//! implementations land Rust-side, `register()` becomes a fan-out over the
+//! discovered adapters.
 //!
-//! Manifest fields each point at a folder inside the package install dir:
-//!   - `skills`   → copied/linked into `~/.claude/skills/<pkg-slug>/`
-//!   - `commands` → `~/.claude/commands/<pkg-slug>/`
-//!   - `agents`   → `~/.claude/agents/<pkg-slug>/`
-//!
-//! v1 implementation strategy: **symlink** the source dir into the target.
-//! Tradeoff:
-//!   - Symlinks let the package author edit source files and have changes
-//!     visible to Claude Code immediately — exactly what the dev loop needs.
-//!   - Copies would survive the package being moved or unmounted, but for
-//!     personal-use installs the package dir is on the same filesystem and
-//!     stays put.
-//! If the symlink already exists and points at the right target, register is
-//! a no-op (idempotent boot replay).
-//!
-//! Snapshot shape: `{ entries: [{pkg_id, kind, source, target}, ...] }`.
+//! Snapshot shape: `{ entries: [{pkg_id, engine_id, kind, source, target}, ...] }`.
 //! Uninstall removes only the symlinks this registry created — content the
 //! user has placed under `~/.claude/skills/` directly is not touched.
 
@@ -34,6 +27,11 @@ use crate::pkg::registry::Registry;
 #[derive(Debug, Clone, Serialize)]
 pub struct AssetEntry {
     pub pkg_id: String,
+    /// Engine that this entry was materialized for. Per ADR-012 §3 the
+    /// semantic identity of an entry is `(pkg_id, engine_id, kind)`; we
+    /// preserve that tuple here while keying the outer map on `pkg_id` so
+    /// uninstall stays a single `HashMap::remove`.
+    pub engine_id: String,
     /// "skills" | "commands" | "agents"
     pub kind: String,
     pub source: String,
@@ -41,13 +39,14 @@ pub struct AssetEntry {
 }
 
 #[derive(Default)]
-pub struct ClaudeAssetsRegistry {
-    /// `pkg_id` → entries we created. Uninstall walks this list and removes
-    /// each target. Empty for packages that declare no asset blocks.
+pub struct EngineAssetsRegistry {
+    /// `pkg_id` → entries we created (one per engine × kind). Uninstall
+    /// walks this list and removes each target. Empty for packages that
+    /// declare no asset blocks.
     entries: RwLock<HashMap<String, Vec<AssetEntry>>>,
 }
 
-impl ClaudeAssetsRegistry {
+impl EngineAssetsRegistry {
     pub fn new() -> Self {
         Self::default()
     }
@@ -93,6 +92,7 @@ impl ClaudeAssetsRegistry {
                     if current.as_deref() == Some(source.as_path()) {
                         return Ok(AssetEntry {
                             pkg_id: pkg.manifest.id.clone(),
+                            engine_id: "claude-code".to_string(),
                             kind: kind.to_string(),
                             source: source.display().to_string(),
                             target: target.display().to_string(),
@@ -118,6 +118,7 @@ impl ClaudeAssetsRegistry {
 
         Ok(AssetEntry {
             pkg_id: pkg.manifest.id.clone(),
+            engine_id: "claude-code".to_string(),
             kind: kind.to_string(),
             source: source.display().to_string(),
             target: target.display().to_string(),
@@ -129,16 +130,16 @@ impl ClaudeAssetsRegistry {
         match std::fs::symlink_metadata(path) {
             Ok(meta) if meta.file_type().is_symlink() => {
                 if let Err(e) = std::fs::remove_file(path) {
-                    log::warn!("[pkg.claude_assets] rm symlink {target}: {e}");
+                    log::warn!("[pkg.engine_assets] rm symlink {target}: {e}");
                 }
             }
             Ok(_) => {
                 log::warn!(
-                    "[pkg.claude_assets] target `{target}` is not a symlink — skipping (user-managed?)"
+                    "[pkg.engine_assets] target `{target}` is not a symlink — skipping (user-managed?)"
                 );
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Err(e) => log::warn!("[pkg.claude_assets] stat {target}: {e}"),
+            Err(e) => log::warn!("[pkg.engine_assets] stat {target}: {e}"),
         }
     }
 }
@@ -153,12 +154,18 @@ fn symlink_dir(source: &Path, target: &Path) -> std::io::Result<()> {
     std::os::windows::fs::symlink_dir(source, target)
 }
 
-impl Registry for ClaudeAssetsRegistry {
+impl Registry for EngineAssetsRegistry {
     fn name(&self) -> &'static str {
-        "claude_assets"
+        "engine_assets"
     }
 
     fn register(&self, pkg: &Package) -> Result<()> {
+        // TODO(ADR-012 §3): replace hardcoded ~/.claude/ paths with a
+        // fan-out over installed EngineAdapters. For each `(adapter, kind)`
+        // pair the registry should call `adapter.installSkills/Commands/Agents`
+        // and collect one `AssetEntry` per (engine_id, kind) into the same
+        // `Vec<AssetEntry>`. Until the Rust-side EngineAdapter trait lands,
+        // we hardcode the Claude Code adapter inline below.
         let mut new_entries: Vec<AssetEntry> = Vec::new();
 
         // Collect (kind, rel-path) from the three optional manifest fields.
@@ -186,7 +193,7 @@ impl Registry for ClaudeAssetsRegistry {
         let mut map = self
             .entries
             .write()
-            .map_err(|_| anyhow!("claude_assets lock poisoned"))?;
+            .map_err(|_| anyhow!("engine_assets lock poisoned"))?;
         map.insert(pkg.manifest.id.clone(), new_entries);
         Ok(())
     }
@@ -195,7 +202,7 @@ impl Registry for ClaudeAssetsRegistry {
         let to_remove: Vec<AssetEntry> = self
             .entries
             .write()
-            .map_err(|_| anyhow!("claude_assets lock poisoned"))?
+            .map_err(|_| anyhow!("engine_assets lock poisoned"))?
             .remove(pkg_id)
             .unwrap_or_default();
         for e in to_remove {

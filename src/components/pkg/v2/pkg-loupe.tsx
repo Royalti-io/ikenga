@@ -3,13 +3,15 @@
 // current /packages page, and as the install sheet (re-uses the same
 // chrome with a registry-specific body).
 
-import { ArrowUp, Ban, Copy, ExternalLink, Plus, Power, Shield, X } from 'lucide-react';
+import { ArrowUp, Ban, ChevronRight, Copy, ExternalLink, Plug, Plus, Power, Shield, X } from 'lucide-react';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { cn } from '@/components/ui/utils';
 import type { PkgRowV2 } from '@/lib/pkgs/use-derived';
 import {
+	pkgKernelStatus,
 	pkgSetEnabled,
 	pkgSettingsGet,
 	pkgSettingsSet,
@@ -265,6 +267,7 @@ function TabOverview({ row }: { row: PkgRowV2 }) {
 				</div>
 			</section>
 			<PkgScreenshotCarousel row={row} />
+			<EngineInstalls row={row} />
 			<section className="space-y-2">
 				<SectionLabel>manifest summary</SectionLabel>
 				<MetaGrid
@@ -597,6 +600,255 @@ function TabManifest({ row }: { row: PkgRowV2 }) {
 				</Button>
 			</div>
 		</section>
+	);
+}
+
+/* ───── Engine installs (ADR-012 §10 phase 5) ───── */
+
+// Local types for the registry snapshots we read out of pkgKernelStatus().
+// PkgKernelStatus['registries'] is typed as `Record<string, unknown>` at the
+// tauri-cmd boundary; narrow it inline here rather than widening the global
+// type. Mirrors the Rust shapes in `pkg/registries/mcp.rs` +
+// `pkg/registries/engine_assets.rs` (Track C/D).
+interface InstallReportSnap {
+	wrote: string[];
+	skipped: string[];
+	warnings: string[];
+}
+
+interface McpRegistrySnap {
+	count?: number;
+	entries?: Array<{ pkg_id: string; name: string; key: string }>;
+	config_path?: string;
+	/** Outer key = pkg_id, inner key = engine_id. */
+	adapter_reports?: Record<string, Record<string, InstallReportSnap>>;
+}
+
+interface EngineAssetEntrySnap {
+	pkg_id: string;
+	engine_id: string;
+	kind: string;
+	source: string;
+	target: string;
+}
+
+interface EngineAssetsRegistrySnap {
+	count?: number;
+	entries?: EngineAssetEntrySnap[];
+}
+
+interface EngineInstallRow {
+	engineId: string;
+	report: InstallReportSnap | null;
+	assets: EngineAssetEntrySnap[];
+}
+
+const ENGINE_DISPLAY_NAMES: Record<string, string> = {
+	'claude-code': 'Claude Code',
+	gemini: 'Gemini CLI',
+	codex: 'Codex CLI',
+};
+
+function engineDisplayName(id: string): string {
+	return ENGINE_DISPLAY_NAMES[id] ?? id;
+}
+
+function EngineInstalls({ row }: { row: PkgRowV2 }) {
+	// Registry rows are pre-install — there's nothing materialized yet.
+	const status = useQuery({
+		enabled: row.origin !== 'registry',
+		queryKey: ['pkg', 'kernel-status'],
+		queryFn: pkgKernelStatus,
+		refetchOnWindowFocus: false,
+	});
+
+	if (row.origin === 'registry') return null;
+	if (!status.data) return null;
+
+	const registries = status.data.registries as Record<string, unknown> | undefined;
+	const mcp = (registries?.mcp ?? undefined) as McpRegistrySnap | undefined;
+	const engineAssets = (registries?.engine_assets ?? undefined) as
+		| EngineAssetsRegistrySnap
+		| undefined;
+
+	const adapterReports = mcp?.adapter_reports?.[row.id] ?? {};
+	const assetEntries = (engineAssets?.entries ?? []).filter((e) => e.pkg_id === row.id);
+
+	// Build a stable ordered set of engines that touched this pkg.
+	const engineSet = new Set<string>();
+	for (const id of Object.keys(adapterReports)) engineSet.add(id);
+	for (const e of assetEntries) engineSet.add(e.engine_id);
+	if (engineSet.size === 0) return null;
+
+	// Keep claude-code first if present, then alphabetical.
+	const engineIds = Array.from(engineSet).sort((a, b) => {
+		if (a === 'claude-code') return -1;
+		if (b === 'claude-code') return 1;
+		return a.localeCompare(b);
+	});
+
+	const rows: EngineInstallRow[] = engineIds.map((engineId) => ({
+		engineId,
+		report: adapterReports[engineId] ?? null,
+		assets: assetEntries.filter((e) => e.engine_id === engineId),
+	}));
+
+	return (
+		<section className="space-y-2">
+			<SectionLabel>
+				<span className="inline-flex items-center gap-1.5">
+					<Plug className="h-3 w-3" />
+					engine installs
+				</span>
+			</SectionLabel>
+			<div className="space-y-1.5">
+				{rows.map((r) => (
+					<EngineInstallCard key={r.engineId} row={r} />
+				))}
+			</div>
+		</section>
+	);
+}
+
+function EngineInstallCard({ row }: { row: EngineInstallRow }) {
+	const [open, setOpen] = useState(false);
+	const wroteCount = row.report?.wrote.length ?? 0;
+	const skippedCount = row.report?.skipped.length ?? 0;
+	const warnings = row.report?.warnings ?? [];
+	const assetCount = row.assets.length;
+	const hasDetails =
+		wroteCount + skippedCount + warnings.length + assetCount > 0;
+
+	// Summary line. MCP fan-out + asset fan-out count toward the same "wrote"
+	// notion from the user's perspective. We render them as separate phrases
+	// so it's clear what each number refers to.
+	const phrases: string[] = [];
+	if (row.report) {
+		phrases.push(`Wrote ${wroteCount} MCP server${wroteCount === 1 ? '' : 's'}`);
+		if (skippedCount > 0) {
+			phrases.push(`skipped ${skippedCount} (idempotent)`);
+		}
+	}
+	if (assetCount > 0) {
+		phrases.push(`${assetCount} asset link${assetCount === 1 ? '' : 's'}`);
+	}
+	const summary = phrases.join(' · ') || 'No changes';
+
+	return (
+		<Collapsible open={open} onOpenChange={setOpen}>
+			<div className="rounded-sm border border-border bg-background">
+				<CollapsibleTrigger
+					disabled={!hasDetails}
+					className={cn(
+						'flex w-full items-center gap-2 px-3 py-2 text-left',
+						hasDetails && 'hover:bg-accent/40'
+					)}
+				>
+					<ChevronRight
+						className={cn(
+							'h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform',
+							open && 'rotate-90',
+							!hasDetails && 'opacity-30'
+						)}
+					/>
+					<div className="min-w-0 flex-1">
+						<div className="flex items-center gap-2">
+							<span className="text-sm font-medium text-foreground">
+								{engineDisplayName(row.engineId)}
+							</span>
+							<code className="rounded-sm border border-border bg-muted/40 px-1 py-0.5 font-mono text-[10px] text-muted-foreground">
+								{row.engineId}
+							</code>
+							{warnings.length > 0 && (
+								<span className="rounded-sm border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 font-mono text-[10px] uppercase text-amber-500">
+									{warnings.length} warning{warnings.length === 1 ? '' : 's'}
+								</span>
+							)}
+						</div>
+						<div className="text-[11px] text-muted-foreground">{summary}</div>
+					</div>
+				</CollapsibleTrigger>
+				<CollapsibleContent>
+					<div className="space-y-3 border-t border-border bg-muted/20 px-3 py-2.5">
+						{assetCount > 0 && (
+							<EngineDetailGroup label="Assets">
+								{row.assets.map((a) => (
+									<li
+										key={`${a.kind}-${a.target}`}
+										className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 font-mono text-[11px]"
+									>
+										<span className="rounded-sm border border-border bg-background px-1 py-0.5 text-foreground">
+											{a.kind}
+										</span>
+										<span className="break-all text-muted-foreground">{a.target}</span>
+									</li>
+								))}
+							</EngineDetailGroup>
+						)}
+						{wroteCount > 0 && (
+							<EngineDetailGroup label="Wrote">
+								{row.report?.wrote.map((w) => (
+									<li
+										key={`wrote-${w}`}
+										className="break-all font-mono text-[11px] text-foreground"
+									>
+										{w}
+									</li>
+								))}
+							</EngineDetailGroup>
+						)}
+						{skippedCount > 0 && (
+							<EngineDetailGroup label="Skipped">
+								{row.report?.skipped.map((s) => (
+									<li
+										key={`skipped-${s}`}
+										className="break-all font-mono text-[11px] text-muted-foreground"
+									>
+										{s}
+									</li>
+								))}
+							</EngineDetailGroup>
+						)}
+						{warnings.length > 0 && (
+							<EngineDetailGroup label="Warnings" tone="warn">
+								{warnings.map((w) => (
+									<li
+										key={`warn-${w}`}
+										className="text-[11.5px] leading-relaxed text-amber-500"
+									>
+										{w}
+									</li>
+								))}
+							</EngineDetailGroup>
+						)}
+					</div>
+				</CollapsibleContent>
+			</div>
+		</Collapsible>
+	);
+}
+
+function EngineDetailGroup({
+	label,
+	tone = 'default',
+	children,
+}: {
+	label: string;
+	tone?: 'default' | 'warn';
+	children: React.ReactNode;
+}) {
+	return (
+		<div className="space-y-1">
+			<div
+				className={cn(
+					'font-mono text-[10px] uppercase tracking-wider',
+					tone === 'warn' ? 'text-amber-500/80' : 'text-muted-foreground/70'
+				)}
+			>
+				{label}
+			</div>
+			<ul className="m-0 list-none space-y-0.5 p-0">{children}</ul>
+		</div>
 	);
 }
 
