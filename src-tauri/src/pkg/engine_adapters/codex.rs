@@ -14,9 +14,9 @@
 //!                frontmatter; true → materialize as a skill; missing/false
 //!                → warn + skip per file.
 //!   - Subagents: `~/.codex/agents/<slug>/<basename>.toml` — per-file
-//!                MD→TOML transcode. We namespace under the pkg slug (ADR §1
-//!                shows flat `~/.codex/agents/<name>.toml`; we diverge so
-//!                uninstall is a single `rm -rf` of the per-pkg dir).
+//!                MD→TOML transcode. Namespaced under the pkg slug per
+//!                ADR §1 (table amended 2026-05-18 to match implementation
+//!                + §7's "pkg-namespaced subdirs" rule).
 //!   - AGENTS.md: skipped for v1 (out of scope).
 //!
 //! Env-substitution semantics (ADR §7 closed 2026-05-18):
