@@ -79,6 +79,12 @@ const PROMPT_TYPING_DELAY_MS = 1500;
  *  the TUI batches the Enter into the paste payload and treats it as
  *  another newline instead of a submit. */
 const POST_PASTE_DELAY_MS = 200;
+/** How long the watcher will hold off firing on a non-slug-matching `.html`
+ *  while it waits for the agent's actual file. If the agent writes the
+ *  expected file inside this window, the watcher pops the loupe on that
+ *  instead. Tuned to be long enough to absorb a stray sibling create,
+ *  short enough that the user isn't left staring at a blank grid. */
+const FALLBACK_GRACE_MS = 5_000;
 
 export async function startArtifact(args: StartArgs): Promise<StartResult> {
 	const slug = slugifyName(args.name);
@@ -139,16 +145,19 @@ export async function startArtifact(args: StartArgs): Promise<StartResult> {
 	void typeKickoff(terminalSessionId, kickoffPrompt);
 
 	// Watch the project root recursively and swap the Studio leaf's view
-	// from grid → loupe when the first new `.html` lands under the chosen
-	// folder. After the swap, decide what to do with the terminal pane
-	// (attach to loupe / keep separate / ask) per the user's persisted pref.
+	// from grid → loupe when the agent's file lands under the chosen
+	// folder. Prefers a slug match; falls back to "first new .html"
+	// after a short grace period so a stray sibling create doesn't pop
+	// the wrong file. After the swap, decide what to do with the
+	// terminal pane per the user's persisted handoff pref.
 	if (args.project.root_path) {
 		void watchForArtifact(
 			args.project.root_path,
 			args.folder,
 			studioLeafId,
 			terminalLeafId,
-			terminalSessionId
+			terminalSessionId,
+			slug
 		);
 	}
 
@@ -206,22 +215,31 @@ function wait(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** Watch the project root recursively for the first new `.html` whose path
- *  is under `folderPrefix`. Swap the Studio leaf's view (grid → loupe) in
- *  place so terminal + artifact sit side-by-side from t=0, then route the
- *  terminal pane through the handoff prompt / persisted pref.
- *  Self-terminates after 30 minutes if no match. */
+/** Watch the project root recursively for the agent's file. Prefers any
+ *  `.html` whose basename contains `slug` (case-insensitive); falls back
+ *  to the first non-matching `.html` under `folderPrefix` after a short
+ *  grace period so a stray sibling create doesn't pop the wrong file.
+ *
+ *  Swap sequence on fire: grid → loupe in place, then route the terminal
+ *  pane through the handoff prompt / persisted pref. Self-terminates
+ *  after 30 minutes if nothing lands. */
 async function watchForArtifact(
 	rootPath: string,
 	folderPrefix: string,
 	studioLeafId: string,
 	terminalLeafId: string,
-	terminalSessionId: string
+	terminalSessionId: string,
+	slug: string
 ): Promise<void> {
 	const normalizedPrefix = folderPrefix.replace(/\/+$/, '');
+	const slugLower = slug.toLowerCase();
 	let watcherId: string | null = null;
 	let unlisten: (() => void) | null = null;
 	let cleaned = false;
+	/** First non-slug-matching `.html` we've seen, held in case the slug
+	 *  match never lands. Falls through after FALLBACK_GRACE_MS. */
+	let fallback: { path: string } | null = null;
+	let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
 
 	function cleanup(): void {
 		if (cleaned) return;
@@ -236,13 +254,38 @@ async function watchForArtifact(
 			void fsUnwatch(watcherId).catch(() => {});
 			watcherId = null;
 		}
+		if (fallbackTimer) {
+			clearTimeout(fallbackTimer);
+			fallbackTimer = null;
+		}
 	}
 
 	const timeout = setTimeout(cleanup, WATCHER_TIMEOUT_MS);
 
+	function fire(path: string, reason: 'slug-match' | 'fallback'): void {
+		console.info('[wizard] artifact detected', path, `(${reason}) → swapping grid → loupe`);
+		swapStudioToLoupe(studioLeafId, path);
+		void requestOrApplyHandoff({
+			terminalSessionId,
+			terminalLeafId,
+			studioLeafId,
+			artifactPath: path,
+		}).catch((e) => console.warn('[wizard] handoff failed:', e));
+		clearTimeout(timeout);
+		cleanup();
+	}
+
 	try {
 		watcherId = await fsWatch(rootPath);
-		console.info('[wizard] watching', rootPath, 'for .html under', normalizedPrefix);
+		console.info(
+			'[wizard] watching',
+			rootPath,
+			'for .html under',
+			normalizedPrefix,
+			'(slug match:',
+			slugLower,
+			')'
+		);
 		unlisten = await fsListenWatch(watcherId, (change) => {
 			if (cleaned) return;
 			if (change.kind !== 'create') return;
@@ -250,16 +293,35 @@ async function watchForArtifact(
 			if (!change.path.startsWith(`${normalizedPrefix}/`) && change.path !== normalizedPrefix) {
 				return;
 			}
-			console.info('[wizard] artifact detected', change.path, '→ swapping grid → loupe');
-			swapStudioToLoupe(studioLeafId, change.path);
-			void requestOrApplyHandoff({
-				terminalSessionId,
-				terminalLeafId,
-				studioLeafId,
-				artifactPath: change.path,
-			}).catch((e) => console.warn('[wizard] handoff failed:', e));
-			clearTimeout(timeout);
-			cleanup();
+
+			const basename = change.path
+				.replace(/^.+\//, '')
+				.replace(/\.html$/i, '')
+				.toLowerCase();
+			const isSlugMatch = slugLower.length > 0 && basename.includes(slugLower);
+
+			if (isSlugMatch) {
+				fire(change.path, 'slug-match');
+				return;
+			}
+
+			// Non-matching create — hold as fallback. If the slug match
+			// shows up before the grace window expires, that fire() will
+			// cleanup() and the timer becomes a no-op via `cleaned`.
+			if (!fallback) {
+				fallback = { path: change.path };
+				console.info(
+					'[wizard] non-matching .html',
+					change.path,
+					'— holding as fallback for',
+					FALLBACK_GRACE_MS,
+					'ms'
+				);
+				fallbackTimer = setTimeout(() => {
+					if (cleaned || !fallback) return;
+					fire(fallback.path, 'fallback');
+				}, FALLBACK_GRACE_MS);
+			}
 		});
 	} catch (e) {
 		console.warn('[wizard] could not watch', rootPath, e);

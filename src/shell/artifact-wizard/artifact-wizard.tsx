@@ -38,6 +38,12 @@ import {
 	type ArchetypeSlug,
 	findArchetype,
 } from '@/shell/artifact-wizard/archetypes';
+import {
+	loadLastAgent,
+	loadLastAgentCustom,
+	saveLastAgent,
+	saveLastAgentCustom,
+} from '@/shell/artifact-wizard/last-agent';
 import { type AgentChoice, startArtifact } from '@/shell/artifact-wizard/scaffold';
 
 type AgentKind = AgentChoice['kind'];
@@ -131,6 +137,37 @@ export function ArtifactWizard({ open, onOpenChange, prefill }: ArtifactWizardPr
 		setFolder(joinPath(project.root_path, archetype.defaultSubdir));
 	}, [project?.root_path, archetype, folderEdited]);
 
+	// Per-project last-agent memory: when the wizard opens (or the user
+	// switches project mid-wizard), pre-select whatever agent was used last
+	// time for that project. Skipped when the caller explicitly passed an
+	// `?agent=` prefill — explicit deep-links win over memory.
+	useEffect(() => {
+		if (!open || !projectId) return;
+		const fromPrefill = prefill?.agent ?? null;
+		if (
+			fromPrefill === 'claude' ||
+			fromPrefill === 'codex' ||
+			fromPrefill === 'gemini' ||
+			fromPrefill === 'custom'
+		) {
+			return;
+		}
+		let cancelled = false;
+		void loadLastAgent(projectId)
+			.then(async (kind) => {
+				if (cancelled || !kind) return;
+				setAgentKind(kind);
+				if (kind === 'custom') {
+					const cmd = await loadLastAgentCustom(projectId);
+					if (!cancelled && cmd) setCustomAgentCmd(cmd);
+				}
+			})
+			.catch((e) => console.warn('[wizard] loadLastAgent failed:', e));
+		return () => {
+			cancelled = true;
+		};
+	}, [open, projectId, prefill?.agent]);
+
 	function close() {
 		onOpenChange(false);
 	}
@@ -188,6 +225,17 @@ export function ArtifactWizard({ open, onOpenChange, prefill }: ArtifactWizardPr
 				folder: folder.trim(),
 				agent,
 			});
+			// Remember this agent for the next wizard run in this project.
+			// Fire-and-forget — the wizard closes either way; a settings_kv
+			// blip shouldn't block the user.
+			void saveLastAgent(project.id, agent.kind).catch((e) =>
+				console.warn('[wizard] saveLastAgent failed:', e)
+			);
+			if (agent.kind === 'custom') {
+				void saveLastAgentCustom(project.id, customAgentCmd).catch((e) =>
+					console.warn('[wizard] saveLastAgentCustom failed:', e)
+				);
+			}
 			// Close immediately — the terminal pane is the new surface.
 			close();
 		} catch (e) {
