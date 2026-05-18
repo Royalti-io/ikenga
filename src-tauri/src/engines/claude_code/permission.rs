@@ -157,6 +157,19 @@ pub fn outcome_to_response_body(
     match &response.outcome {
         RequestPermissionOutcome::Cancelled => deny_body("User cancelled"),
         RequestPermissionOutcome::Selected(sel) => {
+            // AskUserQuestion fast-path via `_meta.answers`: the FE can
+            // build a structured `{questionText: string | string[]}` map
+            // and we forward it directly into `updatedInput.answers`. This
+            // supports multiSelect (join with `, `) and the "Other" free-
+            // text fallback without abusing the singular ACP `optionId`.
+            if let Some(answers) = response
+                .meta
+                .as_ref()
+                .and_then(|m| m.get("answers"))
+                .and_then(Value::as_object)
+            {
+                return ask_user_question_allow_body_from_meta(answers);
+            }
             let id = sel.option_id.0.as_ref();
             match id {
                 OPT_REJECT_ONCE | OPT_REJECT_ALWAYS => deny_body("User declined"),
@@ -174,6 +187,36 @@ pub fn outcome_to_response_body(
         // The enum is `#[non_exhaustive]`; default to deny for safety.
         _ => deny_body("Unknown permission outcome"),
     }
+}
+
+/// Forward a pre-keyed `{questionText: string | [string,...]}` map straight
+/// into `updatedInput.answers`. The FE's PermissionDialog builds this when
+/// it has full access to the rawInput (multiSelect arrays, "Other" free
+/// text). Arrays are flattened to a comma-joined string per the
+/// AskUserQuestion contract Claude expects.
+fn ask_user_question_allow_body_from_meta(answers_in: &Map<String, Value>) -> Value {
+    let mut answers = Map::new();
+    for (question, value) in answers_in {
+        let answer = match value {
+            Value::String(s) => Value::String(s.clone()),
+            Value::Array(items) => {
+                let joined = items
+                    .iter()
+                    .filter_map(|v| v.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                Value::String(joined)
+            }
+            other => other.clone(),
+        };
+        answers.insert(question.clone(), answer);
+    }
+    let mut updated = Map::new();
+    updated.insert("answers".into(), Value::Object(answers));
+    let mut body = Map::new();
+    body.insert("behavior".into(), Value::String("allow".into()));
+    body.insert("updatedInput".into(), Value::Object(updated));
+    Value::Object(body)
 }
 
 fn allow_body(updated_input: Option<Value>) -> Value {
@@ -360,6 +403,47 @@ mod tests {
         // The answers map is keyed by empty-string when the index doesn't
         // resolve. That's acceptable — claude will surface an error.
         assert!(body["updatedInput"]["answers"].is_object());
+    }
+
+    #[test]
+    fn meta_answers_short_circuits_optionid_path() {
+        // FE-built `_meta.answers` is the canonical multi-question + multi-
+        // select + Other-text route. The legacy single-optionId decode is
+        // bypassed entirely when meta carries an `answers` object.
+        let mut meta = serde_json::Map::new();
+        meta.insert(
+            "answers".into(),
+            json!({
+                "Pick one": "Red",
+                "Pick any": ["Blue", "Green"],
+                "Free form": "user typed text",
+            }),
+        );
+        let resp = RequestPermissionResponse::new(RequestPermissionOutcome::Selected(
+            // optionId is a no-op tag — Rust ignores it when meta.answers exists.
+            SelectedPermissionOutcome::new("ask:submitted"),
+        ))
+        .meta(meta);
+
+        let body = outcome_to_response_body("AskUserQuestion", None, &resp);
+        assert_eq!(body["behavior"], json!("allow"));
+        let answers = &body["updatedInput"]["answers"];
+        assert_eq!(answers["Pick one"], json!("Red"));
+        // Multi-select arrays get joined with `, ` per Claude's expected shape.
+        assert_eq!(answers["Pick any"], json!("Blue, Green"));
+        assert_eq!(answers["Free form"], json!("user typed text"));
+    }
+
+    #[test]
+    fn meta_answers_with_empty_array_yields_empty_string() {
+        let mut meta = serde_json::Map::new();
+        meta.insert("answers".into(), json!({ "Q": [] }));
+        let resp = RequestPermissionResponse::new(RequestPermissionOutcome::Selected(
+            SelectedPermissionOutcome::new("ask:submitted"),
+        ))
+        .meta(meta);
+        let body = outcome_to_response_body("AskUserQuestion", None, &resp);
+        assert_eq!(body["updatedInput"]["answers"]["Q"], json!(""));
     }
 
     #[test]
