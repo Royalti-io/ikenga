@@ -6,6 +6,7 @@ import { ContentPane } from './content-pane';
 import { Dock } from './dock/dock';
 import { useDockStore } from './dock/dock-store';
 import { CommandPalette, useCommandPalette } from './command-palette';
+import { TerminalHandoffPrompt } from './artifact-wizard/terminal-handoff-prompt';
 import { ConnectorBanner } from './connector-banner';
 import { TrustReviewBanner } from './trust-review-banner';
 import { UpdaterBanner } from './updater-banner';
@@ -14,8 +15,6 @@ import { useIykeControlListener } from '@/lib/iyke/control-listener';
 import { useIykeShellSync } from '@/lib/iyke/use-iyke-shell-sync';
 import { usePinRoutedListener } from '@/lib/iyke/use-pin-routed-listener';
 import { useProjectsSync } from '@/lib/shell/use-projects-sync';
-import { useProjectLayoutSwap } from '@/lib/shell/project-layout-swap';
-import { useShellStore } from '@/lib/shell/shell-store';
 import {
 	loadPanelSizes,
 	persistPanelSizes,
@@ -34,7 +33,6 @@ export function Workspace() {
 	const [initialSizes, setInitialSizes] = useState<[number, number] | null>(null);
 	const [navHidden, setNavHidden] = useState(false);
 	const palette = useCommandPalette();
-	const activeProjectId = useShellStore((s) => s.activeProjectId);
 
 	// Iyke (phase 11): mirror sidebar mode + focused pane's route into the
 	// Rust-side control bridge so external CLI/MCP callers see what the
@@ -60,10 +58,6 @@ export function Workspace() {
 	// Tauri events and invalidate any `'project-scoped'` TanStack Query so
 	// later phases' per-project data swaps automatically on switch.
 	useProjectsSync();
-	// Phase 6: on project switch, snapshot the outgoing project's layout
-	// (pane tree + files explorer + panel sizes) and apply the incoming
-	// project's saved snapshot. Mounted exactly once at workspace level.
-	useProjectLayoutSwap();
 	// Warm the lazy artifact viewer chunks during idle so the first
 	// PDF/XLSX/code file open isn't a cold fetch.
 	usePreloadViewers();
@@ -82,10 +76,11 @@ export function Workspace() {
 		mark('boot:workspace-mount');
 	}, []);
 
-	// Hydrate persisted sizes once on mount (keyed by active project).
+	// Hydrate persisted sizes once on mount. One global key — project
+	// switches no longer re-load panel sizes.
 	useEffect(() => {
 		let cancelled = false;
-		loadPanelSizes(activeProjectId).then((sizes) => {
+		loadPanelSizes().then((sizes) => {
 			if (!cancelled) {
 				setInitialSizes(sizes);
 				// Workspace is now interactive — log the cold-start trace.
@@ -99,21 +94,16 @@ export function Workspace() {
 		return () => {
 			cancelled = true;
 		};
-		// Boot-time read only — re-mounting on project switch is the
-		// orchestrator's job (`applyPanelSizes`). The `useEffect` intentionally
-		// runs once.
-		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 
-	// Register a setter so `project-layout-swap` can push a loaded
-	// snapshot into local React state when the user switches projects.
+	// Setter kept so settings surfaces can push a reset/default back into
+	// React state without remounting the panel group.
 	useEffect(() => registerPanelSizesSetter(setInitialSizes), []);
 
 	// Persist on layout change (debounced to avoid hammering SQLite while
-	// the user is mid-drag). Project-scoped — the active project at write
-	// time is the one credited with the new sizes.
+	// the user is mid-drag).
 	const persist = (sizes: number[]) => {
-		persistPanelSizes(useShellStore.getState().activeProjectId, sizes);
+		persistPanelSizes(sizes);
 	};
 
 	// Rehydrate terminal sessions, then the pane tree, then start
@@ -164,22 +154,15 @@ export function Workspace() {
 				);
 			}
 			if (cancelled) return;
-			const snapshot = await raceTimeout(
-				loadPaneTree(useShellStore.getState().activeProjectId),
-				2000,
-				'loadPaneTree'
-			);
+			const snapshot = await raceTimeout(loadPaneTree(), 2000, 'loadPaneTree');
 			if (cancelled) return;
 			if (snapshot) usePaneStore.getState().hydrate(snapshot);
 			unsubPersist = usePaneStore.subscribe((state) => {
-				persistPaneTree(
-					{
-						root: state.root,
-						focusedId: state.focusedId,
-						closedHistory: state.closedHistory,
-					},
-					useShellStore.getState().activeProjectId
-				);
+				persistPaneTree({
+					root: state.root,
+					focusedId: state.focusedId,
+					closedHistory: state.closedHistory,
+				});
 			});
 		})();
 		return () => {
@@ -338,6 +321,8 @@ export function Workspace() {
 				mode={palette.mode}
 				onOpenChange={(open) => palette.setOpen(open)}
 			/>
+
+			<TerminalHandoffPrompt />
 		</div>
 	);
 }

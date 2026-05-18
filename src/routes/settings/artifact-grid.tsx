@@ -9,6 +9,11 @@ import {
 	setGlobalStackMode,
 } from '@/shell/artifact-studio/grid-settings';
 import { settingsGet } from '@/lib/tauri-cmd';
+import {
+	type HandoffPref,
+	loadHandoffPref,
+	saveHandoffPref,
+} from '@/shell/artifact-wizard/handoff-pref';
 
 import { SettingGroup } from './-components/setting-group';
 import { SettingRow } from './-components/setting-row';
@@ -18,6 +23,7 @@ export const Route = createFileRoute('/settings/artifact-grid')({
 });
 
 const ARTIFACT_GRID_GLOBAL_QK = ['settings', 'artifact-grid', 'global'] as const;
+const HANDOFF_PREF_QK = ['settings', 'artifact-grid', 'handoff-pref'] as const;
 
 function ArtifactGridSettingsPage() {
 	const qc = useQueryClient();
@@ -37,6 +43,12 @@ function ArtifactGridSettingsPage() {
 		staleTime: 10_000,
 	});
 
+	const handoffQ = useQuery({
+		queryKey: HANDOFF_PREF_QK,
+		queryFn: loadHandoffPref,
+		staleTime: 10_000,
+	});
+
 	const onSink = async (v: DefaultSink) => {
 		await setGlobalDefaultSink(v);
 		qc.invalidateQueries({ queryKey: ARTIFACT_GRID_GLOBAL_QK });
@@ -45,9 +57,14 @@ function ArtifactGridSettingsPage() {
 		await setGlobalStackMode(v);
 		qc.invalidateQueries({ queryKey: ARTIFACT_GRID_GLOBAL_QK });
 	};
+	const onHandoff = async (v: HandoffPref) => {
+		await saveHandoffPref(v);
+		qc.invalidateQueries({ queryKey: HANDOFF_PREF_QK });
+	};
 
 	const sink = q.data?.defaultSink ?? 'auto';
 	const stack = q.data?.stackMode ?? 'collapsed';
+	const handoff = handoffQ.data ?? 'ask';
 
 	return (
 		<div className="mx-auto max-w-2xl space-y-6 px-6 py-6">
@@ -76,6 +93,43 @@ function ArtifactGridSettingsPage() {
 					<SegmentedStackMode value={stack} onChange={onStack} />
 				</SettingRow>
 			</SettingGroup>
+
+			<SettingGroup title="Wizard">
+				<SettingRow
+					label="Terminal handoff"
+					desc="When the wizard's Studio swaps from grid to loupe (the agent wrote a file), what to do with the wizard's terminal pane. Attach moves it into the loupe's Chat tab; Keep leaves it in the right pane; Ask shows a modal each time."
+				>
+					<SegmentedHandoff value={handoff} onChange={onHandoff} />
+				</SettingRow>
+			</SettingGroup>
+		</div>
+	);
+}
+
+function SegmentedHandoff({
+	value,
+	onChange,
+}: {
+	value: HandoffPref;
+	onChange: (v: HandoffPref) => void;
+}) {
+	return (
+		<div className="inline-flex overflow-hidden rounded border border-border">
+			{(['ask', 'attach', 'keep'] as const).map((opt) => (
+				<button
+					key={opt}
+					type="button"
+					onClick={() => onChange(opt)}
+					className={
+						'cursor-pointer border-r border-border px-3 py-1 text-xs capitalize last:border-r-0 ' +
+						(value === opt
+							? 'bg-foreground/10 text-foreground'
+							: 'text-muted-foreground hover:text-foreground')
+					}
+				>
+					{opt}
+				</button>
+			))}
 		</div>
 	);
 }

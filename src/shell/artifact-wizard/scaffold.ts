@@ -26,6 +26,7 @@ import { usePaneStore } from '@/lib/panes/pane-store';
 import { createTerminalSession } from '@/terminal/single-terminal';
 import { useTerminalStore } from '@/terminal/session-store';
 import { type Archetype, slugifyName } from '@/shell/artifact-wizard/archetypes';
+import { requestOrApplyHandoff } from '@/shell/artifact-wizard/handoff-pref';
 
 export type AgentChoice =
 	| { kind: 'claude' }
@@ -139,9 +140,16 @@ export async function startArtifact(args: StartArgs): Promise<StartResult> {
 
 	// Watch the project root recursively and swap the Studio leaf's view
 	// from grid → loupe when the first new `.html` lands under the chosen
-	// folder.
+	// folder. After the swap, decide what to do with the terminal pane
+	// (attach to loupe / keep separate / ask) per the user's persisted pref.
 	if (args.project.root_path) {
-		void watchForArtifact(args.project.root_path, args.folder, studioLeafId);
+		void watchForArtifact(
+			args.project.root_path,
+			args.folder,
+			studioLeafId,
+			terminalLeafId,
+			terminalSessionId
+		);
 	}
 
 	return { terminalSessionId, slug, kickoffPrompt };
@@ -200,12 +208,15 @@ function wait(ms: number): Promise<void> {
 
 /** Watch the project root recursively for the first new `.html` whose path
  *  is under `folderPrefix`. Swap the Studio leaf's view (grid → loupe) in
- *  place so terminal + artifact sit side-by-side from t=0. Self-terminates
- *  after 30 minutes if no match. */
+ *  place so terminal + artifact sit side-by-side from t=0, then route the
+ *  terminal pane through the handoff prompt / persisted pref.
+ *  Self-terminates after 30 minutes if no match. */
 async function watchForArtifact(
 	rootPath: string,
 	folderPrefix: string,
-	studioLeafId: string
+	studioLeafId: string,
+	terminalLeafId: string,
+	terminalSessionId: string
 ): Promise<void> {
 	const normalizedPrefix = folderPrefix.replace(/\/+$/, '');
 	let watcherId: string | null = null;
@@ -241,6 +252,12 @@ async function watchForArtifact(
 			}
 			console.info('[wizard] artifact detected', change.path, '→ swapping grid → loupe');
 			swapStudioToLoupe(studioLeafId, change.path);
+			void requestOrApplyHandoff({
+				terminalSessionId,
+				terminalLeafId,
+				studioLeafId,
+				artifactPath: change.path,
+			}).catch((e) => console.warn('[wizard] handoff failed:', e));
 			clearTimeout(timeout);
 			cleanup();
 		});
