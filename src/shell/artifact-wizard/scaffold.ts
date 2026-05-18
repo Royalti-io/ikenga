@@ -1,24 +1,32 @@
-// startArtifact — wires up the terminal + Studio loupe handoff.
+// startArtifact — wires up the agent + Studio loupe handoff.
 //
-// Flow:
-//   1. Spawn `claude` in a terminal pane on the focused leaf, cwd = project
-//      root so `.claude/skills/`, commands, and CLAUDE.md resolve.
-//   2. Wait for the PTY id to land, then write the kickoff prompt into it
-//      so claude sees the brief without the user having to paste anything.
-//   3. Watch the chosen folder (via project-root recursive watcher with a
-//      prefix filter) for the first new `.html` file. When one lands, open
-//      a Studio loupe pointed at it next to the terminal pane.
+// Two agent flavors share most of the flow:
+//
+//   - **Terminal** (claude / codex / gemini / custom): spawn a PTY, type
+//     the kickoff via bracketed paste, mount as a `terminal` pane.
+//   - **Chat**: mint an ACP chat thread, mount as a `chat` pane, push the
+//     kickoff through the adapter's send pipeline.
+//
+// Either way the Studio opens in grid density on the chosen folder
+// alongside the agent pane. A file-watcher then swaps grid → loupe when
+// the agent's first `.html` lands. Terminal flow runs the handoff-prompt
+// after the swap; chat skips it (no terminal to attach).
 //
 // The watcher outlives the wizard component — fire-and-forget side effect
 // with a 30-minute self-timeout so it doesn't leak if the agent never
 // writes anything.
 
+import { mintThreadId, defaultChatAdapterId } from '@/chat';
+import { appendUserTurn, createThread } from '@/chat/persist';
+import { getAdapter } from '@/chat/registry';
+import { useChatStore } from '@/chat/store';
 import {
 	fsListenWatch,
 	fsMkdir,
 	fsUnwatch,
 	fsWatch,
 	ptyWrite,
+	sessionEnsure,
 	type Project,
 } from '@/lib/tauri-cmd';
 import { findLeaf } from '@/lib/panes/pane-reducer';
@@ -30,6 +38,7 @@ import { requestOrApplyHandoff } from '@/shell/artifact-wizard/handoff-pref';
 import { useWizardPopStore } from '@/shell/artifact-wizard/pop-recovery-store';
 
 export type AgentChoice =
+	| { kind: 'chat' }
 	| { kind: 'claude' }
 	| { kind: 'codex' }
 	| { kind: 'gemini' }
@@ -50,7 +59,10 @@ export interface StartArgs {
 	agent: AgentChoice;
 }
 
-function resolveAgentCmd(agent: AgentChoice): { cmd: string[]; title: string } {
+function resolveAgentCmd(agent: Exclude<AgentChoice, { kind: 'chat' }>): {
+	cmd: string[];
+	title: string;
+} {
 	switch (agent.kind) {
 		case 'claude':
 			return { cmd: ['claude'], title: 'claude' };
@@ -64,7 +76,10 @@ function resolveAgentCmd(agent: AgentChoice): { cmd: string[]; title: string } {
 }
 
 export interface StartResult {
-	terminalSessionId: string;
+	/** Set when the agent surface is a terminal pane. */
+	terminalSessionId: string | null;
+	/** Set when the agent surface is a chat pane. */
+	threadId: string | null;
 	slug: string;
 	kickoffPrompt: string;
 }
@@ -109,24 +124,13 @@ export async function startArtifact(args: StartArgs): Promise<StartResult> {
 		});
 	}
 
-	// Spawn the terminal at the project root so the agent sees the right
-	// `.claude/` and CLAUDE.md. D3 + D9 in the projects-as-context plan.
+	// Layout (shared across both agent flavors): Studio on the left (active
+	// pane) in grid density pointed at the chosen folder, agent surface
+	// (terminal or chat) split off to the right. We re-focus the Studio so
+	// the user can drive it without a click. When the watcher fires, the
+	// Studio's view swaps grid → loupe in place; the agent pane stays
+	// untouched on the right.
 	const cwd = args.project.root_path ?? args.folder;
-	const { cmd, title: agentTitle } = resolveAgentCmd(args.agent);
-	const terminalSessionId = createTerminalSession({
-		cwd,
-		cmd,
-		title: `${agentTitle} · ${args.archetype.label.toLowerCase()}`,
-	});
-
-	// Layout: Studio on the left (active pane), terminal on the right.
-	// The Studio is the primary surface for this flow, so it stays put as
-	// the user's active focus; the terminal is the assistant on the side.
-	// On Start we add the Studio grid to whatever pane is currently
-	// focused, then split right and mount the terminal in the new leaf,
-	// then re-focus the Studio so the user can drive it without a click.
-	// When the watcher fires we swap the Studio leaf's view from grid
-	// → loupe in place — terminal stays untouched on the right.
 	const paneStore = usePaneStore.getState();
 	const studioLeafId = paneStore.focusedId;
 	paneStore.addTab(studioLeafId, {
@@ -135,34 +139,153 @@ export async function startArtifact(args: StartArgs): Promise<StartResult> {
 		density: 'grid',
 	});
 	paneStore.splitPane(studioLeafId, 'horizontal');
-	const terminalLeafId = usePaneStore.getState().focusedId;
-	usePaneStore.getState().addTab(terminalLeafId, {
-		kind: 'terminal',
-		sessionId: terminalSessionId,
-	});
-	usePaneStore.getState().focusPane(studioLeafId);
+	const agentLeafId = usePaneStore.getState().focusedId;
 
-	// Type the kickoff prompt into the PTY once it's ready. Fire and forget.
-	void typeKickoff(terminalSessionId, kickoffPrompt);
+	let terminalSessionId: string | null = null;
+	let threadId: string | null = null;
+
+	if (args.agent.kind === 'chat') {
+		threadId = await mountChatAgent({
+			project: args.project,
+			cwd,
+			archetypeLabel: args.archetype.label,
+			agentLeafId,
+			kickoffPrompt,
+		});
+	} else {
+		terminalSessionId = mountTerminalAgent({
+			agent: args.agent,
+			cwd,
+			archetypeLabel: args.archetype.label,
+			agentLeafId,
+		});
+		// Type the kickoff prompt into the PTY once it's ready. Fire and
+		// forget — the chat path's autoSend covers the equivalent step.
+		void typeKickoff(terminalSessionId, kickoffPrompt);
+	}
+
+	usePaneStore.getState().focusPane(studioLeafId);
 
 	// Watch the project root recursively and swap the Studio leaf's view
 	// from grid → loupe when the agent's file lands under the chosen
-	// folder. Prefers a slug match; falls back to "first new .html"
-	// after a short grace period so a stray sibling create doesn't pop
-	// the wrong file. After the swap, decide what to do with the
-	// terminal pane per the user's persisted handoff pref.
+	// folder. After the swap, terminal flows run the handoff prompt;
+	// chat flows skip it (no terminal to attach).
 	if (args.project.root_path) {
-		void watchForArtifact(
-			args.project.root_path,
-			args.folder,
+		void watchForArtifact({
+			rootPath: args.project.root_path,
+			folderPrefix: args.folder,
 			studioLeafId,
-			terminalLeafId,
+			agentLeafId,
 			terminalSessionId,
-			slug
-		);
+			slug,
+		});
 	}
 
-	return { terminalSessionId, slug, kickoffPrompt };
+	return { terminalSessionId, threadId, slug, kickoffPrompt };
+}
+
+// ─── Agent mounts ────────────────────────────────────────────────────────
+
+function mountTerminalAgent(args: {
+	agent: Exclude<AgentChoice, { kind: 'chat' }>;
+	cwd: string;
+	archetypeLabel: string;
+	agentLeafId: string;
+}): string {
+	const { cmd, title: agentTitle } = resolveAgentCmd(args.agent);
+	const sessionId = createTerminalSession({
+		cwd: args.cwd,
+		cmd,
+		title: `${agentTitle} · ${args.archetypeLabel.toLowerCase()}`,
+	});
+	usePaneStore.getState().addTab(args.agentLeafId, {
+		kind: 'terminal',
+		sessionId,
+	});
+	return sessionId;
+}
+
+async function mountChatAgent(args: {
+	project: Project;
+	cwd: string;
+	archetypeLabel: string;
+	agentLeafId: string;
+	kickoffPrompt: string;
+}): Promise<string> {
+	const threadId = mintThreadId();
+	const adapterId = defaultChatAdapterId();
+	const title = `${args.archetypeLabel}: ${args.project.display_name}`;
+	const now = Date.now();
+
+	// Rust-side session row up front so the streaming child can spawn on
+	// the first prompt (idempotent — adapter.attach also calls this).
+	await sessionEnsure(threadId, args.cwd, {});
+
+	// Persist the thread so it survives a reload.
+	await createThread({
+		id: threadId,
+		adapterId,
+		cwd: args.cwd,
+		claudeSessionId: null,
+		model: null,
+		title,
+		projectId: args.project.id,
+	});
+
+	// Mirror into the in-memory store so the chat pane mounts with the
+	// thread already known. Without this the pane has to wait for the
+	// DB → store hydration loop, which races with autoSend below.
+	useChatStore.getState().upsertThread({
+		id: threadId,
+		adapterId,
+		title,
+		cwd: args.cwd,
+		model: null,
+		claudeSessionId: null,
+		ptyId: null,
+		projectId: args.project.id,
+		createdAt: now,
+		updatedAt: now,
+	});
+
+	// Mount the chat pane and auto-send the kickoff prompt.
+	usePaneStore.getState().addTab(args.agentLeafId, {
+		kind: 'chat',
+		sessionId: threadId,
+	});
+	void autoSendKickoff(threadId, adapterId, args.kickoffPrompt);
+
+	return threadId;
+}
+
+async function autoSendKickoff(threadId: string, adapterId: string, text: string): Promise<void> {
+	try {
+		const turn = await appendUserTurn(threadId, text);
+		useChatStore.getState().appendEvents(threadId, [
+			{
+				kind: 'user_turn',
+				text: turn.text,
+				sequence: turn.sequence,
+				createdAt: turn.createdAt,
+			},
+		]);
+		const adapter = getAdapter(adapterId);
+		useChatStore.getState().setStatus(threadId, 'streaming');
+		const { iterable } = adapter.send({ threadId, text });
+		try {
+			for await (const _ev of iterable) {
+				// drain — the adapter's own listeners persist + push events
+			}
+		} finally {
+			if (useChatStore.getState().threads[threadId]?.status === 'streaming') {
+				useChatStore.getState().setStatus(threadId, 'idle');
+			}
+		}
+	} catch (e) {
+		const msg = e instanceof Error ? e.message : String(e);
+		console.error('[wizard] chat autoSend failed:', e);
+		useChatStore.getState().setStatus(threadId, 'error', msg);
+	}
 }
 
 /** Wait for the PTY id to land in the session-store, give the agent a beat
@@ -224,14 +347,18 @@ function wait(ms: number): Promise<void> {
  *  Swap sequence on fire: grid → loupe in place, then route the terminal
  *  pane through the handoff prompt / persisted pref. Self-terminates
  *  after 30 minutes if nothing lands. */
-async function watchForArtifact(
-	rootPath: string,
-	folderPrefix: string,
-	studioLeafId: string,
-	terminalLeafId: string,
-	terminalSessionId: string,
-	slug: string
-): Promise<void> {
+async function watchForArtifact(args: {
+	rootPath: string;
+	folderPrefix: string;
+	studioLeafId: string;
+	/** The leaf the agent surface (terminal OR chat) was mounted on. */
+	agentLeafId: string;
+	/** Set when the agent is a terminal — used to feed the handoff prompt.
+	 *  Null for chat agents (no terminal to attach). */
+	terminalSessionId: string | null;
+	slug: string;
+}): Promise<void> {
+	const { rootPath, folderPrefix, studioLeafId, agentLeafId, terminalSessionId, slug } = args;
 	const normalizedPrefix = folderPrefix.replace(/\/+$/, '');
 	const slugLower = slug.toLowerCase();
 	let watcherId: string | null = null;
@@ -279,12 +406,17 @@ async function watchForArtifact(
 				postedAt: Date.now(),
 			});
 		}
-		void requestOrApplyHandoff({
-			terminalSessionId,
-			terminalLeafId,
-			studioLeafId,
-			artifactPath: path,
-		}).catch((e) => console.warn('[wizard] handoff failed:', e));
+		// Terminal flows: prompt the user (or apply their persisted pref)
+		// for the right-pane terminal handoff. Chat flows skip — there's
+		// no PTY owner to flip and the chat pane stays beside the loupe.
+		if (terminalSessionId) {
+			void requestOrApplyHandoff({
+				terminalSessionId,
+				terminalLeafId: agentLeafId,
+				studioLeafId,
+				artifactPath: path,
+			}).catch((e) => console.warn('[wizard] handoff failed:', e));
+		}
 		clearTimeout(timeout);
 		cleanup();
 	}

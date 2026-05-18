@@ -19,7 +19,7 @@ const KIND_KEY = (projectId: string) => `artifact-wizard.lastAgent.${projectId}`
 const CUSTOM_KEY = (projectId: string) => `artifact-wizard.lastAgentCustom.${projectId}`;
 
 function isAgentKind(v: unknown): v is AgentKind {
-	return v === 'claude' || v === 'codex' || v === 'gemini' || v === 'custom';
+	return v === 'chat' || v === 'claude' || v === 'codex' || v === 'gemini' || v === 'custom';
 }
 
 export async function loadLastAgent(projectId: string): Promise<AgentKind | null> {

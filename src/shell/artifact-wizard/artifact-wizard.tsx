@@ -49,10 +49,11 @@ import { type AgentChoice, startArtifact } from '@/shell/artifact-wizard/scaffol
 
 type AgentKind = AgentChoice['kind'];
 
-const AGENT_OPTIONS: { kind: Exclude<AgentKind, 'custom'>; label: string }[] = [
-	{ kind: 'claude', label: 'claude' },
-	{ kind: 'codex', label: 'codex' },
-	{ kind: 'gemini', label: 'gemini' },
+const AGENT_OPTIONS: { kind: Exclude<AgentKind, 'custom'>; label: string; hint?: string }[] = [
+	{ kind: 'chat', label: 'chat', hint: 'in-shell claude chat' },
+	{ kind: 'claude', label: 'claude', hint: 'CLI terminal' },
+	{ kind: 'codex', label: 'codex', hint: 'CLI terminal' },
+	{ kind: 'gemini', label: 'gemini', hint: 'CLI terminal' },
 ];
 
 /** Map an onboarding-selected agent id to the wizard's agent kind. The
@@ -89,7 +90,12 @@ export function ArtifactWizard({ open, onOpenChange, prefill }: ArtifactWizardPr
 
 	const initialAgentKind = useMemo<AgentKind>(() => {
 		const fromPrefill = prefill?.agent ?? null;
-		if (fromPrefill === 'claude' || fromPrefill === 'codex' || fromPrefill === 'gemini') {
+		if (
+			fromPrefill === 'chat' ||
+			fromPrefill === 'claude' ||
+			fromPrefill === 'codex' ||
+			fromPrefill === 'gemini'
+		) {
 			return fromPrefill;
 		}
 		if (fromPrefill === 'custom') return 'custom';
@@ -147,6 +153,7 @@ export function ArtifactWizard({ open, onOpenChange, prefill }: ArtifactWizardPr
 		if (!open || !projectId) return;
 		const fromPrefill = prefill?.agent ?? null;
 		if (
+			fromPrefill === 'chat' ||
 			fromPrefill === 'claude' ||
 			fromPrefill === 'codex' ||
 			fromPrefill === 'gemini' ||
@@ -528,8 +535,9 @@ function AgentField({
 				/>
 			)}
 			<p className="text-[10px] text-muted-foreground">
-				Spawned in a terminal at the project root. The kickoff prompt is auto-pasted via bracketed
-				paste — works in claude / codex / gemini TUIs.
+				<code>chat</code> opens an in-shell claude thread; <code>claude</code> / <code>codex</code>{' '}
+				/ <code>gemini</code> spawn the CLI in a terminal at the project root (kickoff is
+				auto-pasted via bracketed paste).
 			</p>
 		</div>
 	);
