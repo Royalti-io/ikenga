@@ -276,6 +276,10 @@ jobs:
       - name: Vite build (frontend dist)
         shell: bash
         working-directory: shell
+        # vite transforms ~12.6k modules; Node's default 2GB heap OOMs on
+        # macOS runners during post-transform passes. 4GB is plenty.
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
         run: bun run build
 
       # ── Tauri bundle ───────────────────────────────────────────────────────

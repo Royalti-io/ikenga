@@ -27,6 +27,19 @@ use uuid::Uuid;
 const CHUNK_SIZE: usize = 8 * 1024;
 const FLUSH_INTERVAL_MS: u64 = 8; // ≈120 Hz
 
+/// Wrapper for `MasterPty::process_group_leader`, which is `#[cfg(unix)]` in
+/// portable-pty 0.8. On Windows there's no PTY foreground-PG concept, so we
+/// surface `None` and let callers degrade gracefully.
+#[cfg(unix)]
+fn master_process_group_leader(master: &dyn MasterPty) -> Option<i32> {
+    master.process_group_leader()
+}
+
+#[cfg(not(unix))]
+fn master_process_group_leader(_master: &dyn MasterPty) -> Option<i32> {
+    None
+}
+
 pub struct SpawnOpts {
     pub cwd: String,
     pub cmd: Vec<String>,
@@ -277,7 +290,7 @@ impl PtyManager {
     pub fn process_group_leader(&self, id: &str) -> Option<i32> {
         let session = self.sessions.get(id)?.clone();
         let master = session.master.lock().ok()?;
-        master.process_group_leader()
+        master_process_group_leader(&**master)
     }
 
     /// Look up the foreground command running in this PTY (the process whose
@@ -305,7 +318,13 @@ impl PtyManager {
     pub fn foreground_snapshot(&self) -> HashMap<String, foreground::ForegroundProcess> {
         let mut out = HashMap::new();
         for entry in self.sessions.iter() {
-            if let Some(pid) = entry.value().master.lock().ok().and_then(|m| m.process_group_leader()) {
+            if let Some(pid) = entry
+                .value()
+                .master
+                .lock()
+                .ok()
+                .and_then(|m| master_process_group_leader(&**m))
+            {
                 if let Some(fg) = foreground::lookup(pid) {
                     out.insert(entry.key().clone(), fg);
                 }
