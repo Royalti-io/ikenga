@@ -59,18 +59,20 @@ export function ToolCallCard({ pair, threadId, isChild }: ToolCallCardProps) {
 				type="button"
 				onClick={() => setOpen((o) => !o)}
 				className={cn(
-					'group flex w-full items-center gap-2 border border-[var(--rule)] bg-transparent px-2.5 py-1 text-left transition-colors hover:bg-[var(--rule-soft)]',
+					'group inline-flex max-w-full items-center gap-2 rounded-full border bg-transparent py-1 pl-2.5 pr-3 text-left transition-colors hover:bg-[var(--rule-soft)]',
 					isError
-						? 'border-l-2 border-l-[var(--oxblood)] hover:border-l-[var(--oxblood)]'
-						: 'hover:border-[var(--kola-amber)]'
+						? 'border-[var(--oxblood)] hover:border-[var(--oxblood)]'
+						: 'border-[var(--rule)] hover:border-[var(--kola-amber)]'
 				)}
 				aria-expanded={open}
 			>
 				<span aria-hidden className="shrink-0 text-[8px] leading-none text-[var(--kola-amber)]">
 					◾
 				</span>
-				<span className="truncate font-mono text-[11px] text-foreground">{title}</span>
-				<span className="ml-auto inline-flex items-center gap-2 font-mono text-[9px] uppercase tracking-wider text-[var(--chip-carve)]">
+				<span className="truncate font-mono text-[11px] tracking-[0.04em] text-foreground">
+					{title}
+				</span>
+				<span className="inline-flex shrink-0 items-center gap-1.5 font-mono text-[9px] uppercase tracking-wider text-[var(--chip-carve)]">
 					<StatusHint isError={isError} isPending={isPending} />
 					{open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
 				</span>
