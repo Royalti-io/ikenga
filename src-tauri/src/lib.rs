@@ -37,7 +37,7 @@ use commands::{
     comment_list, comment_record_routing, comment_route, comment_set_status, db_exec, db_query,
     dev_bind_port, dev_release_port,
     fs_exists, fs_kind, fs_list, fs_mime, fs_read, fs_rename, fs_roots_add, fs_roots_list, fs_roots_remove,
-    fs_roots_reset, fs_trash, fs_unwatch, fs_watch, fs_write, iyke_dom_done, iyke_dom_query,
+    fs_roots_reset, fs_search, fs_trash, fs_unwatch, fs_watch, fs_write, iyke_dom_done, iyke_dom_query,
     iyke_endpoint, iyke_log_push, iyke_mcp_info, iyke_network_push, iyke_query_cache_done,
     iyke_set_shell, iyke_terminal_read_done,
     iyke_wait_done, pin_screenshot_write, pkg_content_html, pkg_content_revoke, pkg_content_url, pkg_db_diag,
@@ -587,6 +587,7 @@ pub fn run() {
             fs_unwatch,
             fs_trash,
             fs_rename,
+            fs_search,
             // fs allowlist (user-configurable roots)
             fs_roots_list,
             fs_roots_add,

@@ -156,6 +156,86 @@ fn entry_for(p: &std::path::Path) -> Result<FileEntry, std::io::Error> {
     })
 }
 
+// Mirror of the JS-side IGNORED_DIRS in files-mode.tsx — folders we skip when
+// `show_ignored` is false. The dot-prefix filter handles `.git`/`.next`/`.cache`
+// separately via `show_hidden`.
+const IGNORED_DIRS: &[&str] = &["node_modules", "target", "dist", "build", "out"];
+
+#[derive(Serialize)]
+pub struct FsSearchResult {
+    pub matches: Vec<String>,
+    pub truncated: bool,
+}
+
+/// Recursive basename search rooted at `root`. Case-insensitive substring
+/// match. Honors the same dot-file and ignored-dir rules the JS sorter uses
+/// so search results match what the user would see if they manually expanded
+/// every folder. Capped at `limit` (default 500); when the cap trips,
+/// `truncated` is true and the walk stops early.
+#[tauri::command]
+pub async fn fs_search(
+    root: String,
+    query: String,
+    #[allow(non_snake_case)] showHidden: bool,
+    #[allow(non_snake_case)] showIgnored: bool,
+    limit: Option<usize>,
+) -> Result<FsSearchResult, String> {
+    let resolved = resolve_allowlisted(&root).map_err(|e| e.to_string())?;
+    let needle = query.trim().to_lowercase();
+    if needle.is_empty() {
+        return Ok(FsSearchResult {
+            matches: Vec::new(),
+            truncated: false,
+        });
+    }
+    let cap = limit.unwrap_or(500).max(1);
+
+    tokio::task::spawn_blocking(move || {
+        let mut matches: Vec<String> = Vec::new();
+        let mut truncated = false;
+        let mut stack: Vec<std::path::PathBuf> = vec![resolved];
+
+        while let Some(dir) = stack.pop() {
+            let rd = match std::fs::read_dir(&dir) {
+                Ok(rd) => rd,
+                // Permission denied, vanished mid-walk, etc. Skip silently —
+                // search shouldn't surface every unreadable corner.
+                Err(_) => continue,
+            };
+            for entry in rd.flatten() {
+                let name = match entry.file_name().into_string() {
+                    Ok(n) => n,
+                    Err(_) => continue,
+                };
+                if !showHidden && name.starts_with('.') {
+                    continue;
+                }
+                let ft = match entry.file_type() {
+                    Ok(ft) => ft,
+                    Err(_) => continue,
+                };
+                let is_dir = ft.is_dir();
+                if is_dir && !showIgnored && IGNORED_DIRS.contains(&name.as_str()) {
+                    continue;
+                }
+                if name.to_lowercase().contains(&needle) {
+                    matches.push(entry.path().to_string_lossy().to_string());
+                    if matches.len() >= cap {
+                        truncated = true;
+                        return FsSearchResult { matches, truncated };
+                    }
+                }
+                if is_dir {
+                    stack.push(entry.path());
+                }
+            }
+        }
+        FsSearchResult { matches, truncated }
+    })
+    .await
+    .map_err(|e| format!("search join failed: {e}"))
+}
+
 /// Move `path` to the OS trash. Reversible — file can be restored from the
 /// system trash UI. Allowlisted same as the other fs commands.
 #[tauri::command]

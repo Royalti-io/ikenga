@@ -160,6 +160,25 @@ export async function fsRename(from: string, toName: string): Promise<string> {
 	return invoke('fs_rename', { from, toName });
 }
 
+export interface FsSearchResult {
+	matches: string[];
+	truncated: boolean;
+}
+
+/** Recursive case-insensitive basename search rooted at `root`. Honors the
+ *  same dot-file / ignored-dir rules the files-explorer sorter uses, so hits
+ *  match what the user would see after manually expanding every folder.
+ *  Capped server-side (default 500); `truncated` flags an early stop. */
+export async function fsSearch(
+	root: string,
+	query: string,
+	showHidden: boolean,
+	showIgnored: boolean,
+	limit?: number
+): Promise<FsSearchResult> {
+	return invoke('fs_search', { root, query, showHidden, showIgnored, limit: limit ?? null });
+}
+
 /** Returns a watcher id; events emit on `fs://{watcherId}`. */
 export async function fsWatch(path: string): Promise<string> {
 	return invoke('fs_watch', { path });

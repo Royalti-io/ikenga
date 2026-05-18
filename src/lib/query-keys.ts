@@ -23,6 +23,8 @@ export const queryKeys = {
 	fs: {
 		all: ['fs'] as const,
 		list: (path: string) => ['fs', 'list', path] as const,
+		search: (root: string, query: string, showHidden: boolean, showIgnored: boolean) =>
+			['fs', 'search', root, query, showHidden, showIgnored] as const,
 	},
 	claudeConfig: {
 		all: ['claude_config'] as const,

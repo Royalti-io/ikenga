@@ -10,13 +10,15 @@ import {
 	Pencil,
 	Trash2,
 	MoreHorizontal,
+	Search,
+	X,
 } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { useShellStore } from '@/lib/shell/shell-store';
 import { useFilesStore } from '@/lib/shell/files-store';
 import { usePaneStore } from '@/lib/panes/pane-store';
-import { fsList, fsRename, fsTrash, type FileEntry } from '@/lib/tauri-cmd';
+import { fsList, fsRename, fsSearch, fsTrash, type FileEntry } from '@/lib/tauri-cmd';
 import { createTerminalSession } from '@/terminal/single-terminal';
 import { openArtifactGrid } from '@/lib/shell/artifact-grid-recents';
 import { queryKeys } from '@/lib/query-keys';
@@ -88,13 +90,40 @@ function openTerminalAt(cwd: string, splitMode?: SplitMode) {
 	}
 }
 
+// Build the visible set for a per-root search: every matched path plus every
+// directory between it and the root (exclusive). Anything in this set is
+// rendered; dirs in this set auto-expand without touching the persisted
+// `expanded` state.
+function buildMatchSet(matches: readonly string[], rootPath: string): Set<string> {
+	const set = new Set<string>();
+	const rootWithSlash = rootPath.endsWith('/') ? rootPath : `${rootPath}/`;
+	for (const m of matches) {
+		if (!m.startsWith(rootWithSlash)) continue;
+		set.add(m);
+		let cur = m;
+		while (true) {
+			const idx = cur.lastIndexOf('/');
+			if (idx <= 0) break;
+			cur = cur.slice(0, idx);
+			if (cur === rootPath || !cur.startsWith(rootWithSlash)) break;
+			set.add(cur);
+		}
+	}
+	return set;
+}
+
 interface TreeNodeProps {
 	entry: FileEntry;
 	depth: number;
+	/** When provided, the tree is in search-filter mode: only entries whose
+	 *  path is in `filter` render, and directories in `filter` auto-expand
+	 *  (without writing to the persisted `expanded` set). */
+	filter?: Set<string>;
 }
 
-function TreeNode({ entry, depth }: TreeNodeProps) {
-	const expanded = useFilesStore((s) => s.expanded.has(entry.path));
+function TreeNode({ entry, depth, filter }: TreeNodeProps) {
+	const persistedExpanded = useFilesStore((s) => s.expanded.has(entry.path));
+	const expanded = filter ? filter.has(entry.path) && entry.isDir : persistedExpanded;
 	const isSelected = useFilesStore((s) => s.selectedPath === entry.path);
 	const toggle = useFilesStore((s) => s.toggle);
 	const collapse = useFilesStore((s) => s.collapse);
@@ -381,9 +410,11 @@ function TreeNode({ entry, depth }: TreeNodeProps) {
 							</button>
 						</div>
 					)}
-					{children?.map((child) => (
-						<TreeNode key={child.path} entry={child} depth={depth + 1} />
-					))}
+					{children
+						?.filter((child) => !filter || filter.has(child.path))
+						.map((child) => (
+							<TreeNode key={child.path} entry={child} depth={depth + 1} filter={filter} />
+						))}
 					{children && children.length === 0 && !error && (
 						<div
 							className="px-2 py-1 text-xs text-muted-foreground italic"
@@ -406,6 +437,26 @@ function RootSection({ rootPath }: RootSectionProps) {
 	const qc = useQueryClient();
 	const showHidden = useFilesStore((s) => s.showHidden);
 	const showIgnored = useFilesStore((s) => s.showIgnored);
+	const storedQuery = useFilesStore((s) => s.queries[rootPath] ?? '');
+	const setQuery = useFilesStore((s) => s.setQuery);
+	const collapsed = useFilesStore((s) => s.rootsCollapsed.has(rootPath));
+	const toggleRootCollapsed = useFilesStore((s) => s.toggleRootCollapsed);
+
+	// Local input value tracks every keystroke; the store (and therefore the
+	// search query key) is updated on a 200ms debounce so we don't fire one
+	// `fs_search` per keystroke.
+	const [inputValue, setInputValue] = useState(storedQuery);
+	const debounceRef = useRef<number | null>(null);
+	useEffect(() => {
+		if (debounceRef.current !== null) window.clearTimeout(debounceRef.current);
+		debounceRef.current = window.setTimeout(() => {
+			setQuery(rootPath, inputValue.trim());
+		}, 200);
+		return () => {
+			if (debounceRef.current !== null) window.clearTimeout(debounceRef.current);
+		};
+	}, [inputValue, rootPath, setQuery]);
+
 	const selectSorted = useMemo(
 		() => (list: FileEntry[]) => sortEntries(list, { showHidden, showIgnored }),
 		[showHidden, showIgnored]
@@ -413,13 +464,37 @@ function RootSection({ rootPath }: RootSectionProps) {
 	const rootQuery = useQuery({
 		queryKey: queryKeys.fs.list(rootPath),
 		queryFn: () => fsList(rootPath),
+		enabled: !collapsed,
 		staleTime: 30_000,
 		select: selectSorted,
 	});
 
+	const searchActive = storedQuery.length > 0;
+	const searchQuery = useQuery({
+		queryKey: queryKeys.fs.search(rootPath, storedQuery, showHidden, showIgnored),
+		queryFn: () => fsSearch(rootPath, storedQuery, showHidden, showIgnored),
+		enabled: searchActive && !collapsed,
+		staleTime: 30_000,
+	});
+
+	const matchSet = useMemo(() => {
+		if (!searchActive || !searchQuery.data) return null;
+		return buildMatchSet(searchQuery.data.matches, rootPath);
+	}, [searchActive, searchQuery.data, rootPath]);
+
 	const reload = useCallback(() => {
 		void qc.invalidateQueries({ queryKey: queryKeys.fs.list(rootPath) });
-	}, [qc, rootPath]);
+		if (searchActive) {
+			void qc.invalidateQueries({
+				queryKey: queryKeys.fs.search(rootPath, storedQuery, showHidden, showIgnored),
+			});
+		}
+	}, [qc, rootPath, searchActive, storedQuery, showHidden, showIgnored]);
+
+	const clearSearch = useCallback(() => {
+		setInputValue('');
+		setQuery(rootPath, '');
+	}, [rootPath, setQuery]);
 
 	const displayName = rootPath.replace(/^.+\//, '') || rootPath;
 	const error = rootQuery.error
@@ -429,24 +504,105 @@ function RootSection({ rootPath }: RootSectionProps) {
 		: null;
 	const entries = rootQuery.data;
 
+	const visibleEntries = useMemo(() => {
+		if (!entries) return entries;
+		if (!matchSet) return entries;
+		return entries.filter((e) => matchSet.has(e.path));
+	}, [entries, matchSet]);
+
+	const searchError = searchQuery.error
+		? searchQuery.error instanceof Error
+			? searchQuery.error.message
+			: String(searchQuery.error)
+		: null;
+
 	return (
 		<div className="border-b border-border last:border-b-0">
-			<div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-background px-3 py-1.5">
-				<div className="flex min-w-0 items-center gap-1.5">
-					<span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-						{displayName}
-					</span>
-				</div>
+			<div
+				className={cn(
+					'sticky top-0 z-10 flex items-center justify-between bg-background px-2 py-1.5',
+					!collapsed && 'border-b border-border'
+				)}
+			>
 				<button
 					type="button"
-					onClick={reload}
-					className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-					title={`Reload ${rootPath}`}
-					aria-label="Reload"
+					onClick={() => toggleRootCollapsed(rootPath)}
+					className="flex min-w-0 flex-1 items-center gap-1 rounded px-1 py-0.5 text-left text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+					aria-expanded={!collapsed}
+					title={collapsed ? `Expand ${rootPath}` : `Collapse ${rootPath}`}
 				>
-					<RefreshCw className="h-3 w-3" />
+					{collapsed ? (
+						<ChevronRight className="h-3 w-3 shrink-0" />
+					) : (
+						<ChevronDown className="h-3 w-3 shrink-0" />
+					)}
+					<span className="truncate text-[10px] font-semibold uppercase tracking-wider">
+						{displayName}
+					</span>
+					{collapsed && searchActive && (
+						<span
+							className="ml-1 rounded bg-accent px-1 text-[9px] font-medium normal-case tracking-normal text-accent-foreground"
+							title={`Search active: "${storedQuery}"`}
+						>
+							search
+						</span>
+					)}
 				</button>
+				{!collapsed && (
+					<button
+						type="button"
+						onClick={reload}
+						className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+						title={`Reload ${rootPath}`}
+						aria-label="Reload"
+					>
+						<RefreshCw className="h-3 w-3" />
+					</button>
+				)}
 			</div>
+			{collapsed ? null : (
+			<>
+			<div className="relative border-b border-border bg-background px-2 py-1">
+				<Search className="pointer-events-none absolute left-3.5 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" />
+				<input
+					type="text"
+					value={inputValue}
+					onChange={(e) => setInputValue(e.target.value)}
+					onKeyDown={(e) => {
+						if (e.key === 'Escape' && inputValue) {
+							e.preventDefault();
+							e.stopPropagation();
+							clearSearch();
+						}
+					}}
+					placeholder={`Search ${displayName}…`}
+					className="h-6 w-full rounded border border-border bg-background pl-6 pr-6 text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-ring"
+				/>
+				{inputValue && (
+					<button
+						type="button"
+						onClick={clearSearch}
+						className="absolute right-3 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+						title="Clear search"
+						aria-label="Clear search"
+					>
+						<X className="h-3 w-3" />
+					</button>
+				)}
+			</div>
+			{searchActive && searchQuery.data?.truncated && (
+				<div className="px-3 py-1 text-[11px] text-muted-foreground italic">
+					Showing first {searchQuery.data.matches.length} matches — refine your query.
+				</div>
+			)}
+			{searchError && (
+				<div className="flex items-start gap-1 px-3 py-1 text-xs text-destructive">
+					<AlertCircle className="h-3 w-3 shrink-0 mt-0.5" />
+					<span className="break-all" title={searchError}>
+						{searchError}
+					</span>
+				</div>
+			)}
 			{error && (
 				<div className="flex items-start gap-1 px-3 py-1 text-xs text-destructive">
 					<AlertCircle className="h-3 w-3 shrink-0 mt-0.5" />
@@ -458,9 +614,22 @@ function RootSection({ rootPath }: RootSectionProps) {
 			{!entries && !error && (
 				<div className="px-3 py-1 text-xs text-muted-foreground italic">loading…</div>
 			)}
-			{entries?.map((entry) => (
-				<TreeNode key={entry.path} entry={entry} depth={0} />
+			{searchActive && searchQuery.isFetching && !searchQuery.data && (
+				<div className="px-3 py-1 text-xs text-muted-foreground italic">searching…</div>
+			)}
+			{searchActive && matchSet && matchSet.size === 0 && !searchQuery.isFetching && (
+				<div className="px-3 py-1 text-xs text-muted-foreground italic">No matches.</div>
+			)}
+			{visibleEntries?.map((entry) => (
+				<TreeNode
+					key={entry.path}
+					entry={entry}
+					depth={0}
+					filter={matchSet ?? undefined}
+				/>
 			))}
+			</>
+			)}
 		</div>
 	);
 }

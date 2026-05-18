@@ -30,6 +30,8 @@ beforeEach(() => {
 		scrollTop: 0,
 		showHidden: false,
 		showIgnored: false,
+		queries: {},
+		rootsCollapsed: new Set<string>(),
 		hydrated: false,
 		hydratedProjectId: null,
 	});
