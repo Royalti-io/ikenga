@@ -17,6 +17,7 @@
 //   - sidebar empty-state CTA  (consumes the same component)
 
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from '@tanstack/react-router';
 import { open as openTauriDialog } from '@tauri-apps/plugin-dialog';
 import * as Icons from 'lucide-react';
 
@@ -78,6 +79,7 @@ export function ArtifactWizard({ open, onOpenChange, prefill }: ArtifactWizardPr
 	const projects = useShellStore((s) => s.projects);
 	const activeProjectId = useShellStore((s) => s.activeProjectId);
 	const onboardingAgentId = useShellStore((s) => s.onboarding.selectedAgentId);
+	const navigate = useNavigate();
 
 	const initialProjectId = useMemo(() => {
 		const fromPrefill = prefill?.projectId ?? null;
@@ -274,6 +276,10 @@ export function ArtifactWizard({ open, onOpenChange, prefill }: ArtifactWizardPr
 						projectId={projectId}
 						onPick={setProjectId}
 						project={project}
+						onAddProject={() => {
+							close();
+							void navigate({ to: '/settings/projects' });
+						}}
 					/>
 
 					<ArchetypeGrid archetype={archetype} onPick={setArchetypeSlug} />
@@ -324,11 +330,13 @@ function ProjectField({
 	projectId,
 	onPick,
 	project,
+	onAddProject,
 }: {
 	projects: Project[];
 	projectId: string;
 	onPick: (id: string) => void;
 	project: Project | null;
+	onAddProject: () => void;
 }) {
 	const usable = projects.filter((p) => p.archived_at == null);
 	return (
@@ -342,7 +350,7 @@ function ProjectField({
 				value={projectId}
 				onChange={(e) => {
 					if (e.target.value === '__add__') {
-						window.location.hash = '#/settings/projects';
+						onAddProject();
 						return;
 					}
 					onPick(e.target.value);

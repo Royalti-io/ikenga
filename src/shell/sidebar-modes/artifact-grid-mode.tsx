@@ -3,17 +3,17 @@
 // Activated by the activity-bar Artifact-grid icon (⌘5). Body shows the
 // recently-opened folders the user has been working in — same data as the
 // activity-bar quick-launcher popover — plus a tools row for creating a new
-// artifact or browsing to a fresh folder. The earlier draft of this mode
-// had a catalog/attention/tools/project skeleton driven by counts that
-// don't exist yet (no project-wide artifact walker) — replaced with
-// something that does its one job today and can grow later.
+// artifact or browsing to a fresh folder. A slim catalog stripe at the top
+// (total, drafts, starred) is fed by the project-wide artifact walker.
 
 import { useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Folder, FolderOpen, Plus, Trash2 } from 'lucide-react';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 
 import { cn } from '@/components/ui/utils';
 import { usePaneStore } from '@/lib/panes/pane-store';
+import { projectArtifactsQueryOptions } from '@/lib/queries/project-artifacts';
 import {
 	type RecentGridFolder,
 	loadRecents,
@@ -28,6 +28,9 @@ export function ArtifactGridMode() {
 	const activeProject = useShellStore(
 		(s) => s.projects.find((p) => p.id === s.activeProjectId) ?? null
 	);
+
+	const catalogQuery = useQuery(projectArtifactsQueryOptions(activeProject?.root_path ?? null));
+	const counts = catalogQuery.data?.counts;
 
 	const [recents, setRecents] = useState<RecentGridFolder[]>([]);
 	const [hydrated, setHydrated] = useState(false);
@@ -100,6 +103,16 @@ export function ArtifactGridMode() {
 					</span>
 				)}
 			</button>
+
+			{/* Catalog stripe — total / drafts / starred across the project. */}
+			{activeProject?.root_path && counts && (
+				<div className="flex items-center gap-4 border-b border-border px-4 py-1.5 text-[10px] text-muted-foreground">
+					<CountChip label="all" value={counts.all} />
+					{counts.drafts > 0 && <CountChip label="drafts" value={counts.drafts} tone="warn" />}
+					{counts.starred > 0 && <CountChip label="starred" value={counts.starred} />}
+					{counts.recent > 0 && <CountChip label="recent" value={counts.recent} />}
+				</div>
+			)}
 
 			{/* Recents — full-height body. */}
 			<div className="flex-1 min-h-0 overflow-y-auto">
@@ -198,6 +211,22 @@ function RecentRow({
 				<Trash2 className="h-3 w-3" />
 			</button>
 		</li>
+	);
+}
+
+function CountChip({ label, value, tone }: { label: string; value: number; tone?: 'warn' }) {
+	return (
+		<span className="inline-flex items-baseline gap-1">
+			<span
+				className={cn(
+					'font-mono text-[11px]',
+					tone === 'warn' ? 'text-amber-600 dark:text-amber-400' : 'text-foreground'
+				)}
+			>
+				{value}
+			</span>
+			<span className="uppercase tracking-wider text-muted-foreground/60">{label}</span>
+		</span>
 	);
 }
 

@@ -2351,6 +2351,28 @@ export async function projectScaffoldClaude(rootPath: string): Promise<void> {
 	return invoke('project_scaffold_claude', { rootPath });
 }
 
+export interface ArtifactRow {
+	path: string;
+	name: string;
+	/** Archetype slug from `manifest.notes.kind`. */
+	kind: string | null;
+	version: string | null;
+	starred: boolean;
+	has_manifest: boolean;
+	/** ms since epoch */
+	modified_at: number;
+	size_bytes: number;
+}
+
+/** Recursive `.html` walk under a project root. Each result carries the
+ *  manifest preview (name / kind / version / starred) when one is present,
+ *  or `has_manifest: false` with the basename as the name. Bounded at
+ *  5000 files / 2MB per parse on the Rust side; skips churn dirs
+ *  (.git, node_modules, target, dist, etc.). Returns `[]` for null root. */
+export async function projectArtifactsWalk(rootPath: string | null): Promise<ArtifactRow[]> {
+	return invoke<ArtifactRow[]>('project_artifacts_walk', { rootPath });
+}
+
 /** Subscribe to project-switch events. The Rust side emits `projects:active-changed`
  *  with `{ id }` payload whenever `project_set_active` succeeds. Consumers
  *  typically just call `queryClient.invalidateQueries({ queryKey: ['project-scoped'] })`.

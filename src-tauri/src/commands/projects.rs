@@ -933,6 +933,230 @@ pub async fn project_get_active(db: State<'_, Arc<PaDb>>) -> Result<Project, Str
         .ok_or_else(|| "Default project missing — db bootstrap failed".to_string())
 }
 
+// ── project_artifacts_walk: enumerate HTML artifacts under a project root ─
+//
+// Used by the artifact-grid sidebar / Studio home / drafts heuristic. Walks
+// `<root>` recursively, opens each `.html`, regex-extracts the
+// `<script id="ikenga-manifest">…</script>` body, and surfaces the parsed
+// preview as an `ArtifactRow`. Files without a manifest are still returned
+// (kind/name unset) so the user sees what's there — the consumer decides
+// whether to filter them out.
+//
+// Bounded to keep the call cheap on big repos:
+//   - skips common churn dirs (.git, node_modules, target, dist, build,
+//     .cache, .next, .tanstack)
+//   - skips dotfile-dirs by default (.claude/ is configuration, not
+//     artifacts; .well-known etc. won't have .html artifacts either)
+//   - caps walk at MAX_WALK_ENTRIES files visited
+//   - caps each parsed file at MAX_PARSE_BYTES (don't slurp giant HTML
+//     just to fail to find a manifest)
+//
+// Pure filesystem read, no DB access. Safe to call without a root_path —
+// returns an empty list.
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ArtifactRow {
+    pub path: String,
+    /// Manifest `name` field, or basename-without-extension when the
+    /// manifest is missing/unparseable.
+    pub name: String,
+    /// Archetype slug from `manifest.notes.kind`. None when the file has
+    /// no manifest, the manifest has no notes, or the kind is missing.
+    pub kind: Option<String>,
+    /// Manifest `version` field. Used for the drafts heuristic
+    /// (no version or version starting with `0.` → draft).
+    pub version: Option<String>,
+    pub starred: bool,
+    /// Whether the file actually had an `ikenga-manifest` script tag
+    /// parseable into JSON. Consumers can hide non-manifest .html if they
+    /// want a stricter view.
+    pub has_manifest: bool,
+    /// File mtime in ms since epoch. Used for recency sort.
+    pub modified_at: i64,
+    pub size_bytes: u64,
+}
+
+const MAX_WALK_ENTRIES: usize = 5_000;
+const MAX_PARSE_BYTES: u64 = 2 * 1024 * 1024;
+const SKIP_DIR_NAMES: &[&str] = &[
+    ".git",
+    "node_modules",
+    "target",
+    "dist",
+    "build",
+    ".cache",
+    ".next",
+    ".tanstack",
+    ".turbo",
+    ".svelte-kit",
+    ".vercel",
+    ".direnv",
+    ".venv",
+    "venv",
+    "__pycache__",
+];
+
+#[tauri::command]
+pub fn project_artifacts_walk(root_path: Option<String>) -> Result<Vec<ArtifactRow>, String> {
+    let Some(root_str) = root_path.as_ref() else {
+        return Ok(Vec::new());
+    };
+    let root = std::path::Path::new(root_str);
+    if !root.is_dir() {
+        return Ok(Vec::new());
+    }
+
+    let mut out: Vec<ArtifactRow> = Vec::new();
+    let mut visited: usize = 0;
+    walk_dir(root, &mut out, &mut visited);
+    Ok(out)
+}
+
+fn walk_dir(dir: &std::path::Path, out: &mut Vec<ArtifactRow>, visited: &mut usize) {
+    if *visited >= MAX_WALK_ENTRIES {
+        return;
+    }
+    let read = match std::fs::read_dir(dir) {
+        Ok(r) => r,
+        Err(_) => return,
+    };
+    for entry in read.flatten() {
+        if *visited >= MAX_WALK_ENTRIES {
+            return;
+        }
+        *visited += 1;
+        let path = entry.path();
+        let name = match path.file_name().and_then(|s| s.to_str()) {
+            Some(n) => n,
+            None => continue,
+        };
+        let file_type = match entry.file_type() {
+            Ok(t) => t,
+            Err(_) => continue,
+        };
+        if file_type.is_dir() {
+            if SKIP_DIR_NAMES.contains(&name) {
+                continue;
+            }
+            // Skip dotfile-dirs except where the user might keep artifacts
+            // (currently none — .claude/ holds skills/commands, not html).
+            if name.starts_with('.') {
+                continue;
+            }
+            walk_dir(&path, out, visited);
+        } else if file_type.is_file() && has_html_extension(name) {
+            if let Some(row) = parse_artifact_row(&path) {
+                out.push(row);
+            }
+        }
+    }
+}
+
+fn has_html_extension(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    lower.ends_with(".html") || lower.ends_with(".htm")
+}
+
+fn parse_artifact_row(path: &std::path::Path) -> Option<ArtifactRow> {
+    let meta = std::fs::metadata(path).ok()?;
+    let size_bytes = meta.len();
+    let modified_at = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0);
+
+    let path_str = path.to_str()?.to_string();
+    let basename = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("(untitled)")
+        .to_string();
+
+    // Read only up to MAX_PARSE_BYTES — anything bigger almost certainly
+    // isn't a hand-authored artifact and we don't want to slurp it.
+    let bytes_to_read = std::cmp::min(size_bytes, MAX_PARSE_BYTES) as usize;
+    let raw = match read_bounded(path, bytes_to_read) {
+        Ok(s) => s,
+        Err(_) => {
+            return Some(ArtifactRow {
+                path: path_str,
+                name: basename,
+                kind: None,
+                version: None,
+                starred: false,
+                has_manifest: false,
+                modified_at,
+                size_bytes,
+            });
+        }
+    };
+
+    let manifest = extract_manifest_json(&raw).and_then(|json| serde_json::from_str::<serde_json::Value>(&json).ok());
+    let (name, kind, version, starred, has_manifest) = match manifest {
+        Some(v) => (
+            v.get("name")
+                .and_then(|x| x.as_str())
+                .map(str::to_string)
+                .unwrap_or_else(|| basename.clone()),
+            v.get("notes")
+                .and_then(|n| n.get("kind"))
+                .and_then(|k| k.as_str())
+                .map(str::to_string),
+            v.get("version")
+                .and_then(|x| x.as_str())
+                .map(str::to_string),
+            v.get("notes")
+                .and_then(|n| n.get("starred"))
+                .and_then(|s| s.as_bool())
+                .unwrap_or(false),
+            true,
+        ),
+        None => (basename, None, None, false, false),
+    };
+
+    Some(ArtifactRow {
+        path: path_str,
+        name,
+        kind,
+        version,
+        starred,
+        has_manifest,
+        modified_at,
+        size_bytes,
+    })
+}
+
+fn read_bounded(path: &std::path::Path, max_bytes: usize) -> std::io::Result<String> {
+    use std::io::Read;
+    let mut f = std::fs::File::open(path)?;
+    let mut buf = Vec::with_capacity(max_bytes.min(64 * 1024));
+    f.by_ref().take(max_bytes as u64).read_to_end(&mut buf)?;
+    Ok(String::from_utf8_lossy(&buf).into_owned())
+}
+
+/// Mirrors `src/lib/artifact/manifest-from-file.ts::extractManifestJson`.
+/// Returns the trimmed body of the first `<script id="ikenga-manifest">`
+/// tag, or None when missing/empty.
+fn extract_manifest_json(html: &str) -> Option<String> {
+    use regex::Regex;
+    static RE: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
+    let re = RE.get_or_init(|| {
+        Regex::new(
+            r#"(?is)<script\s+[^>]*?\bid\s*=\s*["']ikenga-manifest["'][^>]*?>(.*?)</script>"#,
+        )
+        .expect("manifest regex compiles")
+    });
+    let caps = re.captures(html)?;
+    let body = caps.get(1)?.as_str().trim();
+    if body.is_empty() {
+        None
+    } else {
+        Some(body.to_string())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
