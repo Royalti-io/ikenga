@@ -26,6 +26,22 @@ usePaneStore.subscribe((state) => {
 	}
 });
 
+// HMR: when `routeTree.gen.ts` hot-updates (a route file was added,
+// renamed, or removed), routers still in `routerCache` were built against
+// the previous tree. Reusing them surfaces as TanStack's
+// "Invariant failed: Duplicate routes found with id: __root__" because the
+// old + new trees both register a `__root__`. Clear the cache so the next
+// `getOrCreateRouter` mints fresh routers against the current tree.
+//
+// Cold boots don't hit this — the module loads once and the cache is
+// empty. This guard is dev-only (no-op in prod via the `import.meta.hot`
+// check, which Vite tree-shakes out of the production bundle).
+if (import.meta.hot) {
+	import.meta.hot.accept('@/routeTree.gen', () => {
+		routerCache.clear();
+	});
+}
+
 function getOrCreateRouter(paneId: string, initialPath: string): AnyRouter {
 	let router = routerCache.get(paneId);
 	if (!router) {
