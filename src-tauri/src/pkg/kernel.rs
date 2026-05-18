@@ -106,6 +106,57 @@ pub struct Kernel {
     dev_watchers: RwLock<HashMap<String, WatcherHandle>>,
 }
 
+/// Walk the registries in reverse order calling `unregister`. Per the
+/// `Registry` trait contract, `unregister` must be a no-op on absent
+/// pkgs — so a failure here is logged but never aborts the sequence.
+/// Used by `Kernel::reload_pkg` (and called directly by tests).
+fn replay_unregisters(registries: &[Arc<dyn Registry>], pkg_id: &str) {
+    for reg in registries.iter().rev() {
+        if let Err(e) = reg.unregister(pkg_id) {
+            log::warn!(
+                "[pkg_kernel] unregister `{}` for `{pkg_id}` failed (continuing): {e}",
+                reg.name()
+            );
+        }
+    }
+}
+
+/// Walk the registries forward calling `register(pkg)`. On the first
+/// failure, walk the already-applied registries in reverse calling
+/// `unregister` to roll back, then return the error. Returns the list of
+/// registry names applied on success.
+///
+/// Pure function over the slice + package — no `&Kernel` or `AppHandle`
+/// touched, which makes it directly testable with `MockRegistry`.
+fn replay_registers(
+    registries: &[Arc<dyn Registry>],
+    pkg: &Package,
+) -> Result<Vec<String>> {
+    let mut applied: Vec<String> = Vec::new();
+    for reg in registries {
+        if let Err(e) = reg.register(pkg) {
+            let pkg_id = &pkg.manifest.id;
+            log::error!(
+                "[pkg_kernel] register `{}` failed for `{pkg_id}`: {e}",
+                reg.name()
+            );
+            // Roll back only the registries we managed to apply for this pkg.
+            for name in applied.iter().rev() {
+                if let Some(r) = registries.iter().find(|r| r.name() == name) {
+                    if let Err(re) = r.unregister(pkg_id) {
+                        log::warn!(
+                            "[pkg_kernel] rollback `{name}` for `{pkg_id}` failed (continuing): {re}"
+                        );
+                    }
+                }
+            }
+            return Err(e);
+        }
+        applied.push(reg.name().to_string());
+    }
+    Ok(applied)
+}
+
 impl Kernel {
     pub fn new(app: AppHandle, db: Arc<PaDb>, registries: Vec<Arc<dyn Registry>>) -> Self {
         Self {
@@ -992,37 +1043,20 @@ impl Kernel {
             ));
         }
 
-        // Unregister in reverse order, ignoring per-registry errors (the
-        // Registry trait contract says unregister must be a no-op when the
-        // pkg isn't present, so a missing entry from a partial earlier
-        // failure won't trip us up).
-        for reg in self.registries.iter().rev() {
-            if let Err(e) = reg.unregister(pkg_id) {
-                log::warn!(
-                    "[pkg_kernel] reload: unregister `{}` for `{pkg_id}` failed (continuing): {e}",
-                    reg.name()
-                );
-            }
-        }
-
-        // Re-register forward. Any failure rolls back what we applied.
-        let mut applied: Vec<&str> = Vec::new();
-        let mut applied_names: Vec<String> = Vec::new();
-        for reg in &self.registries {
-            if let Err(e) = reg.register(&pkg) {
-                log::error!(
-                    "[pkg_kernel] reload: register `{}` failed for `{pkg_id}`: {e}",
-                    reg.name()
-                );
-                self.rollback(pkg_id, &applied);
+        // Unregister in reverse order (Registry trait says unregister is a
+        // no-op on absent pkgs) then re-register forward with rollback. Both
+        // halves are extracted as pure free functions so the sequence can be
+        // exercised in tests without an AppHandle / SQLite / DB harness.
+        replay_unregisters(&self.registries, pkg_id);
+        let applied_names = match replay_registers(&self.registries, &pkg) {
+            Ok(names) => names,
+            Err(e) => {
                 if let Ok(mut live) = self.live.write() {
                     live.remove(pkg_id);
                 }
                 return Err(e);
             }
-            applied.push(reg.name());
-            applied_names.push(reg.name().to_string());
-        }
+        };
 
         // Refresh the installed snapshot — version + ikenga_api may have
         // changed in the new manifest. Source + project_id are preserved
@@ -1071,7 +1105,7 @@ impl Kernel {
         log::info!(
             "[pkg_kernel] reloaded `{pkg_id}` v{} ({} registries)",
             pkg.manifest.version,
-            applied.len()
+            applied_names.len()
         );
         Ok(updated)
     }
@@ -1309,3 +1343,240 @@ impl Kernel {
 
 // Use `tauri::Manager` for `app.path()` and `tauri::Emitter` for `app.emit()`.
 use tauri::{Emitter, Manager};
+
+#[cfg(test)]
+mod tests {
+    //! Tests for the registry replay helpers used by `Kernel::reload_pkg`.
+    //! The Kernel itself depends on an `AppHandle` + SQLite pool which need
+    //! the tauri test runtime; the helpers are pure functions over a slice
+    //! of `Arc<dyn Registry>` + a `Package`, so we test them directly.
+
+    use super::*;
+    use crate::pkg::manifest::Manifest;
+    use serde_json::Value;
+    use std::sync::Mutex as StdMutex;
+
+    /// Records every register/unregister call. Optionally fails on register
+    /// to exercise the rollback path.
+    struct MockRegistry {
+        name: &'static str,
+        fail_register: bool,
+        events: Arc<StdMutex<Vec<String>>>,
+    }
+
+    impl Registry for MockRegistry {
+        fn name(&self) -> &'static str {
+            self.name
+        }
+        fn register(&self, pkg: &Package) -> Result<()> {
+            self.events
+                .lock()
+                .unwrap()
+                .push(format!("register:{}:{}", self.name, pkg.manifest.id));
+            if self.fail_register {
+                return Err(anyhow!("mock register failure in {}", self.name));
+            }
+            Ok(())
+        }
+        fn unregister(&self, pkg_id: &str) -> Result<()> {
+            self.events
+                .lock()
+                .unwrap()
+                .push(format!("unregister:{}:{pkg_id}", self.name));
+            Ok(())
+        }
+        fn snapshot(&self) -> Value {
+            Value::Null
+        }
+    }
+
+    fn mock(
+        name: &'static str,
+        fail_register: bool,
+        events: Arc<StdMutex<Vec<String>>>,
+    ) -> Arc<dyn Registry> {
+        Arc::new(MockRegistry {
+            name,
+            fail_register,
+            events,
+        })
+    }
+
+    fn fixture_pkg(id: &str) -> Package {
+        Package {
+            manifest: Manifest {
+                id: id.into(),
+                name: "T".into(),
+                version: "1.0.0".into(),
+                ikenga_api: "1".into(),
+                kind: None,
+                author: None,
+                targets: vec![],
+                skills: None,
+                commands: None,
+                agents: None,
+                mcp: vec![],
+                sidecars: vec![],
+                permissions: Default::default(),
+                migrations: None,
+                settings: None,
+                ui: None,
+                iyke: None,
+                cron: vec![],
+                window: None,
+                queries: None,
+                capabilities: None,
+                engine: None,
+                screenshots: vec![],
+            },
+            install_path: PathBuf::from("/tmp"),
+        }
+    }
+
+    #[test]
+    fn replay_unregisters_walks_reverse_order() {
+        let events = Arc::new(StdMutex::new(Vec::new()));
+        let regs: Vec<Arc<dyn Registry>> = vec![
+            mock("a", false, events.clone()),
+            mock("b", false, events.clone()),
+            mock("c", false, events.clone()),
+        ];
+        replay_unregisters(&regs, "com.test.x");
+        let log = events.lock().unwrap().clone();
+        assert_eq!(
+            log,
+            vec![
+                "unregister:c:com.test.x".to_string(),
+                "unregister:b:com.test.x".to_string(),
+                "unregister:a:com.test.x".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn replay_unregisters_continues_through_errors() {
+        // A registry that fails unregister must not block the others. Per the
+        // Registry trait contract, unregister is best-effort.
+        struct FailingUnregister(&'static str, Arc<StdMutex<Vec<String>>>);
+        impl Registry for FailingUnregister {
+            fn name(&self) -> &'static str {
+                self.0
+            }
+            fn register(&self, _pkg: &Package) -> Result<()> {
+                Ok(())
+            }
+            fn unregister(&self, pkg_id: &str) -> Result<()> {
+                self.1
+                    .lock()
+                    .unwrap()
+                    .push(format!("unregister:{}:{pkg_id}", self.0));
+                Err(anyhow!("nope"))
+            }
+            fn snapshot(&self) -> Value {
+                Value::Null
+            }
+        }
+        let events = Arc::new(StdMutex::new(Vec::new()));
+        let regs: Vec<Arc<dyn Registry>> = vec![
+            mock("a", false, events.clone()),
+            Arc::new(FailingUnregister("b", events.clone())),
+            mock("c", false, events.clone()),
+        ];
+        replay_unregisters(&regs, "com.test.x");
+        let log = events.lock().unwrap().clone();
+        assert_eq!(
+            log,
+            vec![
+                "unregister:c:com.test.x".to_string(),
+                "unregister:b:com.test.x".to_string(),
+                "unregister:a:com.test.x".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn replay_registers_happy_path_calls_each_forward_no_unregister() {
+        let events = Arc::new(StdMutex::new(Vec::new()));
+        let regs: Vec<Arc<dyn Registry>> = vec![
+            mock("a", false, events.clone()),
+            mock("b", false, events.clone()),
+            mock("c", false, events.clone()),
+        ];
+        let applied = replay_registers(&regs, &fixture_pkg("com.test.x")).expect("happy path");
+        assert_eq!(applied, vec!["a", "b", "c"]);
+        // Only register calls; no unregisters fired since nothing failed.
+        let log = events.lock().unwrap().clone();
+        assert_eq!(
+            log,
+            vec![
+                "register:a:com.test.x".to_string(),
+                "register:b:com.test.x".to_string(),
+                "register:c:com.test.x".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn replay_registers_rollback_on_middle_failure() {
+        // Registry `b` fails register → `a` should be rolled back via
+        // unregister, `c` should never be touched.
+        let events = Arc::new(StdMutex::new(Vec::new()));
+        let regs: Vec<Arc<dyn Registry>> = vec![
+            mock("a", false, events.clone()),
+            mock("b", true, events.clone()),
+            mock("c", false, events.clone()),
+        ];
+        let err = replay_registers(&regs, &fixture_pkg("com.test.x"))
+            .expect_err("expected register failure");
+        assert!(err.to_string().contains("mock register failure in b"));
+
+        let log = events.lock().unwrap().clone();
+        assert_eq!(
+            log,
+            vec![
+                "register:a:com.test.x".to_string(),  // applied
+                "register:b:com.test.x".to_string(),  // failed
+                "unregister:a:com.test.x".to_string(), // rollback (no c register attempted)
+            ]
+        );
+    }
+
+    #[test]
+    fn replay_registers_rollback_on_first_failure_does_not_unregister() {
+        // First registry fails → nothing was applied, nothing to roll back.
+        let events = Arc::new(StdMutex::new(Vec::new()));
+        let regs: Vec<Arc<dyn Registry>> = vec![
+            mock("a", true, events.clone()),
+            mock("b", false, events.clone()),
+        ];
+        let _err = replay_registers(&regs, &fixture_pkg("com.test.x"))
+            .expect_err("expected register failure");
+        let log = events.lock().unwrap().clone();
+        assert_eq!(log, vec!["register:a:com.test.x".to_string()]);
+    }
+
+    #[test]
+    fn replay_registers_rollback_walks_applied_reverse() {
+        // First two succeed, third fails → unregister fires for b then a, in
+        // that order. Confirms the rollback walks applied in reverse.
+        let events = Arc::new(StdMutex::new(Vec::new()));
+        let regs: Vec<Arc<dyn Registry>> = vec![
+            mock("a", false, events.clone()),
+            mock("b", false, events.clone()),
+            mock("c", true, events.clone()),
+        ];
+        let _err = replay_registers(&regs, &fixture_pkg("com.test.x"))
+            .expect_err("expected register failure");
+        let log = events.lock().unwrap().clone();
+        assert_eq!(
+            log,
+            vec![
+                "register:a:com.test.x".to_string(),
+                "register:b:com.test.x".to_string(),
+                "register:c:com.test.x".to_string(),
+                "unregister:b:com.test.x".to_string(),
+                "unregister:a:com.test.x".to_string(),
+            ]
+        );
+    }
+}
