@@ -852,7 +852,33 @@ pub fn build_session_config_dir(
 
     write_merged_mcp_config(&claude_dir, &tree.mcps, pins)?;
 
+    // Without these, claude sees an unauthenticated profile and prompts
+    // `/login` on every send. macOS OAuth: the upstream CLI also reads from
+    // a hardcoded Keychain service name that ignores CLAUDE_CONFIG_DIR
+    // (anthropics/claude-code#20553) — symlinks cover token auth on all
+    // platforms; OAuth-only macOS users may still re-auth once.
+    if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
+        overlay_user_claude_files(&home.join(".claude"), &claude_dir)?;
+    }
+
     Ok(claude_dir)
+}
+
+/// Symlinks per-user `.credentials.json` + `settings*.json` from
+/// `user_claude_dir` into `session_claude_dir`. Missing files are skipped.
+/// Extracted from `build_session_config_dir` for testability — the parent
+/// resolves `$HOME/.claude` at call time and passes it in.
+fn overlay_user_claude_files(
+    user_claude_dir: &Path,
+    session_claude_dir: &Path,
+) -> Result<(), String> {
+    for name in [".credentials.json", "settings.json", "settings.local.json"] {
+        let src = user_claude_dir.join(name);
+        if src.exists() {
+            make_symlink(&src, &session_claude_dir.join(name))?;
+        }
+    }
+    Ok(())
 }
 
 /// Write the merged MCP-server set into `<claude_dir>/.mcp.json`.
@@ -1280,6 +1306,59 @@ mod tests {
         let empty: HashMap<String, Vec<AssetSource>> = HashMap::new();
         write_merged_mcp_config(&claude_dir, &empty, &PinMap::new()).unwrap();
         assert!(!claude_dir.join(".mcp.json").exists());
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn overlay_user_claude_files_symlinks_present_files() {
+        let tmp =
+            std::env::temp_dir().join(format!("ikenga-overlay-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let user_claude = tmp.join("user").join(".claude");
+        let session_claude = tmp.join("session").join(".claude");
+        std::fs::create_dir_all(&user_claude).unwrap();
+        std::fs::create_dir_all(&session_claude).unwrap();
+        std::fs::write(user_claude.join(".credentials.json"), b"{\"token\":\"abc\"}").unwrap();
+        std::fs::write(user_claude.join("settings.json"), b"{\"theme\":\"dark\"}").unwrap();
+        // settings.local.json intentionally absent — overlay should skip it.
+
+        overlay_user_claude_files(&user_claude, &session_claude).unwrap();
+
+        let creds = session_claude.join(".credentials.json");
+        let settings = session_claude.join("settings.json");
+        assert!(creds.exists(), ".credentials.json should be linked");
+        assert!(settings.exists(), "settings.json should be linked");
+        assert!(
+            !session_claude.join("settings.local.json").exists(),
+            "missing-source file should not be created"
+        );
+        // Symlink resolution test (Unix only — Windows path falls back to copy).
+        #[cfg(unix)]
+        {
+            let target = std::fs::read_link(&creds).unwrap();
+            assert_eq!(target, user_claude.join(".credentials.json"));
+        }
+        // Contents readable through the link.
+        assert_eq!(
+            std::fs::read_to_string(&creds).unwrap(),
+            "{\"token\":\"abc\"}"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn overlay_user_claude_files_no_user_dir_is_noop() {
+        let tmp = std::env::temp_dir()
+            .join(format!("ikenga-overlay-empty-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let user_claude = tmp.join("user").join(".claude"); // does not exist
+        let session_claude = tmp.join("session").join(".claude");
+        std::fs::create_dir_all(&session_claude).unwrap();
+        overlay_user_claude_files(&user_claude, &session_claude).unwrap();
+        // Nothing copied; session dir stays empty.
+        let count = std::fs::read_dir(&session_claude).unwrap().count();
+        assert_eq!(count, 0);
         let _ = std::fs::remove_dir_all(&tmp);
     }
 }
