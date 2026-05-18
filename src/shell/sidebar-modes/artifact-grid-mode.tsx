@@ -8,7 +8,7 @@
 
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Folder, FolderOpen, Plus, Trash2 } from 'lucide-react';
+import { Folder, FolderOpen, Home, Plus, Trash2 } from 'lucide-react';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 
 import { cn } from '@/components/ui/utils';
@@ -74,6 +74,10 @@ export function ArtifactGridMode() {
 
 	function openWizard() {
 		navigateFocused('/projects/new-artifact');
+	}
+
+	function openHome() {
+		navigateFocused('/artifacts/home');
 	}
 
 	function openProjectSettings() {
@@ -149,6 +153,17 @@ export function ArtifactGridMode() {
 
 			{/* Tools row — pinned to the bottom of the sidebar. */}
 			<div className="border-t border-border">
+				<button
+					type="button"
+					onClick={openHome}
+					className={cn(
+						'flex w-full items-center gap-3 px-4 py-2 text-left text-sm',
+						'text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground'
+					)}
+				>
+					<Home className="h-4 w-4 shrink-0" />
+					<span className="flex-1">Home</span>
+				</button>
 				<button
 					type="button"
 					onClick={openWizard}

@@ -61,6 +61,7 @@ import { Route as ClaudeRuntimeMcpsRouteImport } from './routes/claude/runtime-m
 import { Route as ClaudeMcpsRouteImport } from './routes/claude/mcps'
 import { Route as ClaudeHooksRouteImport } from './routes/claude/hooks'
 import { Route as ClaudeCommandsRouteImport } from './routes/claude/commands'
+import { Route as ArtifactsHomeRouteImport } from './routes/artifacts/home'
 import { Route as PkgPkgIdRouteRouteImport } from './routes/pkg/$pkgId/route'
 import { Route as SessionsByAgentIndexRouteImport } from './routes/sessions/by-agent/index'
 import { Route as SessionsAllIndexRouteImport } from './routes/sessions/all/index'
@@ -329,6 +330,11 @@ const ClaudeCommandsRoute = ClaudeCommandsRouteImport.update({
   path: '/commands',
   getParentRoute: () => ClaudeRouteRoute,
 } as any)
+const ArtifactsHomeRoute = ArtifactsHomeRouteImport.update({
+  id: '/artifacts/home',
+  path: '/artifacts/home',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PkgPkgIdRouteRoute = PkgPkgIdRouteRouteImport.update({
   id: '/pkg/$pkgId',
   path: '/pkg/$pkgId',
@@ -386,6 +392,7 @@ export interface FileRoutesByFullPath {
   '/todos': typeof TodosRoute
   '/uiroutes-smoke': typeof UiroutesSmokeRoute
   '/pkg/$pkgId': typeof PkgPkgIdRouteRouteWithChildren
+  '/artifacts/home': typeof ArtifactsHomeRoute
   '/claude/commands': typeof ClaudeCommandsRoute
   '/claude/hooks': typeof ClaudeHooksRoute
   '/claude/mcps': typeof ClaudeMcpsRoute
@@ -442,6 +449,7 @@ export interface FileRoutesByTo {
   '/settings-smoke': typeof SettingsSmokeRoute
   '/todos': typeof TodosRoute
   '/uiroutes-smoke': typeof UiroutesSmokeRoute
+  '/artifacts/home': typeof ArtifactsHomeRoute
   '/claude/commands': typeof ClaudeCommandsRoute
   '/claude/hooks': typeof ClaudeHooksRoute
   '/claude/mcps': typeof ClaudeMcpsRoute
@@ -504,6 +512,7 @@ export interface FileRoutesById {
   '/todos': typeof TodosRoute
   '/uiroutes-smoke': typeof UiroutesSmokeRoute
   '/pkg/$pkgId': typeof PkgPkgIdRouteRouteWithChildren
+  '/artifacts/home': typeof ArtifactsHomeRoute
   '/claude/commands': typeof ClaudeCommandsRoute
   '/claude/hooks': typeof ClaudeHooksRoute
   '/claude/mcps': typeof ClaudeMcpsRoute
@@ -567,6 +576,7 @@ export interface FileRouteTypes {
     | '/todos'
     | '/uiroutes-smoke'
     | '/pkg/$pkgId'
+    | '/artifacts/home'
     | '/claude/commands'
     | '/claude/hooks'
     | '/claude/mcps'
@@ -623,6 +633,7 @@ export interface FileRouteTypes {
     | '/settings-smoke'
     | '/todos'
     | '/uiroutes-smoke'
+    | '/artifacts/home'
     | '/claude/commands'
     | '/claude/hooks'
     | '/claude/mcps'
@@ -684,6 +695,7 @@ export interface FileRouteTypes {
     | '/todos'
     | '/uiroutes-smoke'
     | '/pkg/$pkgId'
+    | '/artifacts/home'
     | '/claude/commands'
     | '/claude/hooks'
     | '/claude/mcps'
@@ -746,6 +758,7 @@ export interface RootRouteChildren {
   TodosRoute: typeof TodosRoute
   UiroutesSmokeRoute: typeof UiroutesSmokeRoute
   PkgPkgIdRouteRoute: typeof PkgPkgIdRouteRouteWithChildren
+  ArtifactsHomeRoute: typeof ArtifactsHomeRoute
   PackagesBrowseRoute: typeof PackagesBrowseRoute
   ProjectsNewArtifactRoute: typeof ProjectsNewArtifactRoute
 }
@@ -1116,6 +1129,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ClaudeCommandsRouteImport
       parentRoute: typeof ClaudeRouteRoute
     }
+    '/artifacts/home': {
+      id: '/artifacts/home'
+      path: '/artifacts/home'
+      fullPath: '/artifacts/home'
+      preLoaderRoute: typeof ArtifactsHomeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/pkg/$pkgId': {
       id: '/pkg/$pkgId'
       path: '/pkg/$pkgId'
@@ -1313,6 +1333,7 @@ const rootRouteChildren: RootRouteChildren = {
   TodosRoute: TodosRoute,
   UiroutesSmokeRoute: UiroutesSmokeRoute,
   PkgPkgIdRouteRoute: PkgPkgIdRouteRouteWithChildren,
+  ArtifactsHomeRoute: ArtifactsHomeRoute,
   PackagesBrowseRoute: PackagesBrowseRoute,
   ProjectsNewArtifactRoute: ProjectsNewArtifactRoute,
 }
