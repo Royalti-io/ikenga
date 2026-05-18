@@ -11,7 +11,11 @@
 import { useQuery } from '@tanstack/react-query';
 import { open as openExternal } from '@tauri-apps/plugin-shell';
 
+import { LoreTerm } from '@/components/lore/lore-term';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { quoteOfTheDay } from '@/lib/lore';
+import { useShellStore } from '@/lib/shell/shell-store';
 import {
 	type CheckLevel,
 	type SystemCheck,
@@ -51,6 +55,9 @@ export function WelcomeBody({ onContinue }: WelcomeBodyProps) {
 	});
 
 	const hasFail = (data?.checks ?? []).some((c) => c.level === 'fail');
+	const welcomeQuote = quoteOfTheDay(new Date(), 'welcome');
+	const userName = useShellStore((s) => s.userName);
+	const setUserName = useShellStore((s) => s.setUserName);
 
 	return (
 		<div className="grid h-full gap-12 lg:grid-cols-2">
@@ -60,19 +67,55 @@ export function WelcomeBody({ onContinue }: WelcomeBodyProps) {
 					className="mb-3 text-xs font-semibold uppercase tracking-[0.04em]"
 					style={{ color: 'var(--primary)' }}
 				>
-					First-run setup
+					<LoreTerm term="Consecration">Consecration</LoreTerm>
 				</p>
 				<h1 className="mb-4 text-4xl font-bold leading-tight tracking-tight">
-					Let's get your workspace ready.
+					Let's bring your <LoreTerm term="Ikenga">Ikenga</LoreTerm> to life.
 				</h1>
 				<p
-					className="mb-6 max-w-[44ch] text-[15px] leading-[1.55]"
+					className="mb-6 max-w-[48ch] text-[15px] leading-[1.55]"
 					style={{ color: 'var(--fg-muted)' }}
 				>
-					Ikenga is a desktop home for an AI-augmented label. In a few minutes we'll detect your
-					coding agent, pick the folders we'll work in, and install the packages you need. You can
-					change everything later from Settings.
+					Ikenga is a personal seat of strength — your desktop home for AI-augmented work, whatever
+					you do. In a few minutes you'll meet your <LoreTerm term="Chi">Chi</LoreTerm>, choose your{' '}
+					<LoreTerm term="Obi">Obi</LoreTerm>, and welcome a few{' '}
+					<LoreTerm term="Alusi">Alusi</LoreTerm>.
 				</p>
+
+				<blockquote
+					className="mb-6 border-l-2 pl-4 text-[13.5px] italic leading-snug"
+					style={{ borderColor: 'var(--primary)', color: 'var(--fg-muted)' }}
+					data-testid="welcome-quote"
+				>
+					&ldquo;{welcomeQuote.text}&rdquo;
+					<footer className="mt-1 not-italic text-[11.5px]" style={{ color: 'var(--fg-faint)' }}>
+						— {welcomeQuote.source}
+						{welcomeQuote.work ? `, ${welcomeQuote.work}` : ''}
+					</footer>
+				</blockquote>
+
+				<div className="mb-6">
+					<label
+						htmlFor="welcome-user-name"
+						className="mb-1.5 block text-[12px] font-semibold uppercase tracking-[0.04em]"
+						style={{ color: 'var(--fg-muted)' }}
+					>
+						What should your <LoreTerm term="Chi">Chi</LoreTerm> call you?
+					</label>
+					<Input
+						id="welcome-user-name"
+						type="text"
+						value={userName}
+						onChange={(e) => setUserName(e.target.value)}
+						placeholder="e.g. Adaeze"
+						autoComplete="given-name"
+						className="h-9 max-w-[28ch]"
+						data-testid="welcome-user-name"
+					/>
+					<p className="mt-1.5 text-[11.5px]" style={{ color: 'var(--fg-faint)' }}>
+						Optional. Used in greetings — you can change it later from Settings.
+					</p>
+				</div>
 
 				<div className="grid gap-3">
 					<Bullet

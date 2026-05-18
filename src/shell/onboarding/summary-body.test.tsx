@@ -112,14 +112,14 @@ describe('buildCards', () => {
 describe('findBlockingState', () => {
 	it('blocks when welcome is still pending', () => {
 		const steps = useShellStore.getState().onboarding.steps;
-		expect(findBlockingState(steps)).toMatch(/welcome/i);
+		expect(findBlockingState(steps)).toMatch(/Consecration/i);
 	});
 
 	it('blocks when agent is still pending after welcome', () => {
 		const s = useShellStore.getState();
 		s.markOnboardingStepCompleted('welcome');
 		const steps = useShellStore.getState().onboarding.steps;
-		expect(findBlockingState(steps)).toMatch(/coding agent/i);
+		expect(findBlockingState(steps)).toMatch(/Chi/);
 	});
 
 	it('does not block once welcome is complete and agent is selected', () => {

@@ -14,6 +14,7 @@ import { useEffect, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { open as openExternal } from '@tauri-apps/plugin-shell';
 
+import { LoreTerm } from '@/components/lore/lore-term';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/components/ui/utils';
 import { type DetectedAgent, pkgInstallFromRegistry, pkgKernelStatus } from '@/lib/tauri-cmd';
@@ -259,17 +260,18 @@ export function AgentBody({ onContinue }: AgentBodyProps) {
 						className="mb-2 text-xs font-semibold uppercase tracking-[0.04em]"
 						style={{ color: 'var(--primary)' }}
 					>
-						Pick your engine
+						Choose your <LoreTerm term="Chi">Chi</LoreTerm>
 					</p>
 					<h1 className="text-3xl font-bold leading-tight tracking-tight">
-						Which coding agent should drive your workspace?
+						Which <LoreTerm term="Chi">Chi</LoreTerm> should drive your{' '}
+						<LoreTerm term="Ikenga">Ikenga</LoreTerm>?
 					</h1>
 					<p className="mt-2 max-w-[60ch] text-sm" style={{ color: 'var(--fg-muted)' }}>
 						{anyPending
 							? 'Scanning your $PATH for each agent in parallel…'
 							: anyDetected
-								? 'Pick one to continue. You can switch later from Settings → Engine.'
-								: "We couldn't find any on $PATH. Install one below, point at a custom binary, or continue offline."}
+								? 'Pick one to continue. You can change your Chi later from Settings → Engine.'
+								: "We couldn't find any Chi on $PATH. Install one below, point at a custom binary, or continue offline."}
 					</p>
 				</div>
 				<Button variant="secondary" size="sm" onClick={() => refresh()} data-testid="agents-rescan">
@@ -373,11 +375,12 @@ export function AgentBody({ onContinue }: AgentBodyProps) {
 				<div className="flex-1">
 					<div className="text-[13px] font-semibold">
 						{allMissing
-							? 'No agents detected — use Ikenga without one'
-							: 'Or use Ikenga without an agent'}
+							? 'No Chi found on this machine — continue without one'
+							: 'Continue without a Chi'}
 					</div>
 					<div className="mt-0.5 text-xs" style={{ color: 'var(--fg-muted)' }}>
-						Pkg management, files, terminal, project routing still work. AI features stay dormant.
+						Pkg management, files, terminal, and project routing still work. Your Ikenga can be
+						addressed once you connect one.
 					</div>
 				</div>
 				<Button

@@ -20,6 +20,7 @@
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 
+import { LoreTerm } from '@/components/lore/lore-term';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/components/ui/utils';
 import { getProvider } from '@/lib/onboarding/agent-config-providers';
@@ -51,11 +52,16 @@ interface ScaffoldingBodyProps {
 // Mirrors the bundled starter templates at
 // src-tauri/templates/starter/claude-code/. Keep in sync when adding
 // templates there — the count is informational, not load-bearing.
+//
+// Display order follows design/shell/05-lore-and-nomenclature.md: atomic
+// → ritual → embodied → announcer (Ntupo · Alusi · Ifulu · Ekwe), which
+// maps to commands → skills → agents → hooks.
 const STARTER_PREVIEW = {
 	profile: 'starter' as const,
-	skills: 6,
-	agents: 3,
-	commands: 3,
+	commands: 3, // Ntupo
+	skills: 6, // Alusi
+	agents: 3, // Ifulu
+	hooks: 0, // Ekwe — slot kept visible so users learn the category exists
 	title: 'Music label starter',
 	description:
 		'Release coordination, outbound writing, and content curation. Generalised templates — no organisation-specific references.',
@@ -104,7 +110,7 @@ export function ScaffoldingBody({ onContinue, onSkip }: ScaffoldingBodyProps) {
 					className="mb-2 text-xs font-semibold uppercase tracking-[0.04em]"
 					style={{ color: 'var(--primary)' }}
 				>
-					Scaffolding
+					Optional · Claude Code only
 				</p>
 				<h1 className="text-3xl font-bold leading-tight tracking-tight">
 					Skipping scaffolding for your engine.
@@ -143,7 +149,7 @@ export function ScaffoldingBody({ onContinue, onSkip }: ScaffoldingBodyProps) {
 					className="mb-2 text-xs font-semibold uppercase tracking-[0.04em]"
 					style={{ color: 'var(--primary)' }}
 				>
-					Scaffolding
+					Optional · Claude Code only
 				</p>
 				<h1 className="text-3xl font-bold leading-tight tracking-tight">
 					No primary root selected.
@@ -242,15 +248,19 @@ export function ScaffoldingBody({ onContinue, onSkip }: ScaffoldingBodyProps) {
 					className="mb-2 text-xs font-semibold uppercase tracking-[0.04em]"
 					style={{ color: 'var(--primary)' }}
 				>
-					Scaffolding
+					Optional · Claude Code only
 				</p>
 				<h1 className="text-3xl font-bold leading-tight tracking-tight">
-					{hasExisting ? 'This root already has a .claude/ directory.' : 'Scaffold a starter set?'}
+					{hasExisting
+						? 'This root already has a .claude/ directory.'
+						: 'Carve a starter kit for your Ikenga?'}
 				</h1>
 				<p className="mt-2 max-w-[60ch] text-sm" style={{ color: 'var(--fg-muted)' }}>
-					Writes into <span className="font-mono text-xs">{primaryRoot}/.claude/</span>. Skip if
-					you'd rather configure by hand — you can always run{' '}
-					<span className="font-mono text-xs">ikenga scaffold</span> later.
+					We can write a starter set of <LoreTerm term="Ntupo">Ntupo</LoreTerm>,{' '}
+					<LoreTerm term="Alusi">Alusi</LoreTerm>, <LoreTerm term="Ifulu">Ifulu</LoreTerm>, and{' '}
+					<LoreTerm term="Ekwe">Ekwe</LoreTerm> — commands, skills, agents, and hooks — into{' '}
+					<span className="font-mono text-xs">{primaryRoot}/.claude/</span>. Skip if you'd rather
+					carve them yourself.
 				</p>
 			</div>
 
@@ -324,25 +334,40 @@ export function ScaffoldingBody({ onContinue, onSkip }: ScaffoldingBodyProps) {
 							<div className="mt-1 max-w-[60ch] text-xs" style={{ color: 'var(--fg-muted)' }}>
 								{STARTER_PREVIEW.description}
 							</div>
-							<div className="mt-3 flex gap-4 text-xs" style={{ color: 'var(--fg-muted)' }}>
+							<div
+								className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs"
+								style={{ color: 'var(--fg-muted)' }}
+								data-testid="starter-counts"
+							>
+								<span>
+									<strong className="font-semibold text-foreground">
+										{STARTER_PREVIEW.commands}
+									</strong>{' '}
+									<LoreTerm term="Ntupo">Ntupo</LoreTerm>
+								</span>
 								<span>
 									<strong className="font-semibold text-foreground">
 										{STARTER_PREVIEW.skills}
 									</strong>{' '}
-									skills
+									<LoreTerm term="Alusi">Alusi</LoreTerm>
 								</span>
 								<span>
 									<strong className="font-semibold text-foreground">
 										{STARTER_PREVIEW.agents}
 									</strong>{' '}
-									agents
+									<LoreTerm term="Ifulu">Ifulu</LoreTerm>
 								</span>
-								<span>
-									<strong className="font-semibold text-foreground">
-										{STARTER_PREVIEW.commands}
-									</strong>{' '}
-									commands
+								<span style={{ opacity: STARTER_PREVIEW.hooks === 0 ? 0.55 : 1 }}>
+									<strong className="font-semibold text-foreground">{STARTER_PREVIEW.hooks}</strong>{' '}
+									<LoreTerm term="Ekwe">Ekwe</LoreTerm>
 								</span>
+							</div>
+							<div
+								className="mt-2 text-[11px]"
+								style={{ color: 'var(--fg-faint)' }}
+								aria-hidden="true"
+							>
+								Ntupo · Alusi · Ifulu · Ekwe ↔ commands · skills · agents · hooks
 							</div>
 						</div>
 					)}

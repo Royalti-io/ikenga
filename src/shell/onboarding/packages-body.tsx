@@ -14,6 +14,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 
+import { LoreTerm } from '@/components/lore/lore-term';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/components/ui/utils';
 import { findConnector } from '@/lib/onboarding/connectors';
@@ -167,14 +168,15 @@ export function PackagesBody({ onContinue }: PackagesBodyProps) {
 						className="mb-2 text-xs font-semibold uppercase tracking-[0.04em]"
 						style={{ color: 'var(--primary)' }}
 					>
-						Pick your apps
+						Welcome your <LoreTerm term="Alusi">Alusi</LoreTerm>
 					</p>
 					<h1 className="text-3xl font-bold leading-tight tracking-tight">
-						Which mini-apps should ship with your workspace?
+						Which Alusi will you welcome?
 					</h1>
 					<p className="mt-2 max-w-[60ch] text-sm" style={{ color: 'var(--fg-muted)' }}>
-						Each is a self-contained pkg with its own update channel. Add, remove, or update any of
-						them later from <span className="font-mono text-xs">Settings → Packages</span>.
+						Each pkg is an Alusi — a specialist functionary you install into your Obi. Pick a few to
+						start; add, remove, or update them later from{' '}
+						<span className="font-mono text-xs">Settings → Packages</span>.
 					</p>
 				</div>
 			</div>

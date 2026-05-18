@@ -248,6 +248,10 @@ export function AppearanceBody({ onContinue }: AppearanceBodyProps) {
 						</button>
 					))}
 				</div>
+				<p className="mt-3 text-[11px]" style={{ color: 'var(--fg-faint)' }}>
+					Lore intensity is locked to full in this release. A dial for full / minimal / off ships in
+					a later update.
+				</p>
 			</section>
 
 			<div className="mt-8 flex items-center justify-end gap-3">

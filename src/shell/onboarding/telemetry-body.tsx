@@ -11,6 +11,7 @@
 
 import { useEffect } from 'react';
 
+import { LoreTerm } from '@/components/lore/lore-term';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/components/ui/utils';
 import { DEFAULT_TELEMETRY_PAYLOAD, useShellStore } from '@/lib/shell/shell-store';
@@ -54,7 +55,7 @@ export function TelemetryBody({ onContinue }: TelemetryBodyProps) {
 					className="mb-2 text-xs font-semibold uppercase tracking-[0.04em]"
 					style={{ color: 'var(--primary)' }}
 				>
-					Privacy
+					What your <LoreTerm term="Chi">Chi</LoreTerm> sees · what it never sees
 				</p>
 				<h1 className="text-3xl font-bold leading-tight tracking-tight">
 					Help us make Ikenga better?

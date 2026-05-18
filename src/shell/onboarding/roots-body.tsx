@@ -19,13 +19,11 @@
 import { useQuery } from '@tanstack/react-query';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 
+import { LoreTerm } from '@/components/lore/lore-term';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/components/ui/utils';
-import {
-	DEFAULT_CLAUDE_PROJECT_ROOTS,
-	useShellStore,
-} from '@/lib/shell/shell-store';
+import { DEFAULT_CLAUDE_PROJECT_ROOTS, useShellStore } from '@/lib/shell/shell-store';
 import { type ClaudeProjectEntry, listClaudeProjects } from '@/lib/tauri-cmd';
 import { useEffect, useState } from 'react';
 
@@ -114,14 +112,14 @@ export function RootsBody({ onContinue }: RootsBodyProps) {
 					className="mb-2 text-xs font-semibold uppercase tracking-[0.04em]"
 					style={{ color: 'var(--primary)' }}
 				>
-					Where do you work?
+					Your <LoreTerm term="Obi">Obi</LoreTerm>
 				</p>
 				<h1 className="text-3xl font-bold leading-tight tracking-tight">
-					Pick the projects Ikenga should know about.
+					Where will your <LoreTerm term="Chi">Chi</LoreTerm> do its work?
 				</h1>
 				<p className="mt-2 max-w-[60ch] text-sm" style={{ color: 'var(--fg-muted)' }}>
-					These are the folders Ikenga can read and the projects that show up in your sidebar. You
-					can add more later from Settings.
+					Your Obi is the folders your workspace calls home — Ikenga reads them and routes them in
+					your sidebar. You can add more later from Settings.
 				</p>
 			</div>
 

@@ -10,10 +10,12 @@
 // has a known fail — per the doc, we surface that hint rather than
 // silently completing.
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 
+import { LoreTerm } from '@/components/lore/lore-term';
 import { Button } from '@/components/ui/button';
+import { dailyAddress } from '@/lib/lore';
 import {
 	ONBOARDING_STEPS,
 	type OnboardingStepId,
@@ -48,6 +50,7 @@ export function SummaryBody({ onFinish, goTo }: SummaryBodyProps) {
 	const navigate = useNavigate();
 	const steps = useShellStore((s) => s.onboarding.steps);
 	const startedAt = useShellStore((s) => s.onboarding.startedAt);
+	const userName = useShellStore((s) => s.userName);
 	const fileRoots = useShellStore((s) => s.fileRoots);
 	const claudeProjectRoots = useShellStore((s) => s.claudeProjectRoots);
 	const theme = useIkengaStore((s) => s.theme);
@@ -61,24 +64,52 @@ export function SummaryBody({ onFinish, goTo }: SummaryBodyProps) {
 
 	const blocker = findBlockingState(steps);
 
+	// 700ms time-of-day greeting flourish before the route transition.
+	// Per design/shell/concepts/.../PHASE-1B-LORE-DELTA.md §9. Re-rendered
+	// each click so the greeting always reflects local time at finish.
+	const [greeting, setGreeting] = useState<{ igbo: string; english: string } | null>(null);
+
 	const handleOpenWorkspace = () => {
 		if (blocker) return;
-		onFinish();
-		void navigate({ to: '/' });
+		const g = dailyAddress(new Date());
+		setGreeting({ igbo: g.igbo, english: g.english });
+		window.setTimeout(() => {
+			onFinish();
+			void navigate({ to: '/' });
+		}, 700);
 	};
 
 	return (
-		<div className="mx-auto max-w-5xl">
+		<div className="relative mx-auto max-w-5xl">
+			{greeting && (
+				<div
+					className="pointer-events-none absolute inset-0 z-10 flex animate-in items-center justify-center fade-in-0 duration-200"
+					style={{ background: 'var(--bg-base)' }}
+					data-testid="summary-greeting-flourish"
+					aria-live="polite"
+				>
+					<div className="text-center">
+						<div className="text-4xl font-bold tracking-tight" style={{ color: 'var(--primary)' }}>
+							{greeting.igbo}
+							{userName ? `, ${userName}` : ''}.
+						</div>
+						<div className="mt-2 text-base" style={{ color: 'var(--fg-muted)' }}>
+							{greeting.english}
+							{userName ? `, ${userName}` : ''}.
+						</div>
+					</div>
+				</div>
+			)}
 			<div className="mb-8 flex items-start justify-between gap-6">
 				<div>
 					<p
 						className="mb-2 text-xs font-semibold uppercase tracking-[0.04em]"
 						style={{ color: 'var(--primary)' }}
 					>
-						All set
+						<LoreTerm term="Consecration">Consecration</LoreTerm> complete
 					</p>
 					<h1 className="text-4xl font-bold leading-tight tracking-tight">
-						Your workspace is ready.
+						Your <LoreTerm term="Ikenga">Ikenga</LoreTerm> is ready to be addressed.
 					</h1>
 					<p className="mt-3 max-w-[60ch] text-sm" style={{ color: 'var(--fg-muted)' }}>
 						Here's everything you picked. Each row is reversible from{' '}
@@ -131,11 +162,11 @@ export function SummaryBody({ onFinish, goTo }: SummaryBodyProps) {
 			<div className="mt-8 flex items-center justify-end gap-3">
 				<Button
 					onClick={handleOpenWorkspace}
-					disabled={!!blocker}
+					disabled={!!blocker || !!greeting}
 					data-testid="summary-open-workspace"
 					className="h-11 px-6 text-sm font-semibold"
 				>
-					Open workspace
+					Enter your Obi (open workspace)
 				</Button>
 			</div>
 		</div>
@@ -188,10 +219,10 @@ function SummaryCard({ card, onEdit }: { card: CardModel; onEdit: () => void }) 
 // ── Pure card builders / formatting ─────────────────────────────────────
 
 const STEP_LABEL: Record<OnboardingStepId, string> = {
-	welcome: 'Welcome',
-	agent: 'Coding agent',
-	roots: 'Project roots',
-	packages: 'Packages',
+	welcome: 'Consecration',
+	agent: 'Chi',
+	roots: 'Obi',
+	packages: 'Alusi',
 	connectors: 'Connectors',
 	scaffolding: 'Scaffolding',
 	appearance: 'Appearance',
@@ -359,17 +390,17 @@ function formatRelative(ms: number): string {
 	return `${days}d ago`;
 }
 
-/** Public for tests. Returns null when nothing blocks "Open workspace". */
+/** Public for tests. Returns null when nothing blocks "Enter your Obi". */
 export function findBlockingState(
 	steps: Record<OnboardingStepId, OnboardingStepRecord>
 ): string | null {
-	// Required step gate: agent must be completed or skipped (offline mode
-	// counts as completed). Welcome must be completed (preflight passed).
+	// Required step gate: Chi must be chosen (offline mode counts as
+	// completed). Welcome must be completed (preflight passed).
 	if (steps.welcome.status !== 'completed') {
-		return 'Step 1 (welcome) is incomplete — go back and review the system checks.';
+		return 'Step 1 (Consecration) is incomplete — go back and review the system checks.';
 	}
 	if (steps.agent.status === 'pending') {
-		return 'Step 2 (coding agent) is still pending — pick an agent or use offline mode.';
+		return 'Step 2 (Chi) is still pending — pick a Chi or continue offline.';
 	}
 	return null;
 }

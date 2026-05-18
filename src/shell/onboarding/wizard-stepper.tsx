@@ -31,12 +31,14 @@ import { cn } from '@/components/ui/utils';
 import { useOnboardingStep } from './use-onboarding-step';
 
 // Human-readable labels for the stepper header. Kept here rather than on
-// the step type itself so the wizard chrome owns the copy.
+// the step type itself so the wizard chrome owns the copy. Tier-1 lore
+// terms (Chi, Obi) replace the technical English in the breadcrumb per
+// design/shell/concepts/03-screens/onboarding-wizard/specs/PHASE-1B-LORE-DELTA.md.
 const STEP_LABELS: Record<OnboardingStepId, string> = {
-	welcome: 'Welcome',
-	agent: 'Coding agent',
-	roots: 'Project roots',
-	packages: 'Packages',
+	welcome: 'Consecration',
+	agent: 'Chi',
+	roots: 'Obi',
+	packages: 'Alusi',
 	connectors: 'Connectors',
 	scaffolding: 'Scaffolding',
 	appearance: 'Appearance',
@@ -253,7 +255,7 @@ export function WizardStepper<P = unknown>({ stepId, children }: WizardStepperPr
 						data-testid="wizard-next"
 						className="h-11 px-6 text-sm font-semibold"
 					>
-						{isLast ? 'Open workspace' : 'Continue'}
+						{isLast ? 'Enter your Obi' : 'Continue'}
 					</Button>
 				</div>
 			</footer>

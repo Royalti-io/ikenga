@@ -26,6 +26,7 @@ const KV_CHAT_ADAPTER = 'agent.chatAdapterId';
 const KV_CLAUDE_ROOTS = 'claude.projectRoots';
 const KV_CLAUDE_WATCH = 'claude.watchEnabled';
 const KV_ONBOARDING = 'onboarding.state';
+const KV_USER_NAME = 'user.name';
 
 // Set true while pulling values from Rust into the store so the
 // subscribe-based onboarding mirror doesn't push them straight back.
@@ -110,6 +111,10 @@ export interface OnboardingState {
 	activeIndex: number;
 	steps: Record<OnboardingStepId, OnboardingStepRecord>;
 	selectedAgentId: string | null;
+	/** Tier-1 lore terms (Chi, Obi, Alusi…) the user has already seen the
+	 * first-contact gloss for. Suppresses repeat tooltips. Per
+	 * design/shell/05-lore-and-nomenclature.md §2 / wizard-spec.md §13.4. */
+	loreGlossSeen: string[];
 }
 
 // Canonical step order. Source of truth for activeIndex math + stepper UI.
@@ -136,7 +141,7 @@ export const OPTIONAL_ONBOARDING_STEPS: ReadonlySet<OnboardingStepId> = new Set<
 ]);
 
 /** Bump when the OnboardingState shape changes in a way that needs migration. */
-export const ONBOARDING_STATE_VERSION = 1;
+export const ONBOARDING_STATE_VERSION = 2;
 
 function freshStepRecord(): OnboardingStepRecord {
 	return { status: 'pending' };
@@ -157,6 +162,7 @@ export function createDefaultOnboardingState(): OnboardingState {
 			{} as Record<OnboardingStepId, OnboardingStepRecord>
 		),
 		selectedAgentId: null,
+		loreGlossSeen: [],
 	};
 }
 
@@ -168,6 +174,15 @@ export const DEFAULT_TELEMETRY_PAYLOAD = Object.freeze({ enabled: false });
 interface ShellState {
 	activeMode: ActivityMode;
 	setActiveMode: (m: ActivityMode) => void;
+
+	// ─── User identity ───────────────────────────────────────────────────
+	// The user's display name — used by the daily-address greeting and any
+	// surface that needs to address the owner directly. Optional; empty
+	// string means "not yet provided" (the welcome step asks for it but
+	// allows skipping). Stored separately from Tauri-side identity so the
+	// shell can render it without an OS-API roundtrip.
+	userName: string;
+	setUserName: (name: string) => void;
 
 	// ─── Telemetry consent ───────────────────────────────────────────────
 	// Canonical home for the telemetry preference. The onboarding wizard's
@@ -228,6 +243,9 @@ interface ShellState {
 	/** Reset the wizard to a fresh first-run state — used by Settings
 	 * "Start over". */
 	resetOnboarding: () => void;
+	/** Record that the user has seen the first-contact gloss for a Tier-1
+	 * lore term (Chi, Obi, Alusi…). Idempotent. */
+	markGlossSeen: (term: string) => void;
 
 	/** Pull durable settings from Rust (settings_kv) and overwrite local
 	 * state. If settings_kv is empty, push the currently-persisted Zustand
@@ -312,6 +330,10 @@ export function migrateShellStore(persisted: unknown, _version: number): unknown
 				...defaults.steps,
 				...((p.onboarding as OnboardingState).steps ?? {}),
 			},
+			// v2: backfill loreGlossSeen for installs that predate the lore overlay.
+			loreGlossSeen: Array.isArray((p.onboarding as OnboardingState).loreGlossSeen)
+				? (p.onboarding as OnboardingState).loreGlossSeen
+				: [],
 		};
 		merged.activeIndex = clampActiveIndex(merged.activeIndex);
 		p.onboarding = merged;
@@ -348,6 +370,13 @@ export const useShellStore = create<ShellState>()(
 		(set, get) => ({
 			activeMode: 'app',
 			setActiveMode: (activeMode) => set({ activeMode }),
+
+			userName: '',
+			setUserName: (userName) => {
+				const trimmed = userName.trim();
+				set({ userName: trimmed });
+				kvSet(KV_USER_NAME, trimmed);
+			},
 
 			telemetryConsent: false,
 			setTelemetryConsent: (telemetryConsent) => {
@@ -573,6 +602,17 @@ export const useShellStore = create<ShellState>()(
 
 			resetOnboarding: () => set({ onboarding: createDefaultOnboardingState() }),
 
+			markGlossSeen: (term) =>
+				set((state) => {
+					const ob = state.onboarding;
+					const key = term.toLowerCase();
+					const seen = ob.loreGlossSeen ?? [];
+					if (seen.some((t) => t.toLowerCase() === key)) return state;
+					return {
+						onboarding: { ...ob, loreGlossSeen: [...seen, term] },
+					};
+				}),
+
 			// ─── Projects ─────────────────────────────────────────────────
 			// Boot value is the bootstrap default — Rust always seeds a
 			// `default` row in migration 0015, and the active id is the
@@ -647,7 +687,13 @@ export const useShellStore = create<ShellState>()(
 					const watch = parseKv<boolean>(all[KV_CLAUDE_WATCH]);
 					if (typeof watch === 'boolean') next.claudeWatchEnabled = watch;
 					const ob = parseKv<OnboardingState>(all[KV_ONBOARDING]);
-					if (ob && typeof ob === 'object') next.onboarding = ob;
+					if (ob && typeof ob === 'object') {
+						// Backfill loreGlossSeen for KV blobs persisted before v2.
+						if (!Array.isArray(ob.loreGlossSeen)) ob.loreGlossSeen = [];
+						next.onboarding = ob;
+					}
+					const userName = parseKv<string>(all[KV_USER_NAME]);
+					if (typeof userName === 'string') next.userName = userName;
 					set(next);
 				} finally {
 					suppressKv = false;
@@ -670,9 +716,12 @@ export const useShellStore = create<ShellState>()(
 		//     entry. Migrate keeps the same valid-set check, just widened.
 		// v11: widen CoreMode with 'artifact-grid' for the artifact-grid
 		//     activity-bar entry (projects-and-artifact-wizard plan §B2).
+		// v12: lore overlay — OnboardingState gains `loreGlossSeen: string[]`
+		//     to suppress first-contact gloss tooltips after acknowledgement.
+		//     Migrate backfills `[]` for existing installs.
 		{
 			name: 'shell-store',
-			version: 11,
+			version: 12,
 			migrate: (persisted, version) => migrateShellStore(persisted, version) as ShellState,
 		}
 	)

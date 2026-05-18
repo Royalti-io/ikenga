@@ -42,6 +42,30 @@
 			"english": "the kola-nut consecration",
 			"gloss": "A consent moment — sharing kola before granting access.",
 			"tier": 1
+		},
+		{
+			"term": "Alusi",
+			"english": "specialist functionary",
+			"gloss": "Specialist functionaries — the mini-apps your Ikenga can call on.",
+			"tier": 2
+		},
+		{
+			"term": "Ntupo",
+			"english": "atomic, single-purpose form",
+			"gloss": "Commands — single-purpose invocations like /pa, /init.",
+			"tier": 2
+		},
+		{
+			"term": "Ifulu",
+			"english": "fully figurative form",
+			"gloss": "Agents — embodied personas that can act autonomously.",
+			"tier": 2
+		},
+		{
+			"term": "Ekwe",
+			"english": "wooden slit-drum announcer",
+			"gloss": "Hooks — event listeners that announce when something happens.",
+			"tier": 2
 		}
 	]
 }

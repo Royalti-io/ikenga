@@ -16,6 +16,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
+import { LoreTerm } from '@/components/lore/lore-term';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -206,6 +207,23 @@ export function ConnectorsBody({ onContinue, onSkip }: ConnectorsBodyProps) {
 			</aside>
 
 			<div className="space-y-10">
+				<header className="border-b pb-4" style={{ borderColor: 'var(--border-soft)' }}>
+					<p
+						className="mb-1 text-[11px] font-semibold uppercase tracking-[0.06em]"
+						style={{ color: 'var(--primary)' }}
+					>
+						<LoreTerm term="Share kola">Share kola</LoreTerm>
+					</p>
+					<h1 className="text-2xl font-bold leading-tight tracking-tight">
+						Give your <LoreTerm term="Chi">Chi</LoreTerm> access to these services.
+					</h1>
+					<p className="mt-2 max-w-[60ch] text-sm" style={{ color: 'var(--fg-muted)' }}>
+						Keys are stored in Stronghold, never in <span className="font-mono text-xs">.env</span>{' '}
+						files. Skip any connector to install its pkgs in disabled mode — Settings → Integrations
+						will surface the gap.
+					</p>
+				</header>
+
 				{requirements.map((req) => {
 					const def = findConnector(req.connectorId);
 					if (!def) return null;
