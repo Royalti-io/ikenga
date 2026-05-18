@@ -5,22 +5,26 @@ name: Release
 # or manual dispatch. Tag-triggered runs publish to a GitHub Release;
 # dispatch runs upload artifacts only.
 #
-# Workspace deps (`@ikenga/contract`, `@ikenga/tokens`, `@ikenga/pkg-
-# engine-claude-code`, the iyke MCP source) are sibling GitHub repos
-# under royalti-io/. Each runner clones them into the right sibling
-# directory and a synthesized `pnpm-workspace.yaml` lets bun resolve
-# `workspace:*` references — bun walks up from shell/ and reads the
-# pnpm-workspace.yaml the same way the local dev setup does.
+# Workspace layout in CI mirrors the local dev tree:
+#   royalti-io/ikenga-contract  → contract/    (workspace:* in shell)
+#   royalti-io/ikenga-tokens    → tokens/      (workspace:* in shell)
+#   royalti-io/ikenga-pkgs      → ikenga-pkgs/ (canonical monorepo per ADR-009;
+#                                               builtin pkg dist resolves
+#                                               into here via symlinks, and
+#                                               scripts/build-iyke-mcp.sh
+#                                               bundles from
+#                                               packages/mcp/iyke/)
+#
+# `@ikenga/pkg-engine-claude-code` is consumed from npm (shell pins ^0.2.0),
+# not workspace-linked, since the cutover on 2026-05-18 retired its
+# standalone clone.
 #
 # Setup before first run:
-#   1. Create a fine-grained PAT with read access to:
-#        royalti-io/ikenga-contract
-#        royalti-io/ikenga-tokens
-#        royalti-io/ikenga-pkg-engine-claude-code
-#        royalti-io/ikenga-pkg-mcp-iyke
-#      Add as `WORKSPACE_DEPS_PAT` secret on royalti-io/ikenga.
-#      (Skip if all four repos are public — the default GITHUB_TOKEN suffices.)
-#   2. Push a tag matching `v*` (e.g. `git tag v0.0.1 && git push origin v0.0.1`).
+#   1. If any of contract / tokens / ikenga-pkgs go private, add a
+#      fine-grained PAT with read access as `WORKSPACE_DEPS_PAT` secret
+#      on royalti-io/ikenga. While all three are public, the default
+#      GITHUB_TOKEN suffices.
+#   2. Push a tag matching `v*` (e.g. `git tag v0.0.5 && git push origin v0.0.5`).
 
 on:
   push:
@@ -103,10 +107,10 @@ jobs:
       # ── Checkout shell + sibling workspace repos ────────────────────────────
       # Windows runners have core.symlinks=false by default; the shell repo
       # contains a symlink at src-tauri/resources/builtin-pkgs/com.ikenga.
-      # engine-{claude-code,noop}/dist → ../../../../../pkgs/<pkg>/dist.
-      # Without this flip, checkout writes the symlink as a regular file
-      # containing the target path string, and Tauri's resource scan then
-      # fails with "resource path … doesn't exist".
+      # engine-claude-code/dist → ../../../../../ikenga-pkgs/packages/engine/
+      # claude-code/dist. Without this flip, checkout writes the symlink as
+      # a regular file containing the target path string, and Tauri's
+      # resource scan then fails with "resource path … doesn't exist".
       - name: Enable git symlinks (Windows runner)
         if: matrix.target == 'x86_64-pc-windows-msvc'
         shell: bash
@@ -131,31 +135,23 @@ jobs:
           path: tokens
           token: ${{ secrets.WORKSPACE_DEPS_PAT || secrets.GITHUB_TOKEN }}
 
-      - name: Checkout @ikenga/pkg-engine-claude-code
+      # Canonical pkg monorepo (ADR-009). Provides:
+      #   - The engine-cc dist that shell's builtin symlink targets.
+      #   - The mcp-iyke source that scripts/build-iyke-mcp.sh bundles.
+      # NOTE: this is a separate, self-contained pnpm workspace — we do not
+      # add its packages to the synthesized outer workspace (pnpm doesn't
+      # support nested workspaces).
+      - name: Checkout royalti-io/ikenga-pkgs
         uses: actions/checkout@v6
         with:
-          repository: royalti-io/ikenga-pkg-engine-claude-code
-          path: pkgs/engine-claude-code
+          repository: royalti-io/ikenga-pkgs
+          path: ikenga-pkgs
           token: ${{ secrets.WORKSPACE_DEPS_PAT || secrets.GITHUB_TOKEN }}
 
-      - name: Checkout @ikenga/pkg-engine-noop
-        uses: actions/checkout@v6
-        with:
-          repository: royalti-io/ikenga-pkg-engine-noop
-          path: pkgs/engine-noop
-          token: ${{ secrets.WORKSPACE_DEPS_PAT || secrets.GITHUB_TOKEN }}
-
-      - name: Checkout iyke MCP source
-        uses: actions/checkout@v6
-        with:
-          repository: royalti-io/ikenga-pkg-mcp-iyke
-          path: pkgs/mcp-iyke
-          token: ${{ secrets.WORKSPACE_DEPS_PAT || secrets.GITHUB_TOKEN }}
-
-      # Synthesize the workspace root so `workspace:*` resolves the same way
-      # it does on a developer machine. The shell's `iyke:mcp:build` script
-      # references `../pkgs/mcp-iyke` relative to shell/ — sibling layout
-      # below matches that contract.
+      # Synthesize the outer workspace so shell's two remaining workspace:*
+      # deps (@ikenga/contract, @ikenga/tokens) resolve the same way they
+      # do locally. @ikenga/pkg-engine-claude-code is consumed via npm
+      # (^0.2.0) post-cutover, so it does NOT need a workspace entry here.
       - name: Synthesize workspace
         shell: bash
         run: |
@@ -164,7 +160,6 @@ jobs:
             - shell
             - contract
             - tokens
-            - pkgs/*
           EOF
           echo "Workspace layout:"
           ls -la
@@ -234,34 +229,42 @@ jobs:
       # step the Tauri build fails with:
       #   resource path `…/builtin-pkgs/com.ikenga.engine-claude-code/dist`
       #   doesn't exist
-      - name: Build workspace siblings (contract, tokens, engine adapters)
+      - name: Build outer workspace siblings (contract, tokens)
         shell: bash
         run: |
-          for pkg in '@ikenga/contract' '@ikenga/tokens' '@ikenga/pkg-engine-claude-code' '@ikenga/pkg-engine-noop'; do
+          for pkg in '@ikenga/contract' '@ikenga/tokens'; do
             echo "==> pnpm -F $pkg build"
             pnpm -F "$pkg" build
           done
 
-      # Materialize the engine adapter dist/ inside shell's resources tree.
-      # Locally these are git-tracked symlinks that point at
-      # pkgs/<engine>/dist; Windows runners don't preserve symlinks
-      # reliably (even with core.symlinks=true, actions/checkout creates
-      # file-symlinks rather than directory-junctions). On every CI host
-      # we replace the symlink with a real copy of the freshly-built
-      # dist so Tauri's resource scan finds the files.
-      - name: Materialize engine dist into shell resources
+      # ikenga-pkgs is its own pnpm workspace. Install + build its members
+      # so the engine-cc dist exists for the symlink target below and
+      # scripts/build-iyke-mcp.sh can bundle from packages/mcp/iyke/.
+      - name: Install + build ikenga-pkgs (nested workspace)
+        shell: bash
+        working-directory: ikenga-pkgs
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm -r build
+
+      # Materialize the engine-cc dist/ inside shell's resources tree.
+      # Locally this is a git-tracked symlink that points at
+      # ikenga-pkgs/packages/engine/claude-code/dist; Windows runners
+      # don't preserve symlinks reliably (even with core.symlinks=true,
+      # actions/checkout creates file-symlinks rather than directory-
+      # junctions). On every CI host we replace the symlink with a real
+      # copy of the freshly-built dist so Tauri's resource scan finds
+      # the files.
+      - name: Materialize engine-cc dist into shell resources
         shell: bash
         run: |
-          for engine in engine-claude-code engine-noop; do
-            src="pkgs/${engine}/dist"
-            dest="shell/src-tauri/resources/builtin-pkgs/com.ikenga.${engine}/dist"
-            echo "==> $src → $dest"
-            rm -rf "$dest"
-            mkdir -p "$(dirname "$dest")"
-            cp -r "$src" "$dest"
-          done
-          ls shell/src-tauri/resources/builtin-pkgs/com.ikenga.engine-claude-code/dist
-          ls shell/src-tauri/resources/builtin-pkgs/com.ikenga.engine-noop/dist
+          src="ikenga-pkgs/packages/engine/claude-code/dist"
+          dest="shell/src-tauri/resources/builtin-pkgs/com.ikenga.engine-claude-code/dist"
+          echo "==> $src → $dest"
+          rm -rf "$dest"
+          mkdir -p "$(dirname "$dest")"
+          cp -r "$src" "$dest"
+          ls "$dest"
 
       - name: Build iyke MCP binary
         shell: bash
