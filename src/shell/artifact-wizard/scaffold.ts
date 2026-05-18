@@ -111,26 +111,28 @@ export async function startArtifact(args: StartArgs): Promise<StartResult> {
 		title: `${agentTitle} · ${args.archetype.label.toLowerCase()}`,
 	});
 
-	// Mount the terminal in the focused pane, then immediately split right
-	// and mount the Studio in grid density on the chosen folder. The grid
-	// shows any existing artifacts in that folder (sibling context) and
-	// stays mostly-empty until the agent writes. When the watcher fires
-	// we swap that pane's view to a loupe on the new file in place — so
-	// the user has terminal + Studio side-by-side from t=0, and the
-	// blank/grid → loupe handoff is just a view swap.
+	// Layout: Studio on the left (active pane), terminal on the right.
+	// The Studio is the primary surface for this flow, so it stays put as
+	// the user's active focus; the terminal is the assistant on the side.
+	// On Start we add the Studio grid to whatever pane is currently
+	// focused, then split right and mount the terminal in the new leaf,
+	// then re-focus the Studio so the user can drive it without a click.
+	// When the watcher fires we swap the Studio leaf's view from grid
+	// → loupe in place — terminal stays untouched on the right.
 	const paneStore = usePaneStore.getState();
-	const terminalLeafId = paneStore.focusedId;
-	paneStore.addTab(terminalLeafId, {
-		kind: 'terminal',
-		sessionId: terminalSessionId,
-	});
-	paneStore.splitPane(terminalLeafId, 'horizontal');
-	const studioLeafId = usePaneStore.getState().focusedId;
-	usePaneStore.getState().addTab(studioLeafId, {
+	const studioLeafId = paneStore.focusedId;
+	paneStore.addTab(studioLeafId, {
 		kind: 'artifact-studio',
 		path: args.folder,
 		density: 'grid',
 	});
+	paneStore.splitPane(studioLeafId, 'horizontal');
+	const terminalLeafId = usePaneStore.getState().focusedId;
+	usePaneStore.getState().addTab(terminalLeafId, {
+		kind: 'terminal',
+		sessionId: terminalSessionId,
+	});
+	usePaneStore.getState().focusPane(studioLeafId);
 
 	// Type the kickoff prompt into the PTY once it's ready. Fire and forget.
 	void typeKickoff(terminalSessionId, kickoffPrompt);
