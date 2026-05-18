@@ -40,7 +40,7 @@ export function StudioEngineChat({ path }: StudioEngineChatProps) {
 			</div>
 		);
 	}
-	if (loading || !threadId) {
+	if (loading) {
 		return (
 			<div className="flex h-full w-full items-center justify-center text-xs text-muted-foreground">
 				<Loader2 className="mr-2 h-3 w-3 animate-spin" />
