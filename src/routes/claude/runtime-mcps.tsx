@@ -14,10 +14,7 @@ import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/components/ui/utils';
 import { iykeMcpListQueryOptions } from '@/lib/queries/iyke-mcp';
-import {
-	claudeAssetPinsQueryOptions,
-	type ClaudeAssetPin,
-} from '@/lib/queries/claude';
+import { claudeAssetPinsQueryOptions, type ClaudeAssetPin } from '@/lib/queries/claude';
 import { restartIykeMcp, type IykeMcpEntry, type IykeMcpTier } from '@/lib/iyke/mcp';
 import { useShellStore } from '@/lib/shell/shell-store';
 import {
@@ -75,7 +72,10 @@ function RuntimeMcpsTab() {
 		const names = [...byName.keys()].sort((a, b) => a.localeCompare(b));
 		return names.map((name) => ({
 			name,
-			entries: byName.get(name)!.slice().sort((a, b) => TIER_RANK[a.tier] - TIER_RANK[b.tier]),
+			entries: byName
+				.get(name)!
+				.slice()
+				.sort((a, b) => TIER_RANK[a.tier] - TIER_RANK[b.tier]),
 		}));
 	}, [mcpQuery.data]);
 
@@ -147,9 +147,7 @@ function RuntimeMcpsTab() {
 						<div className="flex items-center gap-2 border-b border-border px-3 py-2 text-xs">
 							<Plug className="h-3.5 w-3.5 text-muted-foreground" />
 							<span className="font-medium">MCP servers</span>
-							<span className="font-mono text-[10px] text-muted-foreground">
-								{nameCount}
-							</span>
+							<span className="font-mono text-[10px] text-muted-foreground">{nameCount}</span>
 						</div>
 						<div className="divide-y divide-border">
 							{grouped.map(({ name, entries }) => (
@@ -200,7 +198,11 @@ function ProjectPickerRow({
 				/>
 			)}
 			<span>{project.display_name}</span>
-			{active && <span aria-hidden className="ml-auto">✓</span>}
+			{active && (
+				<span aria-hidden className="ml-auto">
+					✓
+				</span>
+			)}
 		</button>
 	);
 }
@@ -319,9 +321,7 @@ function ServerGroup({
 											<TierChip tier={e.tier} provider={e.provider} path={e.path} />
 											<div className="min-w-0 flex-1">
 												<div className="truncate font-mono text-[11px]">{e.provider}</div>
-												<div className="truncate text-[10px] text-muted-foreground">
-													{e.path}
-												</div>
+												<div className="truncate text-[10px] text-muted-foreground">{e.path}</div>
 											</div>
 										</button>
 									))}
@@ -376,10 +376,7 @@ function SourceRow({ entry, isWinner }: { entry: IykeMcpEntry; isWinner: boolean
 				<span className="font-mono text-[10px] text-muted-foreground">{entry.transport}</span>
 			)}
 			{entry.last_error && (
-				<span
-					className="truncate font-mono text-[10px] text-destructive"
-					title={entry.last_error}
-				>
+				<span className="truncate font-mono text-[10px] text-destructive" title={entry.last_error}>
 					! {entry.last_error}
 				</span>
 			)}
@@ -415,8 +412,7 @@ function TierChip({
 		personal: 'bg-muted text-muted-foreground border-border',
 		workspace_pkg: 'bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-500/30',
 		project: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30',
-		project_pkg:
-			'bg-purple-500/10 text-purple-700 dark:text-purple-300 border-purple-500/30',
+		project_pkg: 'bg-purple-500/10 text-purple-700 dark:text-purple-300 border-purple-500/30',
 	};
 	const label = compact
 		? TIER_LABEL[tier]

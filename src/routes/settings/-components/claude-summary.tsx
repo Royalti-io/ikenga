@@ -53,8 +53,8 @@ export function ClaudeSummarySectionBody() {
 					>
 						<Layers className="h-3 w-3" />
 						Layered View
-					</Link>
-					{' '}— pkg-aware 4-tier discovery with conflict surfacing and pin controls.
+					</Link>{' '}
+					— pkg-aware 4-tier discovery with conflict surfacing and pin controls.
 				</p>
 			</div>
 			<Button asChild variant="outline" size="sm">

@@ -22,16 +22,9 @@ import { useMemo, useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import {
-	Popover,
-	PopoverContent,
-	PopoverTrigger,
-} from '@/components/ui/popover';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/components/ui/utils';
-import {
-	claudeAssetPinsQueryOptions,
-	claudeAssetsQueryOptions,
-} from '@/lib/queries/claude';
+import { claudeAssetPinsQueryOptions, claudeAssetsQueryOptions } from '@/lib/queries/claude';
 import { useShellStore } from '@/lib/shell/shell-store';
 import {
 	claudeAssetPin,
@@ -208,7 +201,11 @@ function ProjectPickerRow({
 				/>
 			)}
 			<span>{project.display_name}</span>
-			{active && <span aria-hidden className="ml-auto">✓</span>}
+			{active && (
+				<span aria-hidden className="ml-auto">
+					✓
+				</span>
+			)}
 		</button>
 	);
 }

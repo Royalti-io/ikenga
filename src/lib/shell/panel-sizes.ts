@@ -5,11 +5,7 @@
 // project-scoped via the layout-swap orchestrator, but project switch is
 // no longer a layout event).
 
-import {
-	debounce,
-	loadLayoutState,
-	saveLayoutState,
-} from '@/lib/layout-state';
+import { debounce, loadLayoutState, saveLayoutState } from '@/lib/layout-state';
 
 export const PANEL_SIZES_KEY = 'workspace.panels';
 export const DEFAULT_PANEL_SIZES: [number, number] = [16, 84];

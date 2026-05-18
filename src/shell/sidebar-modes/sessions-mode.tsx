@@ -1,20 +1,20 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { AlertCircle, FolderKanban, Loader2, MessageSquare, Plus, SquareTerminal } from 'lucide-react';
+import {
+	AlertCircle,
+	FolderKanban,
+	Loader2,
+	MessageSquare,
+	Plus,
+	SquareTerminal,
+} from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
-import {
-	Popover,
-	PopoverContent,
-	PopoverTrigger,
-} from '@/components/ui/popover';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/components/ui/utils';
 import { shortPath } from '@/lib/home';
 import { usePaneStore } from '@/lib/panes/pane-store';
-import {
-	chatThreadsByProjectQueryOptions,
-	type ChatThreadSummary,
-} from '@/lib/queries/sessions';
+import { chatThreadsByProjectQueryOptions, type ChatThreadSummary } from '@/lib/queries/sessions';
 import { useShellStore } from '@/lib/shell/shell-store';
 import { useThreadBadges } from '@/lib/shell/thread-badges-store';
 import { NewSessionDialog } from '@/shell/sessions/new-session-dialog';
@@ -198,7 +198,9 @@ export function SessionsMode() {
 								style={{ background: activeProject.color }}
 							/>
 						)}
-						<span className="truncate">{activeProject?.display_name ?? activeProjectId ?? '—'}</span>
+						<span className="truncate">
+							{activeProject?.display_name ?? activeProjectId ?? '—'}
+						</span>
 					</span>
 				)}
 			</div>
@@ -235,7 +237,7 @@ export function SessionsMode() {
 					<div className="flex flex-col py-1">
 						{data.map((thread) => {
 							const color = thread.project_id
-								? projectColorById.get(thread.project_id) ?? null
+								? (projectColorById.get(thread.project_id) ?? null)
 								: null;
 							return (
 								<ThreadRow

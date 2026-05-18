@@ -33,7 +33,7 @@ export function StudioSourceEditor({ value, onChange, readOnly }: StudioSourceEd
 			if (next === undefined) return;
 			onChange(next);
 		},
-		[onChange],
+		[onChange]
 	);
 
 	return (

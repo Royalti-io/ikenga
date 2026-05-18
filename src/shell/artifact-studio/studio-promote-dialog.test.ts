@@ -39,7 +39,11 @@ const ALL_OPTIONS = {
 
 describe('promoteToFolder', () => {
 	it('extracts CSS, JSX, and mock data when all options on', () => {
-		const r = promoteToFolder({ source: SAMPLE_HTML, options: ALL_OPTIONS, manifest: SAMPLE_MANIFEST });
+		const r = promoteToFolder({
+			source: SAMPLE_HTML,
+			options: ALL_OPTIONS,
+			manifest: SAMPLE_MANIFEST,
+		});
 
 		expect(r.stylesCss).toContain('body { background: #111;');
 		expect(r.appJsx).toContain('const App = ()');
@@ -54,7 +58,11 @@ describe('promoteToFolder', () => {
 	});
 
 	it('strips the inline manifest and emits manifest.json with entry set', () => {
-		const r = promoteToFolder({ source: SAMPLE_HTML, options: ALL_OPTIONS, manifest: SAMPLE_MANIFEST });
+		const r = promoteToFolder({
+			source: SAMPLE_HTML,
+			options: ALL_OPTIONS,
+			manifest: SAMPLE_MANIFEST,
+		});
 		expect(r.html).not.toContain('id="ikenga-manifest"');
 		const parsed = JSON.parse(r.manifestJson);
 		expect(parsed.entry).toBe('index.html');
@@ -62,7 +70,11 @@ describe('promoteToFolder', () => {
 	});
 
 	it('switches fallback.dataTag → fallback.data when extracting mock data', () => {
-		const r = promoteToFolder({ source: SAMPLE_HTML, options: ALL_OPTIONS, manifest: SAMPLE_MANIFEST });
+		const r = promoteToFolder({
+			source: SAMPLE_HTML,
+			options: ALL_OPTIONS,
+			manifest: SAMPLE_MANIFEST,
+		});
 		const parsed = JSON.parse(r.manifestJson);
 		expect(parsed.fallback.data).toBe('assets/mock.json');
 		expect(parsed.fallback.dataTag).toBeUndefined();
@@ -90,8 +102,16 @@ describe('promoteToFolder', () => {
 	});
 
 	it('is a pure function', () => {
-		const a = promoteToFolder({ source: SAMPLE_HTML, options: ALL_OPTIONS, manifest: SAMPLE_MANIFEST });
-		const b = promoteToFolder({ source: SAMPLE_HTML, options: ALL_OPTIONS, manifest: SAMPLE_MANIFEST });
+		const a = promoteToFolder({
+			source: SAMPLE_HTML,
+			options: ALL_OPTIONS,
+			manifest: SAMPLE_MANIFEST,
+		});
+		const b = promoteToFolder({
+			source: SAMPLE_HTML,
+			options: ALL_OPTIONS,
+			manifest: SAMPLE_MANIFEST,
+		});
 		expect(a).toEqual(b);
 	});
 });

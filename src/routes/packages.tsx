@@ -22,12 +22,7 @@ const searchSchema = z.object({
 
 function PackagesRoute() {
 	const search = Route.useSearch();
-	return (
-		<PkgsSurface
-			initialFilter={search.filter ?? 'all'}
-			initialInstallTab={search.install}
-		/>
-	);
+	return <PkgsSurface initialFilter={search.filter ?? 'all'} initialInstallTab={search.install} />;
 }
 
 export const Route = createFileRoute('/packages')({

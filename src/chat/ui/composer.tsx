@@ -123,9 +123,7 @@ export function Composer({ threadId, className, placeholder }: ComposerProps) {
 	// composer pre-fills and the user just hits Enter to send. We pull the
 	// per-thread value directly so the effect re-runs when this thread's
 	// entry appears, rather than on every other thread's enqueue churn.
-	const pendingForThread = usePendingPrompts((s) =>
-		threadId ? s.byThread[threadId] : undefined
-	);
+	const pendingForThread = usePendingPrompts((s) => (threadId ? s.byThread[threadId] : undefined));
 	const consumePendingPrompt = usePendingPrompts((s) => s.consume);
 	useEffect(() => {
 		if (!threadId || pendingForThread === undefined) return;
@@ -644,9 +642,7 @@ export function Composer({ threadId, className, placeholder }: ComposerProps) {
 													<div
 														className="flex items-baseline gap-2 px-3 pb-1 font-mono text-[9px] uppercase tracking-[0.22em] text-[var(--chip-carve)]"
 														title={
-															!isInstalled
-																? eng.notInstalledHint ?? 'not installed'
-																: undefined
+															!isInstalled ? (eng.notInstalledHint ?? 'not installed') : undefined
 														}
 													>
 														<span className="text-[var(--kola-amber)]">◾</span>
@@ -667,9 +663,7 @@ export function Composer({ threadId, className, placeholder }: ComposerProps) {
 															<li>
 																<button
 																	type="button"
-																	onClick={() =>
-																		void handleStartNewThreadWithEngine(eng.id, null)
-																	}
+																	onClick={() => void handleStartNewThreadWithEngine(eng.id, null)}
 																	className="flex w-full items-center gap-2 border-l-2 border-transparent px-3 py-1 text-left text-xs transition-colors hover:bg-[var(--rule-soft)]"
 																	title="Start a new thread using this engine"
 																>
@@ -680,12 +674,11 @@ export function Composer({ threadId, className, placeholder }: ComposerProps) {
 													)}
 													<ul>
 														{eng.models.map((m) => {
-															const selected =
-																isCurrentEngine && m.id === currentModel;
+															const selected = isCurrentEngine && m.id === currentModel;
 															const isCrossEngine = !isCurrentEngine;
 															const clickable = isInstalled;
 															const title = !isInstalled
-																? eng.notInstalledHint ?? 'not installed'
+																? (eng.notInstalledHint ?? 'not installed')
 																: isCrossEngine
 																	? `Start a new thread with ${eng.label} — engines can't swap mid-thread`
 																	: undefined;

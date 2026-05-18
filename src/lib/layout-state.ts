@@ -156,11 +156,7 @@ export function scopedKey(key: string, projectId: string): string {
 	return `${key}.${projectId}`;
 }
 
-export function loadScopedLayoutState<T>(
-	key: string,
-	projectId: string,
-	fallback: T
-): Promise<T> {
+export function loadScopedLayoutState<T>(key: string, projectId: string, fallback: T): Promise<T> {
 	return loadLayoutState(scopedKey(key, projectId), fallback);
 }
 
@@ -179,20 +175,14 @@ export function saveScopedLayoutState(
  * pre-Phase-6 build (where everything was stored under the un-suffixed
  * key). Subsequent loads find the scoped row directly.
  */
-export async function migrateLegacyKey<T>(
-	key: string,
-	projectId: string,
-	fallback: T
-): Promise<T> {
+export async function migrateLegacyKey<T>(key: string, projectId: string, fallback: T): Promise<T> {
 	const scoped = scopedKey(key, projectId);
 	const sentinel = Symbol('missing');
 	const existing = (await loadLayoutState<T | typeof sentinel>(scoped, sentinel)) as
 		| T
 		| typeof sentinel;
 	if (existing !== sentinel) return existing as T;
-	const legacy = (await loadLayoutState<T | typeof sentinel>(key, sentinel)) as
-		| T
-		| typeof sentinel;
+	const legacy = (await loadLayoutState<T | typeof sentinel>(key, sentinel)) as T | typeof sentinel;
 	if (legacy === sentinel) return fallback;
 	// Copy under scoped key for next time; don't await — best-effort.
 	void saveLayoutState(scoped, legacy);

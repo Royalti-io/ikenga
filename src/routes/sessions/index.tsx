@@ -1,18 +1,19 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, createFileRoute, useNavigate, useSearch } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { AlertCircle, FolderKanban, Loader2, MessageSquare, Plus, Search, Terminal } from 'lucide-react';
+import {
+	AlertCircle,
+	FolderKanban,
+	Loader2,
+	MessageSquare,
+	Plus,
+	Search,
+	Terminal,
+} from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
-import {
-	Popover,
-	PopoverContent,
-	PopoverTrigger,
-} from '@/components/ui/popover';
-import {
-	chatThreadsByProjectQueryOptions,
-	type ChatThreadSummary,
-} from '@/lib/queries/sessions';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { chatThreadsByProjectQueryOptions, type ChatThreadSummary } from '@/lib/queries/sessions';
 import { useShellStore } from '@/lib/shell/shell-store';
 import { useThreadBadges } from '@/lib/shell/thread-badges-store';
 import { shortPath } from '@/lib/home';
@@ -189,8 +190,8 @@ function SessionsPage() {
 							)}
 						</h2>
 						<div className="sub">
-							Chat threads in the {includeAll ? 'workspace' : 'active project'}. Click a row
-							to inspect; ⌘⇧N for a new session.
+							Chat threads in the {includeAll ? 'workspace' : 'active project'}. Click a row to
+							inspect; ⌘⇧N for a new session.
 						</div>
 					</div>
 					<Button size="sm" onClick={() => setNewDialogOpen(true)}>
@@ -321,7 +322,7 @@ function SessionsPage() {
 										{filtered.map((thread) => {
 											const badgeCount = badgeCounts[thread.id] ?? 0;
 											const color = thread.project_id
-												? projectColorById.get(thread.project_id) ?? null
+												? (projectColorById.get(thread.project_id) ?? null)
 												: null;
 											return (
 												<SessionRow

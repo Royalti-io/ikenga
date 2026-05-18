@@ -13,10 +13,7 @@ export type IykeScopeString = '' | 'workspace' | `project:${string}` | `pkg:${st
 
 export interface IykeSecretEntry {
 	key: string;
-	scope:
-		| { kind: 'workspace' }
-		| { kind: 'project'; id: string }
-		| { kind: 'pkg'; id: string };
+	scope: { kind: 'workspace' } | { kind: 'project'; id: string } | { kind: 'pkg'; id: string };
 	value: string | null;
 }
 

@@ -39,7 +39,10 @@ export function writeManifestIntoHtml(html: string, manifest: ArtifactManifest |
 	const json = JSON.stringify(manifest, null, 2);
 
 	if (MANIFEST_TAG_RE.test(html)) {
-		return html.replace(MANIFEST_TAG_RE, (_match, open, _body, close) => `${open}\n${json}\n${close}`);
+		return html.replace(
+			MANIFEST_TAG_RE,
+			(_match, open, _body, close) => `${open}\n${json}\n${close}`
+		);
 	}
 
 	const newTag = NEW_TAG_TEMPLATE(json);

@@ -5,11 +5,7 @@
 // the tree was scrolled.
 
 import { create } from 'zustand';
-import {
-	debounce,
-	loadLayoutState,
-	saveLayoutState,
-} from '@/lib/layout-state';
+import { debounce, loadLayoutState, saveLayoutState } from '@/lib/layout-state';
 
 export const STORAGE_KEY = 'files.explorer.v1';
 
@@ -83,9 +79,12 @@ const EMPTY_PERSISTED: Persisted = {
 	rootsCollapsed: [],
 };
 
-function persistedFromState(s: Pick<FilesState,
-	'expanded' | 'selectedPath' | 'scrollTop' | 'showHidden' | 'showIgnored' | 'rootsCollapsed'
->): Persisted {
+function persistedFromState(
+	s: Pick<
+		FilesState,
+		'expanded' | 'selectedPath' | 'scrollTop' | 'showHidden' | 'showIgnored' | 'rootsCollapsed'
+	>
+): Persisted {
 	return snapshotOf(s as FilesState);
 }
 

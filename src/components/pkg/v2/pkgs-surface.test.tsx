@@ -44,8 +44,7 @@ vi.mock('@tanstack/react-router', async (orig) => ({
 // Loupe + install sheet are tested standalone — stub them here so the
 // surface render stays focused on its own composition logic.
 vi.mock('./pkg-loupe', () => ({
-	PkgLoupe: ({ open }: { open: boolean }) =>
-		open ? <div data-testid="pkg-loupe" /> : null,
+	PkgLoupe: ({ open }: { open: boolean }) => (open ? <div data-testid="pkg-loupe" /> : null),
 }));
 vi.mock('./pkg-install-sheet', () => ({
 	PkgInstallSheet: ({ open }: { open: boolean }) =>

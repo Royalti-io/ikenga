@@ -10,11 +10,7 @@ import { useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import {
-	deleteScratchpad,
-	listScratchpads,
-	writeScratchpad,
-} from '@/lib/iyke/memory';
+import { deleteScratchpad, listScratchpads, writeScratchpad } from '@/lib/iyke/memory';
 import { usePaneStore } from '@/lib/panes/pane-store';
 import { useShellStore } from '@/lib/shell/shell-store';
 
@@ -102,19 +98,13 @@ function ScratchpadsPage() {
 						{createMut.isPending ? 'Creating…' : 'New'}
 					</Button>
 				</div>
-				{composerError && (
-					<div className="mt-1 text-xs text-destructive">{composerError}</div>
-				)}
+				{composerError && <div className="mt-1 text-xs text-destructive">{composerError}</div>}
 			</div>
 
 			<div className="flex-1 overflow-y-auto">
-				{list.isLoading && (
-					<div className="px-4 py-3 text-sm text-muted-foreground">Loading…</div>
-				)}
+				{list.isLoading && <div className="px-4 py-3 text-sm text-muted-foreground">Loading…</div>}
 				{list.error && (
-					<div className="px-4 py-3 text-sm text-destructive">
-						{(list.error as Error).message}
-					</div>
+					<div className="px-4 py-3 text-sm text-destructive">{(list.error as Error).message}</div>
 				)}
 				{list.data && list.data.scratchpads.length === 0 && (
 					<div className="px-4 py-6 text-sm text-muted-foreground">

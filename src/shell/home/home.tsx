@@ -294,14 +294,18 @@ function SessionsBody() {
 	const sessions = data ?? [];
 	if (isLoading && sessions.length === 0) {
 		return (
-			<div style={{ color: 'var(--fg-faint)', fontSize: 12, padding: '20px 0', textAlign: 'center' }}>
+			<div
+				style={{ color: 'var(--fg-faint)', fontSize: 12, padding: '20px 0', textAlign: 'center' }}
+			>
 				Loading…
 			</div>
 		);
 	}
 	if (sessions.length === 0) {
 		return (
-			<div style={{ color: 'var(--fg-faint)', fontSize: 12, padding: '20px 0', textAlign: 'center' }}>
+			<div
+				style={{ color: 'var(--fg-faint)', fontSize: 12, padding: '20px 0', textAlign: 'center' }}
+			>
 				No recent sessions.
 			</div>
 		);
@@ -354,14 +358,18 @@ function PadBody() {
 	const first = data?.scratchpads?.[0];
 	if (isLoading && !first) {
 		return (
-			<div style={{ color: 'var(--fg-faint)', fontSize: 12, padding: '20px 0', textAlign: 'center' }}>
+			<div
+				style={{ color: 'var(--fg-faint)', fontSize: 12, padding: '20px 0', textAlign: 'center' }}
+			>
 				Loading…
 			</div>
 		);
 	}
 	if (!first) {
 		return (
-			<div style={{ color: 'var(--fg-faint)', fontSize: 12, padding: '20px 0', textAlign: 'center' }}>
+			<div
+				style={{ color: 'var(--fg-faint)', fontSize: 12, padding: '20px 0', textAlign: 'center' }}
+			>
 				No scratchpads yet.
 			</div>
 		);
@@ -471,10 +479,7 @@ function FinanceBody() {
 function SessionsTag() {
 	const { data } = useQuery(sessionsListQueryOptions(null, 12));
 	const nowMs = Date.now();
-	const live = (data ?? []).reduce(
-		(n, s) => (sessionState(s, nowMs) === 'live' ? n + 1 : n),
-		0,
-	);
+	const live = (data ?? []).reduce((n, s) => (sessionState(s, nowMs) === 'live' ? n + 1 : n), 0);
 	return <>{live} active</>;
 }
 

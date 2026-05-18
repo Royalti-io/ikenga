@@ -63,10 +63,11 @@ export function readScratchpad(name: string, scope?: string) {
 	return getJson<ScratchpadReadResponse | null>('/iyke/scratchpad/read', { scope, name });
 }
 export function writeScratchpad(name: string, body: string, scope?: string) {
-	return postJson<{ id: string; scope: string; updated_at: number }>(
-		'/iyke/scratchpad/write',
-		{ scope: scope ?? null, name, body }
-	);
+	return postJson<{ id: string; scope: string; updated_at: number }>('/iyke/scratchpad/write', {
+		scope: scope ?? null,
+		name,
+		body,
+	});
 }
 export function deleteScratchpad(name: string, scope?: string) {
 	return postJson<{ ok: boolean }>('/iyke/scratchpad/delete', { scope: scope ?? null, name });
@@ -111,17 +112,14 @@ export function createTodo(args: {
 	assignee?: string;
 	blocker_id?: string;
 }) {
-	return postJson<{ id: string; scope: string; created_at: number }>(
-		'/iyke/todo/create',
-		{
-			scope: args.scope ?? null,
-			title: args.title,
-			body: args.body ?? null,
-			tags: args.tags ?? [],
-			assignee: args.assignee ?? null,
-			blocker_id: args.blocker_id ?? null,
-		}
-	);
+	return postJson<{ id: string; scope: string; created_at: number }>('/iyke/todo/create', {
+		scope: args.scope ?? null,
+		title: args.title,
+		body: args.body ?? null,
+		tags: args.tags ?? [],
+		assignee: args.assignee ?? null,
+		blocker_id: args.blocker_id ?? null,
+	});
 }
 
 export function updateTodo(args: {

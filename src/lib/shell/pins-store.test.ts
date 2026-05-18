@@ -355,20 +355,14 @@ describe('dispatchPinSelection', () => {
 
 	it('navigates the focused pane for pkg-route pins', () => {
 		const store = makeStore();
-		dispatchPinSelection(
-			{ ...basePin, kind: 'pkg-route', target: '/pkg/com.example/foo' },
-			store
-		);
+		dispatchPinSelection({ ...basePin, kind: 'pkg-route', target: '/pkg/com.example/foo' }, store);
 		expect(store.navigateFocused).toHaveBeenCalledWith('/pkg/com.example/foo');
 		expect(store.placeView).not.toHaveBeenCalled();
 	});
 
 	it('places an artifact view for artifact pins', () => {
 		const store = makeStore();
-		dispatchPinSelection(
-			{ ...basePin, kind: 'artifact', target: '/home/me/cfo.html' },
-			store
-		);
+		dispatchPinSelection({ ...basePin, kind: 'artifact', target: '/home/me/cfo.html' }, store);
 		expect(store.placeView).toHaveBeenCalledWith(
 			'leaf-1',
 			{ kind: 'artifact', path: '/home/me/cfo.html' },

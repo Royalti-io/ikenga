@@ -61,9 +61,7 @@ describe('PkgScreenshotCarousel', () => {
 	it('renders the screenshots count in the section label', () => {
 		render(
 			withQuery(
-				<PkgScreenshotCarousel
-					row={makeRow([urlShot('https://cdn.example/a.png', 'First')])}
-				/>
+				<PkgScreenshotCarousel row={makeRow([urlShot('https://cdn.example/a.png', 'First')])} />
 			)
 		);
 		expect(screen.getByText(/screenshots · 1/i)).toBeTruthy();
@@ -98,9 +96,7 @@ describe('PkgScreenshotCarousel', () => {
 
 	it('omits the thumb strip when only one screenshot', () => {
 		const { container } = render(
-			withQuery(
-				<PkgScreenshotCarousel row={makeRow([urlShot('https://cdn.example/only.png')])} />
-			)
+			withQuery(<PkgScreenshotCarousel row={makeRow([urlShot('https://cdn.example/only.png')])} />)
 		);
 		// Only the main image bg-cover div exists, no strip buttons.
 		expect(container.querySelectorAll('button').length).toBe(0);

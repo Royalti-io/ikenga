@@ -175,12 +175,7 @@ interface OptionRowProps {
 
 function OptionRow({ label, checked, onChange, disabled }: OptionRowProps) {
 	return (
-		<div
-			className={cn(
-				'flex items-center justify-between gap-2',
-				disabled && 'opacity-60',
-			)}
-		>
+		<div className={cn('flex items-center justify-between gap-2', disabled && 'opacity-60')}>
 			<span>{label}</span>
 			<Switch checked={checked} onCheckedChange={onChange} disabled={disabled} />
 		</div>
@@ -204,7 +199,8 @@ interface PromoteInput {
 }
 
 const STYLE_BLOCK_RE = /<style[^>]*>([\s\S]*?)<\/style>/gi;
-const BABEL_BLOCK_RE = /<script\s+[^>]*?type\s*=\s*["']text\/babel["'][^>]*?>([\s\S]*?)<\/script>/gi;
+const BABEL_BLOCK_RE =
+	/<script\s+[^>]*?type\s*=\s*["']text\/babel["'][^>]*?>([\s\S]*?)<\/script>/gi;
 const MOCK_BLOCK_RE =
 	/<script\s+[^>]*?\bid\s*=\s*["']ikenga-mock-data["'][^>]*?>([\s\S]*?)<\/script>/i;
 const MANIFEST_BLOCK_RE =
@@ -239,7 +235,7 @@ export function promoteToFolder({ source, options, manifest }: PromoteInput): Pr
 			appJsx = collected.join('\n\n');
 			html = injectBeforeBodyClose(
 				html,
-				'\n\t<script type="text/babel" src="assets/app.jsx"></script>',
+				'\n\t<script type="text/babel" src="assets/app.jsx"></script>'
 			);
 		}
 	}
@@ -250,7 +246,7 @@ export function promoteToFolder({ source, options, manifest }: PromoteInput): Pr
 			mockJson = match[1].trim();
 			html = html.replace(
 				MOCK_BLOCK_RE,
-				'<script type="application/json" id="ikenga-mock-data" src="assets/mock.json"></script>',
+				'<script type="application/json" id="ikenga-mock-data" src="assets/mock.json"></script>'
 			);
 		}
 	}

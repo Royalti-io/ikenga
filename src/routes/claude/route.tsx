@@ -122,9 +122,7 @@ function ClaudeLayout() {
 				/>
 				<ModeToggle mode={browserMode} onChange={setBrowserMode} />
 				{browserMode === 'roots' && <Tabs path={path} counts={counts} />}
-				{browserMode === 'layered' && (
-					<Tabs path={path} counts={counts} only={['runtime']} />
-				)}
+				{browserMode === 'layered' && <Tabs path={path} counts={counts} only={['runtime']} />}
 				<div className="min-h-0 flex-1">
 					{browserMode === 'layered' && !isRuntimeRoute ? (
 						<LayeredView />
@@ -160,12 +158,10 @@ function ModeToggle({
 			>
 				View
 			</div>
-			{(
-				[
-					{ id: 'layered' as const, label: 'Layered' },
-					{ id: 'roots' as const, label: 'Project Roots' },
-				]
-			).map((opt) => (
+			{[
+				{ id: 'layered' as const, label: 'Layered' },
+				{ id: 'roots' as const, label: 'Project Roots' },
+			].map((opt) => (
 				<button
 					key={opt.id}
 					type="button"

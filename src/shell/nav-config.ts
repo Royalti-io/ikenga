@@ -9,13 +9,7 @@
 // dedicated Packages mode (activity-bar ⌘4 → PkgsMode); it isn't a
 // concern of the main App mode anymore.
 
-import {
-	Bot,
-	CheckSquare,
-	FileText,
-	Home,
-	Terminal as TerminalIcon,
-} from 'lucide-react';
+import { Bot, CheckSquare, FileText, Home, Terminal as TerminalIcon } from 'lucide-react';
 
 export interface NavItem {
 	to: string;

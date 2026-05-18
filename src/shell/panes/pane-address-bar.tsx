@@ -85,7 +85,7 @@ export function PaneAddressBar({ paneId, view }: PaneAddressBarProps) {
 	// Future: clicking when already pinned could open an edit dialog;
 	// today it's hidden entirely to avoid suggesting a dup-create.
 	const pinForCurrentPath = usePinsStore((s) =>
-		view.kind === 'artifact' ? s.pins.find((p) => p.target === view.path) ?? null : null
+		view.kind === 'artifact' ? (s.pins.find((p) => p.target === view.path) ?? null) : null
 	);
 	const [pinDialogOpen, setPinDialogOpen] = useState(false);
 
@@ -145,10 +145,7 @@ export function PaneAddressBar({ paneId, view }: PaneAddressBarProps) {
 						aria-label="Pin to activity bar"
 					>
 						<PinGlyph
-							className={cn(
-								'h-3.5 w-3.5',
-								pinForCurrentPath && 'fill-current text-amber-500'
-							)}
+							className={cn('h-3.5 w-3.5', pinForCurrentPath && 'fill-current text-amber-500')}
 						/>
 					</NavButton>
 					<PinArtifactDialog

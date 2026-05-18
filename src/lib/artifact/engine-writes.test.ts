@@ -10,18 +10,23 @@ function use(name: string, input: unknown): ToolUseLike {
 describe('isArtifactWriteToolUse', () => {
 	it('matches Write tool with file_path equal to artifact path', () => {
 		expect(isArtifactWriteToolUse(use('Write', { file_path: PATH, content: 'x' }), PATH)).toBe(
-			true,
+			true
 		);
 	});
 
 	it('matches Edit tool', () => {
 		expect(
-			isArtifactWriteToolUse(use('Edit', { file_path: PATH, old_string: 'a', new_string: 'b' }), PATH),
+			isArtifactWriteToolUse(
+				use('Edit', { file_path: PATH, old_string: 'a', new_string: 'b' }),
+				PATH
+			)
 		).toBe(true);
 	});
 
 	it('matches MultiEdit tool', () => {
-		expect(isArtifactWriteToolUse(use('MultiEdit', { file_path: PATH, edits: [] }), PATH)).toBe(true);
+		expect(isArtifactWriteToolUse(use('MultiEdit', { file_path: PATH, edits: [] }), PATH)).toBe(
+			true
+		);
 	});
 
 	it('matches lower-snake-case aliases (write_file, edit_file)', () => {

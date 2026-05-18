@@ -112,9 +112,9 @@ function SecretsPage() {
 					<header className="space-y-1">
 						<h2 className="text-base font-semibold">Vault secrets</h2>
 						<p className="text-xs text-muted-foreground">
-							Stronghold-encrypted, partitioned by scope. Workspace + active-project secrets
-							are dumped into the runtime env-vault file that sidecars read via dotenv. Pkg
-							secrets resolve at command-handling time inside the kernel.
+							Stronghold-encrypted, partitioned by scope. Workspace + active-project secrets are
+							dumped into the runtime env-vault file that sidecars read via dotenv. Pkg secrets
+							resolve at command-handling time inside the kernel.
 						</p>
 					</header>
 
@@ -184,9 +184,7 @@ function SecretsPage() {
 							<div className="flex items-center gap-2 text-xs">
 								<KeyRound className="h-3.5 w-3.5 text-muted-foreground" />
 								<span className="font-medium">
-									{keysQuery.isLoading
-										? 'Loading…'
-										: `${keysQuery.data?.length ?? 0} secrets`}
+									{keysQuery.isLoading ? 'Loading…' : `${keysQuery.data?.length ?? 0} secrets`}
 								</span>
 							</div>
 							<Button
@@ -211,12 +209,7 @@ function SecretsPage() {
 						)}
 						<ul className="divide-y divide-border">
 							{(keysQuery.data ?? []).map((k) => (
-								<SecretRow
-									key={k}
-									scope={scope}
-									name={k}
-									onEdit={() => setEditKey(k)}
-								/>
+								<SecretRow key={k} scope={scope} name={k} onEdit={() => setEditKey(k)} />
 							))}
 						</ul>
 					</div>
@@ -307,11 +300,7 @@ function SecretRow({
 					onClick={reveal}
 					disabled={busy}
 				>
-					{revealed === null ? (
-						<Eye className="h-3 w-3" />
-					) : (
-						<EyeOff className="h-3 w-3" />
-					)}
+					{revealed === null ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
 				</Button>
 				<Button variant="ghost" size="sm" className="h-6 px-2 text-[11px]" onClick={onEdit}>
 					<Pencil className="h-3 w-3" />
@@ -363,10 +352,7 @@ function SecretDialog({
 	const canSave = name.trim().length > 0 && value.length > 0 && !setMut.isPending && loaded;
 
 	function handleSave() {
-		setMut.mutate(
-			{ scope, key: name.trim(), value },
-			{ onSuccess: onClose }
-		);
+		setMut.mutate({ scope, key: name.trim(), value }, { onSuccess: onClose });
 	}
 
 	return (

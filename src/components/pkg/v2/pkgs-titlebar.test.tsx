@@ -51,9 +51,7 @@ describe('PkgsTitlebar', () => {
 			<PkgsTitlebar d={makeDerived({ sidecarsRunning: 0 })} onInstallPkg={() => {}} />
 		);
 		expect(screen.getByText(/0 sidecars running/)).toBeTruthy();
-		rerender(
-			<PkgsTitlebar d={makeDerived({ sidecarsRunning: 3 })} onInstallPkg={() => {}} />
-		);
+		rerender(<PkgsTitlebar d={makeDerived({ sidecarsRunning: 3 })} onInstallPkg={() => {}} />);
 		expect(screen.getByText(/3 sidecars running/)).toBeTruthy();
 	});
 

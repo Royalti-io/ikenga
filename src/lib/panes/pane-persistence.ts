@@ -14,11 +14,7 @@
 // collapses; if the whole tree is empty, we fall back to a single
 // route('/') leaf.
 
-import {
-	debounce,
-	loadLayoutState,
-	saveLayoutState,
-} from '@/lib/layout-state';
+import { debounce, loadLayoutState, saveLayoutState } from '@/lib/layout-state';
 import { useShellStore } from '@/lib/shell/shell-store';
 import { useTerminalStore } from '@/terminal/session-store';
 import { findLeaf, getLeafIdsInOrder, makeLeaf } from './pane-reducer';

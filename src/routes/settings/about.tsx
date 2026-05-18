@@ -11,14 +11,7 @@
 // the legacy UpdaterBanner.
 
 import { createFileRoute } from '@tanstack/react-router';
-import {
-	BellOff,
-	CheckCircle2,
-	Download,
-	ExternalLink,
-	Loader2,
-	RefreshCw,
-} from 'lucide-react';
+import { BellOff, CheckCircle2, Download, ExternalLink, Loader2, RefreshCw } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Markdown } from '@/components/markdown';
@@ -49,8 +42,8 @@ function AboutPage() {
 			<header className="space-y-1">
 				<h1 className="font-display text-2xl font-semibold tracking-tight">About Ikenga</h1>
 				<p className="text-sm text-muted-foreground">
-					The shell itself — kernel, chrome, and bundled engines. Per-pkg versions and updates
-					live in{' '}
+					The shell itself — kernel, chrome, and bundled engines. Per-pkg versions and updates live
+					in{' '}
 					<a className="text-primary underline-offset-2 hover:underline" href="/packages">
 						/packages
 					</a>
@@ -188,9 +181,7 @@ function UpdateCard({
 			)}
 		>
 			<header className="flex items-center gap-3 border-b border-[var(--border-soft)] bg-[var(--bg-sunken)] px-4 py-2.5">
-				<Download
-					className={cn('size-4', snoozed ? 'text-muted-foreground' : 'text-amber-500')}
-				/>
+				<Download className={cn('size-4', snoozed ? 'text-muted-foreground' : 'text-amber-500')} />
 				<div className="flex items-baseline gap-2">
 					<span className="font-display text-sm font-semibold">Update available</span>
 					<span className="font-mono text-[11px] text-muted-foreground">

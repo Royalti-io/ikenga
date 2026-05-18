@@ -39,14 +39,15 @@ export function startIykeTimerBridge(): Unsubscribe {
 
 	void ensureNotificationPermission();
 
-	void listen<IykeTimerFiredPayload>('iyke://timer-fired', (e) => handleTimerFired(e.payload))
-		.then((un) => {
+	void listen<IykeTimerFiredPayload>('iyke://timer-fired', (e) => handleTimerFired(e.payload)).then(
+		(un) => {
 			if (disposed) {
 				un();
 				return;
 			}
 			unlisten = un;
-		});
+		}
+	);
 
 	activeBridge = {
 		refCount: 1,

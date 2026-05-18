@@ -65,9 +65,7 @@ export function UpdaterBanner() {
 				{installing && pct !== null && (
 					<span className="text-muted-foreground"> Downloading {pct}%…</span>
 				)}
-				{installing && pct === null && (
-					<span className="text-muted-foreground"> Downloading…</span>
-				)}
+				{installing && pct === null && <span className="text-muted-foreground"> Downloading…</span>}
 			</div>
 			<Link
 				to="/settings/about"

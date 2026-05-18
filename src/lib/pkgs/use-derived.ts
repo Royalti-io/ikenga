@@ -176,8 +176,7 @@ export function deriveFromQueries(inputs: DeriveInputs): DerivedPkgs {
 		registryEntries = [],
 	} = inputs;
 
-	const error =
-		statusError?.message ?? trustError?.message ?? violationsError?.message ?? null;
+	const error = statusError?.message ?? trustError?.message ?? violationsError?.message ?? null;
 
 	if (!statusData) {
 		return { ...EMPTY, isLoading: statusLoading, error };

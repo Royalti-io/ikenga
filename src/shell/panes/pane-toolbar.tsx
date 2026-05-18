@@ -1,9 +1,4 @@
-import {
-	RefreshCw,
-	SplitSquareHorizontal,
-	SplitSquareVertical,
-	X,
-} from 'lucide-react';
+import { RefreshCw, SplitSquareHorizontal, SplitSquareVertical, X } from 'lucide-react';
 import type { PaneId } from '@/lib/panes/types';
 import { usePaneStore } from '@/lib/panes/pane-store';
 import { cn } from '@/components/ui/utils';

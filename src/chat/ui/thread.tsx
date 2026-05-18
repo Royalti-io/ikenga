@@ -319,9 +319,7 @@ function RenderRow({
 			// (baseline). Max-width stays at 78% — matches design.
 			const variantClass = `utv-${userTurnVariant}`;
 			const bubbleLike =
-				userTurnVariant === 'bubble' ||
-				userTurnVariant === 'accent' ||
-				userTurnVariant === 'frame';
+				userTurnVariant === 'bubble' || userTurnVariant === 'accent' || userTurnVariant === 'frame';
 			return (
 				<li
 					className={cn(
@@ -342,10 +340,7 @@ function RenderRow({
 							content={event.text}
 							cwd={cwd}
 							density="compact"
-							className={cn(
-								'text-sm leading-relaxed',
-								bubbleLike ? 'text-left' : 'text-right'
-							)}
+							className={cn('text-sm leading-relaxed', bubbleLike ? 'text-left' : 'text-right')}
 						/>
 					</div>
 				</li>

@@ -17,7 +17,11 @@
 //
 // The parser is stateful — escape sequences span chunks routinely.
 
-import { sendNotification, isPermissionGranted, requestPermission } from '@tauri-apps/plugin-notification';
+import {
+	sendNotification,
+	isPermissionGranted,
+	requestPermission,
+} from '@tauri-apps/plugin-notification';
 
 interface ParseState {
 	/** Buffer of currently-accumulating OSC payload (between `\e]` and terminator). */
@@ -37,9 +41,7 @@ export interface OscNotification {
 
 const decoder = new TextDecoder('utf-8', { fatal: false });
 
-export function createOscObserver(opts: {
-	onNotify: (n: OscNotification) => void;
-}) {
+export function createOscObserver(opts: { onNotify: (n: OscNotification) => void }) {
 	const state: ParseState = {
 		buf: '',
 		inOsc: false,

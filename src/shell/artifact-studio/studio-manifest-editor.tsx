@@ -32,7 +32,7 @@ export function StudioManifestEditor({ manifest, onChange }: StudioManifestEdito
 	// hooks settle so React's call order stays stable across re-renders.
 	const validation = useMemo(
 		() => (manifest ? ArtifactManifestSchema.safeParse(manifest) : null),
-		[manifest],
+		[manifest]
 	);
 
 	const update = useCallback(
@@ -40,7 +40,7 @@ export function StudioManifestEditor({ manifest, onChange }: StudioManifestEdito
 			if (!manifest) return;
 			onChange({ ...manifest, ...patch });
 		},
-		[manifest, onChange],
+		[manifest, onChange]
 	);
 
 	const updatePin = useCallback(
@@ -49,7 +49,7 @@ export function StudioManifestEditor({ manifest, onChange }: StudioManifestEdito
 			const next = { ...(manifest.pin ?? { suggested: false }), ...patch };
 			onChange({ ...manifest, pin: next });
 		},
-		[manifest, onChange],
+		[manifest, onChange]
 	);
 
 	const updateNotes = useCallback(
@@ -58,7 +58,7 @@ export function StudioManifestEditor({ manifest, onChange }: StudioManifestEdito
 			const next = { ...(manifest.notes ?? { enabled: true }), ...patch };
 			onChange({ ...manifest, notes: next });
 		},
-		[manifest, onChange],
+		[manifest, onChange]
 	);
 
 	if (!manifest || !validation) {
@@ -73,7 +73,9 @@ export function StudioManifestEditor({ manifest, onChange }: StudioManifestEdito
 	return (
 		<div className="flex h-full w-full flex-col overflow-hidden">
 			{!validation.success && (
-				<ValidationBanner errors={validation.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`)} />
+				<ValidationBanner
+					errors={validation.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`)}
+				/>
 			)}
 			<div className="flex-1 overflow-y-auto p-3 text-xs">
 				<Section title="Identity">
@@ -153,9 +155,7 @@ export function StudioManifestEditor({ manifest, onChange }: StudioManifestEdito
 					<Field label="pin icon (lucide)">
 						<Input
 							value={manifest.pin?.icon?.lucide ?? ''}
-							onChange={(e) =>
-								updatePin({ icon: { lucide: e.target.value || undefined } })
-							}
+							onChange={(e) => updatePin({ icon: { lucide: e.target.value || undefined } })}
 							className="h-7 text-xs"
 						/>
 					</Field>
@@ -215,7 +215,9 @@ interface FieldProps {
 
 function Field({ label, hint, inline, children }: FieldProps) {
 	return (
-		<div className={cn('flex gap-2', inline ? 'flex-row items-center justify-between' : 'flex-col')}>
+		<div
+			className={cn('flex gap-2', inline ? 'flex-row items-center justify-between' : 'flex-col')}
+		>
 			<div className="flex flex-col gap-0.5">
 				<span className="font-mono text-[10px] text-muted-foreground">{label}</span>
 				{hint && <span className="text-[9px] text-muted-foreground/60">{hint}</span>}
@@ -239,9 +241,7 @@ function ValidationBanner({ errors }: ValidationBannerProps) {
 						{err}
 					</span>
 				))}
-				{errors.length > 4 && (
-					<span className="opacity-70">… and {errors.length - 4} more</span>
-				)}
+				{errors.length > 4 && <span className="opacity-70">… and {errors.length - 4} more</span>}
 			</div>
 		</div>
 	);
@@ -278,9 +278,7 @@ function RawJsonEditor<T>({ value, onValid }: RawJsonEditorProps<T>) {
 				spellCheck={false}
 				className="min-h-[10rem] font-mono text-[10px] leading-tight"
 			/>
-			{error && (
-				<span className="text-[10px] text-destructive">JSON error: {error}</span>
-			)}
+			{error && <span className="text-[10px] text-destructive">JSON error: {error}</span>}
 		</div>
 	);
 }

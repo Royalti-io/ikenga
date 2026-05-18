@@ -121,9 +121,7 @@ function makePkg(overrides: Partial<PkgRowV2> = {}): PkgRowV2 {
 
 describe('PkgInstallSheet — generic', () => {
 	it('renders three tabs and the generic header', () => {
-		render(
-			withQuery(<PkgInstallSheet open onOpenChange={() => {}} />)
-		);
+		render(withQuery(<PkgInstallSheet open onOpenChange={() => {}} />));
 		expect(screen.getByText('Install pkg')).toBeTruthy();
 		expect(screen.getByRole('button', { name: /Manifest URL/i })).toBeTruthy();
 		expect(screen.getByRole('button', { name: /Local path/i })).toBeTruthy();
@@ -139,26 +137,20 @@ describe('PkgInstallSheet — generic', () => {
 
 	it('switching to Local path swaps the body', async () => {
 		const user = userEvent.setup();
-		render(
-			withQuery(<PkgInstallSheet open onOpenChange={() => {}} />)
-		);
+		render(withQuery(<PkgInstallSheet open onOpenChange={() => {}} />));
 		await user.click(screen.getByRole('button', { name: /Local path/i }));
 		expect(screen.getByText(/absolute path/i)).toBeTruthy();
 		expect(screen.getByPlaceholderText(/\/Users\/you\/my-pkg/i)).toBeTruthy();
 	});
 
 	it('defaults to a passed-in tab', () => {
-		render(
-			withQuery(<PkgInstallSheet open onOpenChange={() => {}} defaultTab="local-path" />)
-		);
+		render(withQuery(<PkgInstallSheet open onOpenChange={() => {}} defaultTab="local-path" />));
 		expect(screen.getByText(/absolute path/i)).toBeTruthy();
 	});
 
 	it('Local path Install fires pkgInstallFromPath with typed value', async () => {
 		const user = userEvent.setup();
-		render(
-			withQuery(<PkgInstallSheet open onOpenChange={() => {}} defaultTab="local-path" />)
-		);
+		render(withQuery(<PkgInstallSheet open onOpenChange={() => {}} defaultTab="local-path" />));
 		const pathInput = screen.getByPlaceholderText(/\/Users\/you\/my-pkg/i);
 		await user.type(pathInput, '/tmp/my-pkg');
 		// The active-tab Install button (footer) is the only enabled non-Cancel.
@@ -168,22 +160,16 @@ describe('PkgInstallSheet — generic', () => {
 	});
 
 	it('Manifest URL Install button is disabled (parked)', () => {
-		render(
-			withQuery(<PkgInstallSheet open onOpenChange={() => {}} />)
-		);
+		render(withQuery(<PkgInstallSheet open onOpenChange={() => {}} />));
 		const installBtn = screen.getByRole('button', { name: /^Install$/i });
 		expect((installBtn as HTMLButtonElement).disabled).toBe(true);
 	});
 
 	it('Registry tab shows the redirect hint, no Install button', async () => {
 		const user = userEvent.setup();
-		render(
-			withQuery(<PkgInstallSheet open onOpenChange={() => {}} />)
-		);
+		render(withQuery(<PkgInstallSheet open onOpenChange={() => {}} />));
 		await user.click(screen.getByRole('button', { name: /^Registry$/i }));
-		expect(
-			screen.getByText(/registry browser opens on \/packages\?filter=store/i)
-		).toBeTruthy();
+		expect(screen.getByText(/registry browser opens on \/packages\?filter=store/i)).toBeTruthy();
 		expect(screen.queryByRole('button', { name: /^Install$/i })).toBeNull();
 	});
 });
@@ -201,18 +187,14 @@ describe('PkgInstallSheet — pkg-targeted', () => {
 	});
 
 	it('renders the about + manifest preview sections', () => {
-		render(
-			withQuery(<PkgInstallSheet open onOpenChange={() => {}} pkg={makePkg()} />)
-		);
+		render(withQuery(<PkgInstallSheet open onOpenChange={() => {}} pkg={makePkg()} />));
 		expect(screen.getByText(/about/i)).toBeTruthy();
 		expect(screen.getByText(/Does the thing\./)).toBeTruthy();
 		expect(screen.getByText(/manifest preview · @test\/example@0\.1\.0/i)).toBeTruthy();
 	});
 
 	it('renders scope chips for each declared scope', () => {
-		render(
-			withQuery(<PkgInstallSheet open onOpenChange={() => {}} pkg={makePkg()} />)
-		);
+		render(withQuery(<PkgInstallSheet open onOpenChange={() => {}} pkg={makePkg()} />));
 		expect(screen.getByText('fs:read:workspace')).toBeTruthy();
 		expect(screen.getByText('fs:write:.company/content')).toBeTruthy();
 	});
@@ -239,17 +221,13 @@ describe('PkgInstallSheet — pkg-targeted', () => {
 	});
 
 	it('Install button label includes the pkg name', () => {
-		render(
-			withQuery(<PkgInstallSheet open onOpenChange={() => {}} pkg={makePkg()} />)
-		);
+		render(withQuery(<PkgInstallSheet open onOpenChange={() => {}} pkg={makePkg()} />));
 		expect(screen.getByRole('button', { name: /Install Example/i })).toBeTruthy();
 	});
 
 	it('clicking Install walks the plan and calls pkgInstallFromRegistry per step', async () => {
 		const user = userEvent.setup();
-		render(
-			withQuery(<PkgInstallSheet open onOpenChange={() => {}} pkg={makePkg()} />)
-		);
+		render(withQuery(<PkgInstallSheet open onOpenChange={() => {}} pkg={makePkg()} />));
 		await user.click(screen.getByRole('button', { name: /Install Example/i }));
 		// The plan had 2 steps — sheet walks both.
 		expect(pkgInstallFromRegistryMock).toHaveBeenCalledTimes(2);
@@ -273,9 +251,7 @@ describe('PkgInstallSheet — pkg-targeted', () => {
 			isLoading: true,
 			error: null,
 		});
-		render(
-			withQuery(<PkgInstallSheet open onOpenChange={() => {}} pkg={makePkg()} />)
-		);
+		render(withQuery(<PkgInstallSheet open onOpenChange={() => {}} pkg={makePkg()} />));
 		const btn = screen.getByRole('button', { name: /Install Example/i });
 		expect((btn as HTMLButtonElement).disabled).toBe(true);
 		expect(screen.getByText(/resolving plan…/i)).toBeTruthy();
@@ -287,9 +263,7 @@ describe('PkgInstallSheet — pkg-targeted', () => {
 			isLoading: false,
 			error: new Error('offline'),
 		});
-		render(
-			withQuery(<PkgInstallSheet open onOpenChange={() => {}} pkg={makePkg()} />)
-		);
+		render(withQuery(<PkgInstallSheet open onOpenChange={() => {}} pkg={makePkg()} />));
 		expect(screen.getByText(/registry unreachable: offline/i)).toBeTruthy();
 	});
 });

@@ -168,13 +168,7 @@ describe('PkgRow — click handling', () => {
 		const onOpen = vi.fn();
 		const onUpdate = vi.fn();
 		render(
-			withQuery(
-				<PkgRow
-					row={makeRow({ latest: '0.2.0' })}
-					onOpen={onOpen}
-					onUpdate={onUpdate}
-				/>
-			)
+			withQuery(<PkgRow row={makeRow({ latest: '0.2.0' })} onOpen={onOpen} onUpdate={onUpdate} />)
 		);
 		await user.click(screen.getByRole('button', { name: /Update/i }));
 		expect(onUpdate).toHaveBeenCalledTimes(1);

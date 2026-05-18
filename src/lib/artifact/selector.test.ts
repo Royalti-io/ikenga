@@ -6,7 +6,7 @@ import { deriveSelectorFromNode, type SelectorNode } from './selector';
 // can disambiguate among its own row.
 function mkNode(
 	tag: string,
-	opts: { id?: string; classes?: string[]; parent?: SelectorNode } = {},
+	opts: { id?: string; classes?: string[]; parent?: SelectorNode } = {}
 ): SelectorNode {
 	return {
 		id: opts.id ?? '',

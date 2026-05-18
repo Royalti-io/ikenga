@@ -42,8 +42,8 @@ export function ClaudeProjectRootsSectionBody() {
 						>
 							Settings → Projects
 						</Link>
-						). Roots are auto-migrated to projects on first launch; this list is read-only and will be
-						removed in a future release.
+						). Roots are auto-migrated to projects on first launch; this list is read-only and will
+						be removed in a future release.
 					</p>
 				</div>
 			</div>

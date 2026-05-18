@@ -7,7 +7,20 @@
 // same `usePkgsDerived` hook the surface itself uses, so the sidebar stays
 // in sync without an additional kernel query.
 
-import { Activity, ArrowUp, Ban, Box, Info, LayoutGrid, Package, PackageCheck, PackagePlus, PowerOff, Shield, type LucideIcon } from 'lucide-react';
+import {
+	Activity,
+	ArrowUp,
+	Ban,
+	Box,
+	Info,
+	LayoutGrid,
+	Package,
+	PackageCheck,
+	PackagePlus,
+	PowerOff,
+	Shield,
+	type LucideIcon,
+} from 'lucide-react';
 
 import { useShallow } from 'zustand/react/shallow';
 
@@ -67,9 +80,27 @@ export function PkgsMode() {
 		{
 			label: 'Catalog',
 			items: [
-				{ to: '/packages', filter: 'all', label: 'All packages', Icon: LayoutGrid, count: d.rows.length },
-				{ to: '/packages', filter: 'installed', label: 'Installed', Icon: PackageCheck, count: d.installed.length },
-				{ to: '/packages', filter: 'store', label: 'Store', Icon: Package, count: d.registry.length },
+				{
+					to: '/packages',
+					filter: 'all',
+					label: 'All packages',
+					Icon: LayoutGrid,
+					count: d.rows.length,
+				},
+				{
+					to: '/packages',
+					filter: 'installed',
+					label: 'Installed',
+					Icon: PackageCheck,
+					count: d.installed.length,
+				},
+				{
+					to: '/packages',
+					filter: 'store',
+					label: 'Store',
+					Icon: Package,
+					count: d.registry.length,
+				},
 			],
 		},
 		{

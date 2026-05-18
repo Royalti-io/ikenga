@@ -223,9 +223,7 @@ export function PkgInstallSheet({
 									Install failed: {installError}
 								</div>
 							)}
-							{installProgress && (
-								<InstallProgressBar progress={installProgress} />
-							)}
+							{installProgress && <InstallProgressBar progress={installProgress} />}
 						</div>
 						<div className="flex items-center gap-2 border-t border-border bg-muted/30 px-5 py-3">
 							<RegistryStatus
@@ -239,9 +237,7 @@ export function PkgInstallSheet({
 							</Button>
 							<Button
 								size="sm"
-								disabled={
-									!detailQuery.data || fromRegistryMut.isPending || !!installProgress
-								}
+								disabled={!detailQuery.data || fromRegistryMut.isPending || !!installProgress}
 								onClick={() => fromRegistryMut.mutate()}
 							>
 								<Plus className="mr-1.5 h-3.5 w-3.5" />
@@ -396,9 +392,7 @@ function RegistryStatus({
 		);
 	}
 	if (detailLoading) {
-		return (
-			<span className="font-mono text-[10.5px] text-muted-foreground">resolving plan…</span>
-		);
+		return <span className="font-mono text-[10.5px] text-muted-foreground">resolving plan…</span>;
 	}
 	return (
 		<span className="font-mono text-[10.5px] text-muted-foreground">

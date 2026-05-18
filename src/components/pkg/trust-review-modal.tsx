@@ -108,8 +108,8 @@ export function TrustReviewModal({
 				<DialogHeader>
 					<DialogTitle>Capability review</DialogTitle>
 					<DialogDescription>
-						These packages declared new or changed capabilities since you last approved them.
-						Review the diff and approve (resume the package) or reject (uninstall it).
+						These packages declared new or changed capabilities since you last approved them. Review
+						the diff and approve (resume the package) or reject (uninstall it).
 					</DialogDescription>
 				</DialogHeader>
 

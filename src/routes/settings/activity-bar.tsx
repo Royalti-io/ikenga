@@ -81,8 +81,8 @@ function ActivityBarSettings() {
 			<header className="flex flex-col gap-1">
 				<h1 className="text-2xl font-semibold">Activity bar</h1>
 				<p className="text-sm text-muted-foreground">
-					Sections group your pinned routes, artifacts, and links in the activity bar. Drag pins
-					to reorder within a section or to move them between sections.
+					Sections group your pinned routes, artifacts, and links in the activity bar. Drag pins to
+					reorder within a section or to move them between sections.
 				</p>
 			</header>
 
@@ -98,11 +98,7 @@ function ActivityBarSettings() {
 						/>
 					))}
 
-					<SectionCard
-						key={NO_SECTION}
-						section={null}
-						pins={pinsBySection.sectionLess}
-					/>
+					<SectionCard key={NO_SECTION} section={null} pins={pinsBySection.sectionLess} />
 
 					<NewSectionForm existing={sortedSections} />
 				</>
@@ -211,10 +207,7 @@ function SectionCard({ section, pins }: SectionCardProps) {
 						type="button"
 						onClick={() => !isVirtual && setEditingLabel(true)}
 						disabled={isVirtual}
-						className={cn(
-							'flex-1 text-left text-sm font-medium',
-							!isVirtual && 'hover:underline'
-						)}
+						className={cn('flex-1 text-left text-sm font-medium', !isVirtual && 'hover:underline')}
 						title={isVirtual ? undefined : 'Click to rename'}
 					>
 						{isVirtual ? 'No section' : section.label}
@@ -255,9 +248,7 @@ function SectionCard({ section, pins }: SectionCardProps) {
 			{editingIcon && !isVirtual && (
 				<div className="flex items-end gap-3 border-b border-border bg-muted/30 px-4 py-3">
 					<label className="flex flex-col gap-1">
-						<span className="text-[11px] font-medium text-muted-foreground">
-							Icon (lucide)
-						</span>
+						<span className="text-[11px] font-medium text-muted-foreground">Icon (lucide)</span>
 						<Input
 							value={draftIconLucide}
 							onChange={(e) => setDraftIconLucide(e.target.value)}
@@ -368,10 +359,7 @@ function PinList({ sectionId, pins }: PinListProps) {
 						draggable
 						onDragStart={(e) => {
 							e.dataTransfer.effectAllowed = 'move';
-							e.dataTransfer.setData(
-								'application/x-pin-drag',
-								`${pin.id}|${pin.sectionId ?? ''}`
-							);
+							e.dataTransfer.setData('application/x-pin-drag', `${pin.id}|${pin.sectionId ?? ''}`);
 							setDrag({ pinId: pin.id, fromSectionId: pin.sectionId });
 						}}
 						onDragEnd={() => {
@@ -414,16 +402,9 @@ function PinList({ sectionId, pins }: PinListProps) {
 								'before:absolute before:left-0 before:right-0 before:top-0 before:h-0.5 before:bg-primary'
 						)}
 					>
-						<GripVertical
-							className="h-4 w-4 cursor-grab text-muted-foreground/60"
-							aria-hidden
-						/>
+						<GripVertical className="h-4 w-4 cursor-grab text-muted-foreground/60" aria-hidden />
 						<div className="grid h-7 w-7 shrink-0 place-items-center rounded bg-muted text-muted-foreground">
-							<PinIcon
-								iconLucide={pin.iconLucide}
-								iconEmoji={pin.iconEmoji}
-								Fallback={PinGlyph}
-							/>
+							<PinIcon iconLucide={pin.iconLucide} iconEmoji={pin.iconEmoji} Fallback={PinGlyph} />
 						</div>
 						<div className="flex flex-1 flex-col">
 							<span className="truncate text-sm">{pin.label}</span>
@@ -584,7 +565,10 @@ function NewSectionForm({ existing }: NewSectionFormProps) {
 	}
 
 	return (
-		<form onSubmit={submit} className="flex flex-col gap-2 rounded-lg border border-dashed border-border p-4">
+		<form
+			onSubmit={submit}
+			className="flex flex-col gap-2 rounded-lg border border-dashed border-border p-4"
+		>
 			<label className="flex flex-col gap-1">
 				<span className="text-xs font-medium text-muted-foreground">New section label</span>
 				<Input
@@ -771,9 +755,7 @@ function NewPinForm({ sectionId }: NewPinFormProps) {
 			</label>
 			<div className="flex flex-wrap items-end gap-3">
 				<label className="flex flex-col gap-1">
-					<span className="text-[11px] font-medium text-muted-foreground">
-						Icon (lucide name)
-					</span>
+					<span className="text-[11px] font-medium text-muted-foreground">Icon (lucide name)</span>
 					<Input
 						value={iconLucide}
 						onChange={(e) => setIconLucide(e.target.value)}
@@ -824,12 +806,7 @@ interface DeleteConfirmDialogProps {
 	onConfirm: () => void;
 }
 
-function DeleteConfirmDialog({
-	section,
-	pinCount,
-	onCancel,
-	onConfirm,
-}: DeleteConfirmDialogProps) {
+function DeleteConfirmDialog({ section, pinCount, onCancel, onConfirm }: DeleteConfirmDialogProps) {
 	return (
 		<Dialog open onOpenChange={(o) => !o && onCancel()}>
 			<DialogContent className="sm:max-w-md">

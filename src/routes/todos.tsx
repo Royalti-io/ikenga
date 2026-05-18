@@ -133,9 +133,7 @@ function TodosPage() {
 								<TodoCard
 									key={t.id}
 									todo={t}
-									onChangeStatus={(status) =>
-										updateMut.mutate({ id: t.id, status })
-									}
+									onChangeStatus={(status) => updateMut.mutate({ id: t.id, status })}
 								/>
 							))}
 						</div>
@@ -195,10 +193,7 @@ function Composer(props: { disabled: boolean; scope: string; onCreated: () => vo
 						}
 					}}
 				/>
-				<Button
-					onClick={() => createMut.mutate()}
-					disabled={!title.trim() || createMut.isPending}
-				>
+				<Button onClick={() => createMut.mutate()} disabled={!title.trim() || createMut.isPending}>
 					<Plus className="mr-1 h-4 w-4" />
 					{createMut.isPending ? 'Adding…' : 'Add'}
 				</Button>
@@ -226,9 +221,7 @@ function TodoCard(props: { todo: Todo; onChangeStatus: (s: TodoStatus) => void }
 			)}
 			<div className="mt-2 flex items-center justify-between text-xs">
 				<div className="flex flex-wrap gap-1">
-					{todo.assignee && (
-						<span className="rounded bg-muted px-1.5 py-0.5">{todo.assignee}</span>
-					)}
+					{todo.assignee && <span className="rounded bg-muted px-1.5 py-0.5">{todo.assignee}</span>}
 					{todo.tags.map((t) => (
 						<span key={t} className="rounded bg-muted px-1.5 py-0.5 text-muted-foreground">
 							#{t}

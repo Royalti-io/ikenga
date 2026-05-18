@@ -307,7 +307,11 @@ export function mountArtifactBridge(): void {
 	function init(): Promise<Art> {
 		const keys = Object.keys(dataSources);
 		return Promise.all(
-			keys.map((k) => resolve(k).then((v) => { cache[k] = v; })),
+			keys.map((k) =>
+				resolve(k).then((v) => {
+					cache[k] = v;
+				})
+			)
 		).then(() => {
 			// Wire refresh modes after the initial fetch so interval timers
 			// don't double-fire during init.

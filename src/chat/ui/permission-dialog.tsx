@@ -196,7 +196,9 @@ function AskUserQuestionPrompt({
 				label === OTHER_SENTINEL ? (otherText[qIdx]?.trim() ?? '') : label;
 			if (isMulti(q)) {
 				const set = multiSel[qIdx];
-				const vals = Array.from(set ?? []).map(resolveLabel).filter((s) => s.length > 0);
+				const vals = Array.from(set ?? [])
+					.map(resolveLabel)
+					.filter((s) => s.length > 0);
 				answers[q.question] = vals;
 			} else {
 				const sel = singleSel[qIdx];
@@ -210,9 +212,7 @@ function AskUserQuestionPrompt({
 	// the options on wide screens and below on narrow.
 	const activePreview =
 		previewIdx != null
-			? (questions[previewIdx.q]?.options ?? []).find(
-					(o) => o.label === previewIdx.label
-				)?.preview
+			? (questions[previewIdx.q]?.options ?? []).find((o) => o.label === previewIdx.label)?.preview
 			: null;
 
 	return (
@@ -239,10 +239,7 @@ function AskUserQuestionPrompt({
 						const multi = isMulti(q);
 						const opts = q.options ?? [];
 						return (
-							<div
-								key={qIdx}
-								className="space-y-2 border border-[var(--rule)] bg-transparent p-3"
-							>
+							<div key={qIdx} className="space-y-2 border border-[var(--rule)] bg-transparent p-3">
 								<div className="flex items-baseline gap-2 border-b border-[var(--rule)] pb-1.5 font-mono text-[9px] uppercase tracking-[0.22em] text-[var(--chip-carve)]">
 									{q.header && <span className="text-[var(--kola-amber)]">◾ {q.header}</span>}
 									{q.header && <span>·</span>}
@@ -262,16 +259,12 @@ function AskUserQuestionPrompt({
 												<button
 													type="button"
 													onClick={() =>
-														multi
-															? toggleMulti(qIdx, opt.label)
-															: pickSingle(qIdx, opt.label)
+														multi ? toggleMulti(qIdx, opt.label) : pickSingle(qIdx, opt.label)
 													}
 													onMouseEnter={() =>
 														hasPreview && setPreviewIdx({ q: qIdx, label: opt.label })
 													}
-													onFocus={() =>
-														hasPreview && setPreviewIdx({ q: qIdx, label: opt.label })
-													}
+													onFocus={() => hasPreview && setPreviewIdx({ q: qIdx, label: opt.label })}
 													className={cn(
 														'group/opt flex w-full items-start gap-2 border bg-transparent px-2 py-1.5 text-left transition-colors',
 														sel
@@ -289,9 +282,7 @@ function AskUserQuestionPrompt({
 														)}
 													>
 														{sel && multi && (
-															<span className="text-[10px] leading-none text-background">
-																✓
-															</span>
+															<span className="text-[10px] leading-none text-background">✓</span>
 														)}
 													</span>
 													<span className="flex-1 space-y-0.5">
@@ -320,9 +311,7 @@ function AskUserQuestionPrompt({
 										<button
 											type="button"
 											onClick={() =>
-												multi
-													? toggleMulti(qIdx, OTHER_SENTINEL)
-													: pickSingle(qIdx, OTHER_SENTINEL)
+												multi ? toggleMulti(qIdx, OTHER_SENTINEL) : pickSingle(qIdx, OTHER_SENTINEL)
 											}
 											className={cn(
 												'flex w-full items-start gap-2 border bg-transparent px-2 py-1.5 text-left transition-colors',

@@ -23,8 +23,7 @@ interface PendingPromptsState {
 
 export const usePendingPrompts = create<PendingPromptsState>((set, get) => ({
 	byThread: {},
-	enqueue: (threadId, prompt) =>
-		set((s) => ({ byThread: { ...s.byThread, [threadId]: prompt } })),
+	enqueue: (threadId, prompt) => set((s) => ({ byThread: { ...s.byThread, [threadId]: prompt } })),
 	consume: (threadId) => {
 		const cur = get().byThread[threadId];
 		if (cur === undefined) return null;

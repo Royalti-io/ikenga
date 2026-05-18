@@ -229,9 +229,7 @@ export function NewSessionDialog({
 											disabled={!clickable}
 											onClick={() => clickable && setEngineId(eng.id)}
 											title={
-												!eng.installed
-													? eng.notInstalledHint ?? 'not installed'
-													: eng.description
+												!eng.installed ? (eng.notInstalledHint ?? 'not installed') : eng.description
 											}
 											className={
 												'inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs transition-colors ' +

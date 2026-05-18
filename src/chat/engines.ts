@@ -19,11 +19,7 @@
  */
 import { useQuery } from '@tanstack/react-query';
 
-import {
-	chatEnginesList,
-	detectAgents,
-	type DetectedAgent,
-} from '@/lib/tauri-cmd';
+import { chatEnginesList, detectAgents, type DetectedAgent } from '@/lib/tauri-cmd';
 
 import type { ModelOption } from './adapter';
 

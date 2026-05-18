@@ -4,10 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // State is captured by closure and reached via the imports below.
 vi.mock('@/lib/tauri-cmd', () => {
 	const state = {
-		pins: new Map<
-			string,
-			{ id: string; target: string; manifestId: string | null }
-		>(),
+		pins: new Map<string, { id: string; target: string; manifestId: string | null }>(),
 		touchedIds: [] as string[],
 	};
 	return {

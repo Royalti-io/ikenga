@@ -63,10 +63,7 @@ function fileBasename(path: string): string {
 	return dot > 0 ? last.slice(0, dot) : last;
 }
 
-function defaultsFromManifest(
-	path: string,
-	manifest: ArtifactManifestPreview | null
-): FormState {
+function defaultsFromManifest(path: string, manifest: ArtifactManifestPreview | null): FormState {
 	const m = manifest ?? {};
 	return {
 		label: m.name ?? fileBasename(path),
@@ -77,12 +74,7 @@ function defaultsFromManifest(
 	};
 }
 
-export function PinArtifactDialog({
-	open,
-	onOpenChange,
-	path,
-	onPinned,
-}: PinArtifactDialogProps) {
+export function PinArtifactDialog({ open, onOpenChange, path, onPinned }: PinArtifactDialogProps) {
 	const sections = usePinsStore((s) => s.sections);
 	const addPin = usePinsStore((s) => s.addPin);
 	const createSection = usePinsStore((s) => s.createSection);
@@ -272,7 +264,8 @@ export function PinArtifactDialog({
 								</code>
 								<span className="ml-1">
 									(opens via{' '}
-									<code className="font-mono text-[11px]">ikenga://artifact/{form.manifestId}</code>)
+									<code className="font-mono text-[11px]">ikenga://artifact/{form.manifestId}</code>
+									)
 								</span>
 							</div>
 						)}
