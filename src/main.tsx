@@ -14,6 +14,7 @@ import { installNativeMenu } from '@/shell/native-menu';
 import { initDefaultCwd } from '@/lib/shell/default-cwd';
 import { useShellStore } from '@/lib/shell/shell-store';
 import { bootDefaultChatAdapterId } from '@/chat/default-adapter';
+import { bootUserTurnVariant } from '@/chat/user-turn-variant';
 
 import './styles.css';
 import '@xterm/xterm/css/xterm.css';
@@ -60,6 +61,7 @@ void initDefaultCwd();
 void useShellStore.getState().hydrateSettingsFromRust();
 void useIkengaStore.getState().hydrateAppearanceFromRust();
 void bootDefaultChatAdapterId();
+void bootUserTurnVariant();
 
 // Pull the durable projects list + active project id (migration 0015,
 // Phase 0). The Rust side owns the truth; this just seeds the in-memory

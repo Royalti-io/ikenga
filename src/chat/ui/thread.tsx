@@ -5,7 +5,7 @@
  * rate_limit, etc). Tool calls render through <ToolCallCard>.
  */
 
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
 	AlertCircle,
 	Bot,
@@ -14,8 +14,6 @@ import {
 	CircleAlert,
 	GitBranch,
 	Loader2,
-	MessageCircle,
-	User,
 } from 'lucide-react';
 import type { ChatEvent } from '@/lib/tauri-cmd';
 import { cn } from '@/components/ui/utils';
@@ -27,10 +25,16 @@ import {
 } from '@/components/ai-elements/conversation';
 import { buildRenderItems, selectDebugEvents, useChatStore, type RenderItem } from '../store';
 import { modelLabelFor } from '../engines';
+import {
+	loadUserTurnVariant,
+	subscribeUserTurnVariant,
+	type UserTurnVariant,
+} from '../user-turn-variant';
 import { ToolCallCard } from './tool-call-card';
 import { ArtifactPill } from './artifact-pill';
 import { PermissionDialog } from './permission-dialog';
 import { Markdown } from '@/components/markdown';
+import { formatRelativeTime } from '@/lib/relative-time';
 
 interface ThreadProps {
 	threadId: string | null;
@@ -92,6 +96,23 @@ export function Thread({ threadId, className, onBranch }: ThreadProps) {
 		}
 		return out;
 	}, [items, state?.thread.model]);
+	// Carry-forward timestamps. `user_turn` rows have a real `createdAt`;
+	// the assistant turns that follow inherit it (close enough — claude
+	// streams seconds-scale after the user message). Without this, we'd
+	// have nothing to feed `formatRelativeTime` for the assistant labels
+	// because `ChatEvent`'s text variant doesn't carry a timestamp.
+	const timestampByItem = useMemo<Map<string, number | null>>(() => {
+		const out = new Map<string, number | null>();
+		let lastUserTs: number | null = state?.thread.createdAt ?? null;
+		for (const it of items) {
+			const ev = it.event;
+			if ('kind' in ev && ev.kind === 'user_turn') {
+				lastUserTs = ev.createdAt;
+			}
+			out.set(it.key, lastUserTs);
+		}
+		return out;
+	}, [items, state?.thread.createdAt]);
 	// ADR-011 phase 1: identify the last assistant `text` item so we can
 	// render the ember streaming-edge under it when the thread is actively
 	// streaming. Walk in reverse so the first hit is the tail.
@@ -107,6 +128,11 @@ export function Thread({ threadId, className, onBranch }: ThreadProps) {
 		() => (includeDebug && state ? selectDebugEvents(state.events) : []),
 		[state?.events, includeDebug]
 	);
+
+	// User-turn variant — re-render when the user picks a new style in
+	// Settings (subscribeUserTurnVariant fires after every setter call).
+	const [userTurnVariant, setUserTurnVariant] = useState<UserTurnVariant>(loadUserTurnVariant);
+	useEffect(() => subscribeUserTurnVariant(setUserTurnVariant), []);
 
 	if (!threadId || !state) {
 		return (
@@ -142,6 +168,8 @@ export function Thread({ threadId, className, onBranch }: ThreadProps) {
 								onBranch={onBranch}
 								isStreamingTail={item.key === streamingTailKey}
 								model={modelByItem.get(item.key) ?? null}
+								timestamp={timestampByItem.get(item.key) ?? null}
+								userTurnVariant={userTurnVariant}
 							/>
 						))}
 					</ul>
@@ -177,6 +205,8 @@ function RenderRow({
 	onBranch,
 	isStreamingTail,
 	model,
+	timestamp,
+	userTurnVariant,
 }: {
 	item: RenderItem;
 	threadId: string;
@@ -191,6 +221,11 @@ function RenderRow({
 	/** ADR-011 phase 3: model id in force when this item streamed. Used
 	 *  to render the per-turn provenance tag on assistant text rows. */
 	model?: string | null;
+	/** Carry-forward timestamp (most-recent user_turn createdAt) used for
+	 *  the relative-time label on user + assistant turns. */
+	timestamp?: number | null;
+	/** Picked user-turn rendering style (per Settings → Appearance → Chat). */
+	userTurnVariant: UserTurnVariant;
 }) {
 	const event = item.event;
 
@@ -213,49 +248,47 @@ function RenderRow({
 				</Row>
 			);
 		case 'text': {
-			// Phase 8: "Branch from here" affordance on assistant turns. Hidden
-			// when no callback is wired. `branchTurn` is the user-turn index
-			// threaded through from Thread's running count — we pass it as
-			// `upToTurn` so the new thread knows where to resume from.
+			// 2026-05-18 design: assistant turns have no 80px label gutter.
+			// Label is an inline mono row above the body: a faint dot, the
+			// model name, a middot, and the relative time. The "Assistant"
+			// word is dropped — model name is identity enough.
+			// Phase 8: "Branch from here" affordance hovers top-right.
 			const canBranch = onBranch && branchTurn != null;
 			return (
-				<Row icon={MessageCircle} tone="assistant" label="assistant">
-					<div className="group relative">
+				<li className="group relative px-4 py-5">
+					<div className="mb-2 flex items-center gap-2 font-mono text-[9px] uppercase tracking-[0.22em] text-[var(--chip-carve)]">
+						<span className="inline-block h-1.5 w-1.5 rounded-full bg-[var(--chip-carve)]" />
 						{model && (
-							// ADR-011 phase 3: per-turn provenance tag. Right-aligned
-							// strip above the body, mirroring the hi-fi v2 `.turn-tag`
-							// position. Effort slot omitted until backend plumbs per-
-							// event `_meta` — see modelByItem comment in Thread.
-							<div className="mb-1 flex justify-end font-mono text-[9px] uppercase tracking-[0.16em] text-[var(--kola-amber-soft)]">
-								{modelLabelFor(model)}
-							</div>
+							<>
+								<span className="text-[var(--kola-amber-soft)]">{modelLabelFor(model)}</span>
+								<span>·</span>
+							</>
 						)}
-						<Markdown
-							content={event.delta}
-							cwd={cwd}
-							density="compact"
-							className="text-sm leading-relaxed"
-						/>
-						{isStreamingTail && (
-							// ADR-011 phase 1: ember streaming edge — animated linear-gradient
-							// strip under the actively streaming turn. Only this turn shows
-							// it (computed at Thread level), so we never get more than one
-							// ember per visible scroll.
-							<div className="streaming-edge mt-2 h-px" aria-hidden />
-						)}
-						{canBranch && (
-							<button
-								type="button"
-								onClick={() => onBranch(branchTurn)}
-								className="absolute right-0 top-0 inline-flex items-center gap-1 rounded-sm border border-[var(--rule)] bg-transparent px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-[var(--chip-carve)] opacity-0 transition-colors hover:border-[var(--kola-amber)] hover:bg-[var(--rule-soft)] hover:text-[var(--kola-amber)] group-hover:opacity-100"
-								title="Branch from here — fork this thread into a new conversation that continues from this assistant turn"
-							>
-								<GitBranch className="h-3 w-3" />
-								Branch
-							</button>
-						)}
+						<span>{timestamp != null ? formatRelativeTime(timestamp) : 'now'}</span>
 					</div>
-				</Row>
+					<Markdown
+						content={event.delta}
+						cwd={cwd}
+						density="compact"
+						className="text-sm leading-relaxed"
+					/>
+					{isStreamingTail && (
+						// ADR-011 phase 1: ember streaming edge — animated gradient
+						// strip under the actively streaming turn.
+						<div className="streaming-edge mt-2 h-px" aria-hidden />
+					)}
+					{canBranch && (
+						<button
+							type="button"
+							onClick={() => onBranch(branchTurn)}
+							className="absolute right-4 top-4 inline-flex items-center gap-1 rounded-sm border border-[var(--rule)] bg-transparent px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-[var(--chip-carve)] opacity-0 transition-colors hover:border-[var(--kola-amber)] hover:bg-[var(--rule-soft)] hover:text-[var(--kola-amber)] group-hover:opacity-100"
+							title="Branch from here — fork this thread into a new conversation that continues from this assistant turn"
+						>
+							<GitBranch className="h-3 w-3" />
+							Branch
+						</button>
+					)}
+				</li>
 			);
 		}
 		case 'thinking':
@@ -277,25 +310,47 @@ function RenderRow({
 					<ArtifactPill path={event.path} mime={event.mime} producedBy={event.producedBy} />
 				</Row>
 			);
-		case 'user_turn':
-			// ADR-011 phase 1: user turns are inset right (asymmetric D3 layout).
-			// No label gutter — right-alignment is the signal. Max-width 68%.
+		case 'user_turn': {
+			// 2026-05-18 design: drop the "you" label entirely. Identity is
+			// carried by right-alignment and the variant treatment; the only
+			// label-row content is the relative timestamp. Variant class
+			// applies to the inner wrapper so each style gets its own
+			// container shape (bubble / accent / frame) or non-shape
+			// (baseline). Max-width stays at 78% — matches design.
+			const variantClass = `utv-${userTurnVariant}`;
+			const bubbleLike =
+				userTurnVariant === 'bubble' ||
+				userTurnVariant === 'accent' ||
+				userTurnVariant === 'frame';
 			return (
-				<li className="flex justify-end px-4 py-5">
-					<div className="min-w-0 max-w-[68%]">
-						<div className="mb-1 flex items-center justify-end gap-1 font-mono text-[10px] uppercase tracking-[0.2em] text-[var(--chip-carve)]">
-							<span>you</span>
-							<User className="h-3 w-3" />
+				<li
+					className={cn(
+						'flex justify-end px-4 py-5',
+						userTurnVariant === 'baseline' && 'border-b border-[var(--rule)]'
+					)}
+				>
+					<div className={cn('min-w-0 max-w-[78%]', variantClass)}>
+						<div
+							className={cn(
+								'mb-1 font-mono text-[10px] uppercase tracking-[0.2em] text-[var(--chip-carve)]',
+								bubbleLike ? 'text-left' : 'text-right'
+							)}
+						>
+							{formatRelativeTime(event.createdAt)}
 						</div>
 						<Markdown
 							content={event.text}
 							cwd={cwd}
 							density="compact"
-							className="text-sm leading-relaxed"
+							className={cn(
+								'text-sm leading-relaxed',
+								bubbleLike ? 'text-left' : 'text-right'
+							)}
 						/>
 					</div>
 				</li>
 			);
+		}
 		case 'system_hook':
 			if (event.hookEvent === 'cancel') {
 				return (

@@ -2,7 +2,15 @@ import { createFileRoute } from '@tanstack/react-router';
 import { confirm as confirmDialog } from '@tauri-apps/plugin-dialog';
 import Database from '@tauri-apps/plugin-sql';
 import { Monitor, Moon, RotateCcw, Sun } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+
+import {
+	loadUserTurnVariant,
+	setUserTurnVariant,
+	subscribeUserTurnVariant,
+	USER_TURN_VARIANTS,
+	type UserTurnVariant,
+} from '@/chat/user-turn-variant';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -266,8 +274,46 @@ function AppearancePage() {
 							<ResetLayoutButton />
 						</SettingRow>
 					</SettingGroup>
+
+					{/* ─── Chat ───────────────────────────────────────────────── */}
+					<SettingGroup title="Chat">
+						<SettingRow
+							label="User message style"
+							desc="Four ways to render the user's side of the conversation. Position carries ownership; the model name carries assistant identity."
+						>
+							<UserTurnVariantPicker />
+						</SettingRow>
+					</SettingGroup>
 				</div>
 			</div>
+		</div>
+	);
+}
+
+function UserTurnVariantPicker() {
+	const [variant, setLocal] = useState<UserTurnVariant>(loadUserTurnVariant);
+	useEffect(() => subscribeUserTurnVariant(setLocal), []);
+	return (
+		<div className="grid grid-cols-2 gap-2">
+			{USER_TURN_VARIANTS.map((v) => {
+				const active = v.id === variant;
+				return (
+					<button
+						key={v.id}
+						type="button"
+						onClick={() => void setUserTurnVariant(v.id)}
+						className={
+							'flex flex-col items-start gap-1 rounded-md border px-3 py-2 text-left transition-colors ' +
+							(active ? 'border-primary bg-primary/5' : 'border-input bg-background hover:bg-accent')
+						}
+					>
+						<span className="text-sm font-medium">{v.label}</span>
+						<span className="text-[11px] leading-relaxed text-muted-foreground">
+							{v.description}
+						</span>
+					</button>
+				);
+			})}
 		</div>
 	);
 }

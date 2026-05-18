@@ -78,6 +78,15 @@ function SessionDetailPage() {
 		const events = s.threads[threadId]?.events ?? [];
 		return selectTotalCostUsd(events);
 	});
+	// Hi-fi v2 header: turn count next to cost. User turns are the
+	// canonical "exchange" count — assistant turns + tool calls are
+	// follow-on. Count `user_turn` events; falls back to 0 on empty.
+	const turnCount = useChatStore((s) => {
+		const events = s.threads[threadId]?.events ?? [];
+		let n = 0;
+		for (const e of events) if (e.kind === 'user_turn') n++;
+		return n;
+	});
 	const threadProjectId = useChatStore((s) => s.threads[threadId]?.thread.projectId ?? null);
 	const projects = useShellStore((s) => s.projects);
 	const threadProject = projects.find((p) => p.id === threadProjectId);
@@ -245,6 +254,21 @@ function SessionDetailPage() {
 										title="Cumulative cost for this thread — sum of done.totalCostUsd"
 									>
 										spent ${totalCostUsd.toFixed(2)}
+									</span>
+								</>
+							)}
+							{turnCount > 0 && (
+								<>
+									<span className="sep">·</span>
+									<span
+										style={{
+											fontFamily: 'var(--font-mono)',
+											textTransform: 'uppercase',
+											letterSpacing: '0.06em',
+										}}
+										title="Number of user turns in this thread"
+									>
+										{turnCount} turn{turnCount === 1 ? '' : 's'}
 									</span>
 								</>
 							)}

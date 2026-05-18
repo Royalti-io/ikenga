@@ -294,3 +294,35 @@ body {
 	animation: ikenga-ember-pulse 2.4s ease-in-out infinite;
 	will-change: background-position;
 }
+
+/* ─── User-turn variants ──────────────────────────────────────────────── */
+/* Four picks for Settings → Appearance → Chat. The Thread renderer
+ * applies one of these classes to the user-turn wrapper. Shapes per
+ * `design/shell/chat-redesign/2026-05-18-user-turn-variants.html`. */
+
+.utv-baseline {
+	/* The default — right-aligned text, hairline beneath. No container. */
+	text-align: right;
+	padding-bottom: 4px;
+}
+
+.utv-bubble {
+	text-align: left;
+	padding: 11px 16px 12px;
+	border-radius: 14px 14px 4px 14px;
+	background: var(--rule-soft, hsl(28, 12%, 14%));
+	border: 1px solid var(--rule);
+}
+
+.utv-accent {
+	text-align: left;
+	padding: 2px 0 12px 14px;
+	border-left: 2px solid var(--ember);
+}
+
+.utv-frame {
+	text-align: left;
+	padding: 10px 14px 12px;
+	border: 1px solid var(--rule);
+	border-radius: 2px;
+}
