@@ -333,14 +333,28 @@ pub fn run() {
                 sidecars_reg.clone(),
             ));
             let ui_routes_reg = Arc::new(pkg::registries::UiRoutesRegistry::new());
-            let engine_assets_reg = Arc::new(pkg::registries::EngineAssetsRegistry::new());
-            // ADR-012 Track D: kernel-resident engine adapter registry.
+            // ADR-012 Tracks D + P: kernel-resident engine adapter registry.
             // v1 contains exactly one adapter — `ClaudeCodeAdapter` — and
-            // it's registered statically here. The McpRegistry holds an Arc
-            // to this registry and fans `register_mcp_server` out to every
-            // adapter after its own ~/.claude.json write completes.
+            // it's registered statically here. Both the `McpRegistry` (MCP
+            // fan-out, Track D) and the `EngineAssetsRegistry` (skills /
+            // commands / agents fan-out, Track P) hold an Arc to this
+            // registry and dispatch their per-pkg writes through it.
+            // Construction order matters — the adapters must be registered
+            // before the consuming registries are built so boot-replay sees
+            // them.
             let engine_adapters_reg = Arc::new(pkg::EngineAdaptersRegistry::new());
             engine_adapters_reg.register(Arc::new(pkg::engine_adapters::ClaudeCodeAdapter::new()));
+            // ADR-012 Phase 6, Track G — Gemini CLI portability adapter.
+            engine_adapters_reg.register(Arc::new(pkg::engine_adapters::GeminiAdapter::new()));
+            // ADR-012 Phase 6, Track C — Codex CLI portability adapter.
+            // Registry is order-independent for dispatch; ordering here is
+            // claude → gemini → codex purely for readability.
+            engine_adapters_reg.register(Arc::new(pkg::engine_adapters::CodexAdapter::new()));
+            let engine_assets_reg = Arc::new(
+                pkg::registries::EngineAssetsRegistry::new_with_adapters(
+                    engine_adapters_reg.clone(),
+                ),
+            );
             let mcp_reg = Arc::new(pkg::registries::McpRegistry::new(engine_adapters_reg.clone()));
             let queries_reg = Arc::new(pkg::registries::QueriesRegistry::new());
             // `webview_panes_reg` was already constructed above (before iyke::start)

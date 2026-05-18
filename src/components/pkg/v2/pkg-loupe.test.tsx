@@ -66,9 +66,7 @@ function makeRow(overrides: Partial<PkgRowV2> = {}): PkgRowV2 {
 
 describe('PkgLoupe — head', () => {
 	it('renders name + version + id when open', () => {
-		render(
-			withQuery(<PkgLoupe row={makeRow()} open onOpenChange={() => {}} />)
-		);
+		render(withQuery(<PkgLoupe row={makeRow()} open onOpenChange={() => {}} />));
 		expect(screen.getByText('Test Pkg')).toBeTruthy();
 		expect(screen.getByText('v0.1.0')).toBeTruthy();
 		expect(screen.getByText('com.test.x')).toBeTruthy();
@@ -82,7 +80,9 @@ describe('PkgLoupe — head', () => {
 
 	it('shows the Permissions tab count', () => {
 		render(
-			withQuery(<PkgLoupe row={makeRow({ scopes: ['a', 'b', 'c'] })} open onOpenChange={() => {}} />)
+			withQuery(
+				<PkgLoupe row={makeRow({ scopes: ['a', 'b', 'c'] })} open onOpenChange={() => {}} />
+			)
 		);
 		// "Permissions" label + count "3" appear together
 		const permsTab = screen.getByRole('button', { name: /Permissions/i });
@@ -122,9 +122,7 @@ describe('PkgLoupe — tab switching', () => {
 	});
 
 	it('respects an initial tab prop', () => {
-		render(
-			withQuery(<PkgLoupe row={makeRow()} tab="manifest" open onOpenChange={() => {}} />)
-		);
+		render(withQuery(<PkgLoupe row={makeRow()} tab="manifest" open onOpenChange={() => {}} />));
 		// Manifest tab renders a manifest.json header. Use a regex with `i`
 		// flag because the label includes the pkg id which is lowercase.
 		expect(screen.getByText(/manifest\.json/i)).toBeTruthy();
@@ -172,14 +170,7 @@ describe('PkgLoupe — footer actions', () => {
 
 	it('default state with onUninstall shows both Uninstall + Disable', () => {
 		render(
-			withQuery(
-				<PkgLoupe
-					row={makeRow()}
-					open
-					onOpenChange={() => {}}
-					onUninstall={() => {}}
-				/>
-			)
+			withQuery(<PkgLoupe row={makeRow()} open onOpenChange={() => {}} onUninstall={() => {}} />)
 		);
 		expect(screen.getByRole('button', { name: /Uninstall/i })).toBeTruthy();
 		expect(screen.getByRole('button', { name: /Disable/i })).toBeTruthy();
@@ -358,5 +349,63 @@ describe('PkgLoupe — engine installs (Track E)', () => {
 		expect(screen.getByText('~/.claude.json#mcpServers.pkg-test-x-foo')).toBeTruthy();
 		expect(screen.getByText('/home/u/.claude/skills/test-x')).toBeTruthy();
 		expect(screen.getByText('warning-line-A')).toBeTruthy();
+	});
+
+	it('surfaces asset adapter_reports (Track P) warnings + wrote phrase', async () => {
+		// Track P: engine_assets now carries its own adapter_reports bucket
+		// from each adapter's install_skills/commands/agents call. Asset
+		// warnings should bubble up via the engine card's badge + summary,
+		// and the "Wrote N asset link(s)" phrase should be sourced from the
+		// asset adapter report (separate from the MCP "Wrote" phrase).
+		const user = userEvent.setup();
+		const { pkgKernelStatus } = await import('@/lib/tauri-cmd');
+		(pkgKernelStatus as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+			installed: [],
+			api_version: 1,
+			registries: {
+				mcp: {
+					count: 0,
+					entries: [],
+					config_path: '~/.claude.json',
+					adapter_reports: {},
+				},
+				engine_assets: {
+					count: 1,
+					entries: [
+						{
+							pkg_id: 'com.test.x',
+							engine_id: 'claude-code',
+							kind: 'skills',
+							source: '/src/skills',
+							target: '/home/u/.claude/skills/test-x',
+						},
+					],
+					adapter_reports: {
+						'com.test.x': {
+							'claude-code': {
+								wrote: ['/home/u/.claude/skills/test-x'],
+								skipped: [],
+								warnings: ['replaced stale symlink at /home/u/.claude/skills/test-x'],
+							},
+						},
+					},
+				},
+			},
+		});
+
+		render(withQuery(<PkgLoupe row={makeRow()} open onOpenChange={() => {}} />));
+
+		await waitFor(() => {
+			expect(screen.getByText('Claude Code')).toBeTruthy();
+		});
+		// Asset-sourced summary phrase uses "Wrote N asset link(s)".
+		expect(screen.getByText(/Wrote 1 asset link/i)).toBeTruthy();
+		// Warning bubbled up from the asset adapter report.
+		expect(screen.getByText(/1 warning/i)).toBeTruthy();
+
+		await user.click(screen.getByText('Claude Code'));
+		expect(
+			screen.getByText('replaced stale symlink at /home/u/.claude/skills/test-x')
+		).toBeTruthy();
 	});
 });

@@ -27,12 +27,13 @@
 //! out for external-CLI fan-out. Two different files on purpose — see
 //! ADR §1 table and `mcp.rs` line 16's "why ~/.claude.json" comment.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, Context, Result};
 use regex::Regex;
 use serde_json::{json, Map, Value};
 
+use super::symlink::symlink_dir;
 use crate::pkg::engine_adapter::{EngineAdapter, InstallReport};
 use crate::pkg::manifest::McpServer;
 
@@ -69,6 +70,104 @@ impl ClaudeCodeAdapter {
 
     fn mcp_key(pkg_slug: &str, server_name: &str) -> String {
         format!("ikenga.{pkg_slug}.{server_name}")
+    }
+
+    /// `~/.claude/<kind>` — parent directory the per-pkg symlink lives in.
+    fn assets_dir(kind: &str) -> Result<PathBuf> {
+        Ok(Self::claude_home()?.join(kind))
+    }
+
+    /// `~/.claude/<kind>/<pkg-slug>` — the symlink target.
+    fn asset_target(kind: &str, pkg_slug: &str) -> Result<PathBuf> {
+        Ok(Self::assets_dir(kind)?.join(pkg_slug))
+    }
+
+    /// Ports `EngineAssetsRegistry::install_symlink` (engine_assets.rs:70-126)
+    /// into the adapter. Shared by `install_skills/commands/agents`.
+    /// Invariants preserved exactly:
+    ///   - `source` must be a directory.
+    ///   - target points at source already → `skipped`.
+    ///   - target is a stale symlink → remove + replace, emit warning.
+    ///   - target is not a symlink → error, do not clobber.
+    fn install_asset_folder(
+        kind: &str,
+        source: &Path,
+        pkg_slug: &str,
+    ) -> Result<InstallReport> {
+        if !source.is_dir() {
+            return Err(anyhow!(
+                "`{kind}` source `{}` is not a directory",
+                source.display()
+            ));
+        }
+        let parent = Self::assets_dir(kind)?;
+        std::fs::create_dir_all(&parent)
+            .with_context(|| format!("mkdir {}", parent.display()))?;
+        let target = parent.join(pkg_slug);
+
+        let mut report = InstallReport::default();
+
+        match std::fs::symlink_metadata(&target) {
+            Ok(meta) => {
+                if meta.file_type().is_symlink() {
+                    let current = std::fs::read_link(&target).ok();
+                    if current.as_deref() == Some(source) {
+                        // Already pointing at us — idempotent no-op.
+                        report.skipped.push(target.display().to_string());
+                        return Ok(report);
+                    }
+                    // Stale symlink (probably from a prior install path) —
+                    // safe to replace, but surface a warning so the UI can
+                    // show that something was reshuffled.
+                    std::fs::remove_file(&target)
+                        .with_context(|| format!("rm stale symlink {}", target.display()))?;
+                    report
+                        .warnings
+                        .push(format!("replaced stale symlink at {}", target.display()));
+                } else {
+                    return Err(anyhow!(
+                        "`{}` exists and is not a symlink — refusing to overwrite",
+                        target.display()
+                    ));
+                }
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(anyhow!("stat {}: {e}", target.display())),
+        }
+
+        symlink_dir(source, &target)
+            .with_context(|| format!("symlink {} -> {}", target.display(), source.display()))?;
+        report.wrote.push(target.display().to_string());
+        Ok(report)
+    }
+
+    /// Ports `EngineAssetsRegistry::remove_target` (engine_assets.rs:128-144)
+    /// into the adapter. Best-effort: missing target → no-op, non-symlink →
+    /// warn and skip (we never touch user-managed state).
+    fn uninstall_asset_folder(kind: &str, pkg_slug: &str) -> Result<()> {
+        let target = Self::asset_target(kind, pkg_slug)?;
+        match std::fs::symlink_metadata(&target) {
+            Ok(meta) if meta.file_type().is_symlink() => {
+                if let Err(e) = std::fs::remove_file(&target) {
+                    log::warn!(
+                        "[engine.claude-code] rm symlink {}: {e}",
+                        target.display()
+                    );
+                }
+            }
+            Ok(_) => {
+                log::warn!(
+                    "[engine.claude-code] target `{}` is not a symlink — skipping (user-managed?)",
+                    target.display()
+                );
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => log::warn!(
+                "[engine.claude-code] stat {}: {e}",
+                target.display()
+            ),
+        }
+        Ok(())
     }
 
     /// Read `~/.claude/settings.json`. Missing file or empty content yields
@@ -278,6 +377,45 @@ impl EngineAdapter for ClaudeCodeAdapter {
         }
         Ok(())
     }
+
+    fn install_skills(
+        &self,
+        folder: &Path,
+        _pkg_id: &str,
+        pkg_slug: &str,
+    ) -> Result<InstallReport> {
+        Self::install_asset_folder("skills", folder, pkg_slug)
+    }
+
+    fn install_commands(
+        &self,
+        folder: &Path,
+        _pkg_id: &str,
+        pkg_slug: &str,
+    ) -> Result<InstallReport> {
+        Self::install_asset_folder("commands", folder, pkg_slug)
+    }
+
+    fn install_agents(
+        &self,
+        folder: &Path,
+        _pkg_id: &str,
+        pkg_slug: &str,
+    ) -> Result<InstallReport> {
+        Self::install_asset_folder("agents", folder, pkg_slug)
+    }
+
+    fn uninstall_skills(&self, _pkg_id: &str, pkg_slug: &str) -> Result<()> {
+        Self::uninstall_asset_folder("skills", pkg_slug)
+    }
+
+    fn uninstall_commands(&self, _pkg_id: &str, pkg_slug: &str) -> Result<()> {
+        Self::uninstall_asset_folder("commands", pkg_slug)
+    }
+
+    fn uninstall_agents(&self, _pkg_id: &str, pkg_slug: &str) -> Result<()> {
+        Self::uninstall_asset_folder("agents", pkg_slug)
+    }
 }
 
 #[cfg(test)]
@@ -302,37 +440,7 @@ mod tests {
         }
     }
 
-    /// Scratch HOME guard. Saves+restores the real `HOME` so each test gets
-    /// an isolated `~/.claude/settings.json` without touching the user's
-    /// real one.
-    struct HomeGuard {
-        previous: Option<std::ffi::OsString>,
-        _tmp: tempfile::TempDir,
-    }
-    impl HomeGuard {
-        fn new() -> Self {
-            let tmp = tempfile::tempdir().expect("tempdir");
-            let previous = std::env::var_os("HOME");
-            std::env::set_var("HOME", tmp.path());
-            Self { previous, _tmp: tmp }
-        }
-    }
-    impl Drop for HomeGuard {
-        fn drop(&mut self) {
-            match self.previous.take() {
-                Some(h) => std::env::set_var("HOME", h),
-                None => std::env::remove_var("HOME"),
-            }
-        }
-    }
-
-    /// These tests mutate the process-global `HOME` env var; serialize them
-    /// under a mutex so cargo's parallel test runner doesn't interleave.
-    fn test_lock() -> std::sync::MutexGuard<'static, ()> {
-        use std::sync::{Mutex, OnceLock};
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(())).lock().unwrap_or_else(|p| p.into_inner())
-    }
+    use super::super::test_util::{test_lock, HomeGuard};
 
     #[test]
     fn register_writes_settings_json() {
@@ -449,5 +557,147 @@ mod tests {
         let _h = HomeGuard::new();
         let adapter = ClaudeCodeAdapter::new();
         adapter.unregister_mcp_server("svc", "p", "p").unwrap();
+    }
+
+    // ───── Track P: asset fan-out (install_skills/commands/agents) ─────
+
+    /// Build a scratch source directory the adapter will symlink to.
+    fn scratch_source() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().expect("scratch source tempdir");
+        // Populate with at least one file so it's clearly a real folder.
+        std::fs::write(dir.path().join("SKILL.md"), "# test").unwrap();
+        dir
+    }
+
+    #[test]
+    fn install_skills_writes_symlink() {
+        let _g = test_lock();
+        let _h = HomeGuard::new();
+        let adapter = ClaudeCodeAdapter::new();
+        let src = scratch_source();
+
+        let report = adapter
+            .install_skills(src.path(), "com.test.x", "com-test-x")
+            .unwrap();
+
+        let target = ClaudeCodeAdapter::asset_target("skills", "com-test-x").unwrap();
+        assert_eq!(report.wrote.len(), 1);
+        assert_eq!(report.wrote[0], target.display().to_string());
+        assert!(report.skipped.is_empty());
+        assert!(report.warnings.is_empty());
+
+        // And the symlink really exists pointing at the source.
+        let link_target = std::fs::read_link(&target).unwrap();
+        assert_eq!(link_target.as_path(), src.path());
+    }
+
+    #[test]
+    fn install_skills_is_idempotent() {
+        let _g = test_lock();
+        let _h = HomeGuard::new();
+        let adapter = ClaudeCodeAdapter::new();
+        let src = scratch_source();
+
+        let r1 = adapter
+            .install_skills(src.path(), "com.test.x", "com-test-x")
+            .unwrap();
+        assert_eq!(r1.wrote.len(), 1);
+
+        let r2 = adapter
+            .install_skills(src.path(), "com.test.x", "com-test-x")
+            .unwrap();
+        assert!(r2.wrote.is_empty(), "second install should not re-write");
+        assert_eq!(r2.skipped.len(), 1, "second install should report skipped");
+        assert!(r2.warnings.is_empty());
+    }
+
+    #[test]
+    fn install_skills_refuses_to_clobber_non_symlink() {
+        let _g = test_lock();
+        let _h = HomeGuard::new();
+        let adapter = ClaudeCodeAdapter::new();
+        let src = scratch_source();
+
+        // Plant a real directory where the symlink would go — user-managed
+        // state we must not touch.
+        let target = ClaudeCodeAdapter::asset_target("skills", "com-test-x").unwrap();
+        std::fs::create_dir_all(&target).unwrap();
+        std::fs::write(target.join("user-file.md"), "hand-authored").unwrap();
+
+        let err = adapter
+            .install_skills(src.path(), "com.test.x", "com-test-x")
+            .unwrap_err();
+        let msg = format!("{err:#}");
+        assert!(
+            msg.contains("is not a symlink"),
+            "unexpected error: {msg}"
+        );
+        // The user content is still there.
+        assert!(target.join("user-file.md").exists());
+    }
+
+    #[test]
+    fn install_skills_replaces_stale_symlink_with_warning() {
+        let _g = test_lock();
+        let _h = HomeGuard::new();
+        let adapter = ClaudeCodeAdapter::new();
+        let real_src = scratch_source();
+        let stale_src = scratch_source();
+
+        // Pre-create the parent + a stale symlink pointing at `stale_src`.
+        let parent = ClaudeCodeAdapter::assets_dir("skills").unwrap();
+        std::fs::create_dir_all(&parent).unwrap();
+        let target = parent.join("com-test-x");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(stale_src.path(), &target).unwrap();
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_dir(stale_src.path(), &target).unwrap();
+
+        let report = adapter
+            .install_skills(real_src.path(), "com.test.x", "com-test-x")
+            .unwrap();
+        assert_eq!(report.wrote.len(), 1);
+        assert_eq!(report.warnings.len(), 1);
+        assert!(
+            report.warnings[0].contains("replaced stale symlink"),
+            "warning: {}",
+            report.warnings[0]
+        );
+
+        // The symlink now points at real_src.
+        let link_target = std::fs::read_link(&target).unwrap();
+        assert_eq!(link_target.as_path(), real_src.path());
+    }
+
+    #[test]
+    fn uninstall_skills_behaviors() {
+        let _g = test_lock();
+        let _h = HomeGuard::new();
+        let adapter = ClaudeCodeAdapter::new();
+
+        // Missing target — no-op.
+        adapter.uninstall_skills("com.test.x", "com-test-x").unwrap();
+
+        // Install then uninstall removes the symlink.
+        let src = scratch_source();
+        adapter
+            .install_skills(src.path(), "com.test.x", "com-test-x")
+            .unwrap();
+        let target = ClaudeCodeAdapter::asset_target("skills", "com-test-x").unwrap();
+        assert!(std::fs::symlink_metadata(&target).is_ok());
+        adapter.uninstall_skills("com.test.x", "com-test-x").unwrap();
+        assert!(
+            std::fs::symlink_metadata(&target)
+                .err()
+                .map(|e| e.kind() == std::io::ErrorKind::NotFound)
+                .unwrap_or(false),
+            "symlink should be gone"
+        );
+
+        // Non-symlink at target — warn and skip, do not remove.
+        std::fs::create_dir_all(&target).unwrap();
+        std::fs::write(target.join("user-file.md"), "user").unwrap();
+        adapter.uninstall_skills("com.test.x", "com-test-x").unwrap();
+        assert!(target.join("user-file.md").exists(), "user dir must survive");
     }
 }

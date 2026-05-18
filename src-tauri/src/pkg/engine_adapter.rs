@@ -1,10 +1,10 @@
-//! Rust-side `EngineAdapter` trait — ADR-012 Track D.
+//! Rust-side `EngineAdapter` trait — ADR-012 Tracks D + P.
 //!
 //! The ADR talks about "installed `EngineAdapter`s" as a first-class kernel
 //! concept (§3 "look up all installed `EngineAdapter` instances", §4
 //! "writes the server's entry into each engine's external settings file").
 //! This module is that concept: a tiny trait + a registry of concrete impls
-//! the kernel fans MCP registration out through.
+//! the kernel fans MCP registration **and** asset fan-out through.
 //!
 //! For v1 the registry holds exactly one adapter — `ClaudeCodeAdapter`
 //! (`engine_adapters/claude_code.rs`) — and it's registered statically at
@@ -14,14 +14,18 @@
 //! dynamically; this Rust mirror is what the kernel actually dispatches
 //! through today.
 //!
-//! Scope limited to MCP fan-out per Track D's brief. Asset fan-out
-//! (skills/commands/agents — the `engine_assets.rs` TODO) is a later track;
-//! the trait signature can grow when that work lands.
+//! Track P (this revision) extends the trait with folder-level asset
+//! methods — `install_skills/commands/agents` and their uninstall inverses
+//! — so the `engine_assets` registry can fan symlinks out over every
+//! installed engine the same way `mcp.rs` already fans server entries out.
+//! Gemini and Codex adapters (Tracks G + C) drop into the same trait
+//! without further plumbing.
 //!
 //! Concurrency: adapter methods do disk I/O. `EngineAdaptersRegistry::iter`
 //! snapshots the `Vec<Arc<dyn EngineAdapter>>` under a read lock and returns
 //! the cloned Arcs so callers iterate without holding the lock.
 
+use std::path::Path;
 use std::sync::{Arc, RwLock};
 
 use anyhow::Result;
@@ -55,8 +59,11 @@ impl InstallReport {
 /// `pkg::engine_adapters::*` and are registered at boot in
 /// `lib.rs::run()::setup`.
 ///
-/// Only MCP methods are required for Track D. Asset methods will be added
-/// when the `engine_assets.rs` TODO is paid off.
+/// Covers both MCP fan-out (Track D) and folder-asset fan-out (Track P).
+/// The asset methods take an absolute source folder + the pkg's id/slug so
+/// the adapter can materialize the folder into whatever location its engine
+/// recognizes (symlink, copy, transcode). Idempotent by contract: a re-call
+/// with the same source returns `InstallReport { skipped: [<target>], .. }`.
 pub trait EngineAdapter: Send + Sync {
     /// Stable engine identifier — matches `engine.agentId` in the pkg
     /// manifest. v1 is exactly `"claude-code"`.
@@ -80,6 +87,44 @@ pub trait EngineAdapter: Send + Sync {
         pkg_id: &str,
         pkg_slug: &str,
     ) -> Result<()>;
+
+    /// Materialize the pkg's `skills/` folder into this engine's recognized
+    /// location. `folder` is the absolute path to the pkg's skills source.
+    /// Idempotent — re-call with unchanged source returns `skipped`.
+    fn install_skills(
+        &self,
+        folder: &Path,
+        pkg_id: &str,
+        pkg_slug: &str,
+    ) -> Result<InstallReport>;
+
+    /// Materialize the pkg's `commands/` folder. Engines without a native
+    /// commands primitive may push warnings and otherwise no-op.
+    fn install_commands(
+        &self,
+        folder: &Path,
+        pkg_id: &str,
+        pkg_slug: &str,
+    ) -> Result<InstallReport>;
+
+    /// Materialize the pkg's `agents/` folder. Some engines transcode the
+    /// contents (Codex MD→TOML); others symlink the folder as-is.
+    fn install_agents(
+        &self,
+        folder: &Path,
+        pkg_id: &str,
+        pkg_slug: &str,
+    ) -> Result<InstallReport>;
+
+    /// Inverse of `install_skills`. Removes only what this pkg owned.
+    /// Missing target → no-op. Non-symlink target → warn + skip.
+    fn uninstall_skills(&self, pkg_id: &str, pkg_slug: &str) -> Result<()>;
+
+    /// Inverse of `install_commands`.
+    fn uninstall_commands(&self, pkg_id: &str, pkg_slug: &str) -> Result<()>;
+
+    /// Inverse of `install_agents`.
+    fn uninstall_agents(&self, pkg_id: &str, pkg_slug: &str) -> Result<()>;
 }
 
 /// Tiny registry of installed adapters. Lookup is a snapshot-clone — the

@@ -3,7 +3,18 @@
 // current /packages page, and as the install sheet (re-uses the same
 // chrome with a registry-specific body).
 
-import { ArrowUp, Ban, ChevronRight, Copy, ExternalLink, Plug, Plus, Power, Shield, X } from 'lucide-react';
+import {
+	ArrowUp,
+	Ban,
+	ChevronRight,
+	Copy,
+	ExternalLink,
+	Plug,
+	Plus,
+	Power,
+	Shield,
+	X,
+} from 'lucide-react';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -635,11 +646,18 @@ interface EngineAssetEntrySnap {
 interface EngineAssetsRegistrySnap {
 	count?: number;
 	entries?: EngineAssetEntrySnap[];
+	/** ADR-012 Track P: per-pkg, per-engine fan-out reports for asset
+	 * folders (skills/commands/agents). Outer key = pkg_id, inner key =
+	 * engine_id. Mirrors the same field on `McpRegistrySnap`. */
+	adapter_reports?: Record<string, Record<string, InstallReportSnap>>;
 }
 
 interface EngineInstallRow {
 	engineId: string;
-	report: InstallReportSnap | null;
+	/** MCP adapter report (Track D). */
+	mcpReport: InstallReportSnap | null;
+	/** Asset adapter report (Track P). */
+	assetReport: InstallReportSnap | null;
 	assets: EngineAssetEntrySnap[];
 }
 
@@ -671,12 +689,17 @@ function EngineInstalls({ row }: { row: PkgRowV2 }) {
 		| EngineAssetsRegistrySnap
 		| undefined;
 
-	const adapterReports = mcp?.adapter_reports?.[row.id] ?? {};
+	const mcpAdapterReports = mcp?.adapter_reports?.[row.id] ?? {};
+	const assetAdapterReports = engineAssets?.adapter_reports?.[row.id] ?? {};
 	const assetEntries = (engineAssets?.entries ?? []).filter((e) => e.pkg_id === row.id);
 
-	// Build a stable ordered set of engines that touched this pkg.
+	// Build a stable ordered set of engines that touched this pkg. Merge
+	// IDs from both the MCP and asset report buckets, plus any asset
+	// entries (defensive — an entry without a report would still mean the
+	// engine touched the pkg).
 	const engineSet = new Set<string>();
-	for (const id of Object.keys(adapterReports)) engineSet.add(id);
+	for (const id of Object.keys(mcpAdapterReports)) engineSet.add(id);
+	for (const id of Object.keys(assetAdapterReports)) engineSet.add(id);
 	for (const e of assetEntries) engineSet.add(e.engine_id);
 	if (engineSet.size === 0) return null;
 
@@ -689,7 +712,8 @@ function EngineInstalls({ row }: { row: PkgRowV2 }) {
 
 	const rows: EngineInstallRow[] = engineIds.map((engineId) => ({
 		engineId,
-		report: adapterReports[engineId] ?? null,
+		mcpReport: mcpAdapterReports[engineId] ?? null,
+		assetReport: assetAdapterReports[engineId] ?? null,
 		assets: assetEntries.filter((e) => e.engine_id === engineId),
 	}));
 
@@ -712,24 +736,40 @@ function EngineInstalls({ row }: { row: PkgRowV2 }) {
 
 function EngineInstallCard({ row }: { row: EngineInstallRow }) {
 	const [open, setOpen] = useState(false);
-	const wroteCount = row.report?.wrote.length ?? 0;
-	const skippedCount = row.report?.skipped.length ?? 0;
-	const warnings = row.report?.warnings ?? [];
+	const mcpWroteCount = row.mcpReport?.wrote.length ?? 0;
+	const mcpSkippedCount = row.mcpReport?.skipped.length ?? 0;
+	const assetWroteCount = row.assetReport?.wrote.length ?? 0;
+	const assetSkippedCount = row.assetReport?.skipped.length ?? 0;
+	// Warnings come from both fan-out paths — concat so the badge counts
+	// MCP + asset warnings together and the detail group shows both lists.
+	const warnings = [...(row.mcpReport?.warnings ?? []), ...(row.assetReport?.warnings ?? [])];
 	const assetCount = row.assets.length;
 	const hasDetails =
-		wroteCount + skippedCount + warnings.length + assetCount > 0;
+		mcpWroteCount +
+			mcpSkippedCount +
+			assetWroteCount +
+			assetSkippedCount +
+			warnings.length +
+			assetCount >
+		0;
 
-	// Summary line. MCP fan-out + asset fan-out count toward the same "wrote"
-	// notion from the user's perspective. We render them as separate phrases
-	// so it's clear what each number refers to.
+	// Summary line. MCP fan-out + asset fan-out count toward the same
+	// "wrote" notion from the user's perspective. Render them as separate
+	// phrases so it's clear what each number refers to. The MCP phrase is
+	// kept first for backwards compatibility with the existing test that
+	// asserts on "Wrote N MCP servers".
 	const phrases: string[] = [];
-	if (row.report) {
-		phrases.push(`Wrote ${wroteCount} MCP server${wroteCount === 1 ? '' : 's'}`);
-		if (skippedCount > 0) {
-			phrases.push(`skipped ${skippedCount} (idempotent)`);
+	if (row.mcpReport) {
+		phrases.push(`Wrote ${mcpWroteCount} MCP server${mcpWroteCount === 1 ? '' : 's'}`);
+		if (mcpSkippedCount > 0) {
+			phrases.push(`skipped ${mcpSkippedCount} (idempotent)`);
 		}
 	}
-	if (assetCount > 0) {
+	if (row.assetReport && assetWroteCount > 0) {
+		phrases.push(`Wrote ${assetWroteCount} asset link${assetWroteCount === 1 ? '' : 's'}`);
+	} else if (assetCount > 0) {
+		// Fallback when entries exist but the report is missing (e.g.
+		// boot-replay before adapter_reports re-populates).
 		phrases.push(`${assetCount} asset link${assetCount === 1 ? '' : 's'}`);
 	}
 	const summary = phrases.join(' · ') || 'No changes';
@@ -785,11 +825,19 @@ function EngineInstallCard({ row }: { row: EngineInstallRow }) {
 								))}
 							</EngineDetailGroup>
 						)}
-						{wroteCount > 0 && (
+						{(mcpWroteCount > 0 || assetWroteCount > 0) && (
 							<EngineDetailGroup label="Wrote">
-								{row.report?.wrote.map((w) => (
+								{row.mcpReport?.wrote.map((w) => (
 									<li
-										key={`wrote-${w}`}
+										key={`wrote-mcp-${w}`}
+										className="break-all font-mono text-[11px] text-foreground"
+									>
+										{w}
+									</li>
+								))}
+								{row.assetReport?.wrote.map((w) => (
+									<li
+										key={`wrote-asset-${w}`}
 										className="break-all font-mono text-[11px] text-foreground"
 									>
 										{w}
@@ -797,11 +845,19 @@ function EngineInstallCard({ row }: { row: EngineInstallRow }) {
 								))}
 							</EngineDetailGroup>
 						)}
-						{skippedCount > 0 && (
+						{(mcpSkippedCount > 0 || assetSkippedCount > 0) && (
 							<EngineDetailGroup label="Skipped">
-								{row.report?.skipped.map((s) => (
+								{row.mcpReport?.skipped.map((s) => (
 									<li
-										key={`skipped-${s}`}
+										key={`skipped-mcp-${s}`}
+										className="break-all font-mono text-[11px] text-muted-foreground"
+									>
+										{s}
+									</li>
+								))}
+								{row.assetReport?.skipped.map((s) => (
+									<li
+										key={`skipped-asset-${s}`}
 										className="break-all font-mono text-[11px] text-muted-foreground"
 									>
 										{s}
@@ -812,10 +868,7 @@ function EngineInstallCard({ row }: { row: EngineInstallRow }) {
 						{warnings.length > 0 && (
 							<EngineDetailGroup label="Warnings" tone="warn">
 								{warnings.map((w) => (
-									<li
-										key={`warn-${w}`}
-										className="text-[11.5px] leading-relaxed text-amber-500"
-									>
+									<li key={`warn-${w}`} className="text-[11.5px] leading-relaxed text-amber-500">
 										{w}
 									</li>
 								))}
