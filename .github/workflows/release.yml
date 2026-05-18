@@ -46,6 +46,13 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  # vite transforms ~12.6k modules; Node's default 2GB heap OOMs on
+  # macOS runners during post-transform. We set NODE_OPTIONS at the
+  # workflow level so it propagates to every `bun run build` invocation
+  # — including the second one tauri-action triggers via tauri.conf.json's
+  # `beforeBuildCommand`. A step-level env on the standalone Vite step
+  # alone isn't enough.
+  NODE_OPTIONS: --max-old-space-size=4096
   # Note: GitHub's deprecation notice for Node 20 actions suggests
   # setting FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true here, but that
   # currently breaks the plan-job startup with no surfaced error
@@ -276,10 +283,6 @@ jobs:
       - name: Vite build (frontend dist)
         shell: bash
         working-directory: shell
-        # vite transforms ~12.6k modules; Node's default 2GB heap OOMs on
-        # macOS runners during post-transform passes. 4GB is plenty.
-        env:
-          NODE_OPTIONS: --max-old-space-size=4096
         run: bun run build
 
       # ── Tauri bundle ───────────────────────────────────────────────────────
