@@ -31,6 +31,7 @@ import {
 	slugifySectionId,
 	usePinsStore,
 	type Pin,
+	type PinKind,
 	type Section,
 } from '@/lib/shell/pins-store';
 
@@ -294,6 +295,8 @@ function SectionCard({ section, pins }: SectionCardProps) {
 
 			<PinList sectionId={isVirtual ? null : section.id} pins={pins} />
 
+			<NewPinForm sectionId={isVirtual ? null : section.id} />
+
 			{!isVirtual && confirmDelete && (
 				<DeleteConfirmDialog
 					section={section}
@@ -509,7 +512,9 @@ function EmptyDropZone({ sectionId, onDropPin }: EmptyDropZoneProps) {
 			)}
 			data-empty-drop-zone={sectionId ?? '__none__'}
 		>
-			{hover ? 'Drop to move pin here' : 'No pins yet — pin an artifact from its address bar.'}
+			{hover
+				? 'Drop to move pin here'
+				: 'No pins yet — add one below, or pin an artifact from its address bar.'}
 		</div>
 	);
 }
@@ -615,6 +620,193 @@ function NewSectionForm({ existing }: NewSectionFormProps) {
 					onClick={() => {
 						setLabel('');
 						setError(null);
+						setOpen(false);
+					}}
+				>
+					Cancel
+				</Button>
+			</div>
+		</form>
+	);
+}
+
+interface NewPinFormProps {
+	sectionId: string | null;
+}
+
+const PIN_KIND_OPTIONS: Array<{ value: PinKind; label: string; placeholder: string }> = [
+	{ value: 'route', label: 'Route', placeholder: '/scratchpads' },
+	{ value: 'external', label: 'External URL', placeholder: 'https://example.com' },
+	{ value: 'file', label: 'File', placeholder: '/absolute/path/to/file.html' },
+];
+
+function NewPinForm({ sectionId }: NewPinFormProps) {
+	const addPin = usePinsStore((s) => s.addPin);
+	const [open, setOpen] = useState(false);
+	const [kind, setKind] = useState<PinKind>('route');
+	const [label, setLabel] = useState('');
+	const [target, setTarget] = useState('');
+	const [iconLucide, setIconLucide] = useState('');
+	const [iconEmoji, setIconEmoji] = useState('');
+	const [submitting, setSubmitting] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+
+	function reset() {
+		setKind('route');
+		setLabel('');
+		setTarget('');
+		setIconLucide('');
+		setIconEmoji('');
+		setError(null);
+	}
+
+	if (!open) {
+		return (
+			<div className="border-t border-border px-4 py-2">
+				<Button
+					type="button"
+					variant="ghost"
+					size="sm"
+					className="text-muted-foreground"
+					onClick={() => setOpen(true)}
+				>
+					<Plus className="mr-1 h-3.5 w-3.5" />
+					New pin
+				</Button>
+			</div>
+		);
+	}
+
+	async function submit(e: React.FormEvent) {
+		e.preventDefault();
+		const trimmedLabel = label.trim();
+		const trimmedTarget = target.trim();
+		if (!trimmedLabel) {
+			setError('Label is required.');
+			return;
+		}
+		if (!trimmedTarget) {
+			setError('Target is required.');
+			return;
+		}
+		if (kind === 'route' && !trimmedTarget.startsWith('/')) {
+			setError('Route targets must start with "/".');
+			return;
+		}
+		if (kind === 'external' && !/^https?:\/\//i.test(trimmedTarget)) {
+			setError('External targets must start with http:// or https://.');
+			return;
+		}
+		if (kind === 'file' && !trimmedTarget.startsWith('/')) {
+			setError('File targets must be absolute paths.');
+			return;
+		}
+		setSubmitting(true);
+		setError(null);
+		try {
+			await addPin({
+				kind,
+				target: trimmedTarget,
+				label: trimmedLabel,
+				iconLucide: iconLucide.trim() || null,
+				iconEmoji: iconEmoji.trim() || null,
+				sectionId,
+			});
+			reset();
+			setOpen(false);
+		} catch (err) {
+			setError(err instanceof Error ? err.message : String(err));
+		} finally {
+			setSubmitting(false);
+		}
+	}
+
+	const placeholder = PIN_KIND_OPTIONS.find((o) => o.value === kind)?.placeholder ?? '';
+
+	return (
+		<form
+			onSubmit={submit}
+			className="flex flex-col gap-3 border-t border-border bg-muted/30 px-4 py-3"
+		>
+			<div className="flex flex-wrap items-end gap-3">
+				<label className="flex flex-col gap-1">
+					<span className="text-[11px] font-medium text-muted-foreground">Kind</span>
+					<select
+						value={kind}
+						onChange={(e) => setKind(e.target.value as PinKind)}
+						className="h-8 rounded border border-input bg-background px-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+					>
+						{PIN_KIND_OPTIONS.map((o) => (
+							<option key={o.value} value={o.value}>
+								{o.label}
+							</option>
+						))}
+					</select>
+				</label>
+				<label className="flex flex-1 flex-col gap-1" style={{ minWidth: 200 }}>
+					<span className="text-[11px] font-medium text-muted-foreground">Label</span>
+					<Input
+						autoFocus
+						value={label}
+						onChange={(e) => {
+							setLabel(e.target.value);
+							if (error) setError(null);
+						}}
+						placeholder="Scratchpads"
+						className="h-8 text-sm"
+					/>
+				</label>
+			</div>
+			<label className="flex flex-col gap-1">
+				<span className="text-[11px] font-medium text-muted-foreground">Target</span>
+				<Input
+					value={target}
+					onChange={(e) => {
+						setTarget(e.target.value);
+						if (error) setError(null);
+					}}
+					placeholder={placeholder}
+					className="h-8 font-mono text-sm"
+				/>
+			</label>
+			<div className="flex flex-wrap items-end gap-3">
+				<label className="flex flex-col gap-1">
+					<span className="text-[11px] font-medium text-muted-foreground">
+						Icon (lucide name)
+					</span>
+					<Input
+						value={iconLucide}
+						onChange={(e) => setIconLucide(e.target.value)}
+						placeholder="file-text"
+						className="h-8 w-44 text-sm"
+					/>
+				</label>
+				<label className="flex flex-col gap-1">
+					<span className="text-[11px] font-medium text-muted-foreground">Emoji</span>
+					<Input
+						value={iconEmoji}
+						onChange={(e) => setIconEmoji(e.target.value)}
+						placeholder="📝"
+						maxLength={4}
+						className="h-8 w-20 text-sm"
+					/>
+				</label>
+			</div>
+			{error && (
+				<div className="rounded border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+					{error}
+				</div>
+			)}
+			<div className="flex gap-2">
+				<Button type="submit" size="sm" disabled={submitting}>
+					{submitting ? 'Adding…' : 'Add pin'}
+				</Button>
+				<Button
+					type="button"
+					size="sm"
+					variant="ghost"
+					onClick={() => {
+						reset();
 						setOpen(false);
 					}}
 				>
