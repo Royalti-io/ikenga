@@ -25,6 +25,19 @@ use crate::engines::{EngineHandle, EngineRegistryState};
 use crate::claude::session::EffortLevel;
 use crate::commands::db::PaDb;
 
+/// FE-facing snapshot of which engine ids are registered in the dispatcher.
+/// Pairs with `detect_agents` on the frontend side: the catalog UI shows a
+/// row only when an engine id is BOTH registered here AND the matching CLI
+/// is detected on PATH (and authed where the auth check is decisive). Keeps
+/// "live install state" honest without duplicating the `agent_detect`
+/// auth-probe logic in the chat layer.
+#[tauri::command]
+pub async fn chat_engines_list(
+    registry: State<'_, EngineRegistryState>,
+) -> Result<Vec<String>, String> {
+    Ok(registry.ids().await)
+}
+
 /// Default engine id used when the caller omits one. Keeps the legacy
 /// FE call sites (which don't yet pass `engineId`) routing to the
 /// Claude Code adapter while the migration is in flight.

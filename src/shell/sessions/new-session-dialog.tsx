@@ -13,6 +13,8 @@ import {
 import { Button } from '@/components/ui/button';
 import { mintThreadId, useChatActions, useChatStore } from '@/chat';
 import { createThread } from '@/chat';
+import { defaultChatAdapterId } from '@/chat/default-adapter';
+import { useEngineCatalog } from '@/chat/engines';
 import { activeProjectCwd } from '@/lib/shell/active-project-cwd';
 import { useShellStore } from '@/lib/shell/shell-store';
 import { sessionEnsure } from '@/lib/tauri-cmd';
@@ -57,6 +59,12 @@ export function NewSessionDialog({
 	const [mode, setMode] = useState<Mode>(defaultMode);
 	const [busy, setBusy] = useState(false);
 	const [err, setErr] = useState<string | null>(null);
+	// Chat engine selection. Seeded from `defaultChatAdapterId()` on each
+	// dialog open so a user changing the default in /settings/agent is
+	// honored without a reload. The catalog row chip lets the user
+	// override per-thread without leaving the dialog.
+	const [engineId, setEngineId] = useState<string>(defaultChatAdapterId());
+	const engineCatalog = useEngineCatalog();
 
 	useEffect(() => {
 		if (open) {
@@ -69,6 +77,7 @@ export function NewSessionDialog({
 			setProjectId(activeProjectId);
 			setPrompt(presetPrompt ?? '');
 			setMode(defaultMode);
+			setEngineId(defaultChatAdapterId());
 			setErr(null);
 		}
 	}, [open, projects, presetPrompt, defaultMode, activeProject?.root_path, activeProjectId]);
@@ -81,7 +90,7 @@ export function NewSessionDialog({
 			const threadId = mintThreadId();
 			await createThread({
 				id: threadId,
-				adapterId: 'cli',
+				adapterId: engineId,
 				cwd: project,
 				claudeSessionId: null,
 				model: null,
@@ -190,6 +199,59 @@ export function NewSessionDialog({
 							detail="PTY, claude TUI"
 						/>
 					</div>
+
+					{mode === 'chat' && (
+						<div className="space-y-1.5">
+							<div className="flex items-baseline justify-between">
+								<span className="text-xs font-medium text-muted-foreground">Engine</span>
+								<button
+									type="button"
+									onClick={() => {
+										onOpenChange(false);
+										navigate({ to: '/settings/agent' });
+									}}
+									className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground transition-colors hover:text-foreground"
+									title="Change default engine in settings"
+								>
+									set default →
+								</button>
+							</div>
+							<div className="flex flex-wrap gap-1.5">
+								{engineCatalog.map((eng) => {
+									const active = eng.id === engineId;
+									const clickable = eng.installed || active;
+									return (
+										<button
+											key={eng.id}
+											type="button"
+											disabled={!clickable}
+											onClick={() => clickable && setEngineId(eng.id)}
+											title={
+												!eng.installed
+													? eng.notInstalledHint ?? 'not installed'
+													: eng.description
+											}
+											className={
+												'inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs transition-colors ' +
+												(active
+													? 'border-primary bg-primary/10 text-foreground'
+													: clickable
+														? 'border-input bg-background hover:bg-accent'
+														: 'cursor-not-allowed border-input bg-background opacity-50')
+											}
+										>
+											<span className="font-medium">{eng.label}</span>
+											{!eng.installed && (
+												<span className="font-mono text-[9px] uppercase tracking-wider text-muted-foreground">
+													n/a
+												</span>
+											)}
+										</button>
+									);
+								})}
+							</div>
+						</div>
+					)}
 
 					<label className="block space-y-1.5">
 						<span className="text-xs font-medium text-muted-foreground">Project directory</span>

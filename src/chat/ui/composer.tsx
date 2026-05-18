@@ -40,7 +40,9 @@ import { useChatActions, useThreadState } from '../hooks';
 import { useChatStore } from '../store';
 import { usePendingPrompts } from '../pending-prompts';
 import { type ChatEffort } from '../adapter';
-import { ENGINE_CATALOG, modelLabelFor } from '../engines';
+import { modelLabelFor, useEngineCatalog } from '../engines';
+import { createThread } from '../persist';
+import { mintThreadId } from '../hooks';
 import { filterSlashCommands, useSlashCommands, type SlashCommand } from '../slash-commands';
 
 const EFFORT_OPTIONS: ReadonlyArray<{ id: ChatEffort; label: string; lit: number }> = [
@@ -327,6 +329,19 @@ export function Composer({ threadId, className, placeholder }: ComposerProps) {
 	// Tracking it lets us auto-close when the user picks a model.
 	const [engineMenuOpen, setEngineMenuOpen] = useState(false);
 	const navigate = useNavigate();
+	// Live engine catalog — registered ∩ detected. The popover renders
+	// every catalog entry; rows whose `installed === false` are non-
+	// clickable with a tooltip explaining why.
+	const catalog = useEngineCatalog();
+	// The thread's bound engine (`adapterId`) decides whether a clicked
+	// model triggers a same-engine `chat_set_model` or a cross-engine
+	// "start new thread" flow. Persisted `'acp'` / `'cli'` alias to
+	// `'claude-code'` per the registry; treat them as identical here.
+	const threadEngineId = (() => {
+		const id = state?.thread.adapterId ?? null;
+		if (id === 'acp' || id === 'cli') return 'claude-code';
+		return id;
+	})();
 
 	function handleInstallEnginePkg() {
 		setEngineMenuOpen(false);
@@ -350,6 +365,28 @@ export function Composer({ threadId, className, placeholder }: ComposerProps) {
 			setThread(threadId, { model: previous });
 			console.warn('chatSetModel:', e);
 		}
+	}
+
+	/** Cross-engine pick: the user selected a model from an engine that
+	 *  isn't bound to the current thread. Engines have incompatible
+	 *  session/transcript shapes (Claude's JSONL vs Gemini's ACP child vs
+	 *  Codex's PTY), so we can't safely swap mid-thread. Create a sibling
+	 *  thread bound to the new engine and navigate to it; the prior thread
+	 *  stays intact in /sessions for reference. */
+	async function handleStartNewThreadWithEngine(engineId: string, modelId: string | null) {
+		setEngineMenuOpen(false);
+		if (!state?.thread.cwd) return;
+		const newId = mintThreadId();
+		await createThread({
+			id: newId,
+			adapterId: engineId,
+			cwd: state.thread.cwd,
+			claudeSessionId: null,
+			model: modelId,
+			title: null,
+			projectId: state.thread.projectId ?? null,
+		});
+		void navigate({ to: '/sessions/$sessionId', params: { sessionId: newId } });
 	}
 
 	async function handleEffortChange(next: ChatEffort) {
@@ -517,52 +554,107 @@ export function Composer({ threadId, className, placeholder }: ComposerProps) {
 									className="w-64 border border-[var(--rule)] bg-background p-0 font-sans"
 								>
 									<div className="max-h-[280px] overflow-auto py-1">
-										{ENGINE_CATALOG.map((eng) => (
-											<div
-												key={eng.id}
-												className={cn(
-													'border-b border-[var(--rule)] py-1 last:border-b-0',
-													!eng.installed && 'opacity-60'
-												)}
-											>
-												<div className="flex items-baseline gap-2 px-3 pb-1 font-mono text-[9px] uppercase tracking-[0.22em] text-[var(--chip-carve)]">
-													<span className="text-[var(--kola-amber)]">◾</span>
-													<span className="text-foreground">{eng.label}</span>
-													{!eng.installed && (
-														<span className="ml-auto text-[var(--chip-carve)]">not installed</span>
+										{catalog.map((eng) => {
+											const isCurrentEngine = eng.id === threadEngineId;
+											const isInstalled = eng.installed;
+											return (
+												<div
+													key={eng.id}
+													className={cn(
+														'border-b border-[var(--rule)] py-1 last:border-b-0',
+														!isInstalled && 'opacity-60'
 													)}
-												</div>
-												<ul>
-													{eng.models.map((m) => {
-														const selected = m.id === currentModel;
-														return (
-															<li key={m.id}>
+												>
+													<div
+														className="flex items-baseline gap-2 px-3 pb-1 font-mono text-[9px] uppercase tracking-[0.22em] text-[var(--chip-carve)]"
+														title={
+															!isInstalled
+																? eng.notInstalledHint ?? 'not installed'
+																: undefined
+														}
+													>
+														<span className="text-[var(--kola-amber)]">◾</span>
+														<span className="text-foreground">{eng.label}</span>
+														{isCurrentEngine && (
+															<span className="ml-auto text-[var(--kola-amber)]">active</span>
+														)}
+														{!isInstalled && !isCurrentEngine && (
+															<span className="ml-auto text-[var(--chip-carve)]">
+																{eng.notInstalledHint ?? 'not installed'}
+															</span>
+														)}
+													</div>
+													{eng.models.length === 0 && isInstalled && !isCurrentEngine && (
+														// Engines with no model picker (e.g. Codex) get a single
+														// "Use this engine in a new thread" row instead.
+														<ul>
+															<li>
 																<button
 																	type="button"
-																	disabled={!eng.installed}
-																	onClick={() => {
-																		setEngineMenuOpen(false);
-																		void handleModelChange(m.id);
-																	}}
-																	className={cn(
-																		'flex w-full items-center gap-2 border-l-2 border-transparent px-3 py-1 text-left text-xs transition-colors',
-																		eng.installed && 'hover:bg-[var(--rule-soft)]',
-																		!eng.installed && 'cursor-not-allowed',
-																		selected &&
-																			'border-l-[var(--kola-amber)] bg-[var(--rule-soft)] text-foreground'
-																	)}
+																	onClick={() =>
+																		void handleStartNewThreadWithEngine(eng.id, null)
+																	}
+																	className="flex w-full items-center gap-2 border-l-2 border-transparent px-3 py-1 text-left text-xs transition-colors hover:bg-[var(--rule-soft)]"
+																	title="Start a new thread using this engine"
 																>
-																	<span className="font-mono">{m.label}</span>
-																	<span className="ml-auto font-mono text-[9px] uppercase tracking-wider text-[var(--chip-carve)]">
-																		{m.id}
-																	</span>
+																	<span className="font-mono">Use in new thread</span>
 																</button>
 															</li>
-														);
-													})}
-												</ul>
-											</div>
-										))}
+														</ul>
+													)}
+													<ul>
+														{eng.models.map((m) => {
+															const selected =
+																isCurrentEngine && m.id === currentModel;
+															const isCrossEngine = !isCurrentEngine;
+															const clickable = isInstalled;
+															const title = !isInstalled
+																? eng.notInstalledHint ?? 'not installed'
+																: isCrossEngine
+																	? `Start a new thread with ${eng.label} — engines can't swap mid-thread`
+																	: undefined;
+															return (
+																<li key={m.id}>
+																	<button
+																		type="button"
+																		disabled={!clickable}
+																		title={title}
+																		onClick={() => {
+																			if (!clickable) return;
+																			setEngineMenuOpen(false);
+																			if (isCrossEngine) {
+																				void handleStartNewThreadWithEngine(eng.id, m.id);
+																			} else {
+																				void handleModelChange(m.id);
+																			}
+																		}}
+																		className={cn(
+																			'flex w-full items-center gap-2 border-l-2 border-transparent px-3 py-1 text-left text-xs transition-colors',
+																			clickable && 'hover:bg-[var(--rule-soft)]',
+																			!clickable && 'cursor-not-allowed',
+																			selected &&
+																				'border-l-[var(--kola-amber)] bg-[var(--rule-soft)] text-foreground'
+																		)}
+																	>
+																		<span className="font-mono">{m.label}</span>
+																		{isCrossEngine && clickable && (
+																			<span className="ml-auto font-mono text-[9px] uppercase tracking-[0.16em] text-[var(--kola-amber)]">
+																				new thread →
+																			</span>
+																		)}
+																		{!isCrossEngine && (
+																			<span className="ml-auto font-mono text-[9px] uppercase tracking-wider text-[var(--chip-carve)]">
+																				{m.id}
+																			</span>
+																		)}
+																	</button>
+																</li>
+															);
+														})}
+													</ul>
+												</div>
+											);
+										})}
 									</div>
 									<div className="border-t border-[var(--rule)] bg-[var(--rule-soft)] px-2 py-1.5">
 										<button

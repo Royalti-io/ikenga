@@ -2182,6 +2182,13 @@ export async function detectAgents(): Promise<DetectedAgent[]> {
 	return invoke<DetectedAgent[]>('detect_agents');
 }
 
+/** Returns the ids registered with the Rust `EngineRegistry`. Pair with
+ *  `detectAgents()` on the catalog page: a row is "installed" only when
+ *  the engine id appears in BOTH lists. */
+export async function chatEnginesList(): Promise<string[]> {
+	return invoke<string[]>('chat_engines_list');
+}
+
 export async function detectAgent(agentId: string): Promise<DetectedAgent | null> {
 	return invoke<DetectedAgent | null>('detect_agent', { agentId });
 }

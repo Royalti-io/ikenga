@@ -25,8 +25,9 @@ use tokio::sync::Mutex;
 use commands::db::PaDb;
 use commands::screenshot::new_pending as new_screenshot_pending;
 use commands::{
-    chat_cancel, chat_fork_session, chat_initialize, chat_load_session, chat_new_session, chat_prompt,
-    chat_respond_permission, chat_set_effort, chat_set_mode, chat_set_model, activity_pins_add,
+    chat_cancel, chat_engines_list, chat_fork_session, chat_initialize, chat_load_session,
+    chat_new_session, chat_prompt, chat_respond_permission, chat_set_effort, chat_set_mode,
+    chat_set_model, activity_pins_add,
     activity_pins_list, activity_pins_remove, activity_pins_reorder, activity_pins_resolve_artifact,
     activity_pins_touch_open, activity_sections_create, activity_sections_list,
     activity_sections_remove, activity_sections_update, backup_delete,
@@ -651,6 +652,9 @@ pub fn run() {
             // acp session fork + faster resume (phase 8)
             chat_fork_session,
             chat_load_session,
+            // Multi-engine catalog: returns registered engine ids so the FE
+            // can intersect with `detect_agents` for the live-install UI.
+            chat_engines_list,
             // claude config browser
             claude_config_load,
             claude_config_watch,

@@ -36,8 +36,9 @@ pub mod trust;
 pub mod viewer;
 
 pub use chat::{
-    chat_cancel, chat_fork_session, chat_initialize, chat_load_session, chat_new_session, chat_prompt,
-    chat_respond_permission, chat_set_effort, chat_set_mode, chat_set_model,
+    chat_cancel, chat_engines_list, chat_fork_session, chat_initialize, chat_load_session,
+    chat_new_session, chat_prompt, chat_respond_permission, chat_set_effort, chat_set_mode,
+    chat_set_model,
 };
 pub use activity_bar::{
     activity_pins_add, activity_pins_list, activity_pins_remove, activity_pins_reorder,
