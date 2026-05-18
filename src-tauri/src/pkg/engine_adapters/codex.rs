@@ -49,6 +49,32 @@ use crate::pkg::manifest::McpServer;
 
 const IKENGA_SECRET_PREFIX: &str = "${IKENGA_SECRET:";
 
+/// Env var the Codex adapter consults at every install / uninstall call to
+/// resolve the project root for skills + commands materialization. Lifted
+/// out of inline literals so the kernel-side updater (see
+/// `set_project_root_env`) and the adapter's reader agree byte-for-byte.
+pub const PROJECT_ROOT_ENV: &str = "IKENGA_CODEX_PROJECT_ROOT";
+
+/// Kernel-side updater for the Codex project-root env var. The shell calls
+/// this at boot and on every `projects:active-changed` event so the
+/// adapter's per-call `project_root()` reads see the active project's
+/// `root_path` without requiring the user to export the env var manually.
+///
+/// `Some(path)` sets the var (whether or not the path exists — the adapter
+/// validates per-call). `None` clears it.
+///
+/// Limitation: pkgs that were already live BEFORE the project switch and
+/// stay live AFTER it don't get their Codex assets re-materialized into the
+/// new project's `.agents/skills/<slug>/`. Only pkgs whose `project_id`
+/// changes scope across the switch go through `register` / `unregister`
+/// via `kernel::reconcile_for_project`. Documented in STATUS.md.
+pub fn set_project_root_env(path: Option<&str>) {
+    match path {
+        Some(p) if !p.is_empty() => std::env::set_var(PROJECT_ROOT_ENV, p),
+        _ => std::env::remove_var(PROJECT_ROOT_ENV),
+    }
+}
+
 fn secret_key_regex() -> &'static Regex {
     use std::sync::OnceLock;
     static RE: OnceLock<Regex> = OnceLock::new();
@@ -87,7 +113,7 @@ impl CodexAdapter {
     /// Otherwise `None` — callers WARN + skip rather than write into
     /// `~/.codex/` (v1 brief).
     fn project_root() -> Option<PathBuf> {
-        let raw = std::env::var_os("IKENGA_CODEX_PROJECT_ROOT")?;
+        let raw = std::env::var_os(PROJECT_ROOT_ENV)?;
         let p = PathBuf::from(raw);
         if !p.is_absolute() {
             return None;
@@ -909,6 +935,36 @@ mod tests {
         match prev {
             Some(v) => std::env::set_var("IKENGA_CODEX_PROJECT_ROOT", v),
             None => std::env::remove_var("IKENGA_CODEX_PROJECT_ROOT"),
+        }
+    }
+
+    #[test]
+    fn set_project_root_env_round_trips() {
+        let _g = test_lock();
+        let _h = HomeGuard::new();
+        let prev = std::env::var_os(PROJECT_ROOT_ENV);
+        std::env::remove_var(PROJECT_ROOT_ENV);
+
+        // None / empty → unset.
+        set_project_root_env(None);
+        assert!(std::env::var_os(PROJECT_ROOT_ENV).is_none());
+        set_project_root_env(Some(""));
+        assert!(std::env::var_os(PROJECT_ROOT_ENV).is_none());
+
+        // Some(path) → set.
+        set_project_root_env(Some("/tmp/foo"));
+        assert_eq!(
+            std::env::var(PROJECT_ROOT_ENV).unwrap(),
+            "/tmp/foo".to_string()
+        );
+
+        // Re-set with None clears it.
+        set_project_root_env(None);
+        assert!(std::env::var_os(PROJECT_ROOT_ENV).is_none());
+
+        match prev {
+            Some(v) => std::env::set_var(PROJECT_ROOT_ENV, v),
+            None => std::env::remove_var(PROJECT_ROOT_ENV),
         }
     }
 

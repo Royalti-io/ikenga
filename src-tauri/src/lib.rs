@@ -508,11 +508,26 @@ pub fn run() {
             kernel.mark_all_live();
             {
                 let db_for_active = pa_db.clone();
-                let active_now = tauri::async_runtime::block_on(async move {
+                let active_info = tauri::async_runtime::block_on(async move {
                     let pool = db_for_active.ensure_pool().await.ok()?;
-                    crate::commands::projects::get_active_project_id(&pool).await.ok()
+                    let id = crate::commands::projects::get_active_project_id(&pool).await.ok()?;
+                    // Best-effort: also fetch the active project's root_path
+                    // so we can seed `IKENGA_CODEX_PROJECT_ROOT` before the
+                    // first Codex install/uninstall fires (ADR-012 follow-up,
+                    // 2026-05-18).
+                    let root = crate::commands::projects::get_project(&pool, &id)
+                        .await
+                        .ok()
+                        .flatten()
+                        .and_then(|p| p.root_path);
+                    Some((id, root))
                 });
-                if let Some(active) = active_now {
+                if let Some((active, root)) = active_info {
+                    // Set the Codex adapter's project-root env var before
+                    // any registry replay or reconcile fires. Pkgs scoped
+                    // to the active project will pick up the new path on
+                    // their next install/uninstall.
+                    crate::pkg::engine_adapters::codex::set_project_root_env(root.as_deref());
                     if let Err(e) = kernel.reconcile_for_project(&active) {
                         log::warn!("[pkg_kernel] initial reconcile failed (continuing): {e:#}");
                     }
@@ -547,13 +562,29 @@ pub fn run() {
                         debounce_token.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
                     let kernel = kernel.clone();
                     let token_check = debounce_token.clone();
-                    let _pa_db = pa_db_for_listener.clone();
+                    let pa_db = pa_db_for_listener.clone();
                     tauri::async_runtime::spawn(async move {
                         tokio::time::sleep(std::time::Duration::from_millis(250)).await;
                         // If another active-changed landed during the sleep,
                         // a later iteration will win — drop this one.
                         if token_check.load(std::sync::atomic::Ordering::Relaxed) != token {
                             return;
+                        }
+                        // ADR-012 follow-up: keep `IKENGA_CODEX_PROJECT_ROOT`
+                        // in sync with the active project's root_path. The
+                        // adapter reads this per-call so future installs see
+                        // the new path. Pkgs that stay live across the switch
+                        // don't get their existing assets re-materialized
+                        // (documented limitation in STATUS.md).
+                        if let Ok(pool) = pa_db.ensure_pool().await {
+                            let root = crate::commands::projects::get_project(&pool, &active)
+                                .await
+                                .ok()
+                                .flatten()
+                                .and_then(|p| p.root_path);
+                            crate::pkg::engine_adapters::codex::set_project_root_env(
+                                root.as_deref(),
+                            );
                         }
                         if let Err(e) = kernel.reconcile_for_project(&active) {
                             log::warn!(
