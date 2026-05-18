@@ -26,6 +26,7 @@
 		"@ikenga/pkg-engine-claude-code": "workspace:*",
 		"@ikenga/registry-client": "^0.1.0",
 		"@ikenga/tokens": "workspace:*",
+		"@lobehub/icons": "^5.8.0",
 		"@modelcontextprotocol/ext-apps": "^1.7.1",
 		"@monaco-editor/react": "^4.7.0",
 		"@radix-ui/react-dialog": "^1.1.15",

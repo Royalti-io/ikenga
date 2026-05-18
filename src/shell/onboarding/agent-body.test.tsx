@@ -1,6 +1,15 @@
 // agent-body — payload + auth-warning logic.
 
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+// `agent-body` imports `EngineLogo` which pulls `@lobehub/icons`. The
+// icons package has `@lobehub/ui` as a peer dep, and vitest trips over
+// a broken ESM tooltip subpath inside `@lobehub/ui` during module eval.
+// We only test pure-logic exports here, so stub the icon component to
+// keep the test runtime dependency-free.
+vi.mock('@/shell/onboarding/engine-logo', () => ({
+	EngineLogo: () => null,
+}));
 
 import { createDefaultOnboardingState, useShellStore } from '@/lib/shell/shell-store';
 import type { DetectedAgent } from '@/lib/tauri-cmd';

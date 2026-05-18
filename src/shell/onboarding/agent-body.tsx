@@ -27,6 +27,7 @@ import {
 import { useShellStore } from '@/lib/shell/shell-store';
 import { type AgentDetectEntry, useAgentDetect } from '@/lib/shell/use-agent-detect';
 import { setDefaultEngineId } from '@/chat/default-adapter';
+import { EngineLogo } from '@/shell/onboarding/engine-logo';
 
 import { useOnboardingStep } from './use-onboarding-step';
 
@@ -505,11 +506,11 @@ function EngineCard({ meta, entry, selected, onSelect, onOpenDocs }: EngineCardP
 
 			<div className="mb-3 flex items-center gap-3">
 				<div
-					className="flex h-9 w-9 flex-none items-center justify-center rounded-md font-mono text-sm font-bold"
-					style={{ background: 'var(--bg-raised)', color: 'var(--fg-muted)' }}
+					className="flex h-9 w-9 flex-none items-center justify-center overflow-hidden rounded-md"
+					style={{ background: 'var(--bg-raised)' }}
 					aria-hidden="true"
 				>
-					{meta.display.charAt(0)}
+					<EngineLogo engineId={meta.id} size={28} />
 				</div>
 				<div className="min-w-0">
 					<div className="truncate text-[15px] font-bold leading-tight">{meta.display}</div>
