@@ -15,6 +15,7 @@ import { mintThreadId, useChatActions, useChatStore } from '@/chat';
 import { createThread } from '@/chat';
 import { defaultChatAdapterId } from '@/chat/default-adapter';
 import { useEngineCatalog } from '@/chat/engines';
+import { getAdapter, hasAdapter } from '@/chat/registry';
 import { activeProjectCwd } from '@/lib/shell/active-project-cwd';
 import { useShellStore } from '@/lib/shell/shell-store';
 import { sessionEnsure } from '@/lib/tauri-cmd';
@@ -220,6 +221,7 @@ export function NewSessionDialog({
 								{engineCatalog.map((eng) => {
 									const active = eng.id === engineId;
 									const clickable = eng.installed || active;
+									const EngineIcon = hasAdapter(eng.id) ? getAdapter(eng.id).Icon : null;
 									return (
 										<button
 											key={eng.id}
@@ -240,6 +242,7 @@ export function NewSessionDialog({
 														: 'cursor-not-allowed border-input bg-background opacity-50')
 											}
 										>
+											{EngineIcon && <EngineIcon className="h-3.5 w-3.5" />}
 											<span className="font-medium">{eng.label}</span>
 											{!eng.installed && (
 												<span className="font-mono text-[9px] uppercase tracking-wider text-muted-foreground">
