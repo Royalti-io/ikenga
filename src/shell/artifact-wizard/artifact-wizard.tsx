@@ -49,12 +49,19 @@ import { type AgentChoice, startArtifact } from '@/shell/artifact-wizard/scaffol
 
 type AgentKind = AgentChoice['kind'];
 
-const AGENT_OPTIONS: { kind: Exclude<AgentKind, 'custom'>; label: string; hint?: string }[] = [
-	{ kind: 'chat', label: 'chat', hint: 'in-shell claude chat' },
-	{ kind: 'claude', label: 'claude', hint: 'CLI terminal' },
-	{ kind: 'codex', label: 'codex', hint: 'CLI terminal' },
-	{ kind: 'gemini', label: 'gemini', hint: 'CLI terminal' },
+const AGENT_OPTIONS: {
+	kind: Exclude<AgentKind, 'custom'>;
+	label: string;
+	glyphName: string;
+	hint?: string;
+}[] = [
+	{ kind: 'chat', label: 'chat', glyphName: 'MessageSquare', hint: 'in-shell claude chat' },
+	{ kind: 'claude', label: 'claude', glyphName: 'Sparkles', hint: 'CLI terminal' },
+	{ kind: 'codex', label: 'codex', glyphName: 'Code', hint: 'CLI terminal' },
+	{ kind: 'gemini', label: 'gemini', glyphName: 'Gem', hint: 'CLI terminal' },
 ];
+
+const CUSTOM_AGENT_GLYPH = 'Wrench';
 
 /** Map an onboarding-selected agent id to the wizard's agent kind. The
  *  onboarding step records the same well-known ids (`claude`, `codex`,
@@ -498,33 +505,45 @@ function AgentField({
 		<div className="flex flex-col gap-1.5">
 			<label className="text-xs font-medium">Agent</label>
 			<div className="flex flex-wrap gap-1.5">
-				{AGENT_OPTIONS.map((opt) => (
-					<button
-						key={opt.kind}
-						type="button"
-						onClick={() => onAgentKindChange(opt.kind)}
-						className={cn(
-							'rounded border px-2 py-1 text-xs',
-							agentKind === opt.kind
-								? 'border-foreground bg-accent text-accent-foreground'
-								: 'border-border bg-background hover:bg-muted/30'
-						)}
-					>
-						{opt.label}
-					</button>
-				))}
-				<button
-					type="button"
-					onClick={() => onAgentKindChange('custom')}
-					className={cn(
-						'rounded border px-2 py-1 text-xs',
-						agentKind === 'custom'
-							? 'border-foreground bg-accent text-accent-foreground'
-							: 'border-border bg-background hover:bg-muted/30'
-					)}
-				>
-					custom
-				</button>
+				{AGENT_OPTIONS.map((opt) => {
+					const Glyph = resolveGlyph(opt.glyphName);
+					return (
+						<button
+							key={opt.kind}
+							type="button"
+							onClick={() => onAgentKindChange(opt.kind)}
+							title={opt.hint}
+							className={cn(
+								'inline-flex items-center gap-1.5 rounded border px-2 py-1 text-xs',
+								agentKind === opt.kind
+									? 'border-foreground bg-accent text-accent-foreground'
+									: 'border-border bg-background hover:bg-muted/30'
+							)}
+						>
+							<Glyph className="h-3 w-3" />
+							{opt.label}
+						</button>
+					);
+				})}
+				{(() => {
+					const Glyph = resolveGlyph(CUSTOM_AGENT_GLYPH);
+					return (
+						<button
+							type="button"
+							onClick={() => onAgentKindChange('custom')}
+							title="custom argv"
+							className={cn(
+								'inline-flex items-center gap-1.5 rounded border px-2 py-1 text-xs',
+								agentKind === 'custom'
+									? 'border-foreground bg-accent text-accent-foreground'
+									: 'border-border bg-background hover:bg-muted/30'
+							)}
+						>
+							<Glyph className="h-3 w-3" />
+							custom
+						</button>
+					);
+				})()}
 			</div>
 			{agentKind === 'custom' && (
 				<input
