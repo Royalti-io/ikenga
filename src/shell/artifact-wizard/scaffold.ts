@@ -111,24 +111,35 @@ export async function startArtifact(args: StartArgs): Promise<StartResult> {
 		title: `${agentTitle} · ${args.archetype.label.toLowerCase()}`,
 	});
 
-	// Mount the terminal in the focused pane. Capture the leaf id so the
-	// watcher can split *that* leaf horizontally (loupe to the right of
-	// the terminal) instead of shoving the terminal off-screen by adding
-	// a new tab to whatever happens to be focused later.
+	// Mount the terminal in the focused pane, then immediately split right
+	// and mount the Studio in grid density on the chosen folder. The grid
+	// shows any existing artifacts in that folder (sibling context) and
+	// stays mostly-empty until the agent writes. When the watcher fires
+	// we swap that pane's view to a loupe on the new file in place — so
+	// the user has terminal + Studio side-by-side from t=0, and the
+	// blank/grid → loupe handoff is just a view swap.
 	const paneStore = usePaneStore.getState();
 	const terminalLeafId = paneStore.focusedId;
 	paneStore.addTab(terminalLeafId, {
 		kind: 'terminal',
 		sessionId: terminalSessionId,
 	});
+	paneStore.splitPane(terminalLeafId, 'horizontal');
+	const studioLeafId = usePaneStore.getState().focusedId;
+	usePaneStore.getState().addTab(studioLeafId, {
+		kind: 'artifact-studio',
+		path: args.folder,
+		density: 'grid',
+	});
 
 	// Type the kickoff prompt into the PTY once it's ready. Fire and forget.
 	void typeKickoff(terminalSessionId, kickoffPrompt);
 
-	// Watch the project root recursively and pop the loupe to the right of
-	// the terminal pane when a new .html lands under the chosen folder.
+	// Watch the project root recursively and swap the Studio leaf's view
+	// from grid → loupe when the first new `.html` lands under the chosen
+	// folder.
 	if (args.project.root_path) {
-		void watchForArtifact(args.project.root_path, args.folder, terminalLeafId);
+		void watchForArtifact(args.project.root_path, args.folder, studioLeafId);
 	}
 
 	return { terminalSessionId, slug, kickoffPrompt };
@@ -186,13 +197,13 @@ function wait(ms: number): Promise<void> {
 }
 
 /** Watch the project root recursively for the first new `.html` whose path
- *  is under `folderPrefix`. Split the terminal leaf horizontally and drop
- *  the loupe in the new leaf so terminal + artifact sit side-by-side.
- *  Self-terminates after 30 minutes if no match. */
+ *  is under `folderPrefix`. Swap the Studio leaf's view (grid → loupe) in
+ *  place so terminal + artifact sit side-by-side from t=0. Self-terminates
+ *  after 30 minutes if no match. */
 async function watchForArtifact(
 	rootPath: string,
 	folderPrefix: string,
-	terminalLeafId: string
+	studioLeafId: string
 ): Promise<void> {
 	const normalizedPrefix = folderPrefix.replace(/\/+$/, '');
 	let watcherId: string | null = null;
@@ -226,8 +237,8 @@ async function watchForArtifact(
 			if (!change.path.startsWith(`${normalizedPrefix}/`) && change.path !== normalizedPrefix) {
 				return;
 			}
-			console.info('[wizard] artifact detected', change.path, '→ splitting into loupe');
-			openLoupeBesideTerminal(terminalLeafId, change.path);
+			console.info('[wizard] artifact detected', change.path, '→ swapping grid → loupe');
+			swapStudioToLoupe(studioLeafId, change.path);
 			clearTimeout(timeout);
 			cleanup();
 		});
@@ -237,24 +248,19 @@ async function watchForArtifact(
 	}
 }
 
-/** Split the terminal's leaf horizontally and mount the artifact-studio
- *  loupe in the new right-hand leaf. Falls back to a tab on the focused
- *  pane if the terminal leaf has gone away (closed by the user). */
-function openLoupeBesideTerminal(terminalLeafId: string, path: string): void {
+/** Swap the Studio leaf's active view from `density: 'grid'` (on the folder)
+ *  to `density: 'loupe'` on the freshly-written file. Falls back to a new
+ *  tab on the focused pane if the Studio leaf has been closed. */
+function swapStudioToLoupe(studioLeafId: string, path: string): void {
 	const ps = usePaneStore.getState();
 	const view = { kind: 'artifact-studio' as const, path, density: 'loupe' as const };
-	const leaf = findLeaf(ps.root, terminalLeafId);
 	try {
-		if (leaf) {
-			ps.splitPane(terminalLeafId, 'horizontal');
-			// splitPane focuses the newly-created leaf — drop the loupe in
-			// that focused leaf.
-			const next = usePaneStore.getState();
-			next.addTab(next.focusedId, view);
+		if (findLeaf(ps.root, studioLeafId)) {
+			ps.replaceActiveViewAndPushHistory(studioLeafId, view);
 		} else {
 			ps.addTab(ps.focusedId, view);
 		}
 	} catch (e) {
-		console.error('[wizard] auto-open studio failed:', e);
+		console.error('[wizard] auto-swap to loupe failed:', e);
 	}
 }
