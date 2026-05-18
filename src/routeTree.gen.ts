@@ -69,6 +69,7 @@ import { Route as SessionsSessionIdIndexRouteImport } from './routes/sessions/$s
 import { Route as PkgPkgIdIndexRouteImport } from './routes/pkg/$pkgId/index'
 import { Route as SessionsByAgentAgentRouteImport } from './routes/sessions/by-agent/$agent'
 import { Route as PkgPkgIdSplatRouteImport } from './routes/pkg/$pkgId/$'
+import { Route as ArtifactsByKindKindRouteImport } from './routes/artifacts/by-kind.$kind'
 
 const UiroutesSmokeRoute = UiroutesSmokeRouteImport.update({
   id: '/uiroutes-smoke',
@@ -370,6 +371,11 @@ const PkgPkgIdSplatRoute = PkgPkgIdSplatRouteImport.update({
   path: '/$',
   getParentRoute: () => PkgPkgIdRouteRoute,
 } as any)
+const ArtifactsByKindKindRoute = ArtifactsByKindKindRouteImport.update({
+  id: '/artifacts/by-kind/$kind',
+  path: '/artifacts/by-kind/$kind',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -426,6 +432,7 @@ export interface FileRoutesByFullPath {
   '/onboarding/': typeof OnboardingIndexRoute
   '/sessions/': typeof SessionsIndexRoute
   '/settings/': typeof SettingsIndexRoute
+  '/artifacts/by-kind/$kind': typeof ArtifactsByKindKindRoute
   '/pkg/$pkgId/$': typeof PkgPkgIdSplatRoute
   '/sessions/by-agent/$agent': typeof SessionsByAgentAgentRoute
   '/pkg/$pkgId/': typeof PkgPkgIdIndexRoute
@@ -483,6 +490,7 @@ export interface FileRoutesByTo {
   '/onboarding': typeof OnboardingIndexRoute
   '/sessions': typeof SessionsIndexRoute
   '/settings': typeof SettingsIndexRoute
+  '/artifacts/by-kind/$kind': typeof ArtifactsByKindKindRoute
   '/pkg/$pkgId/$': typeof PkgPkgIdSplatRoute
   '/sessions/by-agent/$agent': typeof SessionsByAgentAgentRoute
   '/pkg/$pkgId': typeof PkgPkgIdIndexRoute
@@ -546,6 +554,7 @@ export interface FileRoutesById {
   '/onboarding/': typeof OnboardingIndexRoute
   '/sessions/': typeof SessionsIndexRoute
   '/settings/': typeof SettingsIndexRoute
+  '/artifacts/by-kind/$kind': typeof ArtifactsByKindKindRoute
   '/pkg/$pkgId/$': typeof PkgPkgIdSplatRoute
   '/sessions/by-agent/$agent': typeof SessionsByAgentAgentRoute
   '/pkg/$pkgId/': typeof PkgPkgIdIndexRoute
@@ -610,6 +619,7 @@ export interface FileRouteTypes {
     | '/onboarding/'
     | '/sessions/'
     | '/settings/'
+    | '/artifacts/by-kind/$kind'
     | '/pkg/$pkgId/$'
     | '/sessions/by-agent/$agent'
     | '/pkg/$pkgId/'
@@ -667,6 +677,7 @@ export interface FileRouteTypes {
     | '/onboarding'
     | '/sessions'
     | '/settings'
+    | '/artifacts/by-kind/$kind'
     | '/pkg/$pkgId/$'
     | '/sessions/by-agent/$agent'
     | '/pkg/$pkgId'
@@ -729,6 +740,7 @@ export interface FileRouteTypes {
     | '/onboarding/'
     | '/sessions/'
     | '/settings/'
+    | '/artifacts/by-kind/$kind'
     | '/pkg/$pkgId/$'
     | '/sessions/by-agent/$agent'
     | '/pkg/$pkgId/'
@@ -761,6 +773,7 @@ export interface RootRouteChildren {
   ArtifactsHomeRoute: typeof ArtifactsHomeRoute
   PackagesBrowseRoute: typeof PackagesBrowseRoute
   ProjectsNewArtifactRoute: typeof ProjectsNewArtifactRoute
+  ArtifactsByKindKindRoute: typeof ArtifactsByKindKindRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -1185,6 +1198,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PkgPkgIdSplatRouteImport
       parentRoute: typeof PkgPkgIdRouteRoute
     }
+    '/artifacts/by-kind/$kind': {
+      id: '/artifacts/by-kind/$kind'
+      path: '/artifacts/by-kind/$kind'
+      fullPath: '/artifacts/by-kind/$kind'
+      preLoaderRoute: typeof ArtifactsByKindKindRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -1336,6 +1356,7 @@ const rootRouteChildren: RootRouteChildren = {
   ArtifactsHomeRoute: ArtifactsHomeRoute,
   PackagesBrowseRoute: PackagesBrowseRoute,
   ProjectsNewArtifactRoute: ProjectsNewArtifactRoute,
+  ArtifactsByKindKindRoute: ArtifactsByKindKindRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

@@ -87,8 +87,14 @@ function ArtifactsHomePage() {
 					counts={catalogQuery.data?.counts}
 					loading={catalogQuery.isLoading}
 					onPick={(slug, hasAny) => {
-						if (hasAny) openWizard(slug);
-						else openWizard(slug);
+						if (hasAny) {
+							void navigate({
+								to: '/artifacts/by-kind/$kind',
+								params: { kind: slug },
+							});
+						} else {
+							openWizard(slug);
+						}
 					}}
 				/>
 
