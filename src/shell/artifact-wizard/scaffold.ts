@@ -27,6 +27,7 @@ import { createTerminalSession } from '@/terminal/single-terminal';
 import { useTerminalStore } from '@/terminal/session-store';
 import { type Archetype, slugifyName } from '@/shell/artifact-wizard/archetypes';
 import { requestOrApplyHandoff } from '@/shell/artifact-wizard/handoff-pref';
+import { useWizardPopStore } from '@/shell/artifact-wizard/pop-recovery-store';
 
 export type AgentChoice =
 	| { kind: 'claude' }
@@ -265,6 +266,19 @@ async function watchForArtifact(
 	function fire(path: string, reason: 'slug-match' | 'fallback'): void {
 		console.info('[wizard] artifact detected', path, `(${reason}) → swapping grid → loupe`);
 		swapStudioToLoupe(studioLeafId, path);
+		// Fallback fires might be the wrong file (a stray sibling create
+		// landed before the agent's actual file). Post a recovery record so
+		// the workspace-mounted chip offers the user one-click backtrack to
+		// the folder grid. Slug-match fires skip this — they're almost
+		// always the right file.
+		if (reason === 'fallback') {
+			useWizardPopStore.getState().post({
+				paneId: studioLeafId,
+				artifactPath: path,
+				folder: normalizedPrefix,
+				postedAt: Date.now(),
+			});
+		}
 		void requestOrApplyHandoff({
 			terminalSessionId,
 			terminalLeafId,
