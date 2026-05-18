@@ -43,6 +43,10 @@ import { type ChatEffort } from '../adapter';
 import { modelLabelFor, useEngineCatalog } from '../engines';
 import { createThread } from '../persist';
 import { mintThreadId } from '../hooks';
+import { createTerminalSession } from '@/terminal/single-terminal';
+import { buildClaudeWrappedCmd } from '@/terminal/claude-wrap';
+import { usePaneStore } from '@/lib/panes/pane-store';
+import { open as openExternal } from '@tauri-apps/plugin-shell';
 import { filterSlashCommands, useSlashCommands, type SlashCommand } from '../slash-commands';
 
 const EFFORT_OPTIONS: ReadonlyArray<{ id: ChatEffort; label: string; lit: number }> = [
@@ -156,12 +160,79 @@ export function Composer({ threadId, className, placeholder }: ComposerProps) {
 	}
 
 	function insertSlashCommand(cmd: SlashCommand) {
-		// Replace the typed `/foo` prefix with `/cmd ` and keep the rest of
-		// whatever the user typed after it.
+		// Built-in commands dispatch on their action instead of inserting
+		// `/name` into the textarea. Stream-json mode can't execute them
+		// on the engine side, so we either summon the equivalent UI
+		// affordance or hand off to a real interactive `claude` terminal.
+		if (cmd.source === 'builtin' && cmd.action) {
+			void runBuiltinSlash(cmd);
+			// Clear the typed `/foo` so the textarea returns to ready state.
+			setText('');
+			return;
+		}
+		// User/project .md commands: keep the legacy "insert into textarea
+		// and send as a literal slash message" behavior. The engine sees
+		// the `/name` as a user message.
 		const trimmed = text.replace(/^\s*/, '');
 		const rest = trimmed.replace(/^\/[^\s]*/, '').replace(/^\s*/, '');
 		const next = `/${cmd.name}${rest ? ` ${rest}` : ' '}`;
 		setText(next);
+	}
+
+	async function runBuiltinSlash(cmd: SlashCommand) {
+		if (!cmd.action) return;
+		const action = cmd.action;
+		switch (action.type) {
+			case 'navigate':
+				void navigate({ to: action.to });
+				return;
+			case 'new-thread': {
+				if (!state?.thread.cwd) return;
+				const newId = mintThreadId();
+				await createThread({
+					id: newId,
+					adapterId: state.thread.adapterId,
+					cwd: state.thread.cwd,
+					claudeSessionId: null,
+					model: state.thread.model,
+					title: null,
+					projectId: state.thread.projectId ?? null,
+				});
+				void navigate({ to: '/sessions/$sessionId', params: { sessionId: newId } });
+				return;
+			}
+			case 'open-engine-picker':
+				setEngineMenuOpen(true);
+				return;
+			case 'open-effort-picker':
+			case 'open-mode-picker':
+				// Both pills are sibling Select components; we don't currently
+				// expose imperative-open APIs on them. Cheapest surface: a
+				// no-op hint until we wire `open` state out of the Select
+				// primitives. For now the picker is one click away.
+				console.info(`[slash:${cmd.name}] open the pill next to the model picker`);
+				return;
+			case 'open-attach-file':
+				fileInputRef.current?.click();
+				return;
+			case 'terminal-handoff': {
+				if (!state?.thread.cwd) return;
+				const sessionId = createTerminalSession({
+					cwd: state.thread.cwd,
+					cmd: buildClaudeWrappedCmd({ prompt: action.command }),
+					title: `claude · ${action.command}`,
+				});
+				const focusedId = usePaneStore.getState().focusedId;
+				usePaneStore.getState().addTab(focusedId, { kind: 'terminal', sessionId });
+				return;
+			}
+			case 'open-external':
+				void openExternal(action.url);
+				return;
+			case 'noop':
+				console.info(`[slash:${cmd.name}] ${action.hint}`);
+				return;
+		}
 	}
 
 	// Phase 7 image attachment state. Phase 11 unconditionally accepts images;
@@ -442,7 +513,7 @@ export function Composer({ threadId, className, placeholder }: ComposerProps) {
 					</div>
 					<ul>
 						{slashMatches.map((cmd, idx) => (
-							<li key={cmd.path}>
+							<li key={`${cmd.source}:${cmd.name}`}>
 								<button
 									type="button"
 									onMouseDown={(e) => {
@@ -450,13 +521,18 @@ export function Composer({ threadId, className, placeholder }: ComposerProps) {
 										insertSlashCommand(cmd);
 									}}
 									className={cn(
-										'flex w-full items-center gap-2 border-l-2 border-transparent px-2 py-1 text-left text-xs transition-colors hover:bg-[var(--rule-soft)]',
+										'flex w-full items-start gap-2 border-l-2 border-transparent px-2 py-1 text-left text-xs transition-colors hover:bg-[var(--rule-soft)]',
 										idx === slashIdx &&
 											'border-l-[var(--kola-amber)] bg-[var(--rule-soft)] text-foreground'
 									)}
 								>
 									<span className="font-mono">/{cmd.name}</span>
-									<span className="ml-auto font-mono text-[9px] uppercase tracking-wider text-[var(--chip-carve)]">
+									{cmd.description && (
+										<span className="flex-1 truncate text-[11px] text-muted-foreground">
+											{cmd.description}
+										</span>
+									)}
+									<span className="ml-auto shrink-0 font-mono text-[9px] uppercase tracking-wider text-[var(--chip-carve)]">
 										{cmd.source}
 									</span>
 								</button>

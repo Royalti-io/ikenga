@@ -1,21 +1,36 @@
 /**
- * Slash-command discovery. Reads Markdown command files from:
- *   * `~/.claude/commands/*.md` — user-level
- *   * `<cwd>/.claude/commands/*.md` — project-level
+ * Slash-command discovery. Three tiers:
+ *   * Built-in Claude Code commands — `/clear`, `/compact`, `/memory`,
+ *     `/model`, `/login`, etc. — sourced from `builtin-slash-commands.ts`.
+ *     Each carries an `action` describing what to do when picked (since
+ *     stream-json mode can't execute them on the engine side).
+ *   * `~/.claude/commands/*.md` — user-level custom commands.
+ *   * `<cwd>/.claude/commands/*.md` — project-level custom commands.
  *
- * Names are derived from the file basename (`thing.md` → `/thing`). Project
- * commands shadow user commands of the same name (Claude Code's actual
- * resolution order — `claude` itself prefers project commands).
+ * Names are derived from the file basename (`thing.md` → `/thing`).
+ * Shadowing precedence (most specific wins): project > user > builtin.
+ * That mirrors Claude Code's project-over-user resolution and lets users
+ * override `/clear` etc. with their own .md file.
  */
 
 import { useEffect, useState } from 'react';
 import { fsList } from '@/lib/tauri-cmd';
 import { loadHome } from '@/lib/home';
+import { BUILTIN_SLASH_COMMANDS, type BuiltinAction } from './builtin-slash-commands';
 
 export interface SlashCommand {
 	name: string;
-	source: 'user' | 'project';
-	path: string;
+	source: 'user' | 'project' | 'builtin';
+	/** Disk path for user/project commands; null for built-ins (whose
+	 *  behavior is dispatched via `action` instead of file content). */
+	path: string | null;
+	/** Short human-readable description, rendered next to the name in
+	 *  the popover. Only present for built-ins today; future per-`.md`
+	 *  frontmatter parsing could populate this for user/project commands. */
+	description?: string;
+	/** Set only on built-ins. The composer dispatches on this instead of
+	 *  inserting the command text into the textarea. */
+	action?: BuiltinAction;
 }
 
 async function listMarkdown(dir: string): Promise<string[]> {
@@ -37,11 +52,22 @@ export async function loadSlashCommands(cwd: string | null): Promise<SlashComman
 		cwd ? listMarkdown(`${cwd}/.claude/commands`) : Promise.resolve([]),
 	]);
 	const byName = new Map<string, SlashCommand>();
+	// Tier 1: built-ins — lowest precedence, user/project .md can shadow.
+	for (const b of BUILTIN_SLASH_COMMANDS) {
+		byName.set(b.name, {
+			name: b.name,
+			source: 'builtin',
+			path: null,
+			description: b.description,
+			action: b.action,
+		});
+	}
+	// Tier 2: user-level custom commands shadow built-ins of the same name.
 	for (const n of userNames) {
 		byName.set(n, { name: n, source: 'user', path: `${userDir}/${n}.md` });
 	}
+	// Tier 3: project-level commands shadow user + built-in.
 	for (const n of projectNames) {
-		// project shadows user
 		byName.set(n, { name: n, source: 'project', path: `${cwd}/.claude/commands/${n}.md` });
 	}
 	return Array.from(byName.values()).sort((a, b) => a.name.localeCompare(b.name));
