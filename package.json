@@ -23,7 +23,7 @@
 	},
 	"dependencies": {
 		"@ikenga/contract": "workspace:*",
-		"@ikenga/pkg-engine-claude-code": "workspace:*",
+		"@ikenga/pkg-engine-claude-code": "^0.2.0",
 		"@ikenga/registry-client": "^0.1.0",
 		"@ikenga/tokens": "workspace:*",
 		"@lobehub/icons": "^5.8.0",
