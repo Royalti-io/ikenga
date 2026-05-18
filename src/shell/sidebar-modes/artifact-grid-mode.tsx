@@ -109,7 +109,20 @@ export function ArtifactGridMode() {
 
 	function openArtifactLoupe(path: string) {
 		const ps = usePaneStore.getState();
-		ps.addTab(ps.focusedId, { kind: 'artifact-studio', path, density: 'loupe' });
+		// If the focused pane is already a loupe, swap in place — clicking a
+		// sibling/version artifact in the sidebar should feel like changing
+		// frames, not piling up tabs. Otherwise mount as a new tab.
+		const leaf = findLeaf(ps.root, ps.focusedId);
+		const active = leaf?.tabs[leaf.activeTabIdx];
+		if (active?.kind === 'artifact-studio' && active.density === 'loupe') {
+			ps.replaceActiveViewAndPushHistory(ps.focusedId, {
+				kind: 'artifact-studio',
+				path,
+				density: 'loupe',
+			});
+		} else {
+			ps.addTab(ps.focusedId, { kind: 'artifact-studio', path, density: 'loupe' });
+		}
 	}
 
 	async function dropArtifact(path: string) {

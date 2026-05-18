@@ -12,9 +12,11 @@ import { cn } from '@/components/ui/utils';
 import { commentList, fsList, fsRead, fsWrite, type FileEntry } from '@/lib/tauri-cmd';
 import { usePaneStore } from '@/lib/panes/pane-store';
 
-/** Pure: given a canonical artifact path and the file lists at its
- *  parent dir + variant subdir, return the ordered version set with
- *  the canonical pinned first. */
+/** Pure: given an artifact path and the file lists at its parent dir +
+ *  variant subdir, return the ordered version set with the canonical
+ *  pinned first. The opened path may itself be a variant — the canonical
+ *  is recovered by stripping a trailing version suffix and checking the
+ *  parent for `<stem><ext>`. */
 export interface VersionEntry {
 	path: string;
 	name: string;
@@ -23,21 +25,49 @@ export interface VersionEntry {
 	size: number;
 }
 
+/** Strip a trailing `-vN`, `_N`, or `-vN-descriptor` from a basename
+ *  (without extension) to recover the version family's stem. Pure. */
+export function versionStem(basenameNoExt: string): string {
+	// `-v2`, `-v10`, `_3` — optionally followed by a `-descriptor` tail.
+	const re = /^(.+?)[-_](?:v?\d+)(?:-[A-Za-z0-9_.-]+)?$/i;
+	const m = re.exec(basenameNoExt);
+	return m ? m[1] : basenameNoExt;
+}
+
+/** True when `candidate` is in the same version family as `stem`.
+ *  Either the bare stem (canonical) or `<stem>(-vN | _N)(-descriptor)?`. */
+function isFamilyMember(candidate: string, stem: string): boolean {
+	if (candidate === stem) return true;
+	if (!candidate.startsWith(stem)) return false;
+	const rest = candidate.slice(stem.length);
+	return /^[-_]v?\d+(-[A-Za-z0-9_.-]+)?$/i.test(rest);
+}
+
 export function computeVersions(
-	canonicalPath: string,
+	openedPath: string,
 	parentEntries: FileEntry[],
 	variantSubEntries: FileEntry[]
 ): VersionEntry[] {
-	const slash = canonicalPath.lastIndexOf('/');
-	const canonicalName = slash >= 0 ? canonicalPath.slice(slash + 1) : canonicalPath;
-	const dot = canonicalName.lastIndexOf('.');
-	const basename = dot > 0 ? canonicalName.slice(0, dot) : canonicalName;
-	const extension = dot > 0 ? canonicalName.slice(dot) : '';
+	const slash = openedPath.lastIndexOf('/');
+	const openedName = slash >= 0 ? openedPath.slice(slash + 1) : openedPath;
+	const parentDir = slash >= 0 ? openedPath.slice(0, slash) : '.';
+	const dot = openedName.lastIndexOf('.');
+	const openedBase = dot > 0 ? openedName.slice(0, dot) : openedName;
+	const extension = dot > 0 ? openedName.slice(dot) : '';
+
+	// Recover the canonical: <stem><ext> if it exists in the parent dir,
+	// else the opened path itself is treated as canonical.
+	const stem = versionStem(openedBase);
+	const stemPath = `${parentDir}/${stem}${extension}`;
+	const stemEntry = parentEntries.find((e) => !e.isDir && e.path === stemPath);
+	const canonicalPath = stemEntry ? stemPath : openedPath;
+	const canonicalName = stemEntry ? `${stem}${extension}` : openedName;
+	const canonicalEntry =
+		stemEntry ?? parentEntries.find((e) => !e.isDir && e.path === canonicalPath);
 
 	const out: VersionEntry[] = [];
 	const seen = new Set<string>();
 
-	const canonicalEntry = parentEntries.find((e) => !e.isDir && e.path === canonicalPath);
 	out.push({
 		path: canonicalPath,
 		name: canonicalName,
@@ -47,12 +77,15 @@ export function computeVersions(
 	});
 	seen.add(canonicalPath);
 
-	// Siblings in the same dir with `<basename>*<ext>` (e.g. `cfo-daily-v2.html`).
+	// Siblings in the same dir whose name is in the family. Same extension
+	// required so `foo.html` doesn't pull in `foo-v2.md`.
 	for (const e of parentEntries) {
 		if (e.isDir) continue;
 		if (seen.has(e.path)) continue;
-		if (!e.name.startsWith(basename)) continue;
 		if (extension && !e.name.endsWith(extension)) continue;
+		const eDot = e.name.lastIndexOf('.');
+		const eBase = eDot > 0 ? e.name.slice(0, eDot) : e.name;
+		if (!isFamilyMember(eBase, stem)) continue;
 		out.push({
 			path: e.path,
 			name: e.name,
@@ -63,7 +96,9 @@ export function computeVersions(
 		seen.add(e.path);
 	}
 
-	// Older convention: `<basename>/<variant>.html` next to the canonical file.
+	// Legacy convention: `<basename>/<variant>.html` next to the canonical.
+	// Walked unconditionally — the variant subdir is named after the stem
+	// so anything inside is presumed to belong.
 	for (const e of variantSubEntries) {
 		if (e.isDir) continue;
 		if (seen.has(e.path)) continue;
@@ -84,7 +119,9 @@ export function computeVersions(
 	return [head, ...tail];
 }
 
-/** Next free variant name for `<basename>-vN<ext>`. Pure for testability. */
+/** Next free variant name for `<basename>-vN<ext>`. Pure for testability.
+ *  `_N` and `-vN-descriptor` suffixes on the input are stripped so we
+ *  always count against the bare family. */
 export function nextVariantName(
 	canonicalName: string,
 	existingNames: ReadonlyArray<string>
@@ -92,9 +129,7 @@ export function nextVariantName(
 	const dot = canonicalName.lastIndexOf('.');
 	const basename = dot > 0 ? canonicalName.slice(0, dot) : canonicalName;
 	const extension = dot > 0 ? canonicalName.slice(dot) : '';
-	// Strip any trailing `-vN` from the canonical so the new variant counts
-	// against the family rather than chaining (v2 from `foo-v2.html` → `foo-v3.html`).
-	const family = basename.replace(/-v\d+$/i, '');
+	const family = versionStem(basename);
 	const taken = new Set(existingNames);
 	let n = 2;
 	while (taken.has(`${family}-v${n}${extension}`)) n += 1;
@@ -110,10 +145,16 @@ export function VersionStrip({ paneId, path }: VersionStripProps) {
 	const replaceActiveView = usePaneStore((s) => s.replaceActiveViewAndPushHistory);
 	const slash = path.lastIndexOf('/');
 	const parentDir = slash >= 0 ? path.slice(0, slash) : '.';
-	const canonicalName = slash >= 0 ? path.slice(slash + 1) : path;
-	const dot = canonicalName.lastIndexOf('.');
-	const basename = dot > 0 ? canonicalName.slice(0, dot) : canonicalName;
-	const variantSubDir = `${parentDir}/${basename}`;
+	const openedName = slash >= 0 ? path.slice(slash + 1) : path;
+	const dot = openedName.lastIndexOf('.');
+	const openedBase = dot > 0 ? openedName.slice(0, dot) : openedName;
+	const extension = dot > 0 ? openedName.slice(dot) : '';
+	// Recover the family stem so the legacy variant subdir (`<stem>/`) is
+	// looked up by the same family the opened path belongs to — opening
+	// `foo-v2.html` still pulls in variants from `foo/`.
+	const stem = versionStem(openedBase);
+	const canonicalName = `${stem}${extension}`;
+	const variantSubDir = `${parentDir}/${stem}`;
 
 	const parentQuery = useQuery({
 		queryKey: ['artifact-studio', 'version-strip', 'parent', parentDir],

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeVersions, nextVariantName } from './version-strip';
+import { computeVersions, nextVariantName, versionStem } from './version-strip';
 import type { FileEntry } from '@/lib/tauri-cmd';
 
 function fe(path: string, opts: Partial<FileEntry> = {}): FileEntry {
@@ -86,6 +86,92 @@ describe('computeVersions', () => {
 		);
 		expect(out).toHaveLength(2);
 		expect(out[1].name).toBe('cfo-daily-v2.html');
+	});
+
+	it('opening a variant directly still surfaces the canonical + siblings', () => {
+		const out = computeVersions(
+			'/work/marketing-q2/cfo-daily-v2.html',
+			[
+				fe('/work/marketing-q2/cfo-daily.html', { modifiedMs: 1 }),
+				fe('/work/marketing-q2/cfo-daily-v2.html', { modifiedMs: 5 }),
+				fe('/work/marketing-q2/cfo-daily-v3.html', { modifiedMs: 10 }),
+			],
+			[]
+		);
+		expect(out[0].name).toBe('cfo-daily.html');
+		expect(out[0].isCanonical).toBe(true);
+		expect(out.map((v) => v.name)).toEqual([
+			'cfo-daily.html',
+			'cfo-daily-v3.html',
+			'cfo-daily-v2.html',
+		]);
+	});
+
+	it('picks up `_N` siblings alongside `-vN`', () => {
+		const out = computeVersions(
+			canonical,
+			[
+				fe(canonical, { modifiedMs: 1 }),
+				fe('/work/marketing-q2/cfo-daily_1.html', { modifiedMs: 5 }),
+				fe('/work/marketing-q2/cfo-daily_2.html', { modifiedMs: 10 }),
+				fe('/work/marketing-q2/cfo-daily-v2.html', { modifiedMs: 7 }),
+			],
+			[]
+		);
+		expect(out.map((v) => v.name)).toEqual([
+			'cfo-daily.html',
+			'cfo-daily_2.html',
+			'cfo-daily-v2.html',
+			'cfo-daily_1.html',
+		]);
+	});
+
+	it('includes -vN-descriptor variants like `cfo-daily-v3-dark.html`', () => {
+		const out = computeVersions(
+			canonical,
+			[
+				fe(canonical, { modifiedMs: 1 }),
+				fe('/work/marketing-q2/cfo-daily-v3-dark.html', { modifiedMs: 10 }),
+			],
+			[]
+		);
+		expect(out.map((v) => v.name)).toEqual(['cfo-daily.html', 'cfo-daily-v3-dark.html']);
+	});
+
+	it('does NOT pull in unrelated files that happen to share a prefix', () => {
+		// Before the stem-based match this would mis-match `cfo-daily-archive.html`
+		// because the basename startsWith `cfo-daily`.
+		const out = computeVersions(
+			canonical,
+			[
+				fe(canonical),
+				fe('/work/marketing-q2/cfo-daily-archive.html', { modifiedMs: 5 }),
+				fe('/work/marketing-q2/cfo-dailyish.html', { modifiedMs: 5 }),
+			],
+			[]
+		);
+		expect(out).toHaveLength(1);
+		expect(out[0].name).toBe('cfo-daily.html');
+	});
+});
+
+describe('versionStem', () => {
+	it('strips -vN', () => {
+		expect(versionStem('foo-v2')).toBe('foo');
+		expect(versionStem('foo-v10')).toBe('foo');
+	});
+	it('strips _N', () => {
+		expect(versionStem('foo_1')).toBe('foo');
+		expect(versionStem('foo_42')).toBe('foo');
+	});
+	it('strips -vN-descriptor', () => {
+		expect(versionStem('foo-v3-dark')).toBe('foo');
+		expect(versionStem('foo-v2-2026-05-18')).toBe('foo');
+	});
+	it('leaves non-version basenames untouched', () => {
+		expect(versionStem('foo')).toBe('foo');
+		expect(versionStem('foo-bar')).toBe('foo-bar');
+		expect(versionStem('foo-daily')).toBe('foo-daily');
 	});
 });
 
