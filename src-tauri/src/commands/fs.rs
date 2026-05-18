@@ -88,6 +88,20 @@ pub async fn fs_mime(path: String) -> Result<String, String> {
         .to_string())
 }
 
+/// Recursive mkdir. Idempotent: succeeds if `path` already exists as a
+/// directory. Used by the artifact wizard so the file-watcher's target
+/// folder is guaranteed to exist before the first event lands. The
+/// allowlist check walks up to the nearest existing ancestor — creating
+/// a deep sub-folder under an already-allowed root is fine.
+#[tauri::command]
+pub async fn fs_mkdir(path: String) -> Result<(), String> {
+    let resolved = resolve_allowlisted(&path).map_err(|e| e.to_string())?;
+    tokio::fs::create_dir_all(&resolved)
+        .await
+        .map_err(|e| format!("mkdir failed: {e}"))?;
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn fs_write(path: String, bytes: Vec<u8>) -> Result<(), String> {
     let resolved = resolve_allowlisted(&path).map_err(|e| e.to_string())?;

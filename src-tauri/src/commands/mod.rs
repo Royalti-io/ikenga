@@ -64,8 +64,8 @@ pub use comments::{
 pub use db::{db_exec, db_query};
 pub use desktop::{iyke_mcp_info, set_dock_badge, IykeMcpInfo};
 pub use fs::{
-    fs_exists, fs_kind, fs_list, fs_mime, fs_read, fs_rename, fs_search, fs_trash, fs_unwatch,
-    fs_watch, fs_write,
+    fs_exists, fs_kind, fs_list, fs_mime, fs_mkdir, fs_read, fs_rename, fs_search, fs_trash,
+    fs_unwatch, fs_watch, fs_write,
 };
 pub use fs_roots::{fs_roots_add, fs_roots_list, fs_roots_remove, fs_roots_reset};
 pub use iyke::{

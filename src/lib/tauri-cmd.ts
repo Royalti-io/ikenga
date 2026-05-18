@@ -146,6 +146,11 @@ export async function fsWrite(path: string, bytes: Uint8Array): Promise<void> {
 	return invoke('fs_write', { path, bytes: Array.from(bytes) });
 }
 
+/** Recursive mkdir. Idempotent — succeeds if the directory already exists. */
+export async function fsMkdir(path: string): Promise<void> {
+	return invoke('fs_mkdir', { path });
+}
+
 export async function fsList(dir: string, glob?: string): Promise<FileEntry[]> {
 	return invoke('fs_list', { dir, glob: glob ?? null });
 }

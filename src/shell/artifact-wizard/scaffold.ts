@@ -13,7 +13,15 @@
 // with a 30-minute self-timeout so it doesn't leak if the agent never
 // writes anything.
 
-import { fsListenWatch, fsUnwatch, fsWatch, ptyWrite, type Project } from '@/lib/tauri-cmd';
+import {
+	fsListenWatch,
+	fsMkdir,
+	fsUnwatch,
+	fsWatch,
+	ptyWrite,
+	type Project,
+} from '@/lib/tauri-cmd';
+import { findLeaf } from '@/lib/panes/pane-reducer';
 import { usePaneStore } from '@/lib/panes/pane-store';
 import { createTerminalSession } from '@/terminal/single-terminal';
 import { useTerminalStore } from '@/terminal/session-store';
@@ -81,6 +89,18 @@ export async function startArtifact(args: StartArgs): Promise<StartResult> {
 		slug,
 	});
 
+	// Make sure the watched folder exists before the watcher arms — otherwise
+	// a `<project>/<archetype-subdir>/` that doesn't exist yet would silently
+	// miss the first create event because notify watches a non-existent path
+	// as the parent dir, and our prefix filter wouldn't match the created
+	// subdir entry. Idempotent. Errors are logged + soft-fail; the watcher
+	// still runs against the project root.
+	if (args.folder.length > 0) {
+		await fsMkdir(args.folder).catch((e) => {
+			console.warn('[wizard] mkdir', args.folder, 'failed (continuing):', e);
+		});
+	}
+
 	// Spawn the terminal at the project root so the agent sees the right
 	// `.claude/` and CLAUDE.md. D3 + D9 in the projects-as-context plan.
 	const cwd = args.project.root_path ?? args.folder;
@@ -91,9 +111,13 @@ export async function startArtifact(args: StartArgs): Promise<StartResult> {
 		title: `${agentTitle} · ${args.archetype.label.toLowerCase()}`,
 	});
 
-	// Mount the terminal in the focused pane.
+	// Mount the terminal in the focused pane. Capture the leaf id so the
+	// watcher can split *that* leaf horizontally (loupe to the right of
+	// the terminal) instead of shoving the terminal off-screen by adding
+	// a new tab to whatever happens to be focused later.
 	const paneStore = usePaneStore.getState();
-	paneStore.addTab(paneStore.focusedId, {
+	const terminalLeafId = paneStore.focusedId;
+	paneStore.addTab(terminalLeafId, {
 		kind: 'terminal',
 		sessionId: terminalSessionId,
 	});
@@ -101,10 +125,10 @@ export async function startArtifact(args: StartArgs): Promise<StartResult> {
 	// Type the kickoff prompt into the PTY once it's ready. Fire and forget.
 	void typeKickoff(terminalSessionId, kickoffPrompt);
 
-	// Watch the project root recursively and pop the loupe when a new
-	// .html lands under the chosen folder.
+	// Watch the project root recursively and pop the loupe to the right of
+	// the terminal pane when a new .html lands under the chosen folder.
 	if (args.project.root_path) {
-		void watchForArtifact(args.project.root_path, args.folder);
+		void watchForArtifact(args.project.root_path, args.folder, terminalLeafId);
 	}
 
 	return { terminalSessionId, slug, kickoffPrompt };
@@ -162,9 +186,14 @@ function wait(ms: number): Promise<void> {
 }
 
 /** Watch the project root recursively for the first new `.html` whose path
- *  is under `folderPrefix`. Open the loupe and clean up the watcher.
+ *  is under `folderPrefix`. Split the terminal leaf horizontally and drop
+ *  the loupe in the new leaf so terminal + artifact sit side-by-side.
  *  Self-terminates after 30 minutes if no match. */
-async function watchForArtifact(rootPath: string, folderPrefix: string): Promise<void> {
+async function watchForArtifact(
+	rootPath: string,
+	folderPrefix: string,
+	terminalLeafId: string
+): Promise<void> {
 	const normalizedPrefix = folderPrefix.replace(/\/+$/, '');
 	let watcherId: string | null = null;
 	let unlisten: (() => void) | null = null;
@@ -189,6 +218,7 @@ async function watchForArtifact(rootPath: string, folderPrefix: string): Promise
 
 	try {
 		watcherId = await fsWatch(rootPath);
+		console.info('[wizard] watching', rootPath, 'for .html under', normalizedPrefix);
 		unlisten = await fsListenWatch(watcherId, (change) => {
 			if (cleaned) return;
 			if (change.kind !== 'create') return;
@@ -196,21 +226,35 @@ async function watchForArtifact(rootPath: string, folderPrefix: string): Promise
 			if (!change.path.startsWith(`${normalizedPrefix}/`) && change.path !== normalizedPrefix) {
 				return;
 			}
-			try {
-				const ps = usePaneStore.getState();
-				ps.addTab(ps.focusedId, {
-					kind: 'artifact-studio',
-					path: change.path,
-					density: 'loupe',
-				});
-			} catch (e) {
-				console.error('[wizard] auto-open studio failed:', e);
-			}
+			console.info('[wizard] artifact detected', change.path, '→ splitting into loupe');
+			openLoupeBesideTerminal(terminalLeafId, change.path);
 			clearTimeout(timeout);
 			cleanup();
 		});
 	} catch (e) {
 		console.warn('[wizard] could not watch', rootPath, e);
 		clearTimeout(timeout);
+	}
+}
+
+/** Split the terminal's leaf horizontally and mount the artifact-studio
+ *  loupe in the new right-hand leaf. Falls back to a tab on the focused
+ *  pane if the terminal leaf has gone away (closed by the user). */
+function openLoupeBesideTerminal(terminalLeafId: string, path: string): void {
+	const ps = usePaneStore.getState();
+	const view = { kind: 'artifact-studio' as const, path, density: 'loupe' as const };
+	const leaf = findLeaf(ps.root, terminalLeafId);
+	try {
+		if (leaf) {
+			ps.splitPane(terminalLeafId, 'horizontal');
+			// splitPane focuses the newly-created leaf — drop the loupe in
+			// that focused leaf.
+			const next = usePaneStore.getState();
+			next.addTab(next.focusedId, view);
+		} else {
+			ps.addTab(ps.focusedId, view);
+		}
+	} catch (e) {
+		console.error('[wizard] auto-open studio failed:', e);
 	}
 }
