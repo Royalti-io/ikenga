@@ -19,14 +19,20 @@
 //!                uninstall is a single `rm -rf` of the per-pkg dir).
 //!   - AGENTS.md: skipped for v1 (out of scope).
 //!
-//! Env-substitution semantics (ADR §7 open question — STRICT REFUSAL):
-//!   Codex's behavior around env-var substitution in `[mcp_servers.<n>.env]`
-//!   is unverified. v1 ships option (a) from the brief: refuse any entry
-//!   whose env contains a `${IKENGA_SECRET:...}` placeholder (we don't trust
-//!   the indirection until verified) AND refuse any entry with a secret-
-//!   shaped env key carrying a plaintext value. Only env-free or
-//!   plain-non-secret env survives the write. Re-verify when the ADR open
-//!   question closes.
+//! Env-substitution semantics (ADR §7 closed 2026-05-18):
+//!   Codex's `[mcp_servers.<n>.env]` table is documented as static literal
+//!   key-value pairs — no `${VAR}` or `${IKENGA_SECRET:...}` substitution.
+//!   However Codex DOES support a separate `env_vars = [...]` field on the
+//!   server table that forwards values from Codex's parent process env to
+//!   the MCP child. We use this as the secret indirection path:
+//!     - `${IKENGA_SECRET:foo}` placeholder → emit the key into `env_vars`
+//!       (the user must `export FOO_API_KEY=...` before invoking the
+//!       external `codex` CLI for the indirection to work). Surfaces an
+//!       informational warning.
+//!     - secret-shaped env key with a plaintext value → still REFUSE the
+//!       entry. Plaintext secrets in a manifest are a pkg-author bug.
+//!     - everything else → emit verbatim into the `.env` subtable.
+//!   See: https://developers.openai.com/codex/mcp (`env_vars` schema).
 //!
 //! Idempotency for MCP entries is hand-rolled text-block matching, scoped
 //! exactly to the `[mcp_servers.ikenga.<slug>.<name>]` shape we emit. No
@@ -153,10 +159,16 @@ impl CodexAdapter {
         Ok(out)
     }
 
-    /// Emit one `[mcp_servers.ikenga.<slug>.<name>]` block. Returns the
-    /// block plus the table header line (without brackets stripped) for
+    /// Emit one `[mcp_servers.ikenga.<slug>.<name>]` block. The caller has
+    /// already partitioned env into the literal subtable + the env_vars
+    /// allowlist. Returns the block plus the table-header string for
     /// idempotency search.
-    fn emit_mcp_block(pkg_slug: &str, server: &McpServer) -> (String, String) {
+    fn emit_mcp_block(
+        pkg_slug: &str,
+        server: &McpServer,
+        env_table: &[(&String, &String)],
+        env_vars_allowlist: &[String],
+    ) -> (String, String) {
         let table_name = format!("mcp_servers.ikenga.{pkg_slug}.{}", server.name);
         let table_header = format!("[{table_name}]");
         let mut out = String::new();
@@ -170,23 +182,70 @@ impl CodexAdapter {
             .collect::<Vec<_>>()
             .join(", ");
         out.push_str(&format!("args = [{args_str}]\n"));
+        if !env_vars_allowlist.is_empty() {
+            let mut sorted: Vec<&String> = env_vars_allowlist.iter().collect();
+            sorted.sort();
+            let joined = sorted
+                .iter()
+                .map(|s| quote_toml_string(s))
+                .collect::<Vec<_>>()
+                .join(", ");
+            out.push_str(&format!("env_vars = [{joined}]\n"));
+        }
         if server.is_long_lived() {
             // ADR §4: don't let external Codex CLI race the kernel's own
             // SidecarSupervisor on the same stdio child.
             out.push_str("disabled = true\n");
         }
-        if !server.env.is_empty() {
+        if !env_table.is_empty() {
             out.push('\n');
             out.push_str(&format!("[{table_name}.env]\n"));
-            let mut keys: Vec<&String> = server.env.keys().collect();
-            keys.sort();
-            for k in keys {
-                if let Some(v) = server.env.get(k) {
-                    out.push_str(&format!("{k} = {}\n", quote_toml_string(v)));
-                }
+            let mut sorted: Vec<&(&String, &String)> = env_table.iter().collect();
+            sorted.sort_by_key(|(k, _)| k.as_str());
+            for (k, v) in sorted {
+                out.push_str(&format!("{k} = {}\n", quote_toml_string(v)));
             }
         }
         (out, table_header)
+    }
+
+    /// Partition a manifest env block into the literal `.env` subtable
+    /// entries and the `env_vars` allowlist (per ADR §7 closure, 2026-05-18).
+    /// Returns `(env_table, env_vars_allowlist, refuse_warnings, info_warnings)`.
+    /// A non-empty `refuse_warnings` vec means the caller must skip the
+    /// write entirely — plaintext secrets in a manifest are a pkg-author
+    /// bug we refuse to materialize.
+    #[allow(clippy::type_complexity)]
+    fn partition_env<'a>(
+        server: &'a McpServer,
+    ) -> (
+        Vec<(&'a String, &'a String)>,
+        Vec<String>,
+        Vec<String>,
+        Vec<String>,
+    ) {
+        let re = secret_key_regex();
+        let mut env_table: Vec<(&String, &String)> = Vec::new();
+        let mut env_vars_allowlist: Vec<String> = Vec::new();
+        let mut refuse_warnings: Vec<String> = Vec::new();
+        let mut info_warnings: Vec<String> = Vec::new();
+        for (key, value) in &server.env {
+            if value.starts_with(IKENGA_SECRET_PREFIX) {
+                env_vars_allowlist.push(key.clone());
+                info_warnings.push(format!(
+                    "Codex MCP env `{key}` translated to `env_vars` allowlist — \
+                     export {key}=... in your shell before invoking the external `codex` CLI"
+                ));
+            } else if re.is_match(key) {
+                refuse_warnings.push(format!(
+                    "secret-bearing env var '{key}' must use ${{IKENGA_SECRET:<vault-key>}} \
+                     indirection — plaintext refused"
+                ));
+            } else {
+                env_table.push((key, value));
+            }
+        }
+        (env_table, env_vars_allowlist, refuse_warnings, info_warnings)
     }
 
     /// Find the line-range of an existing `<table_header>` block in `toml`,
@@ -231,31 +290,7 @@ impl CodexAdapter {
         Some((start, end))
     }
 
-    /// Compute strict-refusal warnings for an MCP spec. See module docs.
-    fn build_mcp_warnings(spec: &McpServer) -> Vec<String> {
-        let mut warnings = Vec::new();
-        let re = secret_key_regex();
-        let mut saw_placeholder = false;
-        for (key, value) in &spec.env {
-            if value.starts_with(IKENGA_SECRET_PREFIX) {
-                saw_placeholder = true;
-                continue;
-            }
-            if re.is_match(key) {
-                warnings.push(format!(
-                    "secret-bearing env var '{key}' must use ${{IKENGA_SECRET:<vault-key>}} indirection"
-                ));
-            }
-        }
-        if saw_placeholder {
-            warnings.push(format!(
-                "Codex MCP env-var indirection semantics unverified — refusing to write `${{IKENGA_SECRET:...}}` placeholders to ~/.codex/config.toml. See ADR-012 §7."
-            ));
-        }
-        warnings
-    }
-
-    /// Best-effort uninstall: remove a per-slug path that may be either a
+/// Best-effort uninstall: remove a per-slug path that may be either a
     /// symlink (skills case) or a real dir (commands-as-skills case). User
     /// data is never touched outside the per-slug namespace.
     fn remove_symlink_or_dir(target: &Path) -> Result<()> {
@@ -330,16 +365,18 @@ impl EngineAdapter for CodexAdapter {
             return Err(anyhow!("mcp server '{}' has empty command", server.name));
         }
 
-        let warnings = Self::build_mcp_warnings(server);
-        if !warnings.is_empty() {
+        let (env_table, env_vars_allowlist, refuse_warnings, info_warnings) =
+            Self::partition_env(server);
+        if !refuse_warnings.is_empty() {
             return Ok(InstallReport {
                 wrote: Vec::new(),
                 skipped: Vec::new(),
-                warnings,
+                warnings: refuse_warnings,
             });
         }
 
-        let (block, table_header) = Self::emit_mcp_block(pkg_slug, server);
+        let (block, table_header) =
+            Self::emit_mcp_block(pkg_slug, server, &env_table, &env_vars_allowlist);
         let dest = Self::config_path()?;
         let existing = Self::read_file_or_empty(&dest)?;
         let entry_ref = format!("{}#{}", dest.display(), &table_header[1..table_header.len() - 1]);
@@ -353,7 +390,7 @@ impl EngineAdapter for CodexAdapter {
                 return Ok(InstallReport {
                     wrote: Vec::new(),
                     skipped: vec![entry_ref],
-                    warnings: Vec::new(),
+                    warnings: info_warnings,
                 });
             }
             let mut merged = String::with_capacity(existing.len() + block.len());
@@ -368,7 +405,7 @@ impl EngineAdapter for CodexAdapter {
             return Ok(InstallReport {
                 wrote: vec![entry_ref],
                 skipped: Vec::new(),
-                warnings: Vec::new(),
+                warnings: info_warnings,
             });
         }
 
@@ -386,7 +423,7 @@ impl EngineAdapter for CodexAdapter {
         Ok(InstallReport {
             wrote: vec![entry_ref],
             skipped: Vec::new(),
-            warnings: Vec::new(),
+            warnings: info_warnings,
         })
     }
 
@@ -720,7 +757,7 @@ mod tests {
     }
 
     #[test]
-    fn register_mcp_refuses_secret_placeholder() {
+    fn register_mcp_translates_secret_placeholder_to_env_vars() {
         let _g = test_lock();
         let _h = HomeGuard::new();
         let adapter = CodexAdapter::new();
@@ -730,19 +767,46 @@ mod tests {
             &[("EXA_API_KEY", "${IKENGA_SECRET:exa_api_key}")],
         );
         let report = adapter.register_mcp_server(&s, "p", "p").unwrap();
-        assert!(report.wrote.is_empty());
-        assert!(report.skipped.is_empty());
+        assert_eq!(report.wrote.len(), 1, "entry should be written");
         assert!(
             report
                 .warnings
                 .iter()
-                .any(|w| w.contains("env-var indirection semantics unverified")),
-            "expected unverified-semantics warning, got {:?}",
+                .any(|w| w.contains("env_vars` allowlist") && w.contains("EXA_API_KEY")),
+            "expected env_vars informational warning, got {:?}",
             report.warnings
         );
 
-        // File never created.
-        assert!(!CodexAdapter::config_path().unwrap().exists());
+        // On disk: `env_vars = ["EXA_API_KEY"]` line, no [.env] subtable
+        // (every env entry was a secret placeholder → all routed to allowlist).
+        let raw = std::fs::read_to_string(CodexAdapter::config_path().unwrap()).unwrap();
+        assert!(raw.contains("env_vars = [\"EXA_API_KEY\"]"));
+        assert!(!raw.contains("[mcp_servers.ikenga.p.exa.env]"));
+    }
+
+    #[test]
+    fn register_mcp_mixed_env_emits_both_blocks() {
+        let _g = test_lock();
+        let _h = HomeGuard::new();
+        let adapter = CodexAdapter::new();
+        let s = server(
+            "svc",
+            "node",
+            &[
+                ("FOO_API_KEY", "${IKENGA_SECRET:foo}"),
+                ("PLAIN_DEBUG", "1"),
+            ],
+        );
+        let report = adapter.register_mcp_server(&s, "p", "svc").unwrap();
+        assert_eq!(report.wrote.len(), 1);
+        let raw = std::fs::read_to_string(CodexAdapter::config_path().unwrap()).unwrap();
+        assert!(raw.contains("env_vars = [\"FOO_API_KEY\"]"));
+        assert!(raw.contains("[mcp_servers.ikenga.svc.svc.env]"));
+        assert!(raw.contains("PLAIN_DEBUG = \"1\""));
+        assert!(
+            !raw.contains("FOO_API_KEY ="),
+            "secret-placeholder must NOT appear in .env subtable"
+        );
     }
 
     #[test]
