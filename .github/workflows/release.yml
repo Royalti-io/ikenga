@@ -338,12 +338,18 @@ jobs:
   # bundles as workflow-run artifacts instead.
   #
   # The `notes` job below runs after the matrix completes and backfills:
-  #   1. The GH Release body — auto-generated from commits/PRs between the
-  #      previous tag and this tag via GitHub's `generate-notes` endpoint.
+  #   1. The GH Release body — a categorized commit log between the previous
+  #      tag and this tag, grouped by conventional-commit prefix
+  #      (feat / fix / refactor / etc.), plus a compare-link footer.
   #   2. The `notes` field inside `latest.json` (what the in-app updater UI
   #      shows). `latest.json` itself isn't signed — only the bundles
   #      referenced inside it are — so re-uploading with edited notes is
   #      safe and doesn't require the signing key.
+  #
+  # Why git log instead of GitHub's generate-notes API: this repo commits
+  # directly to main (no PR-per-feature workflow), so generate-notes returns
+  # only the "Full Changelog" link with no body. Conventional-commit
+  # prefixes give us enough structure to group commits ourselves.
   #
   # If you'd rather hand-curate the body, run
   # `gh release edit vX.Y.Z --notes-file path/to/notes.md` after the
@@ -355,6 +361,12 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Checkout shell (full history for git log)
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
       - name: Generate + apply release notes
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -364,24 +376,75 @@ jobs:
         run: |
           set -euo pipefail
 
-          # 1) Generate notes from GitHub's API (PRs + commits since previous tag).
-          BODY=$(gh api "repos/$REPO/releases/generate-notes" \
-            -f tag_name="$TAG" \
-            --jq '.body')
-
-          if [ -z "$BODY" ]; then
-            echo "::warning::generate-notes returned empty body; skipping notes backfill"
-            exit 0
+          # Previous tag (the one immediately before $TAG in tag history).
+          PREV=$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || true)
+          if [ -z "$PREV" ]; then
+            echo "::warning::no previous tag found; using full history"
+            RANGE="HEAD"
+          else
+            RANGE="${PREV}..${TAG}"
           fi
 
-          # 2) Write the body to the draft Release. Use a file to avoid
-          #    quoting hell with multi-line markdown.
-          printf '%s\n' "$BODY" > /tmp/body.md
-          gh release edit "$TAG" --repo "$REPO" --notes-file /tmp/body.md
+          # Group commits by conventional-commit prefix. Falls into
+          # "Other" when the message doesn't start with a recognized prefix.
+          BODY_FILE=/tmp/body.md
+          {
+            echo "# Ikenga $TAG"
+            echo ""
+            COUNT=$(git log "$RANGE" --pretty="%s" | wc -l)
+            if [ -n "$PREV" ]; then
+              echo "$COUNT commits since $PREV."
+            else
+              echo "$COUNT commits."
+            fi
+            echo ""
 
-          # 3) Update latest.json's notes field with a short summary so the
-          #    in-app updater UI has something to show.
-          SHORT=$(printf '%s' "$BODY" | head -2 | tr '\n' ' ' | sed 's/  */ /g')
+            for section in 'feat:Features' 'fix:Fixes' 'refactor:Refactors' 'perf:Performance' 'docs:Docs' 'test:Tests' 'ci:CI / Build' 'build:CI / Build' 'chore:Chores'; do
+              prefix="${section%%:*}"
+              title="${section##*:}"
+              entries=$(git log "$RANGE" --pretty="- %s" | grep -E "^- ${prefix}(\(|:)" || true)
+              if [ -n "$entries" ]; then
+                echo "## $title"
+                echo ""
+                printf '%s\n\n' "$entries"
+              fi
+            done
+
+            # Anything that didn't match any prefix above.
+            other=$(git log "$RANGE" --pretty="- %s" | grep -vE "^- (feat|fix|refactor|perf|docs|test|ci|build|chore)(\(|:)" || true)
+            if [ -n "$other" ]; then
+              echo "## Other"
+              echo ""
+              printf '%s\n\n' "$other"
+            fi
+
+            echo "---"
+            echo ""
+            echo "**Full Changelog:** https://github.com/$REPO/compare/${PREV:-}...${TAG}"
+            echo ""
+            echo "## Install"
+            echo ""
+            echo '```bash'
+            echo "# macOS / Linux — AppImage (portable)"
+            echo "curl -fsSL https://ikenga.dev/install.sh | sh"
+            echo ""
+            echo "# Linux — system-wide .deb"
+            echo "curl -fsSL https://ikenga.dev/install.sh | IKENGA_FORMAT=deb sh"
+            echo ""
+            echo "# Windows — Git Bash / MSYS / Cygwin"
+            echo "curl -fsSL https://ikenga.dev/install.sh | sh"
+            echo '```'
+          } > "$BODY_FILE"
+
+          gh release edit "$TAG" --repo "$REPO" --notes-file "$BODY_FILE"
+
+          # Short summary for latest.json (in-app updater UI). Take the
+          # commit-count line + the first feat (if any) + a pointer.
+          SHORT=$(printf 'Ikenga %s — %s See %s for full notes.' \
+            "$TAG" \
+            "$(awk 'NR==3' "$BODY_FILE")" \
+            "https://github.com/$REPO/releases/tag/$TAG")
+
           TMP_JSON=$(mktemp --suffix=.json)
           gh release download "$TAG" --repo "$REPO" -p latest.json -O "$TMP_JSON"
           node -e '
