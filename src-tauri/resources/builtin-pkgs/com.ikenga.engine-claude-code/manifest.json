@@ -34,5 +34,30 @@
         "default": "claude-sonnet-4-6"
       }
     ]
+  },
+
+  "engine": {
+    "agentId": "claude-code",
+    "display": "Claude Code",
+    "capabilities": {
+      "streaming": true,
+      "toolUse": true,
+      "thinking": true,
+      "artifacts": true,
+      "fileAttachments": true,
+      "imageInput": true,
+      "slashCommands": true,
+      "modelSwitching": true,
+      "promptCaching": true,
+      "agenticTools": true,
+      "mcp": true,
+      "sessionResume": true
+    },
+    "onboarding": {
+      "requiredVaultKeys": ["ANTHROPIC_API_KEY"],
+      "requiredEnvVars": [],
+      "authCommand": "claude login",
+      "docsUrl": "https://docs.anthropic.com/en/docs/claude-code"
+    }
   }
 }

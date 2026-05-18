@@ -27,17 +27,19 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 SHELL_ROOT="$(pwd)"
 PKG_DIR="${SHELL_ROOT}/src-tauri/resources/builtin-pkgs/com.ikenga.mcp-iyke"
-SRC_DIR="${SHELL_ROOT}/../pkgs/mcp-iyke"
+SRC_DIR="${SHELL_ROOT}/../ikenga-pkgs/packages/mcp/iyke"
 
 if [[ ! -d "${PKG_DIR}" ]]; then
   echo "error: builtin pkg dir missing: ${PKG_DIR}" >&2
   exit 1
 fi
 
-# Ensure deps are installed (uses the source pkg's bun.lock as canonical).
+# Source pkg lives in the ikenga-pkgs monorepo (pnpm workspace). Deps are
+# installed at the workspace root, not per-pkg. If the per-pkg node_modules
+# is missing it usually means the workspace install hasn't run yet.
 if [[ ! -d "${SRC_DIR}/node_modules" ]]; then
-  echo "==> installing mcp-iyke deps in ${SRC_DIR}"
-  (cd "${SRC_DIR}" && bun install --frozen-lockfile)
+  echo "==> installing ikenga-pkgs workspace deps (per-pkg node_modules missing for mcp-iyke)"
+  (cd "${SHELL_ROOT}/../ikenga-pkgs" && pnpm install --frozen-lockfile)
 fi
 
 mkdir -p "${PKG_DIR}/dist"
