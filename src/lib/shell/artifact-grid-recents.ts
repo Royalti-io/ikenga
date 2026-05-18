@@ -1,14 +1,14 @@
-// Recently-opened folders for the artifact-grid quick-launcher.
+// Recently-opened folders for the artifact-grid sidebar — per project.
 //
 // Persisted to settings_kv as a JSON array under
-// `artifact-grid.recents` (MRU-first, capped). The activity-bar
-// quick-launch popover reads this for its main list; the Tauri folder
-// picker is the fall-through at the bottom.
+// `artifact-grid.recents.<projectId>` (MRU-first, capped). The sidebar
+// reads the active project's list; switching projects shows a different
+// set. Subscribe channel is per-project so a switch live-refreshes.
 
 import { settingsGet, settingsSet } from '@/lib/tauri-cmd';
 import { usePaneStore } from '@/lib/panes/pane-store';
 
-const KEY = 'artifact-grid.recents';
+const KEY_PREFIX = 'artifact-grid.recents.';
 const CAP = 8;
 
 export interface RecentGridFolder {
@@ -16,27 +16,32 @@ export interface RecentGridFolder {
 	openedAtMs: number;
 }
 
+function key(projectId: string): string {
+	return `${KEY_PREFIX}${projectId}`;
+}
+
 // ─── Reactive subscription ───────────────────────────────────────────────
-//
-// The recents list is small (≤8 entries) and read by both the activity-bar
-// quick-launcher popover and the artifact-grid sidebar mode. Surfaces that
-// mount continuously need to see writes that happen elsewhere (e.g. the
-// popover dropping an entry while the sidebar is open). A 10-line
-// subscriber set is enough — no need to lift the data into Zustand /
-// TanStack Query.
 
 type RecentsListener = (next: RecentGridFolder[]) => void;
-const listeners = new Set<RecentsListener>();
+const listeners: Map<string, Set<RecentsListener>> = new Map();
 
-export function subscribeRecents(fn: RecentsListener): () => void {
-	listeners.add(fn);
+export function subscribeRecents(projectId: string, fn: RecentsListener): () => void {
+	let set = listeners.get(projectId);
+	if (!set) {
+		set = new Set();
+		listeners.set(projectId, set);
+	}
+	set.add(fn);
 	return () => {
-		listeners.delete(fn);
+		set?.delete(fn);
+		if (set && set.size === 0) listeners.delete(projectId);
 	};
 }
 
-function fire(next: RecentGridFolder[]): void {
-	for (const fn of listeners) {
+function fire(projectId: string, next: RecentGridFolder[]): void {
+	const set = listeners.get(projectId);
+	if (!set) return;
+	for (const fn of set) {
 		try {
 			fn(next);
 		} catch (e) {
@@ -44,6 +49,8 @@ function fire(next: RecentGridFolder[]): void {
 		}
 	}
 }
+
+// ─── Load / mutate ───────────────────────────────────────────────────────
 
 function parse(raw: string | null): RecentGridFolder[] {
 	if (!raw) return [];
@@ -64,39 +71,39 @@ function parse(raw: string | null): RecentGridFolder[] {
 	}
 }
 
-export async function loadRecents(): Promise<RecentGridFolder[]> {
-	const raw = await settingsGet(KEY);
+export async function loadRecents(projectId: string): Promise<RecentGridFolder[]> {
+	const raw = await settingsGet(key(projectId));
 	return parse(raw);
 }
 
 /** Move `path` to the front of the recents list (deduplicating any prior
- *  entry for the same path), cap at CAP, and persist. Returns the new list
- *  so callers can update local state without a re-read. */
-export async function recordOpen(path: string): Promise<RecentGridFolder[]> {
-	const cur = await loadRecents();
+ *  entry for the same path), cap at CAP, and persist under the project's
+ *  key. Returns the new list. */
+export async function recordOpen(projectId: string, path: string): Promise<RecentGridFolder[]> {
+	const cur = await loadRecents(projectId);
 	const filtered = cur.filter((r) => r.path !== path);
 	const next: RecentGridFolder[] = [{ path, openedAtMs: Date.now() }, ...filtered].slice(0, CAP);
-	await settingsSet(KEY, JSON.stringify(next));
-	fire(next);
+	await settingsSet(key(projectId), JSON.stringify(next));
+	fire(projectId, next);
 	return next;
 }
 
-export async function removeRecent(path: string): Promise<RecentGridFolder[]> {
-	const cur = await loadRecents();
+export async function removeRecent(projectId: string, path: string): Promise<RecentGridFolder[]> {
+	const cur = await loadRecents(projectId);
 	const next = cur.filter((r) => r.path !== path);
-	await settingsSet(KEY, JSON.stringify(next));
-	fire(next);
+	await settingsSet(key(projectId), JSON.stringify(next));
+	fire(projectId, next);
 	return next;
 }
 
-/** Open `path` as an artifact-studio grid-density tab in the focused
- *  leaf and record the recent. Single shared entry point so every
- *  surface (activity-bar quick-launcher, files-mode context menu,
- *  future ones) keeps the recents list in sync. */
-export async function openArtifactGrid(path: string): Promise<void> {
+/** Open `path` as an artifact-studio grid-density tab on the focused leaf
+ *  and record the recent under the given project. Single shared entry
+ *  point so every surface (sidebar Tools row, home browse, future ones)
+ *  keeps the recents list in sync. */
+export async function openArtifactGrid(projectId: string, path: string): Promise<void> {
 	const { focusedId, addTab } = usePaneStore.getState();
 	addTab(focusedId, { kind: 'artifact-studio', path, density: 'grid' });
-	await recordOpen(path).catch((e) => {
+	await recordOpen(projectId, path).catch((e) => {
 		console.error('[artifact-grid-recents] recordOpen failed', e);
 	});
 }

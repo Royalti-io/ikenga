@@ -131,6 +131,7 @@ function TreeNode({ entry, depth, filter }: TreeNodeProps) {
 	const prune = useFilesStore((s) => s.prune);
 	const showHidden = useFilesStore((s) => s.showHidden);
 	const showIgnored = useFilesStore((s) => s.showIgnored);
+	const activeProjectId = useShellStore((s) => s.activeProjectId);
 	const qc = useQueryClient();
 
 	const [renaming, setRenaming] = useState(false);
@@ -351,7 +352,7 @@ function TreeNode({ entry, depth, filter }: TreeNodeProps) {
 					)}
 					{entry.isDir && (
 						<>
-							<ContextMenuItem onSelect={() => void openArtifactGrid(entry.path)}>
+							<ContextMenuItem onSelect={() => void openArtifactGrid(activeProjectId, entry.path)}>
 								<Grid3x3 className="h-3.5 w-3.5" />
 								Open as Artifact Grid
 							</ContextMenuItem>
@@ -561,74 +562,69 @@ function RootSection({ rootPath }: RootSectionProps) {
 				)}
 			</div>
 			{collapsed ? null : (
-			<>
-			<div className="relative border-b border-border bg-background px-2 py-1">
-				<Search className="pointer-events-none absolute left-3.5 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" />
-				<input
-					type="text"
-					value={inputValue}
-					onChange={(e) => setInputValue(e.target.value)}
-					onKeyDown={(e) => {
-						if (e.key === 'Escape' && inputValue) {
-							e.preventDefault();
-							e.stopPropagation();
-							clearSearch();
-						}
-					}}
-					placeholder={`Search ${displayName}…`}
-					className="h-6 w-full rounded border border-border bg-background pl-6 pr-6 text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-ring"
-				/>
-				{inputValue && (
-					<button
-						type="button"
-						onClick={clearSearch}
-						className="absolute right-3 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-						title="Clear search"
-						aria-label="Clear search"
-					>
-						<X className="h-3 w-3" />
-					</button>
-				)}
-			</div>
-			{searchActive && searchQuery.data?.truncated && (
-				<div className="px-3 py-1 text-[11px] text-muted-foreground italic">
-					Showing first {searchQuery.data.matches.length} matches — refine your query.
-				</div>
-			)}
-			{searchError && (
-				<div className="flex items-start gap-1 px-3 py-1 text-xs text-destructive">
-					<AlertCircle className="h-3 w-3 shrink-0 mt-0.5" />
-					<span className="break-all" title={searchError}>
-						{searchError}
-					</span>
-				</div>
-			)}
-			{error && (
-				<div className="flex items-start gap-1 px-3 py-1 text-xs text-destructive">
-					<AlertCircle className="h-3 w-3 shrink-0 mt-0.5" />
-					<span className="break-all" title={error}>
-						{error}
-					</span>
-				</div>
-			)}
-			{!entries && !error && (
-				<div className="px-3 py-1 text-xs text-muted-foreground italic">loading…</div>
-			)}
-			{searchActive && searchQuery.isFetching && !searchQuery.data && (
-				<div className="px-3 py-1 text-xs text-muted-foreground italic">searching…</div>
-			)}
-			{searchActive && matchSet && matchSet.size === 0 && !searchQuery.isFetching && (
-				<div className="px-3 py-1 text-xs text-muted-foreground italic">No matches.</div>
-			)}
-			{visibleEntries?.map((entry) => (
-				<TreeNode
-					key={entry.path}
-					entry={entry}
-					depth={0}
-					filter={matchSet ?? undefined}
-				/>
-			))}
-			</>
+				<>
+					<div className="relative border-b border-border bg-background px-2 py-1">
+						<Search className="pointer-events-none absolute left-3.5 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" />
+						<input
+							type="text"
+							value={inputValue}
+							onChange={(e) => setInputValue(e.target.value)}
+							onKeyDown={(e) => {
+								if (e.key === 'Escape' && inputValue) {
+									e.preventDefault();
+									e.stopPropagation();
+									clearSearch();
+								}
+							}}
+							placeholder={`Search ${displayName}…`}
+							className="h-6 w-full rounded border border-border bg-background pl-6 pr-6 text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-ring"
+						/>
+						{inputValue && (
+							<button
+								type="button"
+								onClick={clearSearch}
+								className="absolute right-3 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+								title="Clear search"
+								aria-label="Clear search"
+							>
+								<X className="h-3 w-3" />
+							</button>
+						)}
+					</div>
+					{searchActive && searchQuery.data?.truncated && (
+						<div className="px-3 py-1 text-[11px] text-muted-foreground italic">
+							Showing first {searchQuery.data.matches.length} matches — refine your query.
+						</div>
+					)}
+					{searchError && (
+						<div className="flex items-start gap-1 px-3 py-1 text-xs text-destructive">
+							<AlertCircle className="h-3 w-3 shrink-0 mt-0.5" />
+							<span className="break-all" title={searchError}>
+								{searchError}
+							</span>
+						</div>
+					)}
+					{error && (
+						<div className="flex items-start gap-1 px-3 py-1 text-xs text-destructive">
+							<AlertCircle className="h-3 w-3 shrink-0 mt-0.5" />
+							<span className="break-all" title={error}>
+								{error}
+							</span>
+						</div>
+					)}
+					{!entries && !error && (
+						<div className="px-3 py-1 text-xs text-muted-foreground italic">loading…</div>
+					)}
+					{searchActive && searchQuery.isFetching && !searchQuery.data && (
+						<div className="px-3 py-1 text-xs text-muted-foreground italic">searching…</div>
+					)}
+					{searchActive && matchSet && matchSet.size === 0 && !searchQuery.isFetching && (
+						<div className="px-3 py-1 text-xs text-muted-foreground italic">No matches.</div>
+					)}
+					{visibleEntries?.map((entry) => (
+						<TreeNode key={entry.path} entry={entry} depth={0} filter={matchSet ?? undefined} />
+					))}
+				</>
 			)}
 		</div>
 	);

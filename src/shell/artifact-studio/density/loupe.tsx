@@ -61,6 +61,7 @@ import {
 import { pickRenderer } from '@/shell/artifact-studio/renderers';
 import { RightRail, useRightRailTab } from '@/shell/artifact-studio/right-rail';
 import { VersionStrip } from '@/shell/artifact-studio/version-strip';
+import { useRecordRecentArtifact } from '@/lib/shell/artifact-grid-recent-artifacts';
 import { extractManifestJson } from '@/lib/artifact/manifest-from-file';
 import { writeManifestIntoHtml } from '@/lib/artifact/manifest-write';
 import { getOrMintStudioThreadId } from '@/lib/artifact/studio-thread';
@@ -74,6 +75,10 @@ interface StudioLoupeProps {
 }
 
 export function StudioLoupe({ path, paneId, attachedTerminalId }: StudioLoupeProps) {
+	// Record each loupe open against the active project's recent-artifacts
+	// list. No-op when path is empty or no project is active. Fire-and-forget.
+	useRecordRecentArtifact(path);
+
 	const [source, setSource] = useState<string | null>(null);
 	const [savedSource, setSavedSource] = useState<string | null>(null);
 	const [loadError, setLoadError] = useState<string | null>(null);

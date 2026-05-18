@@ -58,10 +58,11 @@ function ArtifactsHomePage() {
 	}
 
 	async function browseFolder() {
+		if (!activeProject) return;
 		try {
 			const picked = await openDialog({ directory: true, multiple: false });
 			if (typeof picked === 'string' && picked.length > 0) {
-				await openArtifactGrid(picked);
+				await openArtifactGrid(activeProject.id, picked);
 			}
 		} catch (e) {
 			console.error('[artifacts-home] folder-picker failed', e);
