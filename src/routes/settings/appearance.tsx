@@ -294,26 +294,123 @@ function UserTurnVariantPicker() {
 	const [variant, setLocal] = useState<UserTurnVariant>(loadUserTurnVariant);
 	useEffect(() => subscribeUserTurnVariant(setLocal), []);
 	return (
-		<div className="grid grid-cols-2 gap-2">
-			{USER_TURN_VARIANTS.map((v) => {
-				const active = v.id === variant;
-				return (
-					<button
-						key={v.id}
-						type="button"
-						onClick={() => void setUserTurnVariant(v.id)}
-						className={
-							'flex flex-col items-start gap-1 rounded-md border px-3 py-2 text-left transition-colors ' +
-							(active ? 'border-primary bg-primary/5' : 'border-input bg-background hover:bg-accent')
-						}
+		<div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+			{USER_TURN_VARIANTS.map((v) => (
+				<UserTurnVariantCard
+					key={v.id}
+					id={v.id}
+					label={v.label}
+					description={v.description}
+					active={v.id === variant}
+					onSelect={() => void setUserTurnVariant(v.id)}
+				/>
+			))}
+		</div>
+	);
+}
+
+/** Mini live preview of each variant. Mirrors the ThemeCard pattern —
+ *  a chrome-less mock of two chat turns (one assistant, one user) with
+ *  the variant treatment applied, plus a label row at the bottom with
+ *  the active radio dot. */
+function UserTurnVariantCard({
+	id,
+	label,
+	description,
+	active,
+	onSelect,
+}: {
+	id: UserTurnVariant;
+	label: string;
+	description: string;
+	active: boolean;
+	onSelect: () => void;
+}) {
+	return (
+		<button
+			type="button"
+			onClick={onSelect}
+			title={description}
+			className={cn(
+				'group flex cursor-pointer flex-col overflow-hidden rounded-md border bg-card text-left transition-colors',
+				active
+					? 'border-primary shadow-[inset_0_0_0_1px_var(--primary)]'
+					: 'border-border-soft hover:border-foreground/20'
+			)}
+		>
+			<UserTurnVariantPreview id={id} />
+			<div
+				className="flex items-center justify-between gap-2 px-2.5 py-1.5"
+				style={{
+					background: 'var(--bg-sunken)',
+					fontFamily: 'var(--font-mono)',
+					fontSize: '10.5px',
+					letterSpacing: '0.06em',
+				}}
+			>
+				<span className="font-medium text-foreground">{label}</span>
+				<span
+					className={cn(
+						'h-3 w-3 rounded-full border',
+						active ? 'border-primary bg-primary' : 'border-border'
+					)}
+				/>
+			</div>
+		</button>
+	);
+}
+
+/** Faux-chat preview: a faint assistant line on the left, a user turn
+ *  on the right styled per the variant. Uses the same `.utv-*` CSS
+ *  classes the live Thread renderer uses, so the preview is exact.
+ *  Uses shadcn theme tokens (--foreground / --muted-foreground / --border)
+ *  which the host always defines — design tokens (--ember etc.) are
+ *  optional fallbacks. */
+function UserTurnVariantPreview({ id }: { id: UserTurnVariant }) {
+	const bubbleLike = id === 'bubble' || id === 'accent' || id === 'frame';
+	return (
+		<div
+			aria-hidden="true"
+			className="grid h-[96px] grid-rows-[auto_1fr] gap-2 border-b border-border-soft bg-background px-2 py-2"
+		>
+			{/* Assistant pseudo-row (left). Faint dot + tiny amber bar
+			 *  (model name) + body line stand in for the assistant turn. */}
+			<div className="flex flex-col gap-1">
+				<div className="flex items-center gap-1.5">
+					<span className="h-1 w-1 shrink-0 rounded-full bg-muted-foreground/60" />
+					<span
+						className="h-[3px] w-10 shrink-0 rounded-sm"
+						style={{ background: 'hsl(14 78% 52% / 0.55)' }}
+					/>
+				</div>
+				<span className="h-[3px] w-full max-w-[150px] rounded-sm bg-foreground/55" />
+			</div>
+			{/* User pseudo-row (right). The variant class wraps the fake
+			 *  message body, giving an exact shape preview. */}
+			<div className="flex items-end justify-end">
+				<div
+					className={cn('min-w-0 max-w-[78%]', `utv-${id}`)}
+					style={{
+						// Tighten the canonical .utv-* padding for the mini
+						// preview so 92px height accommodates two body bars.
+						padding:
+							id === 'bubble' || id === 'frame'
+								? '6px 8px'
+								: id === 'accent'
+									? '0 0 4px 6px'
+									: '0 0 2px 0',
+						borderRadius: id === 'bubble' ? '8px 8px 2px 8px' : id === 'frame' ? '2px' : 0,
+					}}
+				>
+					<div
+						className="flex flex-col gap-[3px]"
+						style={{ alignItems: bubbleLike ? 'flex-start' : 'flex-end' }}
 					>
-						<span className="text-sm font-medium">{v.label}</span>
-						<span className="text-[11px] leading-relaxed text-muted-foreground">
-							{v.description}
-						</span>
-					</button>
-				);
-			})}
+						<span className="h-[3px] w-[70px] rounded-sm bg-foreground/85" />
+						<span className="h-[3px] w-[48px] rounded-sm bg-foreground/85" />
+					</div>
+				</div>
+			</div>
 		</div>
 	);
 }

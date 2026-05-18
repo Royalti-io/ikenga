@@ -298,7 +298,12 @@ body {
 /* ─── User-turn variants ──────────────────────────────────────────────── */
 /* Four picks for Settings → Appearance → Chat. The Thread renderer
  * applies one of these classes to the user-turn wrapper. Shapes per
- * `design/shell/chat-redesign/2026-05-18-user-turn-variants.html`. */
+ * `design/shell/chat-redesign/2026-05-18-user-turn-variants.html`.
+ *
+ * Each rule carries fallback colors so the shape renders even when
+ * the canonical `--rule` / `--ember` design tokens aren't bound to
+ * the host theme yet. The fallbacks use shadcn's --border / --muted
+ * which DO exist in the live theme. */
 
 .utv-baseline {
 	/* The default — right-aligned text, hairline beneath. No container. */
@@ -310,19 +315,19 @@ body {
 	text-align: left;
 	padding: 11px 16px 12px;
 	border-radius: 14px 14px 4px 14px;
-	background: var(--rule-soft, hsl(28, 12%, 14%));
-	border: 1px solid var(--rule);
+	background: var(--rule-soft, hsl(var(--muted) / 0.4));
+	border: 1px solid var(--rule, hsl(var(--border)));
 }
 
 .utv-accent {
 	text-align: left;
 	padding: 2px 0 12px 14px;
-	border-left: 2px solid var(--ember);
+	border-left: 2px solid var(--ember, hsl(14 78% 52%));
 }
 
 .utv-frame {
 	text-align: left;
 	padding: 10px 14px 12px;
-	border: 1px solid var(--rule);
+	border: 1px solid var(--rule, hsl(var(--border)));
 	border-radius: 2px;
 }
