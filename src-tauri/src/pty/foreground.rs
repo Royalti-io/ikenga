@@ -126,80 +126,18 @@ fn lookup_uncached(shell_pid: i32) -> Option<ForegroundProcess> {
     })
 }
 
-#[cfg(target_os = "macos")]
-fn lookup_uncached(shell_pid: i32) -> Option<ForegroundProcess> {
-    let shell_info = mac_kinfo_proc(shell_pid)?;
-    // e_tpgid: foreground PG leader PID for the controlling terminal.
-    // Same semantic as Linux's tpgid (field 8 of /proc/<pid>/stat).
-    let tpgid = shell_info.kp_eproc.e_tpgid;
-    if tpgid <= 0 {
-        return None;
-    }
-
-    let fg_info = mac_kinfo_proc(tpgid)?;
-    let name = mac_p_comm_string(&fg_info.kp_proc.p_comm);
-    if name.is_empty() {
-        return None;
-    }
-
-    Some(ForegroundProcess {
-        pid: tpgid,
-        name,
-        // KERN_PROCARGS2 parsing skipped — routing only filters on `name`.
-        // Linux populates argv for completeness; on macOS the cost/benefit
-        // doesn't justify the unsafe sysctl dance.
-        args: Vec::new(),
-    })
-}
-
-#[cfg(target_os = "macos")]
-fn mac_kinfo_proc(pid: i32) -> Option<libc::kinfo_proc> {
-    use std::mem;
-    let mut mib: [libc::c_int; 4] = [
-        libc::CTL_KERN,
-        libc::KERN_PROC,
-        libc::KERN_PROC_PID,
-        pid,
-    ];
-    let mut size: libc::size_t = mem::size_of::<libc::kinfo_proc>();
-    // SAFETY: zeroed `kinfo_proc` is a valid POD; sysctl fills it. The mib
-    // array and size pointer are stack-local and outlive the call.
-    let mut info: libc::kinfo_proc = unsafe { mem::zeroed() };
-    let ret = unsafe {
-        libc::sysctl(
-            mib.as_mut_ptr(),
-            mib.len() as libc::c_uint,
-            &mut info as *mut _ as *mut libc::c_void,
-            &mut size,
-            std::ptr::null_mut(),
-            0,
-        )
-    };
-    // sysctl returns 0 on success and writes the actual size. size==0 means
-    // the PID doesn't exist (kernel returned an empty record). Both are
-    // "no foreground process knowable", same as a missing /proc entry.
-    if ret != 0 || size == 0 {
-        return None;
-    }
-    Some(info)
-}
-
-#[cfg(target_os = "macos")]
-fn mac_p_comm_string(arr: &[libc::c_char]) -> String {
-    // p_comm is a fixed-size, null-terminated executable basename
-    // (MAXCOMLEN+1 = 17 bytes). Take bytes up to the first null.
-    let bytes: Vec<u8> = arr
-        .iter()
-        .take_while(|&&b| b != 0)
-        .map(|&b| b as u8)
-        .collect();
-    String::from_utf8_lossy(&bytes).into_owned()
-}
-
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+#[cfg(not(target_os = "linux"))]
 fn lookup_uncached(_shell_pid: i32) -> Option<ForegroundProcess> {
-    // Windows: not implemented. Returning None means the routing dispatcher
-    // falls back to side-pane Chat, which is the documented behavior.
+    // macOS + Windows: not implemented yet. Returning None means the routing
+    // dispatcher falls back to side-pane Chat, which is the documented
+    // behavior.
+    //
+    // The previous macOS implementation used `libc::kinfo_proc` + `sysctl`,
+    // but the `kinfo_proc` type is missing from the libc crate's apple
+    // module (only the FreeBSD/Net/OpenBSD branches define it). Re-enabling
+    // macOS foreground detection requires either (a) manually declaring the
+    // struct against `<sys/sysctl.h>`, or (b) pulling in the `libproc`
+    // crate. Tracked for a follow-up release.
     None
 }
 
