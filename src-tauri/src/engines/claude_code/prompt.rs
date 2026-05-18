@@ -10,7 +10,7 @@
 //!
 //! This module is intentionally pure: extraction and mapping only. The
 //! actual stdin write + event subscription lives in
-//! `acp::server::handle_prompt` so the I/O path can be tested manually via
+//! `engines::claude_code::server::handle_prompt` so the I/O path can be tested manually via
 //! the iyke smoke binding rather than mocked here.
 //!
 //! ## Content-block policy

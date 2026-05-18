@@ -129,12 +129,12 @@ pub fn chat_event_to_session_updates(event: &ChatEvent) -> Vec<SessionUpdate> {
         ChatEvent::ControlRequest { .. } => Vec::new(),
 
         ChatEvent::Unknown { raw } => {
-            log::warn!(target: "ikenga::acp::mapping", "dropping Unknown event: {raw}");
+            log::warn!(target: "ikenga::engines::claude_code::mapping", "dropping Unknown event: {raw}");
             Vec::new()
         }
         ChatEvent::ParseError { message, line } => {
             log::warn!(
-                target: "ikenga::acp::mapping",
+                target: "ikenga::engines::claude_code::mapping",
                 "dropping ParseError event: {message} (line: {line})"
             );
             Vec::new()

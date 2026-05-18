@@ -1,5 +1,9 @@
 /**
- * AcpAdapter — ACP-backed chat adapter (Phase 10).
+ * ClaudeCodeAdapter — wraps the user's claude CLI via the Rust
+ * engines::claude_code module. The "ACP" naming is internal: the events
+ * crossing the Tauri boundary are still ACP-shaped (SessionUpdate /
+ * RequestPermissionRequest), but the adapter is presented to the chat
+ * surface as just one of N engines. Phase 1 of the multi-engine rebuild.
  *
  * Implements the existing `ChatAdapter` interface so the UI doesn't need to
  * know it's talking to the new ACP path. Under the hood it delegates to the
@@ -7,14 +11,14 @@
  * Tauri commands).
  *
  * Translation:
- *   - `attach()` subscribes to `acp://session/{threadId}` and translates the
+ *   - `attach()` subscribes to `chat://session/{threadId}` and translates the
  *     ACP `SessionUpdate` events into the legacy `ChatEvent` shape the store
  *     already consumes. This keeps the Thread / ToolCallCard renderers
  *     untouched.
- *   - `send()` ships text through `acpPrompt`. Images are still routed via
- *     the composer's direct `acpPrompt` call (Phase 7 path) — text-only is
+ *   - `send()` ships text through `chatPrompt`. Images are still routed via
+ *     the composer's direct `chatPrompt` call (Phase 7 path) — text-only is
  *     the adapter's contract today.
- *   - `cancel()` calls `acpCancel` (clean interrupt, not kill-the-child).
+ *   - `cancel()` calls `chatCancel` (clean interrupt, not kill-the-child).
  *
  * Feature flag: the registry selects this adapter when
  * `localStorage.ikenga_chat_engine === 'acp'` (the Phase-10 default), or the
@@ -28,10 +32,10 @@
 import { Sparkles } from 'lucide-react';
 import type { UnlistenFn } from '@tauri-apps/api/event';
 import {
-	acpCancel,
-	acpListen,
-	acpNewSession,
-	acpPrompt,
+	chatCancel,
+	chatListen,
+	chatNewSession,
+	chatPrompt,
 	claudeListSessions,
 	type AcpContentBlock,
 	type AcpSessionNotification,
@@ -60,7 +64,7 @@ const CAPABILITIES: AdapterCapabilities = {
 	slashCommands: true,
 	// ADR-011 phase 3: model + effort are session-level on the ACP adapter.
 	// The Composer exposes them as pills; changes mutate Rust-side SessionOpts
-	// via `acpSetModel` / `acpSetEffort` and take effect on next spawn.
+	// via `chatSetModel` / `chatSetEffort` and take effect on next spawn.
 	modelSwitching: true,
 	effortControl: true,
 	streaming: true,
@@ -166,9 +170,9 @@ function acpUpdateToChatEvent(update: AcpSessionUpdate): ChatEvent | null {
 	}
 }
 
-class AcpAdapterImpl implements ChatAdapter {
-	readonly id = 'acp';
-	readonly label = 'Claude (ACP)';
+class ClaudeCodeAdapterImpl implements ChatAdapter {
+	readonly id = 'claude-code';
+	readonly label = 'Claude Code';
 	readonly Icon = Sparkles;
 	readonly models: ModelOption[] | null = ACP_MODELS;
 	readonly capabilities = CAPABILITIES;
@@ -200,19 +204,19 @@ class AcpAdapterImpl implements ChatAdapter {
 			try {
 				const meta: Record<string, unknown> = { threadId };
 				if (projectId) meta.projectId = projectId;
-				await acpNewSession({ cwd, mcpServers: [], _meta: meta });
+				await chatNewSession({ cwd, mcpServers: [], _meta: meta }, 'claude-code');
 				this.sessioned.add(threadId);
 			} catch (e) {
 				// If the Rust side decides the thread already has a different cwd
 				// and rejects, fall through to listening — the existing session
 				// remains valid.
-				console.warn('acpNewSession:', e);
+				console.warn('chatNewSession:', e);
 			}
 		}
 		const placeholder: ActiveStream = { threadId, unlisten: null };
 		this.streams.set(threadId, placeholder);
 		try {
-			const unlisten = await acpListen(threadId, (notif) => this.onNotification(threadId, notif));
+			const unlisten = await chatListen(threadId, (notif) => this.onNotification(threadId, notif));
 			placeholder.unlisten = unlisten;
 		} catch (e) {
 			this.streams.delete(threadId);
@@ -263,8 +267,8 @@ class AcpAdapterImpl implements ChatAdapter {
 				useChatStore.getState().setStatus(input.threadId, 'streaming');
 
 				const prompt: AcpContentBlock[] = [{ type: 'text', text: input.text }];
-				const res = await acpPrompt({ sessionId: input.threadId, prompt });
-				// acpPrompt resolves when the turn ends. Clear streaming status.
+				const res = await chatPrompt({ sessionId: input.threadId, prompt }, 'claude-code');
+				// chatPrompt resolves when the turn ends. Clear streaming status.
 				useChatStore
 					.getState()
 					.setStatus(input.threadId, res.stopReason === 'cancelled' ? 'interrupted' : 'idle');
@@ -301,15 +305,15 @@ class AcpAdapterImpl implements ChatAdapter {
 	async cancel(_streamId: string): Promise<void> {
 		// Per-turn streamId isn't meaningful for ACP — cancellation is
 		// per-session. Find the active thread via the store, then write a
-		// clean interrupt to the underlying claude child via `acpCancel`.
+		// clean interrupt to the underlying claude child via `chatCancel`.
 		const state = useChatStore.getState();
 		const active = Object.values(state.threads).find((t) => t.streamId === _streamId);
 		const tid = active?.thread.id;
 		if (!tid) return;
 		try {
-			await acpCancel(tid);
+			await chatCancel(tid, 'claude-code');
 		} catch (e) {
-			console.warn('acpCancel:', e);
+			console.warn('chatCancel:', e);
 		}
 		state.appendEvents(tid, [{ kind: 'system_hook', hookEvent: 'cancel', name: 'user_cancel' }]);
 		state.setStatus(tid, 'interrupted');
@@ -320,7 +324,7 @@ class AcpAdapterImpl implements ChatAdapter {
 	}
 
 	async migrate(_thread: ChatThread): Promise<void> {
-		throw new Error('AcpAdapter.migrate: not implemented');
+		throw new Error('ClaudeCodeAdapter.migrate: not implemented');
 	}
 
 	async listSessions() {
@@ -340,9 +344,9 @@ class AcpAdapterImpl implements ChatAdapter {
 	}
 }
 
-export const AcpAdapter: ChatAdapter = new AcpAdapterImpl();
+export const ClaudeCodeAdapter: ChatAdapter = new ClaudeCodeAdapterImpl();
 
 /** Test helper. */
-export function getAcpAdapterInstance(): AcpAdapterImpl {
-	return AcpAdapter as unknown as AcpAdapterImpl;
+export function getClaudeCodeAdapterInstance(): ClaudeCodeAdapterImpl {
+	return ClaudeCodeAdapter as unknown as ClaudeCodeAdapterImpl;
 }

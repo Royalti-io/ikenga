@@ -26,6 +26,7 @@ import {
 	ConversationScrollButton,
 } from '@/components/ai-elements/conversation';
 import { buildRenderItems, selectDebugEvents, useChatStore, type RenderItem } from '../store';
+import { modelLabelFor } from '../engines';
 import { ToolCallCard } from './tool-call-card';
 import { ArtifactPill } from './artifact-pill';
 import { PermissionDialog } from './permission-dialog';
@@ -39,7 +40,7 @@ interface ThreadProps {
 	/** Phase 8: invoked when the user clicks "Branch from here" on an
 	 *  assistant turn. `upToTurn` is the user-turn count up to (and
 	 *  including) the message being forked from. The caller is responsible
-	 *  for the actual `acpForkSession` call + route navigation so Thread
+	 *  for the actual `chatForkSession` call + route navigation so Thread
 	 *  stays route-agnostic. */
 	onBranch?: (upToTurn: number) => void;
 }
@@ -68,6 +69,29 @@ export function Thread({ threadId, className, onBranch }: ThreadProps) {
 		}
 		return out;
 	}, [items, state]);
+	// ADR-011 phase 3: per-turn provenance — model id active when each
+	// rendered item was emitted. Carries forward from the most-recent
+	// `session_init.model`; falls back to `thread.model` for items that
+	// land before the first session_init. A mid-session `chat_set_model`
+	// only takes effect on next spawn (which emits a fresh session_init),
+	// so this carry-forward is faithful to "model in force at the time
+	// the turn streamed."
+	//
+	// Effort tag is not rendered: the wire `ChatEvent` shape has no
+	// per-text effort field yet — phase 3 backend (per-event `_meta`)
+	// hasn't shipped. Add it next to model once that lands.
+	const modelByItem = useMemo<Map<string, string | null>>(() => {
+		const out = new Map<string, string | null>();
+		let current: string | null = state?.thread.model ?? null;
+		for (const it of items) {
+			const ev = it.event;
+			if ('kind' in ev && ev.kind === 'session_init') {
+				current = ev.model;
+			}
+			out.set(it.key, current);
+		}
+		return out;
+	}, [items, state?.thread.model]);
 	// ADR-011 phase 1: identify the last assistant `text` item so we can
 	// render the ember streaming-edge under it when the thread is actively
 	// streaming. Walk in reverse so the first hit is the tail.
@@ -117,6 +141,7 @@ export function Thread({ threadId, className, onBranch }: ThreadProps) {
 								branchTurn={branchTurnByItem.get(item.key)}
 								onBranch={onBranch}
 								isStreamingTail={item.key === streamingTailKey}
+								model={modelByItem.get(item.key) ?? null}
 							/>
 						))}
 					</ul>
@@ -151,17 +176,21 @@ function RenderRow({
 	branchTurn,
 	onBranch,
 	isStreamingTail,
+	model,
 }: {
 	item: RenderItem;
 	threadId: string;
 	cwd: string | undefined;
 	/** Phase 8: user-turn count up to this row. Passed as `upToTurn` to
-	 *  `acpForkSession` when the user clicks "Branch from here". */
+	 *  `chatForkSession` when the user clicks "Branch from here". */
 	branchTurn?: number;
 	onBranch?: (upToTurn: number) => void;
 	/** ADR-011 phase 1: true on the last assistant `text` row while the
 	 *  thread is streaming. Drives the ember-edge animation. */
 	isStreamingTail?: boolean;
+	/** ADR-011 phase 3: model id in force when this item streamed. Used
+	 *  to render the per-turn provenance tag on assistant text rows. */
+	model?: string | null;
 }) {
 	const event = item.event;
 
@@ -192,6 +221,15 @@ function RenderRow({
 			return (
 				<Row icon={MessageCircle} tone="assistant" label="assistant">
 					<div className="group relative">
+						{model && (
+							// ADR-011 phase 3: per-turn provenance tag. Right-aligned
+							// strip above the body, mirroring the hi-fi v2 `.turn-tag`
+							// position. Effort slot omitted until backend plumbs per-
+							// event `_meta` — see modelByItem comment in Thread.
+							<div className="mb-1 flex justify-end font-mono text-[9px] uppercase tracking-[0.16em] text-[var(--kola-amber-soft)]">
+								{modelLabelFor(model)}
+							</div>
+						)}
 						<Markdown
 							content={event.delta}
 							cwd={cwd}

@@ -1,7 +1,7 @@
 //! Phase 9: OS notification + sidebar-badge dispatch for user-attention
 //! events (Notification hook, PermissionRequest). The shape is:
 //!
-//!   1. `acp::server::handle_prompt` observes a `SystemHook` event or a
+//!   1. `engines::claude_code::server::handle_prompt` observes a `SystemHook` event or a
 //!      `ControlRequest { subtype: "permission" }`.
 //!   2. Builds a `NotifyPayload` via `payload_from_system_hook` /
 //!      `payload_from_permission`, emits it as an `acp://notify` Tauri
@@ -110,7 +110,7 @@ pub fn payload_from_system_hook(thread_id: &str, hook: &Value) -> Option<NotifyP
     })
 }
 
-/// Build a `NotifyPayload` for a permission round-trip. The acp::server
+/// Build a `NotifyPayload` for a permission round-trip. The engines::claude_code::server
 /// emits this alongside the `acp://session/{threadId}/request` event so the
 /// frontend can either render the in-UI `PermissionDialog` (focused case)
 /// or fire an OS notification (unfocused case).

@@ -1,8 +1,8 @@
 /**
  * Live ACP `session/request_permission` UI. Subscribes via
- * `acpListenRequests(threadId)`, renders the current request as an
+ * `chatListenRequests(threadId)`, renders the current request as an
  * inline ritual-styled prompt (anchored at the bottom of the thread,
- * above the composer), and replies via `acpRespondPermission`.
+ * above the composer), and replies via `chatRespondPermission`.
  *
  * Two flavours supported today:
  *   - AskUserQuestion — options encoded as `ask:{q_idx}:{label}`.
@@ -20,8 +20,8 @@ import { Info, X } from 'lucide-react';
 import { cn } from '@/components/ui/utils';
 import { Markdown } from '@/components/markdown';
 import {
-	acpListenRequests,
-	acpRespondPermission,
+	chatListenRequests,
+	chatRespondPermission,
 	type AcpPermissionOption,
 	type AcpRequestEnvelope,
 } from '@/lib/tauri-cmd';
@@ -59,7 +59,7 @@ export function PermissionDialog({ threadId }: PermissionDialogProps) {
 	useEffect(() => {
 		let unlisten: (() => void) | undefined;
 		let cancelled = false;
-		void acpListenRequests(threadId, (env) => {
+		void chatListenRequests(threadId, (env) => {
 			if (cancelled) return;
 			setActive(env);
 		}).then((un) => {
@@ -79,7 +79,7 @@ export function PermissionDialog({ threadId }: PermissionDialogProps) {
 	function handleSelect(optionId: string) {
 		const requestId = active!.requestId;
 		setActive(null);
-		void acpRespondPermission(requestId, {
+		void chatRespondPermission(requestId, {
 			outcome: { outcome: 'selected', optionId },
 		});
 	}
@@ -87,7 +87,7 @@ export function PermissionDialog({ threadId }: PermissionDialogProps) {
 	function handleCancel() {
 		const requestId = active!.requestId;
 		setActive(null);
-		void acpRespondPermission(requestId, {
+		void chatRespondPermission(requestId, {
 			outcome: { outcome: 'cancelled' },
 		});
 	}

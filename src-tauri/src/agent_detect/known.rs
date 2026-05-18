@@ -84,10 +84,16 @@ const CAP_FULL: AgentCapabilities = AgentCapabilities {
     session_resume: true,
 };
 
+// We PTY-wrap codex, so we surface the lowest common denominator until/unless
+// we switch to `npx @zed-industries/codex-acp`. The CLI _does_ have richer
+// capabilities natively, but the TUI byte stream gives us no reliable way to
+// extract structured tool calls or thinking blocks — only the rendered text.
+// If/when we replace the PTY-wrap with the Zed ACP adapter, restore the
+// previous `tool_use: true, thinking: true` line.
 const CAP_CODEX: AgentCapabilities = AgentCapabilities {
     streaming: true,
-    tool_use: true,
-    thinking: true,
+    tool_use: false, // PTY-wrap can't extract tool calls reliably
+    thinking: false, // No structured signal through TUI
     artifacts: false,
     mcp: false,
     session_resume: false,

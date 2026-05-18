@@ -24,7 +24,7 @@
 //! Why this file deliberately hides the `agent-client-protocol` surface
 //! from callers: spec churn touches the schema crate often, and we want a
 //! single place to absorb that churn. Tauri command handlers + the future
-//! engine pkg only touch methods on `AcpServer`.
+//! engine pkg only touch methods on `ClaudeCodeEngine`.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -41,11 +41,11 @@ use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::{oneshot, Mutex as TokioMutex};
 
-use crate::acp::fork::{validate_fork_request, ForkRequest, ForkResult};
-use crate::acp::mode::{mode_state, AcpSessionMode};
-use crate::acp::notify::{payload_from_permission, payload_from_system_hook};
-use crate::acp::permission::{build_permission_options, outcome_to_response_body};
-use crate::acp::{
+use crate::engines::claude_code::fork::{validate_fork_request, ForkRequest, ForkResult};
+use crate::engines::claude_code::mode::{mode_state, AcpSessionMode};
+use crate::engines::claude_code::notify::{payload_from_permission, payload_from_system_hook};
+use crate::engines::claude_code::permission::{build_permission_options, outcome_to_response_body};
+use crate::engines::claude_code::{
     mapping::chat_event_to_session_updates,
     prompt::{extract_content, map_stop_reason},
 };
@@ -75,20 +75,20 @@ const PERMISSION_TIMEOUT_SECS: u64 = 300;
 pub type PermissionWaiters =
     Arc<TokioMutex<HashMap<String, oneshot::Sender<RequestPermissionResponse>>>>;
 
-pub struct AcpServer {
+pub struct ClaudeCodeEngine {
     pub sessions: Arc<SessionsManager>,
     /// Permission round-trip waiters keyed by `request_id`. See
     /// `PermissionWaiters` type alias for the lifecycle.
     permission_waiters: PermissionWaiters,
 }
 
-impl Default for AcpServer {
+impl Default for ClaudeCodeEngine {
     fn default() -> Self {
         Self::new(Arc::new(SessionsManager::new()))
     }
 }
 
-impl AcpServer {
+impl ClaudeCodeEngine {
     pub fn new(sessions: Arc<SessionsManager>) -> Self {
         Self {
             sessions,
@@ -116,7 +116,7 @@ impl AcpServer {
             }
             None => {
                 log::debug!(
-                    target: "ikenga::acp::server",
+                    target: "ikenga::engines::claude_code::server",
                     "no waiter for permission request_id={request_id}; ignoring",
                 );
                 Ok(())
@@ -317,8 +317,8 @@ impl AcpServer {
         // text-only path when `content.images` is empty.
         send_user_message_with_content(app.clone(), session.clone(), content).await?;
 
-        let channel = format!("acp://session/{thread_id}");
-        let request_channel = format!("acp://session/{thread_id}/request");
+        let channel = format!("chat://session/{thread_id}");
+        let request_channel = format!("chat://session/{thread_id}/request");
         let stop_reason = loop {
             match rx.recv().await {
                 Ok(ev) => {
@@ -335,7 +335,7 @@ impl AcpServer {
                     if let ChatEvent::SystemHook { content, .. } = &ev {
                         if let Some(hook_value) = content {
                             if let Some(notify) = payload_from_system_hook(&thread_id, hook_value) {
-                                let _ = app.emit("acp://notify", &notify);
+                                let _ = app.emit("chat://notify", &notify);
                             }
                         }
                         // Still fall through to the mapping layer below
@@ -366,7 +366,7 @@ impl AcpServer {
                             .await;
                         } else {
                             log::debug!(
-                                target: "ikenga::acp::server",
+                                target: "ikenga::engines::claude_code::server",
                                 "ignoring control_request subtype={subtype} on thread {thread_id} (phase 4 handles permission only)",
                             );
                         }
@@ -390,7 +390,7 @@ impl AcpServer {
                 // practice — there's a TODO there.
                 Err(RecvError::Lagged(n)) => {
                     log::warn!(
-                        target: "ikenga::acp::server",
+                        target: "ikenga::engines::claude_code::server",
                         "prompt lagged {n} events on thread {thread_id}"
                     );
                     break StopReason::EndTurn;
@@ -461,7 +461,7 @@ impl AcpServer {
         // entirely). Doing the focus-policy check on the frontend side
         // means the Rust core stays unaware of route / pane state.
         let notify = payload_from_permission(&thread_id, &tool_name, tool_input.as_ref());
-        let _ = app.emit("acp://notify", &notify);
+        let _ = app.emit("chat://notify", &notify);
 
         // Move the heavy lifting onto its own task so the outer prompt
         // loop keeps draining claude's stdout.
@@ -498,7 +498,7 @@ impl AcpServer {
             if let Err(e) = send_control_response(session_for_task, request_id_for_task, body).await
             {
                 log::warn!(
-                    target: "ikenga::acp::server",
+                    target: "ikenga::engines::claude_code::server",
                     "send_control_response failed: {e}",
                 );
             }
@@ -757,7 +757,7 @@ fn resolve_project_id(meta: Option<&serde_json::Map<String, serde_json::Value>>)
 }
 
 /// Tauri-friendly wrapper around the server.
-pub type AcpServerState = Arc<AcpServer>;
+pub type ClaudeCodeEngineState = Arc<ClaudeCodeEngine>;
 
 #[cfg(test)]
 mod tests {
@@ -765,7 +765,7 @@ mod tests {
 
     #[test]
     fn initialize_returns_negotiated_version_and_capabilities() {
-        let server = AcpServer::default();
+        let server = ClaudeCodeEngine::default();
         let req = InitializeRequest::new(ProtocolVersion::V1);
         let resp = server.handle_initialize(req);
         assert_eq!(resp.protocol_version, ProtocolVersion::V1);
@@ -849,7 +849,7 @@ mod tests {
         // confirm the receiver sees the response. Verifies the
         // HashMap<String, oneshot::Sender<...>> bridge is wired correctly
         // without spinning up a real claude child.
-        let server = AcpServer::default();
+        let server = ClaudeCodeEngine::default();
         let (tx, rx) = oneshot::channel::<RequestPermissionResponse>();
         server
             .permission_waiters
@@ -859,7 +859,7 @@ mod tests {
 
         let resp = RequestPermissionResponse::new(RequestPermissionOutcome::Selected(
             agent_client_protocol::schema::SelectedPermissionOutcome::new(
-                crate::acp::permission::OPT_ALLOW_ONCE,
+                crate::engines::claude_code::permission::OPT_ALLOW_ONCE,
             ),
         ));
         server
@@ -872,7 +872,7 @@ mod tests {
             RequestPermissionOutcome::Selected(s) => {
                 assert_eq!(
                     s.option_id.0.as_ref(),
-                    crate::acp::permission::OPT_ALLOW_ONCE,
+                    crate::engines::claude_code::permission::OPT_ALLOW_ONCE,
                 );
             }
             _ => panic!("expected Selected outcome"),
@@ -883,7 +883,7 @@ mod tests {
     async fn resolve_permission_for_unknown_id_is_ok() {
         // Stale UI replies (e.g. user clicked Approve on a request that
         // already timed out) must not error — they're just no-ops.
-        let server = AcpServer::default();
+        let server = ClaudeCodeEngine::default();
         let resp = RequestPermissionResponse::new(RequestPermissionOutcome::Cancelled);
         server
             .resolve_permission("nonexistent".into(), resp)
@@ -896,10 +896,10 @@ mod tests {
         // Client claims V1 (the only version today). Once V2 ships, this
         // test will need updating to assert downward clamping when the
         // client claims V2 and we still only do V1.
-        let server = AcpServer::default();
+        let server = ClaudeCodeEngine::default();
         let req = InitializeRequest::new(ProtocolVersion::V1);
         let resp = server.handle_initialize(req);
-        assert!(resp.protocol_version <= AcpServer::PROTOCOL_VERSION);
+        assert!(resp.protocol_version <= ClaudeCodeEngine::PROTOCOL_VERSION);
     }
 
     #[tokio::test]
@@ -910,7 +910,7 @@ mod tests {
         // `opts.permission_mode` in memory and return Ok — the next
         // `spawn_streaming` will pick the new mode up via the
         // `--permission-mode` flag.
-        let server = AcpServer::default();
+        let server = ClaudeCodeEngine::default();
         let session = server
             .sessions
             .get_or_create(
@@ -938,7 +938,7 @@ mod tests {
 
     #[tokio::test]
     async fn set_mode_rejects_unknown_mode_id() {
-        let server = AcpServer::default();
+        let server = ClaudeCodeEngine::default();
         let _ = server
             .sessions
             .get_or_create(
@@ -956,7 +956,7 @@ mod tests {
 
     #[tokio::test]
     async fn set_mode_rejects_unknown_thread_id() {
-        let server = AcpServer::default();
+        let server = ClaudeCodeEngine::default();
         let err = server
             .handle_set_mode("never_registered".into(), "auto".into())
             .await
@@ -969,7 +969,7 @@ mod tests {
         // Phase 6: stale Stop clicks (thread already destroyed, never
         // registered, etc.) must be no-ops. The frontend can fire
         // `acpCancel` without checking session state first.
-        let server = AcpServer::default();
+        let server = ClaudeCodeEngine::default();
         server
             .handle_cancel("never_registered".into())
             .await
@@ -982,7 +982,7 @@ mod tests {
         // (turn already over, never spawned) should be a no-op. The
         // interrupt envelope is only meaningful while claude is reading
         // stdin mid-turn — outside of that window there's nothing to do.
-        let server = AcpServer::default();
+        let server = ClaudeCodeEngine::default();
         let session = server
             .sessions
             .get_or_create(
@@ -1007,7 +1007,7 @@ mod tests {
     // requires spawning the real `claude` binary or an elaborate mock
     // around `tokio::process::Child` + `ChildStdin`. The building blocks
     // (`interrupt_envelope` shape + `send_interrupt` no-op semantics) are
-    // covered by `crate::acp::interrupt::tests` and
+    // covered by `crate::engines::claude_code::interrupt::tests` and
     // `crate::claude::session::tests::send_interrupt_with_no_streaming_child_is_ok`.
     // Integrated coverage lives in the iyke smoke harness
     // (`runAcpInterruptSmokeTest`).
@@ -1017,7 +1017,7 @@ mod tests {
         // Phase 8: `session/load` re-attaches to a session and returns the
         // current mode so the picker can hydrate. We pre-register the
         // session, set its mode to Auto, then assert load returns Auto.
-        let server = AcpServer::default();
+        let server = ClaudeCodeEngine::default();
         let session = server
             .sessions
             .get_or_create(
@@ -1046,7 +1046,7 @@ mod tests {
         // wasn't forked into) must surface a typed error. The frontend
         // distinguishes this from real failures (it silently swallows
         // "no session for thread" but logs loud errors otherwise).
-        let server = AcpServer::default();
+        let server = ClaudeCodeEngine::default();
         let err = server
             .handle_load_session("never_registered".into())
             .await
@@ -1061,7 +1061,7 @@ mod tests {
         // we touch the pool. (Real fork flow tests would require an
         // in-memory PaDb plus migration application; covered indirectly by
         // the smoke harness via the Tauri command.)
-        let server = AcpServer::default();
+        let server = ClaudeCodeEngine::default();
         let tmp = tempfile::tempdir().expect("tempdir");
         let db = PaDb::new(tmp.path().join("pa.db"));
         let err = server

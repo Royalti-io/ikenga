@@ -29,10 +29,10 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useNavigate } from '@tanstack/react-router';
 import {
-	acpPrompt,
-	acpSetEffort,
-	acpSetMode,
-	acpSetModel,
+	chatPrompt,
+	chatSetEffort,
+	chatSetMode,
+	chatSetModel,
 	type AcpContentBlock,
 	type AcpSessionModeId,
 } from '@/lib/tauri-cmd';
@@ -226,7 +226,7 @@ export function Composer({ threadId, className, placeholder }: ComposerProps) {
 		lastSentRef.current = value;
 
 		if (hasImages && threadId) {
-			// Image-bearing sends fire `acpPrompt` directly so the images reach
+			// Image-bearing sends fire `chatPrompt` directly so the images reach
 			// claude's stream-json envelope. Text-only sends still route through
 			// the adapter so the legacy CLI path stays functional for opt-out
 			// users.
@@ -240,12 +240,12 @@ export function Composer({ threadId, className, placeholder }: ComposerProps) {
 				blocks.push({ type: 'image', data: img.base64, mimeType: img.mimeType });
 			}
 			try {
-				await acpPrompt({ sessionId: threadId, prompt: blocks });
+				await chatPrompt({ sessionId: threadId, prompt: blocks });
 			} catch (e) {
 				// Surface failures via the same lastError banner the legacy path
 				// uses. The hooks layer doesn't own this state for ACP yet, so
 				// we just log; Phase 10 unifies error handling.
-				console.error('acpPrompt failed:', e);
+				console.error('chatPrompt failed:', e);
 			}
 			return;
 		}
@@ -293,7 +293,7 @@ export function Composer({ threadId, className, placeholder }: ComposerProps) {
 	// is the source of truth (`AcpServer.handle_set_mode`), but we mirror
 	// it here so the dropdown reflects what we last set. Default `default`
 	// matches the spawn-time fallback in `SessionOpts::default`.
-	// TODO(phase-10): hydrate from `acpNewSession().modes.currentModeId`
+	// TODO(phase-10): hydrate from `chatNewSession().modes.currentModeId`
 	// when the composer takes over the new_session call itself.
 	const [currentMode, setCurrentMode] = useState<AcpSessionModeId>('default');
 	const [modeError, setModeError] = useState<string | null>(null);
@@ -306,7 +306,7 @@ export function Composer({ threadId, className, placeholder }: ComposerProps) {
 		setCurrentMode(next);
 		setModeError(null);
 		try {
-			await acpSetMode(threadId, next);
+			await chatSetMode(threadId, next);
 		} catch (e) {
 			setCurrentMode(previous);
 			setModeError(e instanceof Error ? e.message : String(e));
@@ -330,11 +330,12 @@ export function Composer({ threadId, className, placeholder }: ComposerProps) {
 
 	function handleInstallEnginePkg() {
 		setEngineMenuOpen(false);
-		// TanStack file-route convention: trailing `_` in `packages_.browse.tsx`
-		// strips the segment from the URL, so the navigable path is
-		// `/packages/browse`. The `filter` search param is validated by the
-		// route's `validateSearch`.
-		void navigate({ to: '/packages/browse', search: { filter: 'engine' } });
+		// Source of truth for installed engines is `agent_detect`, not the
+		// pkg registry — /settings/agent exposes the picker UI + auth-status
+		// banner backed by the same detection scan the onboarding wizard
+		// uses. ADR-010 (engines-as-pkgs) is the long-term shape; until any
+		// engine pkg ships, /settings/agent is the user-facing install hop.
+		void navigate({ to: '/settings/agent' });
 	}
 
 	async function handleModelChange(nextId: string) {
@@ -344,10 +345,10 @@ export function Composer({ threadId, className, placeholder }: ComposerProps) {
 		// Optimistic local mirror so the pill flips immediately.
 		setThread(threadId, { model: nextId });
 		try {
-			await acpSetModel(threadId, nextId);
+			await chatSetModel(threadId, nextId);
 		} catch (e) {
 			setThread(threadId, { model: previous });
-			console.warn('acpSetModel:', e);
+			console.warn('chatSetModel:', e);
 		}
 	}
 
@@ -357,10 +358,10 @@ export function Composer({ threadId, className, placeholder }: ComposerProps) {
 		const previous = currentEffort;
 		setCurrentEffort(next);
 		try {
-			await acpSetEffort(threadId, next);
+			await chatSetEffort(threadId, next);
 		} catch (e) {
 			setCurrentEffort(previous);
-			console.warn('acpSetEffort:', e);
+			console.warn('chatSetEffort:', e);
 		}
 	}
 

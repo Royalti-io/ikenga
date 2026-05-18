@@ -777,24 +777,39 @@ export interface AcpSessionNotification {
 	_meta?: Record<string, unknown>;
 }
 
+/** Canonical engine ids the Rust multi-engine dispatcher recognises.
+ *  Phase 2 adds 'gemini'; future phases add 'codex' etc. Defaults to
+ *  'claude-code' when omitted by callers — keeps the legacy single-
+ *  engine call sites working unchanged during the migration. */
+export type ChatEngineId = 'claude-code' | 'gemini';
+
 /** ACP `initialize` — handshake. Returns the negotiated protocol version
  *  + the agent's advertised capabilities. */
-export async function acpInitialize(req: AcpInitializeRequest): Promise<AcpInitializeResponse> {
-	return invoke<AcpInitializeResponse>('acp_initialize', { req });
+export async function chatInitialize(
+	req: AcpInitializeRequest,
+	engineId?: ChatEngineId
+): Promise<AcpInitializeResponse> {
+	return invoke<AcpInitializeResponse>('chat_initialize', { engineId, req });
 }
 
 /** ACP `session/new` — mints a fresh thread id keyed in Rust as both the
  *  ACP `sessionId` and the legacy `threadId`. The claude child is lazy —
- *  it spawns on the first `acpPrompt`. */
-export async function acpNewSession(req: AcpNewSessionRequest): Promise<AcpNewSessionResponse> {
-	return invoke<AcpNewSessionResponse>('acp_new_session', { req });
+ *  it spawns on the first `chatPrompt`. */
+export async function chatNewSession(
+	req: AcpNewSessionRequest,
+	engineId?: ChatEngineId
+): Promise<AcpNewSessionResponse> {
+	return invoke<AcpNewSessionResponse>('chat_new_session', { engineId, req });
 }
 
 /** ACP `session/prompt` — synchronous from the caller's POV, but emits
- *  `AcpSessionNotification`s on `acp://session/{sessionId}` while the
+ *  `AcpSessionNotification`s on `chat://session/{sessionId}` while the
  *  agent is mid-turn. The promise resolves when the turn ends. */
-export async function acpPrompt(req: AcpPromptRequest): Promise<AcpPromptResponse> {
-	return invoke<AcpPromptResponse>('acp_prompt', { req });
+export async function chatPrompt(
+	req: AcpPromptRequest,
+	engineId?: ChatEngineId
+): Promise<AcpPromptResponse> {
+	return invoke<AcpPromptResponse>('chat_prompt', { engineId, req });
 }
 
 /** ACP `session/cancel`. Phase 6: now uses a clean interrupt envelope
@@ -804,26 +819,26 @@ export async function acpPrompt(req: AcpPromptRequest): Promise<AcpPromptRespons
  *  transcript stays intact and the streaming child stays alive, so the
  *  next prompt re-uses it instead of paying spawn cost. Best-effort: a
  *  stale or unknown `threadId` resolves cleanly as a no-op. */
-export async function acpCancel(threadId: string): Promise<void> {
-	return invoke('acp_cancel', { threadId });
+export async function chatCancel(threadId: string, engineId?: ChatEngineId): Promise<void> {
+	return invoke('chat_cancel', { engineId, threadId });
 }
 
 /** Subscribe to ACP session updates for a given thread. Tauri side emits
- *  `AcpSessionNotification`s on `acp://session/{threadId}` for every
+ *  `AcpSessionNotification`s on `chat://session/{threadId}` for every
  *  `SessionUpdate` derived from the underlying ChatEvent stream. */
-export async function acpListen(
+export async function chatListen(
 	threadId: string,
 	onUpdate: (notification: AcpSessionNotification) => void
 ): Promise<UnlistenFn> {
-	return listen<AcpSessionNotification>(`acp://session/${threadId}`, (e) => onUpdate(e.payload));
+	return listen<AcpSessionNotification>(`chat://session/${threadId}`, (e) => onUpdate(e.payload));
 }
 
 // ─── ACP permission round-trip (phase 4) ──────────────────────────────────────
 //
 // Subset of the ACP `session/request_permission` request/response shapes we
 // care about today. The Rust side emits the full request payload through
-// `acp://session/{threadId}/request`; the client replies via
-// `acpRespondPermission`. See `src-tauri/src/acp/permission.rs` for the
+// `chat://session/{threadId}/request`; the client replies via
+// `chatRespondPermission`. See `src-tauri/src/acp/permission.rs` for the
 // option-id encoding (`ask:{q_idx}:{label}` for AskUserQuestion, the four
 // canonical `allow_once / allow_always / reject_once / reject_always` for
 // generic tools).
@@ -866,7 +881,7 @@ export interface AcpRequestPermissionResponse {
 	_meta?: Record<string, unknown>;
 }
 
-/** Envelope the Rust side emits on `acp://session/{threadId}/request`.
+/** Envelope the Rust side emits on `chat://session/{threadId}/request`.
  *  Carries the `requestId` (so the reply can match it up) plus the full
  *  ACP-shaped request payload. */
 export interface AcpRequestEnvelope {
@@ -876,11 +891,11 @@ export interface AcpRequestEnvelope {
 
 /** Subscribe to `session/request_permission` requests for a thread. Used by
  *  the Phase 4 PermissionDialog and the acp-smoke harness. */
-export async function acpListenRequests(
+export async function chatListenRequests(
 	threadId: string,
 	onRequest: (envelope: AcpRequestEnvelope) => void
 ): Promise<UnlistenFn> {
-	return listen<AcpRequestEnvelope>(`acp://session/${threadId}/request`, (e) =>
+	return listen<AcpRequestEnvelope>(`chat://session/${threadId}/request`, (e) =>
 		onRequest(e.payload)
 	);
 }
@@ -888,11 +903,12 @@ export async function acpListenRequests(
 /** Phase 4: reply to a `session/request_permission`. The Rust server
  *  resolves the parked oneshot, translates the outcome into a
  *  `sdk_control_response` envelope, and writes it back to claude's stdin. */
-export async function acpRespondPermission(
+export async function chatRespondPermission(
 	requestId: string,
-	response: AcpRequestPermissionResponse
+	response: AcpRequestPermissionResponse,
+	engineId?: ChatEngineId
 ): Promise<void> {
-	return invoke('acp_respond_permission', { requestId, response });
+	return invoke('chat_respond_permission', { engineId, requestId, response });
 }
 
 /** Phase 5: switch a session's permission mode. Pass one of the four
@@ -901,8 +917,12 @@ export async function acpRespondPermission(
  *  streaming child exists, writes a `set_permission_mode` control_request
  *  to its stdin so the change applies mid-turn. Otherwise the next spawn
  *  picks it up via `--permission-mode`. */
-export async function acpSetMode(threadId: string, modeId: AcpSessionModeId): Promise<void> {
-	return invoke('acp_set_mode', { threadId, modeId });
+export async function chatSetMode(
+	threadId: string,
+	modeId: AcpSessionModeId,
+	engineId?: ChatEngineId
+): Promise<void> {
+	return invoke('chat_set_mode', { engineId, threadId, modeId });
 }
 
 /** ADR-011 phase 3: set the session's `--model`. Stored on Rust-side
@@ -910,19 +930,24 @@ export async function acpSetMode(threadId: string, modeId: AcpSessionModeId): Pr
  *  deferred — if a streaming child is alive, the change takes effect on
  *  the next respawn. Pass `null` to clear the override and let claude
  *  use its own default. */
-export async function acpSetModel(threadId: string, model: string | null): Promise<void> {
-	return invoke('acp_set_model', { threadId, model });
+export async function chatSetModel(
+	threadId: string,
+	model: string | null,
+	engineId?: ChatEngineId
+): Promise<void> {
+	return invoke('chat_set_model', { engineId, threadId, model });
 }
 
 /** ADR-011 phase 3: set the session's extended-thinking effort. Same
- *  semantics as `acpSetModel` — stored on `SessionOpts.effort` and
+ *  semantics as `chatSetModel` — stored on `SessionOpts.effort` and
  *  applied on next spawn via `--thinking-budget-tokens`. `'off'` omits
  *  the flag entirely so claude's own default applies. */
-export async function acpSetEffort(
+export async function chatSetEffort(
 	threadId: string,
-	effort: 'off' | 'low' | 'medium' | 'high' | 'max'
+	effort: 'off' | 'low' | 'medium' | 'high' | 'max',
+	engineId?: ChatEngineId
 ): Promise<void> {
-	return invoke('acp_set_effort', { threadId, effort });
+	return invoke('chat_set_effort', { engineId, threadId, effort });
 }
 
 // ─── ACP session fork + load (phase 8) ────────────────────────────────────────
@@ -954,11 +979,12 @@ export interface AcpLoadSessionResponse {
  *  `upToTurn` records the cutoff turn index for the relationship but does
  *  NOT (yet) truncate the JSONL byte-for-byte — Phase 8 is the minimum
  *  implementation; a future phase can do full transcript divergence. */
-export async function acpForkSession(
+export async function chatForkSession(
 	sourceThreadId: string,
-	opts?: { upToTurn?: number; label?: string }
+	opts?: { upToTurn?: number; label?: string; engineId?: ChatEngineId }
 ): Promise<AcpForkResult> {
-	return invoke<AcpForkResult>('acp_fork_session', {
+	return invoke<AcpForkResult>('chat_fork_session', {
+		engineId: opts?.engineId,
 		sourceThreadId,
 		upToTurn: opts?.upToTurn,
 		label: opts?.label,
@@ -967,10 +993,13 @@ export async function acpForkSession(
 
 /** Phase 8: ACP `session/load`. Re-attach to a session by `threadId` and
  *  return its current mode advertisement so the picker can hydrate. The
- *  claude child stays lazy — it spawns on the next `acpPrompt`. The
+ *  claude child stays lazy — it spawns on the next `chatPrompt`. The
  *  on-disk transcript is read via the existing JSONL reader path. */
-export async function acpLoadSession(threadId: string): Promise<AcpLoadSessionResponse> {
-	return invoke<AcpLoadSessionResponse>('acp_load_session', { threadId });
+export async function chatLoadSession(
+	threadId: string,
+	engineId?: ChatEngineId
+): Promise<AcpLoadSessionResponse> {
+	return invoke<AcpLoadSessionResponse>('chat_load_session', { engineId, threadId });
 }
 
 // ─── ACP user-attention notify (phase 9) ──────────────────────────────────────
@@ -979,7 +1008,7 @@ export async function acpLoadSession(threadId: string): Promise<AcpLoadSessionRe
 //
 //   - `Notification` hook (agent-initiated "need your input")
 //   - `PermissionRequest` (tool approval round-trip — also surfaced via
-//     `acp://session/{threadId}/request` for the in-UI dialog)
+//     `chat://session/{threadId}/request` for the in-UI dialog)
 //
 // The Rust side emits an `acp://notify` Tauri event for both. The frontend
 // dispatcher (`src/lib/notifications/acp-notify-bridge.ts`) decides whether
@@ -999,10 +1028,10 @@ export interface AcpNotifyPayload {
 /** Subscribe to `acp://notify` events from the Rust ACP server. Used by
  *  `acp-notify-bridge.ts` (the singleton dispatcher) and by the
  *  `ikengaAcpNotifyWatch` smoke helper. */
-export async function acpListenNotify(
+export async function chatListenNotify(
 	callback: (payload: AcpNotifyPayload) => void
 ): Promise<UnlistenFn> {
-	return listen<AcpNotifyPayload>('acp://notify', (e) => callback(e.payload));
+	return listen<AcpNotifyPayload>('chat://notify', (e) => callback(e.payload));
 }
 
 // ─── Claude config browser (/claude route) ────────────────────────────────────

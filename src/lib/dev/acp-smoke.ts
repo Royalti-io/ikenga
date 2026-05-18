@@ -10,16 +10,16 @@
 //   iyke javascript "(await window.ikengaAcpSmoke('Reply with exactly: ACP-OK')).updates.length"
 
 import {
-	acpCancel,
-	acpForkSession,
-	acpInitialize,
-	acpListen,
-	acpListenNotify,
-	acpListenRequests,
-	acpNewSession,
-	acpPrompt,
-	acpRespondPermission,
-	acpSetMode,
+	chatCancel,
+	chatForkSession,
+	chatInitialize,
+	chatListen,
+	chatListenNotify,
+	chatListenRequests,
+	chatNewSession,
+	chatPrompt,
+	chatRespondPermission,
+	chatSetMode,
 	type AcpContentBlock,
 	type AcpForkResult,
 	type AcpNotifyPayload,
@@ -36,13 +36,13 @@ export interface AcpSmokeResult {
 	stopReason: string;
 	/** Phase 4: every `session/request_permission` we received during the
 	 *  turn, in order. The smoke harness auto-responds with the first
-	 *  option of each request (see `acpListenRequests` wire-up below). */
+	 *  option of each request (see `chatListenRequests` wire-up below). */
 	permissionRequests: AcpRequestEnvelope[];
 	/** Phase 5: the modes the server advertised on `session/new`. Useful
 	 *  for asserting the four canonical modes are surfaced. */
 	advertisedModes: AcpSessionModes | null;
 	/** Phase 5: the final mode the session was in when the prompt fired
-	 *  (after any optional `acpSetMode` call). When `opts.mode` is not
+	 *  (after any optional `chatSetMode` call). When `opts.mode` is not
 	 *  provided this is whatever the server advertised as `currentModeId`. */
 	finalMode: AcpSessionModeId;
 }
@@ -51,7 +51,7 @@ export interface AcpSmokeResult {
  * Runs a single ACP prompt round-trip and returns every `SessionUpdate` the
  * agent emitted plus the final stop reason. The session is created fresh on
  * each call — we don't reuse a thread across smoke runs because we want
- * `acpPrompt` to observe spawn-time behavior too.
+ * `chatPrompt` to observe spawn-time behavior too.
  *
  * `cwd` defaults to `$HOME` so we don't depend on the iyke caller having
  * already set a project root. Override if the smoke test is supposed to
@@ -65,9 +65,9 @@ export async function runAcpSmokeTest(
 
 	// Handshake. The response is ignored for now — phase 10 will use the
 	// advertised capabilities to gate UI features.
-	await acpInitialize({ protocolVersion: 1 });
+	await chatInitialize({ protocolVersion: 1 });
 
-	const session = await acpNewSession({ cwd, mcpServers: [] });
+	const session = await chatNewSession({ cwd, mcpServers: [] });
 	const threadId = session.sessionId;
 	const advertisedModes = session.modes ?? null;
 
@@ -77,12 +77,12 @@ export async function runAcpSmokeTest(
 	let finalMode: AcpSessionModeId = (advertisedModes?.currentModeId ??
 		'default') as AcpSessionModeId;
 	if (opts.mode && opts.mode !== finalMode) {
-		await acpSetMode(threadId, opts.mode);
+		await chatSetMode(threadId, opts.mode);
 		finalMode = opts.mode;
 	}
 
 	const updates: AcpSessionUpdate[] = [];
-	const unlisten = await acpListen(threadId, (notif: AcpSessionNotification) => {
+	const unlisten = await chatListen(threadId, (notif: AcpSessionNotification) => {
 		updates.push(notif.update);
 	});
 
@@ -92,30 +92,30 @@ export async function runAcpSmokeTest(
 	// generic tools that's `allow_once`. The harness is for smoke runs —
 	// the real UI lives in `PermissionDialog` (Phase 4.5 / Phase 10).
 	const permissionRequests: AcpRequestEnvelope[] = [];
-	const unlistenRequests = await acpListenRequests(threadId, (env: AcpRequestEnvelope) => {
+	const unlistenRequests = await chatListenRequests(threadId, (env: AcpRequestEnvelope) => {
 		permissionRequests.push(env);
 		const firstOption = env.request.options[0];
 		if (!firstOption) {
 			// Nothing to pick — synthesize a cancellation so claude doesn't
 			// hang. The Rust side translates this to a `deny` envelope.
-			void acpRespondPermission(env.requestId, {
+			void chatRespondPermission(env.requestId, {
 				outcome: { outcome: 'cancelled' },
 			});
 			return;
 		}
-		void acpRespondPermission(env.requestId, {
+		void chatRespondPermission(env.requestId, {
 			outcome: { outcome: 'selected', optionId: firstOption.optionId },
 		});
 	});
 
 	let response;
 	try {
-		response = await acpPrompt({
+		response = await chatPrompt({
 			sessionId: threadId,
 			prompt: [{ type: 'text', text: prompt }],
 		});
 	} finally {
-		// Note: `acpPrompt` resolves the moment the Rust side sees `Done`,
+		// Note: `chatPrompt` resolves the moment the Rust side sees `Done`,
 		// but Tauri events may still flush a tick later. Don't unlisten
 		// synchronously or we lose the tail; let the microtask queue
 		// drain first.
@@ -168,30 +168,30 @@ export async function runAcpImageSmokeTest(
 	const mimeType = match[1];
 	const data = match[2];
 
-	await acpInitialize({ protocolVersion: 1 });
+	await chatInitialize({ protocolVersion: 1 });
 
-	const session = await acpNewSession({ cwd, mcpServers: [] });
+	const session = await chatNewSession({ cwd, mcpServers: [] });
 	const threadId = session.sessionId;
 	const advertisedModes = session.modes ?? null;
 	const finalMode: AcpSessionModeId = (advertisedModes?.currentModeId ??
 		'default') as AcpSessionModeId;
 
 	const updates: AcpSessionUpdate[] = [];
-	const unlisten = await acpListen(threadId, (notif: AcpSessionNotification) => {
+	const unlisten = await chatListen(threadId, (notif: AcpSessionNotification) => {
 		updates.push(notif.update);
 	});
 
 	const permissionRequests: AcpRequestEnvelope[] = [];
-	const unlistenRequests = await acpListenRequests(threadId, (env: AcpRequestEnvelope) => {
+	const unlistenRequests = await chatListenRequests(threadId, (env: AcpRequestEnvelope) => {
 		permissionRequests.push(env);
 		const firstOption = env.request.options[0];
 		if (!firstOption) {
-			void acpRespondPermission(env.requestId, {
+			void chatRespondPermission(env.requestId, {
 				outcome: { outcome: 'cancelled' },
 			});
 			return;
 		}
-		void acpRespondPermission(env.requestId, {
+		void chatRespondPermission(env.requestId, {
 			outcome: { outcome: 'selected', optionId: firstOption.optionId },
 		});
 	});
@@ -203,7 +203,7 @@ export async function runAcpImageSmokeTest(
 
 	let response;
 	try {
-		response = await acpPrompt({ sessionId: threadId, prompt: blocks });
+		response = await chatPrompt({ sessionId: threadId, prompt: blocks });
 	} finally {
 		await Promise.resolve();
 		unlisten();
@@ -222,7 +222,7 @@ export async function runAcpImageSmokeTest(
 
 /**
  * Phase 6: smoke-test the interrupt path. Sends a long-running prompt,
- * waits `delayMs`, fires `acpCancel`, then returns whatever updates
+ * waits `delayMs`, fires `chatCancel`, then returns whatever updates
  * arrived. Should see partial assistant text followed by a Done with a
  * cancellation stop_reason.
  *
@@ -232,7 +232,7 @@ export async function runAcpImageSmokeTest(
  *   - `stopReason === 'cancelled'` — claude acknowledged the interrupt
  *     via its normal `Done` envelope; we did NOT kill the child.
  *
- * Unlike `runAcpSmokeTest` we kick off `acpPrompt` without awaiting it
+ * Unlike `runAcpSmokeTest` we kick off `chatPrompt` without awaiting it
  * first, so the interrupt can race in while claude is mid-turn. The
  * promise is still awaited before we return so the caller observes the
  * full stop_reason rather than a synthesized one.
@@ -249,16 +249,16 @@ export async function runAcpInterruptSmokeTest(
 	const cwd = opts.cwd ?? '/';
 	const delayMs = opts.delayMs ?? 500;
 
-	await acpInitialize({ protocolVersion: 1 });
+	await chatInitialize({ protocolVersion: 1 });
 
-	const session = await acpNewSession({ cwd, mcpServers: [] });
+	const session = await chatNewSession({ cwd, mcpServers: [] });
 	const threadId = session.sessionId;
 	const advertisedModes = session.modes ?? null;
 	const finalMode: AcpSessionModeId = (advertisedModes?.currentModeId ??
 		'default') as AcpSessionModeId;
 
 	const updates: AcpSessionUpdate[] = [];
-	const unlisten = await acpListen(threadId, (notif: AcpSessionNotification) => {
+	const unlisten = await chatListen(threadId, (notif: AcpSessionNotification) => {
 		updates.push(notif.update);
 	});
 
@@ -266,16 +266,16 @@ export async function runAcpInterruptSmokeTest(
 	// to ask for permission before we fire the interrupt, we don't want
 	// the smoke to hang. Pick the first option.
 	const permissionRequests: AcpRequestEnvelope[] = [];
-	const unlistenRequests = await acpListenRequests(threadId, (env: AcpRequestEnvelope) => {
+	const unlistenRequests = await chatListenRequests(threadId, (env: AcpRequestEnvelope) => {
 		permissionRequests.push(env);
 		const firstOption = env.request.options[0];
 		if (!firstOption) {
-			void acpRespondPermission(env.requestId, {
+			void chatRespondPermission(env.requestId, {
 				outcome: { outcome: 'cancelled' },
 			});
 			return;
 		}
-		void acpRespondPermission(env.requestId, {
+		void chatRespondPermission(env.requestId, {
 			outcome: { outcome: 'selected', optionId: firstOption.optionId },
 		});
 	});
@@ -283,7 +283,7 @@ export async function runAcpInterruptSmokeTest(
 	// Kick the prompt off WITHOUT awaiting — we want the interrupt to
 	// race in mid-turn. We still capture the eventual response so the
 	// caller can assert on `stopReason`.
-	const promptPromise = acpPrompt({
+	const promptPromise = chatPrompt({
 		sessionId: threadId,
 		prompt: [{ type: 'text', text: prompt }],
 	});
@@ -292,7 +292,7 @@ export async function runAcpInterruptSmokeTest(
 	// fixed `delayMs` is just to give claude enough time to start
 	// streaming so we can observe the partial-transcript behavior.
 	await new Promise((resolve) => setTimeout(resolve, delayMs));
-	await acpCancel(threadId);
+	await chatCancel(threadId);
 
 	let response;
 	try {
@@ -332,7 +332,7 @@ export async function runAcpForkSmokeTest(
 	sourceThreadId: string,
 	opts: { upToTurn?: number; label?: string } = {}
 ): Promise<AcpForkResult> {
-	return acpForkSession(sourceThreadId, opts);
+	return chatForkSession(sourceThreadId, opts);
 }
 
 /**
@@ -349,7 +349,7 @@ export async function runAcpForkSmokeTest(
  */
 export async function watchAcpNotify(durationMs = 30000): Promise<AcpNotifyPayload[]> {
 	const payloads: AcpNotifyPayload[] = [];
-	const unlisten = await acpListenNotify((p) => {
+	const unlisten = await chatListenNotify((p) => {
 		payloads.push(p);
 	});
 	try {

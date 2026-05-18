@@ -197,7 +197,7 @@ pub async fn session_ensure(
     let permission_mode = opts
         .permission_mode
         .as_deref()
-        .and_then(crate::acp::mode::AcpSessionMode::from_acp_id)
+        .and_then(crate::engines::claude_code::mode::AcpSessionMode::from_acp_id)
         .unwrap_or_default();
     let opts = SessionOpts {
         resume_session_id: opts.resume_session_id,

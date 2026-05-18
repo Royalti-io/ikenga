@@ -128,6 +128,11 @@ url = "2"
 # we want for /branch + faster resume + per-session model overrides.
 agent-client-protocol = { version = "0.11", features = ["unstable"] }
 
+# CodexPtyEngine: codex CLI is a full-screen TUI, so its PTY stdout is full of
+# ANSI cursor-positioning + style escapes. We strip them down to plain text
+# before splitting on newlines so the parser can spot real content lines.
+strip-ansi-escapes = "0.2"
+
 # macOS-only: NSProcessInfo.beginActivity App-Nap inhibitor. Held while a
 # browser MCP tool call is in flight to keep eval round-trips fast even when
 # the host window is occluded / minimized. Phase 0.5 confirmed Linux doesn't

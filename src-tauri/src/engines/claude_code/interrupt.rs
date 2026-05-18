@@ -1,7 +1,7 @@
 //! Phase 6: clean interrupt. ACP `session/cancel` translates into an
 //! `sdk_control_request { subtype: "interrupt" }` written to claude's
 //! stdin. Claude stops mid-turn and emits its normal `Done` envelope, so
-//! the prompt loop in `acp::server::handle_prompt` exits naturally without
+//! the prompt loop in `engines::claude_code::server::handle_prompt` exits naturally without
 //! killing the child. Transcript stays intact and the next turn re-uses
 //! the same streaming process.
 //!

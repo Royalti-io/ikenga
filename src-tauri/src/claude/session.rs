@@ -34,8 +34,8 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::{broadcast, Mutex};
 
-use crate::acp::mode::AcpSessionMode;
-use crate::acp::prompt::PromptContent;
+use crate::engines::claude_code::mode::AcpSessionMode;
+use crate::engines::claude_code::prompt::PromptContent;
 use crate::claude::{
     artifact_watcher::ArtifactWatcher, event::ChatEvent, stream_parser::StreamParser,
 };
@@ -87,7 +87,7 @@ pub struct SessionOpts {
     #[serde(rename = "resumeSessionId")]
     pub resume_session_id: Option<String>,
     /// Initial permission mode passed via `--permission-mode` on spawn.
-    /// Runtime changes happen via `acp::server::handle_set_mode` →
+    /// Runtime changes happen via `engines::claude_code::server::handle_set_mode` →
     /// `send_set_mode`.
     #[serde(rename = "permissionMode")]
     pub permission_mode: AcpSessionMode,
@@ -135,7 +135,7 @@ pub struct Session {
     /// `handle_prompt` treats as fatal for the turn.
     pub events: broadcast::Sender<ChatEvent>,
     /// Phase 5: tracked current session mode. Initialized from
-    /// `opts.permission_mode`. Updated by `acp::server::handle_set_mode`,
+    /// `opts.permission_mode`. Updated by `engines::claude_code::server::handle_set_mode`,
     /// which also writes a `set_permission_mode` control_request to claude's
     /// stdin if a streaming child is live. If no child is live, the next
     /// `spawn_streaming` picks up the new mode via the `--permission-mode`
@@ -179,7 +179,7 @@ impl Session {
     }
 
     /// Phase 5: set the spawn-time overlay for this session. Called from
-    /// `acp::server::handle_new_session` after resolving the project +
+    /// `engines::claude_code::server::handle_new_session` after resolving the project +
     /// running discovery, before the first `spawn_streaming`. Idempotent —
     /// re-calling overwrites, which is fine for the resume path (load /
     /// fork) once those wire it in too.
@@ -352,7 +352,7 @@ pub async fn spawn_streaming(
     command
         // Phase 4: `--permission-prompt-tool stdio` opens the
         // `sdk_control_request` channel on stdout so tool approvals become
-        // a real round-trip (see `acp::server::handle_prompt`).
+        // a real round-trip (see `engines::claude_code::server::handle_prompt`).
         //
         // Phase 5: `--dangerously-skip-permissions` retired. Permission
         // behavior is now driven entirely by `--permission-mode` (initial
@@ -363,7 +363,7 @@ pub async fn spawn_streaming(
         //   default           → claude `default`
         //   auto              → claude `acceptEdits`
         //   bypassPermissions → claude `bypassPermissions`
-        // See `crate::acp::mode` for the canonical mapping.
+        // See `crate::engines::claude_code::mode` for the canonical mapping.
         .arg("--permission-prompt-tool")
         .arg("stdio")
         .arg("--permission-mode")
@@ -423,7 +423,7 @@ pub async fn spawn_streaming(
         }
     }
     // Phase 8: forks seed `resume_session_id` with the SOURCE thread's
-    // `claude_session_id` at fork time (see `acp::server::handle_fork_session`),
+    // `claude_session_id` at fork time (see `engines::claude_code::server::handle_fork_session`),
     // so the first prompt on a forked thread resumes against the source's
     // on-disk JSONL transcript. The user effectively continues the same
     // claude conversation in a separate Ikenga thread.
@@ -765,7 +765,7 @@ pub async fn send_set_mode(session: Arc<Session>, mode: AcpSessionMode) -> Resul
         return Ok(());
     };
     let request_id = format!("{}", uuid::Uuid::new_v4());
-    let envelope = crate::acp::mode::set_mode_envelope(mode, &request_id);
+    let envelope = crate::engines::claude_code::mode::set_mode_envelope(mode, &request_id);
     let mut stdin = streaming.stdin.lock().await;
     stdin
         .write_all(envelope.as_bytes())
@@ -780,7 +780,7 @@ pub async fn send_set_mode(session: Arc<Session>, mode: AcpSessionMode) -> Resul
 
 /// Phase 6: write an interrupt control_request to claude's stdin. The
 /// streaming child stops mid-turn and emits its normal `Done` envelope
-/// (the prompt loop in `acp::server::handle_prompt` watches for it), so
+/// (the prompt loop in `engines::claude_code::server::handle_prompt` watches for it), so
 /// the transcript stays intact and the child remains alive for the next
 /// turn. Unlike `cancel_streaming`, we do NOT kill the process.
 ///
@@ -801,7 +801,7 @@ pub async fn send_interrupt(session: Arc<Session>) -> Result<(), String> {
         }
     };
     let request_id = format!("{}", uuid::Uuid::new_v4());
-    let envelope = crate::acp::interrupt::interrupt_envelope(&request_id);
+    let envelope = crate::engines::claude_code::interrupt::interrupt_envelope(&request_id);
     let mut stdin = streaming.stdin.lock().await;
     stdin
         .write_all(envelope.as_bytes())
@@ -935,7 +935,7 @@ mod tests {
         // `{"type":"image","source":{"type":"base64","media_type":"...","data":"..."}}`.
         let content = PromptContent {
             text: "what's this?".into(),
-            images: vec![crate::acp::prompt::PromptImage {
+            images: vec![crate::engines::claude_code::prompt::PromptImage {
                 mime_type: "image/png".into(),
                 base64_data: "aGVsbG8=".into(),
             }],
@@ -965,7 +965,7 @@ mod tests {
         // should contain only the image.
         let content = PromptContent {
             text: String::new(),
-            images: vec![crate::acp::prompt::PromptImage {
+            images: vec![crate::engines::claude_code::prompt::PromptImage {
                 mime_type: "image/jpeg".into(),
                 base64_data: "aGVsbG8=".into(),
             }],

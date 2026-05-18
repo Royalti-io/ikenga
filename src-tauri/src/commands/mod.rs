@@ -3,7 +3,7 @@
 //! in `src/lib/tauri-cmd.ts` mirror this, so later phases just fill in the
 //! Rust side.
 
-pub mod acp;
+pub mod chat;
 pub mod activity_bar;
 pub mod backup;
 #[cfg(debug_assertions)]
@@ -35,9 +35,9 @@ pub mod supabase_config;
 pub mod trust;
 pub mod viewer;
 
-pub use acp::{
-    acp_cancel, acp_fork_session, acp_initialize, acp_load_session, acp_new_session, acp_prompt,
-    acp_respond_permission, acp_set_effort, acp_set_mode, acp_set_model,
+pub use chat::{
+    chat_cancel, chat_fork_session, chat_initialize, chat_load_session, chat_new_session, chat_prompt,
+    chat_respond_permission, chat_set_effort, chat_set_mode, chat_set_model,
 };
 pub use activity_bar::{
     activity_pins_add, activity_pins_list, activity_pins_remove, activity_pins_reorder,

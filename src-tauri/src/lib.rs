@@ -1,7 +1,7 @@
-pub mod acp;
 mod agent_detect;
 pub mod claude;
 mod commands;
+pub mod engines;
 pub mod env_files;
 mod fs_roots;
 mod fs_watch;
@@ -25,8 +25,8 @@ use tokio::sync::Mutex;
 use commands::db::PaDb;
 use commands::screenshot::new_pending as new_screenshot_pending;
 use commands::{
-    acp_cancel, acp_fork_session, acp_initialize, acp_load_session, acp_new_session, acp_prompt,
-    acp_respond_permission, acp_set_effort, acp_set_mode, acp_set_model, activity_pins_add,
+    chat_cancel, chat_fork_session, chat_initialize, chat_load_session, chat_new_session, chat_prompt,
+    chat_respond_permission, chat_set_effort, chat_set_mode, chat_set_model, activity_pins_add,
     activity_pins_list, activity_pins_remove, activity_pins_reorder, activity_pins_resolve_artifact,
     activity_pins_touch_open, activity_sections_create, activity_sections_list,
     activity_sections_remove, activity_sections_update, backup_delete,
@@ -100,8 +100,34 @@ pub fn run() {
     // ACP server shares the same `SessionsManager` so the legacy
     // `session_*` commands and the new ACP path operate on the same in-
     // memory session table. Phase 11 retires the legacy path.
-    let acp_server: acp::server::AcpServerState =
-        Arc::new(acp::server::AcpServer::new(sessions_manager.clone()));
+    let claude_code_engine: engines::claude_code::server::ClaudeCodeEngineState =
+        Arc::new(engines::claude_code::server::ClaudeCodeEngine::new(sessions_manager.clone()));
+    // Phase 2: Gemini ACP engine. Spawns the `gemini --experimental-acp`
+    // child lazily on first new_session per thread; one child per
+    // threadId, reused across prompts.
+    let gemini_acp_engine: engines::gemini_acp::GeminiAcpEngineState =
+        Arc::new(engines::gemini_acp::GeminiAcpEngine::new());
+    // Phase 3: Codex PTY engine. Lazy-spawns the `codex` CLI in a PTY on
+    // first prompt per thread. Shares the global `PtyManager` so codex
+    // children show up in pty diagnostics alongside the rest of the
+    // shell's PTY surface.
+    let codex_pty_engine: engines::codex_pty::CodexPtyEngineState =
+        Arc::new(engines::codex_pty::CodexPtyEngine::new(pty_manager.clone()));
+    // Multi-engine dispatcher used by `commands/chat.rs`. Built once
+    // here and `.manage()`d so every Tauri command resolves engines
+    // through the same registry.
+    let engine_registry: engines::EngineRegistryState = Arc::new(engines::EngineRegistry::new());
+    {
+        let reg = engine_registry.clone();
+        let claude_handle = engines::EngineHandle::ClaudeCode(claude_code_engine.clone());
+        let gemini_handle = engines::EngineHandle::GeminiAcp(gemini_acp_engine.clone());
+        let codex_handle = engines::EngineHandle::CodexPty(codex_pty_engine.clone());
+        tauri::async_runtime::block_on(async move {
+            reg.insert("claude-code", claude_handle).await;
+            reg.insert("gemini", gemini_handle).await;
+            reg.insert("codex", codex_handle).await;
+        });
+    }
     let screenshot_pending: ScreenshotPending = new_screenshot_pending();
 
     // Migrations are the responsibility of `commands::db::ensure_schema`
@@ -149,7 +175,10 @@ pub fn run() {
         .manage(fs_watch_manager)
         .manage(viewer_manager)
         .manage(sessions_manager)
-        .manage(acp_server)
+        .manage(claude_code_engine)
+        .manage(gemini_acp_engine)
+        .manage(codex_pty_engine)
+        .manage(engine_registry)
         .manage(screenshot_pending.clone())
         .manage(SecretsLock::new())
         .setup(move |app| {
@@ -608,20 +637,20 @@ pub fn run() {
             session_destroy,
             session_destroy_all,
             // acp (phase 3 — runs alongside legacy session_* until phase 10)
-            acp_initialize,
-            acp_new_session,
-            acp_prompt,
-            acp_cancel,
+            chat_initialize,
+            chat_new_session,
+            chat_prompt,
+            chat_cancel,
             // acp permission round-trip (phase 4)
-            acp_respond_permission,
+            chat_respond_permission,
             // acp session modes (phase 5)
-            acp_set_mode,
+            chat_set_mode,
             // adr-011 phase 3: session-level model + effort (per-turn deferred)
-            acp_set_model,
-            acp_set_effort,
+            chat_set_model,
+            chat_set_effort,
             // acp session fork + faster resume (phase 8)
-            acp_fork_session,
-            acp_load_session,
+            chat_fork_session,
+            chat_load_session,
             // claude config browser
             claude_config_load,
             claude_config_watch,

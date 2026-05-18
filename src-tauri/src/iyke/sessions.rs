@@ -19,7 +19,7 @@ use serde_json::Value;
 use sqlx::Row;
 use tauri::{AppHandle, Manager};
 
-use crate::acp::server::AcpServerState;
+use crate::engines::claude_code::server::ClaudeCodeEngineState;
 use crate::commands::db::PaDb;
 use crate::commands::projects::{get_active_project_id, get_project};
 
@@ -179,7 +179,7 @@ pub struct StartBody {
 
 /// Phase 5 carry-forward (`iyke_session_start_in_project` from the
 /// Phase 3 spec). Mints a thread id, validates the project, and invokes
-/// the in-process `AcpServerState::handle_new_session` — same code path
+/// the in-process `ClaudeCodeEngineState::handle_new_session` — same code path
 /// the Tauri command `acp_new_session` uses, so all Phase 3+4+5 wiring
 /// (project resolution, claude config-dir overlay, env vars) applies.
 /// Returns the thread id; sending the initial prompt is the caller's job
@@ -233,7 +233,7 @@ pub async fn post_session_start(
     let mut req = NewSessionRequest::new(PathBuf::from(&cwd));
     req.meta = meta;
 
-    let state = app.state::<AcpServerState>();
+    let state = app.state::<ClaudeCodeEngineState>();
     state
         .handle_new_session(app.clone(), req)
         .await

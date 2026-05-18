@@ -8,7 +8,7 @@ import { shortPath, loadHome } from '@/lib/home';
 
 import '../sessions.css';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { acpForkSession, acpLoadSession, chatThreadMove } from '@/lib/tauri-cmd';
+import { chatForkSession, chatLoadSession, chatThreadMove } from '@/lib/tauri-cmd';
 import { useShellStore } from '@/lib/shell/shell-store';
 import { createTerminalSession } from '@/terminal/single-terminal';
 import { buildClaudeWrappedCmd } from '@/terminal/claude-wrap';
@@ -34,15 +34,15 @@ function SessionDetailPage() {
 	// so the mode picker can hydrate without paying cold-spawn cost. The
 	// claude child stays lazy; spawn happens on the next prompt. We
 	// silently swallow "no session for thread" (expected for first-open
-	// threads that haven't gone through `acpNewSession` yet) and only
+	// threads that haven't gone through `chatNewSession` yet) and only
 	// surface loud errors via console.warn for real failures.
 	useEffect(() => {
 		let cancelled = false;
-		void acpLoadSession(threadId).catch((err: unknown) => {
+		void chatLoadSession(threadId).catch((err: unknown) => {
 			if (cancelled) return;
 			const msg = err instanceof Error ? err.message : String(err);
 			if (msg.includes('no session for thread')) return;
-			console.warn('acpLoadSession:', err);
+			console.warn('chatLoadSession:', err);
 		});
 		return () => {
 			cancelled = true;
@@ -55,13 +55,13 @@ function SessionDetailPage() {
 	// that resumes from the same on-disk JSONL transcript.
 	async function handleBranch(upToTurn: number) {
 		try {
-			const result = await acpForkSession(threadId, { upToTurn });
+			const result = await chatForkSession(threadId, { upToTurn });
 			void navigate({
 				to: '/sessions/$sessionId',
 				params: { sessionId: result.newThreadId },
 			});
 		} catch (e) {
-			console.warn('acpForkSession:', e);
+			console.warn('chatForkSession:', e);
 		}
 	}
 

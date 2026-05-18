@@ -19,7 +19,7 @@
 
 use serde::Serialize;
 
-/// Input to `AcpServer::handle_fork_session`. The frontend supplies a
+/// Input to `ClaudeCodeEngine::handle_fork_session`. The frontend supplies a
 /// source `threadId` (Ikenga's stable id, NOT claude's session id) and
 /// optionally the turn index to fork from. `up_to_turn = None` means
 /// "fork from the latest turn" — Phase 8 treats both cases identically

@@ -3,7 +3,7 @@
 //! Claude (when spawned with `--permission-prompt-tool stdio`) emits an
 //! `sdk_control_request` envelope on stdout whenever a tool needs approval.
 //! The stream parser turns that into a `ChatEvent::ControlRequest`. Inside
-//! `acp::server::handle_prompt`, we:
+//! `engines::claude_code::server::handle_prompt`, we:
 //!
 //!   1. Build a `RequestPermissionRequest` (ACP spec shape) with one
 //!      `PermissionOption` per choice the client should be able to make.
@@ -23,7 +23,7 @@
 //!
 //! This module is the pure-function half — building options, decoding
 //! option ids back into answers, building the envelope body. The I/O sits
-//! in `acp::server`.
+//! in `engines::claude_code::server`.
 
 use std::collections::HashMap;
 

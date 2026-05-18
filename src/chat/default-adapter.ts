@@ -12,9 +12,11 @@
  * `bootDefaultChatAdapterId()` hydrates the cache at app start; subsequent
  * setter writes update both the cache and `settings_kv`.
  *
- * Mapped values:
- *   - 'legacy' / 'cli' → 'cli' (legacy `ClaudeCliAdapter`)
- *   - any other string / null → 'acp' (default `AcpAdapter`)
+ * Phase 1 of the multi-engine rebuild: there is now one Claude adapter
+ * registered under `'claude-code'` plus `'cli'` / `'acp'` aliases for
+ * backward compat with persisted thread ids. New chats always get
+ * `'claude-code'`. Future engines (`'gemini'`, `'codex'`) land here as
+ * sibling cases once their adapters register.
  *
  * Existing threads keep whatever `adapterId` was persisted in SQLite when
  * they were created. This helper only governs new-thread defaults and any
@@ -27,7 +29,7 @@ export const CHAT_ENGINE_LOCAL_STORAGE_KEY = 'ikenga_chat_engine';
 export const DEFAULT_ENGINE_KV_KEY = 'shell.defaultEngineId';
 const MIGRATED_KV_KEY = 'shell.defaultEngineId.migrated';
 
-export type ChatAdapterId = 'acp' | 'cli';
+export type ChatAdapterId = 'claude-code' | 'gemini' | 'codex' | 'acp' | 'cli';
 
 let cachedEngineId: string | null = null;
 
@@ -56,8 +58,11 @@ function parseEngineId(raw: string | null): string | null {
 
 export function defaultChatAdapterId(): ChatAdapterId {
 	const id = cachedEngineId ?? readLocalStorage();
-	if (id === 'legacy' || id === 'cli') return 'cli';
-	return 'acp';
+	// Persisted legacy choices map onto the unified ClaudeCodeAdapter. New
+	// chats default to 'claude-code'; aliases for 'cli' / 'acp' / 'legacy'
+	// keep old persisted thread ids resolving via the registry.
+	if (id === 'gemini' || id === 'codex') return id;
+	return 'claude-code';
 }
 
 /** Synchronous accessor for the raw engineId — non-mapped, lets the

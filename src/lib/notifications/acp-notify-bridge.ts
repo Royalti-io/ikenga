@@ -36,7 +36,7 @@ import {
 	sendNotification,
 } from '@tauri-apps/plugin-notification';
 
-import { acpListenNotify, type AcpNotifyPayload } from '@/lib/tauri-cmd';
+import { chatListenNotify, type AcpNotifyPayload } from '@/lib/tauri-cmd';
 import { usePaneStore } from '@/lib/panes/pane-store';
 import { useThreadBadges } from '@/lib/shell/thread-badges-store';
 
@@ -68,7 +68,7 @@ export function startAcpNotifyBridge(): Unsubscribe {
 	// must accept; without it, sendNotification silently no-ops.
 	void ensureNotificationPermission();
 
-	void acpListenNotify(handleNotify).then((un) => {
+	void chatListenNotify(handleNotify).then((un) => {
 		if (disposed) {
 			// Caller already unsubscribed before listen() resolved — tear
 			// down immediately so we don't leak a Tauri listener.
@@ -111,7 +111,7 @@ function makeRefCountedUnsubscribe(): Unsubscribe {
  *
  * Exposed for testing — the unit tests pass synthetic payloads through
  * here and assert on what state changed. The real bridge wires this
- * function to `acpListenNotify`.
+ * function to `chatListenNotify`.
  */
 export function handleNotify(payload: AcpNotifyPayload): void {
 	const decision = decideDispatch(payload, {
