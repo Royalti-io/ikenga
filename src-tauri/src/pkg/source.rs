@@ -27,11 +27,25 @@ pub enum InstallSource {
     /// retained so the manifest origin is still traceable even if the install
     /// dir later moves.
     Local { path: String },
+    /// Symlinked from a developer workspace via `ikenga dev <path>`. Like
+    /// `Local` but also opted into hot-reload semantics: the kernel watches
+    /// `manifest.json` + every `restart_when_changed` glob, the trust gate
+    /// auto-trusts (regardless of pkg id namespace), and the FE listens for
+    /// `pkg-reloaded` events to remount mounted iframes.
+    ///
+    /// `path` is the developer's source dir — the same value the CLI passes
+    /// to `pkg_dev_register`. Dev pkgs are removed on shell shutdown / by
+    /// `pkg_dev_unregister`; they never persist as `Dev` across reboot.
+    Dev { path: String },
 }
 
 impl InstallSource {
     pub fn is_builtin(&self) -> bool {
         matches!(self, InstallSource::Builtin)
+    }
+
+    pub fn is_dev(&self) -> bool {
+        matches!(self, InstallSource::Dev { .. })
     }
 
     /// Parse a stored `source_json` blob, falling back to `Local { path }`
@@ -80,6 +94,22 @@ mod tests {
                 publisher_key: None,
             }
         );
+    }
+
+    #[test]
+    fn serializes_dev_with_path() {
+        let s = serde_json::to_string(&InstallSource::Dev {
+            path: "/home/me/code/my-pkg".into(),
+        })
+        .unwrap();
+        assert!(s.contains(r#""kind":"dev""#));
+        assert!(s.contains(r#""path":"/home/me/code/my-pkg""#));
+
+        let round_trip: InstallSource =
+            serde_json::from_str(r#"{"kind":"dev","path":"/x"}"#).unwrap();
+        assert_eq!(round_trip, InstallSource::Dev { path: "/x".into() });
+        assert!(round_trip.is_dev());
+        assert!(!round_trip.is_builtin());
     }
 
     #[test]

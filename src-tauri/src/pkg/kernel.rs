@@ -21,6 +21,7 @@ use tauri::AppHandle;
 use crate::commands::db::PaDb;
 
 use super::cap_snapshot;
+use super::file_watcher::{self, WatcherHandle};
 use super::manifest::{Package, IKENGA_API_MIN_SUPPORTED, IKENGA_API_VERSION};
 use super::registry::Registry;
 use super::source::InstallSource;
@@ -97,6 +98,12 @@ pub struct Kernel {
     /// durable set; `live ⊆ installed`. The reconciler diffs `live`
     /// against the target set and registers/unregisters to converge.
     live: RwLock<std::collections::HashSet<String>>,
+
+    /// Dev-mode (2026-05-18): per-pkg file watchers spawned by
+    /// `pkg_dev_register`. The handle holds the underlying notify
+    /// debouncer; dropping it tears down the watcher worker. Keyed by
+    /// pkg id so `pkg_dev_unregister` can drop precisely the one it owns.
+    dev_watchers: RwLock<HashMap<String, WatcherHandle>>,
 }
 
 impl Kernel {
@@ -108,6 +115,7 @@ impl Kernel {
             app,
             db,
             live: RwLock::new(std::collections::HashSet::new()),
+            dev_watchers: RwLock::new(HashMap::new()),
         }
     }
 
@@ -940,6 +948,183 @@ impl Kernel {
         Ok(())
     }
 
+    /// Dev-mode (2026-05-18): atomically reload a pkg in place. Re-reads
+    /// `manifest.json`, walks every registry's `unregister(pkg_id)`, then
+    /// walks them forward calling `register(&pkg)`. On any register
+    /// failure, rolls back via the existing `rollback` helper.
+    ///
+    /// Used by the `manifest.json` file watcher spawned in
+    /// `pkg_dev_register` — manifest edits trip a 250ms-debounced reload.
+    /// Safe for non-dev pkgs too (used by the iyke `pkg_dev_reload`
+    /// command for explicit triggers), but the watcher is only spawned
+    /// for `source.is_dev()`.
+    ///
+    /// Emits a `pkg-reloaded` Tauri event on success with the new version
+    /// + the list of registries that re-registered. The FE iframe / webview
+    /// hosts listen for this event to remount.
+    ///
+    /// Failure modes:
+    /// - Pkg not installed → return error, no state change.
+    /// - Manifest invalid or fails compatibility → return error, no
+    ///   state change. Previous registrations remain intact because we
+    ///   only call `unregister` after the new manifest validates.
+    /// - One registry's `register` fails → roll back applied registries,
+    ///   return error. The pkg ends up unregistered everywhere; the
+    ///   caller can retry once the user fixes the manifest.
+    pub fn reload_pkg(&self, pkg_id: &str) -> Result<InstalledSummary> {
+        let lock = self.lock_for(pkg_id);
+        let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+
+        // Validate before unregistering so a typo'd manifest can't leave the
+        // pkg torn down with no recovery path.
+        let install_path = self
+            .installed
+            .read()
+            .ok()
+            .and_then(|g| g.get(pkg_id).map(|s| s.install_path.clone()))
+            .ok_or_else(|| anyhow!("pkg `{pkg_id}` not installed"))?;
+        let pkg = Package::load(Path::new(&install_path))
+            .with_context(|| format!("reload manifest for `{pkg_id}`"))?;
+        if !pkg.is_compatible() {
+            return Err(anyhow!(
+                "pkg `{pkg_id}` ikenga_api={} outside support window [{IKENGA_API_MIN_SUPPORTED}, {IKENGA_API_VERSION}]",
+                pkg.manifest.ikenga_api
+            ));
+        }
+
+        // Unregister in reverse order, ignoring per-registry errors (the
+        // Registry trait contract says unregister must be a no-op when the
+        // pkg isn't present, so a missing entry from a partial earlier
+        // failure won't trip us up).
+        for reg in self.registries.iter().rev() {
+            if let Err(e) = reg.unregister(pkg_id) {
+                log::warn!(
+                    "[pkg_kernel] reload: unregister `{}` for `{pkg_id}` failed (continuing): {e}",
+                    reg.name()
+                );
+            }
+        }
+
+        // Re-register forward. Any failure rolls back what we applied.
+        let mut applied: Vec<&str> = Vec::new();
+        let mut applied_names: Vec<String> = Vec::new();
+        for reg in &self.registries {
+            if let Err(e) = reg.register(&pkg) {
+                log::error!(
+                    "[pkg_kernel] reload: register `{}` failed for `{pkg_id}`: {e}",
+                    reg.name()
+                );
+                self.rollback(pkg_id, &applied);
+                if let Ok(mut live) = self.live.write() {
+                    live.remove(pkg_id);
+                }
+                return Err(e);
+            }
+            applied.push(reg.name());
+            applied_names.push(reg.name().to_string());
+        }
+
+        // Refresh the installed snapshot — version + ikenga_api may have
+        // changed in the new manifest. Source + project_id are preserved
+        // from the pre-reload row.
+        let updated = {
+            let mut g = self
+                .installed
+                .write()
+                .map_err(|_| anyhow!("installed lock poisoned"))?;
+            let prev = g
+                .get(pkg_id)
+                .cloned()
+                .ok_or_else(|| anyhow!("pkg `{pkg_id}` vanished mid-reload"))?;
+            let updated = InstalledSummary {
+                id: pkg_id.to_string(),
+                version: pkg.manifest.version.clone(),
+                ikenga_api: pkg.manifest.ikenga_api.clone(),
+                install_path: prev.install_path.clone(),
+                enabled: prev.enabled,
+                installed_at: prev.installed_at,
+                compatible: true,
+                source: prev.source,
+                project_id: prev.project_id,
+            };
+            g.insert(pkg_id.to_string(), updated.clone());
+            updated
+        };
+        if let Ok(mut live) = self.live.write() {
+            live.insert(pkg_id.to_string());
+        }
+
+        // Best-effort event emission for the FE. A failure here means the
+        // iframe/webview won't auto-remount, but the reload itself
+        // succeeded — surface as a log line, not an error to the caller.
+        if let Err(e) = self.app.emit(
+            "pkg-reloaded",
+            serde_json::json!({
+                "pkg_id": pkg_id,
+                "version": pkg.manifest.version,
+                "registries": applied_names,
+            }),
+        ) {
+            log::warn!("[pkg_kernel] reload: emit pkg-reloaded for `{pkg_id}` failed: {e}");
+        }
+
+        log::info!(
+            "[pkg_kernel] reloaded `{pkg_id}` v{} ({} registries)",
+            pkg.manifest.version,
+            applied.len()
+        );
+        Ok(updated)
+    }
+
+    /// Dev-mode: install a `WatcherHandle` keyed by `pkg_id`. Replaces any
+    /// existing watcher for the same id, which means dropping the previous
+    /// handle and tearing down its worker. Idempotent re-registration is
+    /// fine — `pkg_dev_register` may be called more than once during a
+    /// CLI iterate.
+    pub fn set_dev_watcher(&self, pkg_id: &str, handle: WatcherHandle) {
+        if let Ok(mut g) = self.dev_watchers.write() {
+            g.insert(pkg_id.to_string(), handle);
+        }
+    }
+
+    /// Drop a dev-mode watcher (e.g. on `pkg_dev_unregister`). No-op if the
+    /// pkg never had one.
+    pub fn drop_dev_watcher(&self, pkg_id: &str) {
+        if let Ok(mut g) = self.dev_watchers.write() {
+            g.remove(pkg_id);
+        }
+    }
+
+    /// Spawn a dev-mode file watcher for an already-installed dev pkg.
+    /// Returns Ok(()) even when the pkg has no `restart_when_changed`
+    /// globs — `manifest.json` is always watched. The watcher's on_change
+    /// callback invokes `reload_pkg` (debounced 250ms by the underlying
+    /// notify-debouncer-mini).
+    pub fn spawn_dev_watcher(
+        self: &Arc<Self>,
+        pkg_id: &str,
+        install_path: &Path,
+        extra_globs: Vec<String>,
+    ) -> Result<()> {
+        let kernel_for_cb = Arc::clone(self);
+        let id_for_cb = pkg_id.to_string();
+        let handle = file_watcher::spawn_dev(install_path.to_path_buf(), extra_globs, move || {
+            let kernel = Arc::clone(&kernel_for_cb);
+            let id = id_for_cb.clone();
+            // Run the reload on a blocking thread — registries call
+            // `tauri::async_runtime::block_on` internally for DB writes,
+            // and reentering the runtime panics.
+            tauri::async_runtime::spawn_blocking(move || {
+                if let Err(e) = kernel.reload_pkg(&id) {
+                    log::warn!("[pkg_kernel] dev watcher: reload `{id}` failed: {e:#}");
+                }
+            });
+        })
+        .context("spawn dev file watcher")?;
+        self.set_dev_watcher(pkg_id, handle);
+        Ok(())
+    }
+
     /// Look up an installed package by id and return its on-disk install
     /// path. Used by `pkg_mcp_call` to resolve relative paths in the
     /// manifest's mcp server `args` (working dir for the spawned child).
@@ -1122,5 +1307,5 @@ impl Kernel {
     }
 }
 
-// Use `tauri::Manager` for `app.path()`.
-use tauri::Manager;
+// Use `tauri::Manager` for `app.path()` and `tauri::Emitter` for `app.emit()`.
+use tauri::{Emitter, Manager};

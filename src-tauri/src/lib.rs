@@ -43,6 +43,7 @@ use commands::{
     iyke_endpoint, iyke_log_push, iyke_mcp_info, iyke_network_push, iyke_query_cache_done,
     iyke_set_shell, iyke_terminal_read_done,
     iyke_wait_done, pin_screenshot_write, pkg_content_html, pkg_content_revoke, pkg_content_url, pkg_db_diag,
+    pkg_dev_register, pkg_dev_reload, pkg_dev_unregister,
     pkg_discover_workspace, pkg_install_from_path, pkg_install_from_registry, pkg_kernel_status,
     pkg_mcp_call, pkg_preview_manifest, pkg_screenshot, pkg_set_enabled, pkg_set_scope, pkg_settings_get,
     pkg_settings_set, pkg_sidecar_call, pkg_supervisor_restart, pkg_uninstall, pkg_webview_create,
@@ -825,6 +826,9 @@ pub fn run() {
             pkg_mcp_call,
             pkg_sidecar_call,
             pkg_supervisor_restart,
+            pkg_dev_register,
+            pkg_dev_unregister,
+            pkg_dev_reload,
             dev_bind_port,
             dev_release_port,
             // first-run wizard detection

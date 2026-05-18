@@ -20,14 +20,24 @@
 // destroy the orphan it created. We use the same `dropped` flag pattern
 // `PkgIframeHost` uses.
 
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { useEffect, useRef, useState } from 'react';
 
 import {
 	pkgWebviewCreate,
 	pkgWebviewDestroy,
+	pkgWebviewNavigate,
 	pkgWebviewSetRect,
 	type PkgWebviewRect,
 } from '@/lib/tauri-cmd';
+
+// Tauri event payload emitted by `Kernel::reload_pkg`. The FE only cares about
+// `pkg_id` for the host filter.
+interface PkgReloadedEvent {
+	pkg_id: string;
+	version: string;
+	registries: string[];
+}
 
 interface PkgWebviewHostProps {
 	pkgId: string;
@@ -122,6 +132,40 @@ export function PkgWebviewHost({ pkgId, paneId, source, partition }: PkgWebviewH
 		// MCP server). pkgId / paneId changes effectively mean a different
 		// webview, so re-create.
 	}, [pkgId, paneId, source, partition]);
+
+	// Dev-mode: `Kernel::reload_pkg` emits `pkg-reloaded` after re-registering.
+	// For child webviews we deliberately do NOT destroy + re-create — that
+	// would wipe the cookie partition mid-loop (the partition data persists
+	// on disk, but the dev would still see logged-out sessions every save).
+	// Instead, navigate to the current `source` URL, which refreshes the
+	// page in place. If the manifest actually changed `ui.routes[].source`,
+	// the parent route resolver will re-render with a new `source` prop and
+	// the mount effect above will tear down + re-create normally.
+	useEffect(() => {
+		if (!mounted) return;
+		let unlisten: UnlistenFn | null = null;
+		let cancelled = false;
+		listen<PkgReloadedEvent>('pkg-reloaded', (ev) => {
+			if (cancelled) return;
+			if (ev.payload?.pkg_id !== pkgId) return;
+			pkgWebviewNavigate(pkgId, paneId, source).catch((e) => {
+				console.warn(
+					`[pkg-webview-host] navigate on reload failed for ${pkgId}/${paneId}:`,
+					e,
+				);
+			});
+		}).then((fn) => {
+			if (cancelled) {
+				fn();
+				return;
+			}
+			unlisten = fn;
+		});
+		return () => {
+			cancelled = true;
+			unlisten?.();
+		};
+	}, [mounted, pkgId, paneId, source]);
 
 	// Reposition effect — observe placeholder + window resize, debounce via
 	// rAF so a drag doesn't fire dozens of IPC calls per frame.

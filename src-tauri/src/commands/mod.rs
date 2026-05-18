@@ -19,6 +19,7 @@ pub mod fs_roots;
 pub mod iyke;
 pub mod pkg;
 pub mod pkg_content;
+pub mod pkg_dev;
 pub mod pkg_mcp;
 pub mod pkg_sidecar;
 pub mod pkg_trust;
@@ -80,6 +81,7 @@ pub use pkg::{
     pkg_settings_get, pkg_settings_set, pkg_uninstall, KernelState, PkgSettingsState,
 };
 pub use pkg_content::{pkg_content_html, pkg_content_revoke, pkg_content_url, PkgContentState};
+pub use pkg_dev::{pkg_dev_register, pkg_dev_reload, pkg_dev_unregister};
 pub use pkg_mcp::{
     dev_bind_port, dev_release_port, pkg_mcp_call, pkg_supervisor_restart, SidecarSupervisorState,
 };

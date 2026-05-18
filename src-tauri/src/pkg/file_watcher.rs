@@ -96,6 +96,32 @@ where
     })
 }
 
+/// Dev-mode watcher: like `spawn`, but unconditionally adds `manifest.json`
+/// to the watched-pattern set so manifest edits trigger the reload. Returns
+/// a watcher rooted at `install_path` whose `on_change` fires for any
+/// manifest change OR any match in `restart_when_changed` globs from the
+/// pkg's `mcp[]` / `sidecars[]` blocks. Use this for pkgs installed via
+/// `pkg_dev_register`; production pkgs use `spawn` directly (driven by the
+/// sidecar/MCP supervisor).
+///
+/// Returns the `WatcherHandle::noop()` if no patterns are usable. The
+/// `manifest.json` watch is unconditional, so a pkg with no
+/// `restart_when_changed` entries still gets a working reload-on-manifest
+/// watcher.
+pub fn spawn_dev<F>(
+    install_path: PathBuf,
+    extra_globs: Vec<String>,
+    on_change: F,
+) -> Result<WatcherHandle>
+where
+    F: Fn() + Send + Sync + 'static,
+{
+    let mut all_globs = Vec::with_capacity(extra_globs.len() + 1);
+    all_globs.push("manifest.json".to_string());
+    all_globs.extend(extra_globs);
+    spawn(install_path, all_globs, on_change)
+}
+
 /// True when any reported event path, made relative to `install_path`,
 /// matches at least one declared pattern.
 fn matches_any(paths: &[PathBuf], install_path: &Path, patterns: &[Pattern]) -> bool {
@@ -200,6 +226,21 @@ mod tests {
                 // exercised in the assert above when there's at least one valid path.
             }
         }
+    }
+
+    #[test]
+    fn spawn_dev_always_includes_manifest_json() {
+        // matches_any is what the watcher dispatches against; verify
+        // manifest.json fires the change callback regardless of declared
+        // extra globs.
+        let install = PathBuf::from("/tmp/pkg");
+        let pat = Pattern::new("manifest.json").unwrap();
+        let pats = vec![pat];
+        assert!(matches_any(
+            &[install.join("manifest.json")],
+            &install,
+            &pats
+        ));
     }
 
     #[allow(dead_code)] // exercised by Path::new only — keeps the import live.

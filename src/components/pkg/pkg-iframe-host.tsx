@@ -33,6 +33,7 @@
 // run; no useRef-mount-guard + cancelled-flag combination.
 
 import { AppBridge, PostMessageTransport } from '@modelcontextprotocol/ext-apps/app-bridge';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { useEffect, useRef, useState } from 'react';
 
 import { mintPkgToken } from '@/lib/pkg/auth-token';
@@ -40,6 +41,15 @@ import { buildHostContext } from '@/lib/pkg/host-context';
 import { useIkengaStore } from '@/lib/ikenga/theme-store';
 import { usePaneStore } from '@/lib/panes/pane-store';
 import { pkgContentHtml, pkgContentRevoke, pkgMcpCall, pkgSidecarCall } from '@/lib/tauri-cmd';
+
+// Tauri event payload emitted by `Kernel::reload_pkg`. The FE only cares about
+// `pkg_id` for the host filter; `version` + `registries` are useful for debug
+// logging during dev loops.
+interface PkgReloadedEvent {
+	pkg_id: string;
+	version: string;
+	registries: string[];
+}
 
 interface PkgIframeHostProps {
 	pkgId: string;
@@ -185,6 +195,12 @@ export function PkgIframeHost({ pkgId, source, onInitialized }: PkgIframeHostPro
 	const [baseUrl, setBaseUrl] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [tokenForRevoke, setTokenForRevoke] = useState<string | null>(null);
+	// Dev-mode: `Kernel::reload_pkg` emits a `pkg-reloaded` Tauri event after
+	// the kernel finishes re-registering. Bumping this counter re-runs the
+	// fetch effect below, which mints a fresh token + new srcDoc; that in turn
+	// re-runs the bridge effect because srcDoc is in its dep array. Net effect:
+	// the iframe remounts cleanly without us tearing down the React tree.
+	const [reloadKey, setReloadKey] = useState(0);
 	const bridgeRef = useRef<AppBridge | null>(null);
 	// We mint the auth token once per mount and reuse it across re-renders.
 	const authTokenRef = useRef<string>('');
@@ -205,6 +221,9 @@ export function PkgIframeHost({ pkgId, source, onInitialized }: PkgIframeHostPro
 	}, [onInitialized]);
 
 	// Step 1: read the iframe HTML + mint a subresource token (per-mount).
+	// `reloadKey` is included so the dev-mode `pkg-reloaded` event re-runs
+	// this effect — the manifest may have changed `ui.routes[].source` or
+	// any other surface that affects the pkg-content output.
 	useEffect(() => {
 		let dropped = false;
 		authTokenRef.current = mintPkgToken();
@@ -230,7 +249,30 @@ export function PkgIframeHost({ pkgId, source, onInitialized }: PkgIframeHostPro
 			// bridge-teardown → revoke. If we revoked here, an in-flight bridge
 			// request could 404 mid-teardown.
 		};
-	}, [pkgId, source]);
+	}, [pkgId, source, reloadKey]);
+
+	// Step 1b (dev-mode): listen for `Kernel::reload_pkg` events and bump the
+	// reload counter when our pkg id matches. Only one listener per host
+	// instance — the event channel is global, the filter happens in JS.
+	useEffect(() => {
+		let unlisten: UnlistenFn | null = null;
+		let cancelled = false;
+		listen<PkgReloadedEvent>('pkg-reloaded', (ev) => {
+			if (cancelled) return;
+			if (ev.payload?.pkg_id !== pkgId) return;
+			setReloadKey((k) => k + 1);
+		}).then((fn) => {
+			if (cancelled) {
+				fn();
+				return;
+			}
+			unlisten = fn;
+		});
+		return () => {
+			cancelled = true;
+			unlisten?.();
+		};
+	}, [pkgId]);
 
 	// Step 2: connect AppBridge once the iframe is loaded.
 	useEffect(() => {

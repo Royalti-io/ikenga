@@ -18,6 +18,14 @@
 //! Auto-trust criterion (locked decision): pkg `source.kind = "builtin"`
 //! AND `manifest.id` starts with `com.ikenga.`. We trust pkgs we ship; we
 //! do not trust pkgs that merely *name* themselves like one of ours.
+//!
+//! Dev-mode bypass (2026-05-18): pkgs with `source.kind = "dev"` (mounted
+//! via `ikenga dev <path>`) are also auto-trusted regardless of id
+//! namespace. Sensitive perms still emit a `log::warn!` so the dev sees
+//! what they've opted into, but no modal blocks the loop. Dev sources
+//! never persist as `Dev` across reboots — boot reconstructs them as
+//! plain `Local` — so this can't accidentally smuggle elevated trust
+//! into a production install.
 
 use std::path::PathBuf;
 
@@ -172,9 +180,20 @@ fn id_in_ikenga_namespace(pkg_id: &str) -> bool {
     pkg_id.starts_with("com.ikenga.")
 }
 
-/// Auto-trust policy: source must be `builtin` AND id must live in the
-/// `com.ikenga.*` namespace. Either alone is insufficient.
+/// Auto-trust policy:
+///
+/// - `source.kind = "builtin"` AND id in `com.ikenga.*` namespace, OR
+/// - `source.kind = "dev"` — dev-mode mounts via `ikenga dev` bypass the
+///   modal regardless of pkg id (sensitive perms still log::warn).
+///
+/// Neither path alone is insufficient for the builtin case: an attacker
+/// who got their pkg into `builtin-pkgs/` still can't masquerade as
+/// `com.ikenga.*`, and a sideloaded pkg that names itself `com.ikenga.X`
+/// doesn't count.
 pub fn is_auto_trusted(pkg_id: &str, source: &InstallSource) -> bool {
+    if source.is_dev() {
+        return true;
+    }
     source.is_builtin() && id_in_ikenga_namespace(pkg_id)
 }
 
@@ -214,6 +233,21 @@ pub async fn evaluate(
     let version = pkg.manifest.version.clone();
 
     if is_auto_trusted(pkg_id, source) {
+        // Dev-mode trust bypass: surface the elevated perms in the log so the
+        // dev sees what they've opted into without a modal blocking the loop.
+        // Sticks at WARN so the line is hard to miss in the shell's stderr.
+        if source.is_dev() {
+            let perms = &pkg.manifest.permissions;
+            if requires_trust(perms) {
+                let s = summarize_sensitive(perms);
+                log::warn!(
+                    "[pkg_trust] dev pkg `{pkg_id}` auto-trusted with sensitive perms: \
+                     shell.execute={:?} fs.write_outside_sandbox={:?}",
+                    s.shell_execute,
+                    s.fs_write_outside_sandbox
+                );
+            }
+        }
         return Ok(TrustState::AutoTrusted);
     }
 
@@ -401,6 +435,33 @@ mod tests {
             &InstallSource::Registry {
                 url: "u".into(),
                 publisher_key: None,
+            }
+        ));
+    }
+
+    #[test]
+    fn dev_source_auto_trusts_regardless_of_id_namespace() {
+        // Dev mode bypasses the com.ikenga.* requirement — a developer's
+        // `com.example.thing` symlinked via `ikenga dev` is still trusted.
+        assert!(is_auto_trusted(
+            "com.example.dashboard",
+            &InstallSource::Dev {
+                path: "/home/me/code/dashboard".into()
+            }
+        ));
+        // And a dev pkg using the reserved namespace is also fine — devs
+        // building first-party builtins should be able to test them this way.
+        assert!(is_auto_trusted(
+            "com.ikenga.studio",
+            &InstallSource::Dev {
+                path: "/home/me/code/studio".into()
+            }
+        ));
+        // Local (non-dev) still requires both source AND namespace as before.
+        assert!(!is_auto_trusted(
+            "com.example.dashboard",
+            &InstallSource::Local {
+                path: "/home/me/code/dashboard".into()
             }
         ));
     }

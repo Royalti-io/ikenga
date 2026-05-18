@@ -1090,6 +1090,129 @@ pub async fn post_pkg_install(
         })
 }
 
+// --- pkg dev-mode bridge ---------------------------------------------------
+
+#[derive(Deserialize)]
+pub struct PkgDevRegisterBody {
+    pub install_path: String,
+}
+
+#[derive(Deserialize)]
+pub struct PkgDevPkgIdBody {
+    pub pkg_id: String,
+}
+
+/// Symlink (or, today: register a path-rooted install) under the dev
+/// trust gate. Mirrors `pkg_dev_register` Tauri command for the
+/// `ikenga dev <path>` CLI surface.
+pub async fn post_pkg_dev_register(
+    Extension(app): Extension<AppHandle>,
+    JsonBody(body): JsonBody<PkgDevRegisterBody>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    use tauri::Manager;
+    let kernel = app.try_state::<crate::commands::KernelState>().ok_or((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "pkg kernel state not registered".into(),
+    ))?;
+    let kernel_arc = kernel.0.clone();
+    let path = std::path::PathBuf::from(&body.install_path);
+    let install_path_str = body.install_path;
+
+    let kernel_for_install = std::sync::Arc::clone(&kernel_arc);
+    let source = crate::pkg::InstallSource::Dev {
+        path: install_path_str,
+    };
+    let summary = tokio::task::spawn_blocking(move || {
+        kernel_for_install.install_from_path(&path, source, None)
+    })
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("install join: {e}"),
+        )
+    })?
+    .map_err(|e| (StatusCode::BAD_REQUEST, format!("{e:#}")))?;
+
+    let path_for_watcher = std::path::PathBuf::from(&summary.install_path);
+    let extra_globs =
+        crate::commands::pkg_dev::collect_restart_globs(&path_for_watcher).unwrap_or_default();
+    kernel_arc
+        .spawn_dev_watcher(&summary.id, &path_for_watcher, extra_globs)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("watcher: {e:#}")))?;
+
+    serde_json::to_value(&summary)
+        .map(|v| Json(serde_json::json!({ "installed": v })))
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("serialize summary: {e}"),
+            )
+        })
+}
+
+pub async fn post_pkg_dev_unregister(
+    Extension(app): Extension<AppHandle>,
+    JsonBody(body): JsonBody<PkgDevPkgIdBody>,
+) -> Result<Json<OkResponse>, (StatusCode, String)> {
+    use tauri::Manager;
+    let kernel = app.try_state::<crate::commands::KernelState>().ok_or((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "pkg kernel state not registered".into(),
+    ))?;
+    let kernel_arc = kernel.0.clone();
+    let pkg_id = body.pkg_id;
+
+    let is_dev = kernel_arc
+        .installed_summary(&pkg_id)
+        .map(|s| s.source.is_dev())
+        .unwrap_or(false);
+    if !is_dev {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            format!("pkg `{pkg_id}` is not a dev install"),
+        ));
+    }
+    kernel_arc.drop_dev_watcher(&pkg_id);
+    let kernel_for_uninstall = std::sync::Arc::clone(&kernel_arc);
+    let id_for_uninstall = pkg_id.clone();
+    tokio::task::spawn_blocking(move || kernel_for_uninstall.uninstall(&id_for_uninstall))
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("uninstall join: {e}"),
+            )
+        })?
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("{e:#}")))?;
+    Ok(ok())
+}
+
+pub async fn post_pkg_dev_reload(
+    Extension(app): Extension<AppHandle>,
+    JsonBody(body): JsonBody<PkgDevPkgIdBody>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    use tauri::Manager;
+    let kernel = app.try_state::<crate::commands::KernelState>().ok_or((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "pkg kernel state not registered".into(),
+    ))?;
+    let kernel_arc = kernel.0.clone();
+    let pkg_id = body.pkg_id;
+    let summary = tokio::task::spawn_blocking(move || kernel_arc.reload_pkg(&pkg_id))
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("reload join: {e}")))?
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("{e:#}")))?;
+    serde_json::to_value(&summary)
+        .map(|v| Json(serde_json::json!({ "installed": v })))
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("serialize summary: {e}"),
+            )
+        })
+}
+
 pub async fn post_devtools(
     Extension(app): Extension<AppHandle>,
 ) -> Result<Json<OkResponse>, (StatusCode, String)> {
