@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { activeProjectCwd } from '@/lib/shell/active-project-cwd';
+import { defaultShellArgv } from '@/lib/platform';
 import { XTermHost } from './xterm-host';
 import { Pty } from './pty-bridge';
 import { useTerminalStore } from './session-store';
@@ -133,6 +134,6 @@ export function createTerminalSession(opts?: {
 	title?: string;
 }): string {
 	const cwd = opts?.cwd ?? activeProjectCwd();
-	const cmd = opts?.cmd ?? ['bash', '-l'];
+	const cmd = opts?.cmd ?? defaultShellArgv();
 	return useTerminalStore.getState().add({ cwd, cmd }, opts?.title);
 }

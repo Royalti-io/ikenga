@@ -7,6 +7,7 @@ mod fs_roots;
 mod fs_watch;
 mod iyke;
 pub mod path_fix;
+pub mod platform;
 mod pkg;
 mod pkg_content;
 mod pty;
