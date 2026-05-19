@@ -3,7 +3,10 @@
 //! `ikenga-pkgs/packages/engine/codex/src/portability.ts`.
 //!
 //! On-disk layout (ADR §1):
-//!   - MCP:       `~/.codex/config.toml` `[mcp_servers.ikenga.<slug>.<name>]`
+//!   - MCP:       `~/.codex/config.toml` `[mcp_servers.ikenga.<slug>.<name>]`.
+//!                Long-lived servers do NOT receive a `disabled` key here
+//!                (ADR-013 §7 OQ#4 — Codex rejects unknown keys; the kernel
+//!                supervises long-lived stdio children itself).
 //!   - Skills:    PROJECT-SCOPED `<IKENGA_CODEX_PROJECT_ROOT>/.agents/skills/<slug>/`
 //!                — NOT under `~/.codex/`. If the env var is unset we WARN
 //!                and skip (per the v1 brief — do NOT silently write into
@@ -218,11 +221,11 @@ impl CodexAdapter {
                 .join(", ");
             out.push_str(&format!("env_vars = [{joined}]\n"));
         }
-        if server.is_long_lived() {
-            // ADR §4: don't let external Codex CLI race the kernel's own
-            // SidecarSupervisor on the same stdio child.
-            out.push_str("disabled = true\n");
-        }
+        // ADR-013 §7 OQ#4: do NOT emit `disabled = true` for long-lived
+        // servers — Codex's config.toml schema rejects unknown keys at
+        // startup. The kernel's own SidecarSupervisor owns the long-lived
+        // stdio child, so the external `codex` CLI simply won't know about
+        // these servers — acceptable; no race risk.
         if !env_table.is_empty() {
             out.push('\n');
             out.push_str(&format!("[{table_name}.env]\n"));

@@ -4,9 +4,8 @@
 //!
 //! On-disk layout (ADR §1):
 //!   - MCP:      `~/.gemini/settings.json` `mcpServers.ikenga.<slug>.<name>`
-//!               (JSON; same shape as the Claude adapter — including the
-//!               `disabled: true` long-lived rule + strict secret-pattern
-//!               refusal).
+//!               (JSON; same shape as the Claude adapter, including the
+//!               strict secret-pattern refusal).
 //!   - Skills:   folder symlink `~/.gemini/extensions/<pkg-slug>/` → source.
 //!   - Agents:   folder symlink `~/.gemini/agents/<pkg-slug>/` → source
 //!               (Gemini consumes canonical MD+YAML directly).
@@ -360,17 +359,18 @@ impl GeminiAdapter {
                 env_map.insert(k.clone(), Value::String(v.clone()));
             }
         }
-        let mut value = json!({
+        let value = json!({
             "type": "stdio",
             "command": server.command,
             "args": server.args,
             "env": Value::Object(env_map),
         });
-        if server.is_long_lived() {
-            if let Value::Object(ref mut m) = value {
-                m.insert("disabled".to_string(), Value::Bool(true));
-            }
-        }
+        // Intentionally NOT emitting `disabled: true` for long-lived servers
+        // here (ADR-013 §7 OQ#4): Gemini's settings.json uses strict-key
+        // validation and rejects unknown fields like `disabled`. The kernel's
+        // own SidecarSupervisor already owns the long-lived stdio child, so
+        // the external `gemini` CLI simply won't know about these servers —
+        // acceptable; no race risk because the kernel is sole supervisor.
         (value, warnings)
     }
 }
@@ -588,7 +588,9 @@ mod tests {
     }
 
     #[test]
-    fn long_lived_sets_disabled_true() {
+    fn long_lived_omits_disabled_for_gemini() {
+        // ADR-013 §7 OQ#4: Gemini's settings.json strict-key validator
+        // rejects `disabled`, so we must NOT fan out the long-lived hint.
         let _g = test_lock();
         let _h = HomeGuard::new();
         let adapter = GeminiAdapter::new();
@@ -603,7 +605,10 @@ mod tests {
             .unwrap()
             .get("ikenga.com-example-bar.watcher")
             .unwrap();
-        assert_eq!(entry.get("disabled").unwrap(), &Value::Bool(true));
+        assert!(
+            entry.get("disabled").is_none(),
+            "long-lived MCP entry must NOT carry `disabled` key for Gemini — got {entry}"
+        );
     }
 
     #[test]
