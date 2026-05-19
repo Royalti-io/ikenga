@@ -67,7 +67,7 @@ pub struct ClaudeProjectEntry {
 /// suggestions for `claudeProjectRoots`.
 #[tauri::command]
 pub async fn list_claude_projects() -> Result<Vec<ClaudeProjectEntry>, String> {
-    let home = match std::env::var_os("HOME").map(PathBuf::from) {
+    let home = match crate::platform::home_dir() {
         Some(h) => h,
         None => return Ok(Vec::new()),
     };

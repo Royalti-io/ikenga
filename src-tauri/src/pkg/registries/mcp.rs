@@ -78,8 +78,9 @@ impl McpRegistry {
     }
 
     fn config_path() -> Result<PathBuf> {
-        let home = std::env::var_os("HOME").ok_or_else(|| anyhow!("HOME not set"))?;
-        Ok(PathBuf::from(home).join(".claude.json"))
+        let home = crate::platform::home_dir()
+            .ok_or_else(|| anyhow!("could not resolve home directory (HOME / USERPROFILE unset)"))?;
+        Ok(home.join(".claude.json"))
     }
 
     fn key_for(pkg: &Package, server: &McpServer) -> String {

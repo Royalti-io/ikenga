@@ -17,6 +17,7 @@ import { SingleTerminal, createTerminalSession } from '@/terminal/single-termina
 import { useTerminalStore, type TerminalTab } from '@/terminal/session-store';
 import { usePaneStore } from '@/lib/panes/pane-store';
 import { activeProjectCwd } from '@/lib/shell/active-project-cwd';
+import { defaultShellArgv, defaultShellLabel } from '@/lib/platform';
 
 interface StudioTerminalProps {
 	paneId: string;
@@ -37,7 +38,7 @@ interface ShellPreset {
 
 const SHELL_PRESETS: ShellPreset[] = [
 	{ label: 'claude', title: 'claude', cmd: ['claude'] },
-	{ label: 'bash', title: 'bash', cmd: ['bash', '-l'] },
+	{ label: defaultShellLabel(), title: defaultShellLabel(), cmd: defaultShellArgv() },
 	{ label: 'codex', title: 'codex', cmd: ['codex'] },
 	{ label: 'gemini', title: 'gemini', cmd: ['gemini'] },
 ];
