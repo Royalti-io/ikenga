@@ -88,6 +88,7 @@ Future workers should arrive as **registry pkgs** declaring `command: "bun"` + `
 - **Path alias: `@/*` → `src/*`** (see `tsconfig.json` + `vite.config.ts`).
 - **No new files in `src/routes/` without regenerating** `routeTree.gen.ts`.
 - **shadcn primitives** live in `src/components/ui/` (ported from `ikenga`); add new ones via the shadcn CLI rather than copying source.
+- **Code editor**: use `<CodeEditor>` from `@ikenga/ui-lib` (CodeMirror 6). Don't add `monaco-editor` back — see `plans/studio/07-monaco-swap.md` for the swap rationale. For TS IntelliSense, wire the `com.ikenga.tsserver-lsp` sidecar via `createTauriDirectTransport` (see `/lsp-smoke`).
 - **State**: TanStack Query for server state, Zustand stores in `src/lib/shell/`, `src/lib/panes/`, etc. for client state.
 - **Don't run `git reset` or modify `.env*` files** (per global memory).
 

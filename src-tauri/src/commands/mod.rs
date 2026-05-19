@@ -22,6 +22,7 @@ pub mod pkg_content;
 pub mod pkg_dev;
 pub mod pkg_mcp;
 pub mod pkg_sidecar;
+pub mod pkg_sidecar_stream;
 pub mod pkg_trust;
 pub mod pkg_webview;
 pub mod projects;
@@ -86,6 +87,10 @@ pub use pkg_mcp::{
     dev_bind_port, dev_release_port, pkg_mcp_call, pkg_supervisor_restart, SidecarSupervisorState,
 };
 pub use pkg_sidecar::{pkg_sidecar_call, SidecarsRegistryState};
+pub use pkg_sidecar_stream::{
+    pkg_sidecar_rpc_send, pkg_sidecar_rpc_shutdown, StreamingSidecarManager,
+    StreamingSidecarManagerState,
+};
 pub use pkg_trust::{pkg_trust_approve, pkg_trust_list_pending, pkg_trust_reject};
 pub use pkg_webview::{
     pkg_webview_create, pkg_webview_destroy, pkg_webview_navigate, pkg_webview_set_rect,

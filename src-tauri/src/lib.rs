@@ -46,7 +46,8 @@ use commands::{
     pkg_dev_register, pkg_dev_reload, pkg_dev_unregister,
     pkg_discover_workspace, pkg_install_from_path, pkg_install_from_registry, pkg_kernel_status,
     pkg_mcp_call, pkg_preview_manifest, pkg_screenshot, pkg_set_enabled, pkg_set_scope, pkg_settings_get,
-    pkg_settings_set, pkg_sidecar_call, pkg_supervisor_restart, pkg_uninstall, pkg_webview_create,
+    pkg_settings_set, pkg_sidecar_call, pkg_sidecar_rpc_send, pkg_sidecar_rpc_shutdown,
+    pkg_supervisor_restart, pkg_uninstall, pkg_webview_create,
     pkg_webview_destroy, pkg_webview_navigate, pkg_webview_set_rect, project_archive,
     project_artifacts_walk, project_create, project_get_active, project_inventory, project_list,
     project_scaffold_claude, project_set_active, project_skills_list, project_update,
@@ -59,6 +60,7 @@ use commands::{
     spike_setup_test_file, studio_message_append, studio_message_list, studio_thread_delete,
     studio_thread_get, studio_thread_get_or_create, studio_thread_list_recent, KernelState,
     PkgContentState, PkgSettingsState, SidecarSupervisorState, SidecarsRegistryState,
+    StreamingSidecarManager, StreamingSidecarManagerState,
     WebviewPanesState,
 };
 #[cfg(debug_assertions)]
@@ -542,6 +544,9 @@ pub fn run() {
             app.manage(PkgContentState(pkg_content_server));
             app.manage(SidecarSupervisorState(sidecar_supervisor));
             app.manage(SidecarsRegistryState(sidecars_reg));
+            app.manage(StreamingSidecarManagerState(Arc::new(
+                StreamingSidecarManager::new(),
+            )));
             app.manage(WebviewPanesState(webview_panes_reg));
 
             // Phase 2 (projects-first-class): subscribe to
@@ -827,6 +832,8 @@ pub fn run() {
             pkg_content_revoke,
             pkg_mcp_call,
             pkg_sidecar_call,
+            pkg_sidecar_rpc_send,
+            pkg_sidecar_rpc_shutdown,
             pkg_supervisor_restart,
             pkg_dev_register,
             pkg_dev_unregister,

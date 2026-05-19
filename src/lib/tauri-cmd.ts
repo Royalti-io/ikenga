@@ -1850,6 +1850,34 @@ export async function pkgSidecarCall(
 	});
 }
 
+// ─── Streaming sidecar RPC ───────────────────────────────────────────────────
+//
+// Companion to `pkgSidecarCall` (one-shot) for long-lived sidecars that
+// maintain in-memory state across requests (language servers, daemons).
+// First send lazily spawns the child; subsequent sends reuse it. Lines
+// from the child's stdout arrive as `pkg://sidecar/<pkgId>/<name>/message`
+// Tauri events; child exit fires `pkg://sidecar/<pkgId>/<name>/exit`.
+
+export async function pkgSidecarRpcSend(
+	pkgId: string,
+	name: string,
+	message: string
+): Promise<void> {
+	return invoke<void>('pkg_sidecar_rpc_send', { pkgId, name, message });
+}
+
+export async function pkgSidecarRpcShutdown(pkgId: string, name: string): Promise<boolean> {
+	return invoke<boolean>('pkg_sidecar_rpc_shutdown', { pkgId, name });
+}
+
+export function pkgSidecarMessageEvent(pkgId: string, name: string): string {
+	return `pkg://sidecar/${pkgId.replace(/\./g, '_')}/${name.replace(/\./g, '_')}/message`;
+}
+
+export function pkgSidecarExitEvent(pkgId: string, name: string): string {
+	return `pkg://sidecar/${pkgId.replace(/\./g, '_')}/${name.replace(/\./g, '_')}/exit`;
+}
+
 // ─── Iyke MCP info (settings panel) ───────────────────────────────────────────
 //
 // Resolves the absolute path of the bundled iyke-mcp binary so the settings

@@ -18,6 +18,7 @@ import { Route as PkgKernelStatusRouteImport } from './routes/pkg-kernel-status'
 import { Route as PermsSmokeRouteImport } from './routes/perms-smoke'
 import { Route as PackagesRouteImport } from './routes/packages'
 import { Route as McpSmokeRouteImport } from './routes/mcp-smoke'
+import { Route as LspSmokeRouteImport } from './routes/lsp-smoke'
 import { Route as IykeSmokeRouteImport } from './routes/iyke-smoke'
 import { Route as InstallRouteImport } from './routes/install'
 import { Route as IframeMountSmokeRouteImport } from './routes/iframe-mount-smoke'
@@ -114,6 +115,11 @@ const PackagesRoute = PackagesRouteImport.update({
 const McpSmokeRoute = McpSmokeRouteImport.update({
   id: '/mcp-smoke',
   path: '/mcp-smoke',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LspSmokeRoute = LspSmokeRouteImport.update({
+  id: '/lsp-smoke',
+  path: '/lsp-smoke',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IykeSmokeRoute = IykeSmokeRouteImport.update({
@@ -388,6 +394,7 @@ export interface FileRoutesByFullPath {
   '/iframe-mount-smoke': typeof IframeMountSmokeRoute
   '/install': typeof InstallRoute
   '/iyke-smoke': typeof IykeSmokeRoute
+  '/lsp-smoke': typeof LspSmokeRoute
   '/mcp-smoke': typeof McpSmokeRoute
   '/packages': typeof PackagesRoute
   '/perms-smoke': typeof PermsSmokeRoute
@@ -447,6 +454,7 @@ export interface FileRoutesByTo {
   '/iframe-mount-smoke': typeof IframeMountSmokeRoute
   '/install': typeof InstallRoute
   '/iyke-smoke': typeof IykeSmokeRoute
+  '/lsp-smoke': typeof LspSmokeRoute
   '/mcp-smoke': typeof McpSmokeRoute
   '/packages': typeof PackagesRoute
   '/perms-smoke': typeof PermsSmokeRoute
@@ -510,6 +518,7 @@ export interface FileRoutesById {
   '/iframe-mount-smoke': typeof IframeMountSmokeRoute
   '/install': typeof InstallRoute
   '/iyke-smoke': typeof IykeSmokeRoute
+  '/lsp-smoke': typeof LspSmokeRoute
   '/mcp-smoke': typeof McpSmokeRoute
   '/packages': typeof PackagesRoute
   '/perms-smoke': typeof PermsSmokeRoute
@@ -575,6 +584,7 @@ export interface FileRouteTypes {
     | '/iframe-mount-smoke'
     | '/install'
     | '/iyke-smoke'
+    | '/lsp-smoke'
     | '/mcp-smoke'
     | '/packages'
     | '/perms-smoke'
@@ -634,6 +644,7 @@ export interface FileRouteTypes {
     | '/iframe-mount-smoke'
     | '/install'
     | '/iyke-smoke'
+    | '/lsp-smoke'
     | '/mcp-smoke'
     | '/packages'
     | '/perms-smoke'
@@ -696,6 +707,7 @@ export interface FileRouteTypes {
     | '/iframe-mount-smoke'
     | '/install'
     | '/iyke-smoke'
+    | '/lsp-smoke'
     | '/mcp-smoke'
     | '/packages'
     | '/perms-smoke'
@@ -760,6 +772,7 @@ export interface RootRouteChildren {
   IframeMountSmokeRoute: typeof IframeMountSmokeRoute
   InstallRoute: typeof InstallRoute
   IykeSmokeRoute: typeof IykeSmokeRoute
+  LspSmokeRoute: typeof LspSmokeRoute
   McpSmokeRoute: typeof McpSmokeRoute
   PackagesRoute: typeof PackagesRoute
   PermsSmokeRoute: typeof PermsSmokeRoute
@@ -839,6 +852,13 @@ declare module '@tanstack/react-router' {
       path: '/mcp-smoke'
       fullPath: '/mcp-smoke'
       preLoaderRoute: typeof McpSmokeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/lsp-smoke': {
+      id: '/lsp-smoke'
+      path: '/lsp-smoke'
+      fullPath: '/lsp-smoke'
+      preLoaderRoute: typeof LspSmokeRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/iyke-smoke': {
@@ -1343,6 +1363,7 @@ const rootRouteChildren: RootRouteChildren = {
   IframeMountSmokeRoute: IframeMountSmokeRoute,
   InstallRoute: InstallRoute,
   IykeSmokeRoute: IykeSmokeRoute,
+  LspSmokeRoute: LspSmokeRoute,
   McpSmokeRoute: McpSmokeRoute,
   PackagesRoute: PackagesRoute,
   PermsSmokeRoute: PermsSmokeRoute,

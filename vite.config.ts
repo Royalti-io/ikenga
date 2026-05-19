@@ -97,7 +97,7 @@ export default defineConfig({
 		sourcemap: !!process.env.TAURI_ENV_DEBUG,
 	},
 	optimizeDeps: {
-		exclude: ['@tauri-apps/api'],
+		exclude: ['@tauri-apps/api', '@ikenga/ui-lib'],
 	},
 	test: {
 		include: ['src/**/*.{test,spec}.{ts,tsx}'],
