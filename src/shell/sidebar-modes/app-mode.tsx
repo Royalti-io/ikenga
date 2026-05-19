@@ -1,4 +1,5 @@
 import { NAV_GROUPS } from '../nav-config';
+import { PkgMode, pkgIdFromRoute } from './pkg-mode';
 import { usePaneStore } from '@/lib/panes/pane-store';
 import { findLeaf } from '@/lib/panes/pane-reducer';
 import { cn } from '@/components/ui/utils';
@@ -12,6 +13,17 @@ export function AppMode() {
 		const tab = leaf.tabs[leaf.activeTabIdx];
 		return tab && tab.kind === 'route' ? tab.path : null;
 	});
+
+	// When the focused pane is on a pkg route, swap the sidebar to the pkg's
+	// runtime menu (published via `host.pkg.setMenu`). Matches the documented
+	// intent in `nav-config.ts`: "The pkg-aware sidebar is rendered alongside
+	// this list inside AppMode". v1 fully replaces the nav-config items; we
+	// can fold the home/scratchpads/todos shortcuts back in below the pkg menu
+	// if users miss them.
+	const pkgId = pkgIdFromRoute(activePath);
+	if (pkgId) {
+		return <PkgMode pkgId={pkgId} />;
+	}
 
 	return (
 		<div className="h-full overflow-y-auto py-2">

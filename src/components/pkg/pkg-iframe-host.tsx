@@ -40,6 +40,7 @@ import { mintPkgToken } from '@/lib/pkg/auth-token';
 import { buildHostContext } from '@/lib/pkg/host-context';
 import { useIkengaStore } from '@/lib/ikenga/theme-store';
 import { usePaneStore } from '@/lib/panes/pane-store';
+import { usePkgMenuStore, type PkgMenuItem } from '@/lib/pkg/pkg-menu-store';
 import { pkgContentHtml, pkgContentRevoke, pkgMcpCall, pkgSidecarCall } from '@/lib/tauri-cmd';
 
 // Tauri event payload emitted by `Kernel::reload_pkg`. The FE only cares about
@@ -178,6 +179,43 @@ async function dispatchHostCall(
 		};
 	}
 
+	// host.pkg.setMenu({ items: [{id, label, icon?, badge?}] }) — pkg publishes
+	// its current sidebar items to the shell. Shell renders them in the App-mode
+	// sidebar when the focused pane is this pkg's route. Item clicks update the
+	// active feature, which is re-emitted to the iframe via hostContext so the
+	// pkg can swap its internal view.
+	if (name === 'host.pkg.setMenu') {
+		const rawItems = Array.isArray(args.items) ? args.items : [];
+		const items: PkgMenuItem[] = [];
+		for (const it of rawItems) {
+			if (!it || typeof it !== 'object') continue;
+			const obj = it as Record<string, unknown>;
+			if (typeof obj.id !== 'string' || typeof obj.label !== 'string') continue;
+			items.push({
+				id: obj.id,
+				label: obj.label,
+				icon: typeof obj.icon === 'string' ? obj.icon : null,
+				badge:
+					typeof obj.badge === 'string' || typeof obj.badge === 'number'
+						? obj.badge
+						: null,
+			});
+		}
+		usePkgMenuStore.getState().setMenu(pkgId, items);
+		// If the pkg hasn't been told an active feature yet, seed it to the
+		// first item so the pkg has a sensible default to render before any
+		// click happens. The pkg can override this at any time by sending its
+		// own preferred default in the menu order.
+		const current = usePkgMenuStore.getState().activeFeatures[pkgId];
+		if (!current && items[0]) {
+			usePkgMenuStore.getState().setActiveFeature(pkgId, items[0].id);
+		}
+		return {
+			content: [{ type: 'text', text: `menu set: ${items.length} items` }],
+			structuredContent: { ok: true, count: items.length },
+		};
+	}
+
 	return errResult(`unknown host tool: ${name}`);
 }
 
@@ -211,6 +249,11 @@ export function PkgIframeHost({ pkgId, source, onInitialized }: PkgIframeHostPro
 
 	// Subscribe to theme so we can push host-context-changed when it flips.
 	const themeMode = useIkengaStore((s) => s.mode);
+
+	// Active suite-feature for this pkg — driven by the shell sidebar via
+	// `usePkgMenuStore.setActiveFeature`. We push it into hostContext so the
+	// iframe can swap its mounted view in response.
+	const activeFeature = usePkgMenuStore((s) => s.activeFeatures[pkgId]);
 
 	// Stabilize onInitialized via ref so effect deps stay constant. Without
 	// this, every parent re-render recreates the callback → effect re-runs →
@@ -291,6 +334,7 @@ export function PkgIframeHost({ pkgId, source, onInitialized }: PkgIframeHostPro
 					pkgId,
 					authToken: authTokenRef.current,
 					supabase: supabaseConfigRef.current,
+					suite: { activeFeature: usePkgMenuStore.getState().activeFeatures[pkgId] },
 				}),
 			});
 			bridge.oncalltool = (async (params) => {
@@ -367,7 +411,10 @@ export function PkgIframeHost({ pkgId, source, onInitialized }: PkgIframeHostPro
 		};
 	}, [srcDoc, pkgId]);
 
-	// Step 3: push host-context-changed when theme flips.
+	// Step 3: push host-context-changed when theme flips or active feature
+	// changes (driven by the shell-rendered pkg sidebar). The pkg's
+	// onhostcontextchanged handler reads `royaltiSuite.activeFeature` and
+	// swaps its internal view.
 	useEffect(() => {
 		const bridge = bridgeRef.current;
 		if (!bridge) return;
@@ -377,13 +424,14 @@ export function PkgIframeHost({ pkgId, source, onInitialized }: PkgIframeHostPro
 					pkgId,
 					authToken: authTokenRef.current,
 					supabase: supabaseConfigRef.current,
+					suite: { activeFeature },
 				}),
 			});
 		} catch {
 			// The bridge may not be initialized yet — the initial hostContext we
-			// passed to the constructor will reflect the current theme anyway.
+			// passed to the constructor will reflect the current state anyway.
 		}
-	}, [themeMode, pkgId]);
+	}, [themeMode, pkgId, activeFeature]);
 
 	// Step 4: revoke the content token on full unmount.
 	useEffect(() => {

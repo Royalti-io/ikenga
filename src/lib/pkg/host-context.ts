@@ -27,6 +27,16 @@ export interface HostSupabaseConfig {
 	anonKey: string;
 }
 
+/** Custom Royalti namespace inside the spec's `[key: string]: unknown`
+ *  passthrough. Carries pkg-mode shell state the iframe needs to react to. */
+export interface RoyaltiSuiteContext {
+	/** ID of the feature the shell-rendered sidebar last selected. Pkgs that
+	 *  publish a menu via `host.pkg.setMenu` should treat this as authoritative
+	 *  and route their internal view accordingly. Undefined means the iframe
+	 *  picks its own default. */
+	activeFeature?: string;
+}
+
 export function buildHostContext(opts: {
 	pkgId: string;
 	authToken: string;
@@ -35,6 +45,9 @@ export function buildHostContext(opts: {
 	 *  configure its vendored Supabase client without baking secrets into its
 	 *  build. Absent for pkgs that don't declare the capability. */
 	supabase?: HostSupabaseConfig | null;
+	/** Suite-style pkg state: which feature the shell sidebar last picked.
+	 *  Re-emitted on every change so the iframe can swap its mounted view. */
+	suite?: RoyaltiSuiteContext;
 }): McpUiHostContext {
 	const state = useIkengaStore.getState();
 	const ctx: McpUiHostContext = {
@@ -53,6 +66,9 @@ export function buildHostContext(opts: {
 	};
 	if (opts.supabase) {
 		(ctx as McpUiHostContext & { supabase: HostSupabaseConfig }).supabase = opts.supabase;
+	}
+	if (opts.suite) {
+		(ctx as McpUiHostContext & { royaltiSuite: RoyaltiSuiteContext }).royaltiSuite = opts.suite;
 	}
 	return ctx;
 }
