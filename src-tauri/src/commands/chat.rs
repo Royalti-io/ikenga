@@ -66,9 +66,8 @@ pub async fn chat_initialize(
     match resolve_engine(&registry, engineId).await? {
         EngineHandle::ClaudeCode(state) => Ok(state.handle_initialize(req)),
         EngineHandle::GeminiAcp(state) => Ok(state.handle_initialize(req)),
-        EngineHandle::CodexPty(_) => Err(
-            "chat_initialize: codex engine does not advertise an ACP handshake (PTY-wrap)".into(),
-        ),
+        EngineHandle::CodexPty(state) => Ok(state.handle_initialize(req)),
+        EngineHandle::CursorAgent(state) => Ok(state.handle_initialize(req)),
     }
 }
 
@@ -96,6 +95,7 @@ pub async fn chat_new_session(
             let cwd = req.cwd.to_string_lossy().into_owned();
             state.handle_new_session(thread_id, cwd).await
         }
+        EngineHandle::CursorAgent(state) => state.handle_new_session(app, req).await,
     }
 }
 
@@ -125,6 +125,7 @@ pub async fn chat_prompt(
             let thread_id = req.session_id.0.to_string();
             state.handle_prompt(app, thread_id, text).await
         }
+        EngineHandle::CursorAgent(state) => state.handle_prompt(app, req).await,
     }
 }
 
@@ -138,6 +139,7 @@ pub async fn chat_cancel(
         EngineHandle::ClaudeCode(state) => state.handle_cancel(threadId).await,
         EngineHandle::GeminiAcp(state) => state.handle_cancel(threadId).await,
         EngineHandle::CodexPty(state) => state.handle_cancel(threadId).await,
+        EngineHandle::CursorAgent(state) => state.handle_cancel(threadId).await,
     }
 }
 
@@ -153,7 +155,8 @@ pub async fn chat_respond_permission(
     match resolve_engine(&registry, engineId).await? {
         EngineHandle::ClaudeCode(state) => state.resolve_permission(requestId, response).await,
         EngineHandle::GeminiAcp(state) => state.resolve_permission(requestId, response).await,
-        EngineHandle::CodexPty(_) => Ok(()),
+        EngineHandle::CodexPty(state) => state.resolve_permission(requestId, response).await,
+        EngineHandle::CursorAgent(state) => state.resolve_permission(requestId, response).await,
     }
 }
 
@@ -169,7 +172,8 @@ pub async fn chat_set_mode(
     match resolve_engine(&registry, engineId).await? {
         EngineHandle::ClaudeCode(state) => state.handle_set_mode(threadId, modeId).await,
         EngineHandle::GeminiAcp(state) => state.handle_set_mode(threadId, modeId).await,
-        EngineHandle::CodexPty(_) => Ok(()),
+        EngineHandle::CodexPty(state) => state.handle_set_mode(threadId, modeId).await,
+        EngineHandle::CursorAgent(state) => state.handle_set_mode(threadId, modeId).await,
     }
 }
 
@@ -185,7 +189,8 @@ pub async fn chat_set_model(
     match resolve_engine(&registry, engineId).await? {
         EngineHandle::ClaudeCode(state) => state.handle_set_model(threadId, model).await,
         EngineHandle::GeminiAcp(state) => state.handle_set_model(threadId, model).await,
-        EngineHandle::CodexPty(_) => Ok(()),
+        EngineHandle::CodexPty(state) => state.handle_set_model(threadId, model).await,
+        EngineHandle::CursorAgent(state) => state.handle_set_model(threadId, model).await,
     }
 }
 
@@ -201,7 +206,8 @@ pub async fn chat_set_effort(
     match resolve_engine(&registry, engineId).await? {
         EngineHandle::ClaudeCode(state) => state.handle_set_effort(threadId, effort).await,
         EngineHandle::GeminiAcp(state) => state.handle_set_effort(threadId, effort).await,
-        EngineHandle::CodexPty(_) => Ok(()),
+        EngineHandle::CodexPty(state) => state.handle_set_effort(threadId, effort).await,
+        EngineHandle::CursorAgent(state) => state.handle_set_effort(threadId, effort).await,
     }
 }
 
@@ -236,6 +242,9 @@ pub async fn chat_fork_session(
         EngineHandle::CodexPty(_) => {
             Err("chat_fork_session: codex engine does not yet support session fork".to_string())
         }
+        EngineHandle::CursorAgent(_) => Err(
+            "session/fork is not supported for cursor-agent (ADR-013 §7 OQ#3)".to_string(),
+        ),
     }
 }
 
@@ -254,5 +263,8 @@ pub async fn chat_load_session(
         EngineHandle::ClaudeCode(state) => state.handle_load_session(threadId).await,
         EngineHandle::GeminiAcp(state) => state.handle_load_session(threadId, String::new(), app).await,
         EngineHandle::CodexPty(state) => state.handle_load_session(threadId).await,
+        EngineHandle::CursorAgent(state) => {
+            state.handle_load_session(threadId, String::new(), app).await
+        }
     }
 }

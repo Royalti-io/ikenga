@@ -1,6 +1,6 @@
 //! JSON-RPC stdio transport for the Gemini ACP engine.
 //!
-//! Spawns `gemini --experimental-acp` (or a configurable command, for
+//! Spawns `gemini --acp` (or a configurable command, for
 //! tests) and reads line-delimited JSON-RPC envelopes from the child's
 //! stdout. Each envelope is dispatched in three directions:
 //!
@@ -52,7 +52,9 @@ pub const METHOD_SESSION_REQUEST_PERMISSION: &str = "session/request_permission"
 /// today we hard-code it. Matches the recipe used by
 /// `agent_client_protocol_tokio::AcpAgent::google_gemini()`.
 pub const DEFAULT_GEMINI_CMD: &str = "gemini";
-pub const DEFAULT_GEMINI_ARGS: &[&str] = &["--experimental-acp"];
+// ADR-013 §1: `--acp` is the canonical flag in gemini-cli 0.42+;
+// `--experimental-acp` is deprecated and prints a stderr warning.
+pub const DEFAULT_GEMINI_ARGS: &[&str] = &["--acp"];
 
 /// Errors returned from the JSON-RPC transport. Kept as `String` at the
 /// public boundary so they slot into Tauri's Result<T, String> convention
@@ -179,7 +181,7 @@ pub struct GeminiChild {
 }
 
 impl Transport {
-    /// Spawn `gemini --experimental-acp` (or the override command, used
+    /// Spawn `gemini --acp` (or the override command, used
     /// by tests) and wire up its stdio. Spawns a background task that
     /// reads stdout line by line, dispatches inbound envelopes, and
     /// fires the response waiters. The returned `Transport` plus the

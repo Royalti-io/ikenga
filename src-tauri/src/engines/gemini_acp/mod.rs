@@ -1,6 +1,6 @@
 //! Gemini ACP engine adapter.
 //!
-//! Spawns `gemini --experimental-acp` as a child process and bridges its
+//! Spawns `gemini --acp` as a child process and bridges its
 //! stdio JSON-RPC stream into the same `chat://session/{id}` Tauri events
 //! the Claude engine emits. Gemini is a native ACP peer — `SessionUpdate` /
 //! `RequestPermissionRequest` shapes match the schema crate's types

@@ -1,80 +1,92 @@
-//! `CodexPtyEngine` — the actual engine surface.
+//! `CodexPtyEngine` — Codex CLI adapter using `codex exec --json` per turn.
 //!
-//! Sessions are recorded lazily (`handle_new_session` doesn't spawn the
-//! codex child — it just registers an entry in the in-memory map). The
-//! first `handle_prompt` spawns the PTY through the existing
-//! `crate::pty::PtyManager`, writes the user text + `\n` to stdin, and
-//! then drains the `agent_message_chunk`s emitted by the parser as
-//! `SessionNotification`s on the `chat://session/{thread_id}` Tauri event.
+//! ADR-013 Phase 3. Despite the "PTY" suffix on the module path (kept to
+//! avoid a churn-only rename — see ADR-013 §6 negatives), this engine does
+//! NOT use a PTY. It spawns `codex exec --json` as a one-shot per turn,
+//! line-reads the JSONL stream off stdout, parses each event with
+//! `parser::parse_event`, and emits ACP `SessionUpdate`s on
+//! `chat://session/{thread_id}`.
 //!
-//! The handler blocks until the parser sees an idle-prompt marker (or
-//! the 60s wallclock budget expires), then returns `StopReason::EndTurn`.
-//! That mirrors what the Claude engine does — the FE adapter draws no
-//! distinction between "the model finished" and "we timed out waiting"
-//! beyond the stop reason on the final response.
+//! ### Per-turn lifecycle
 //!
-//! No tool calls, no permissions, no thinking blocks. PTY-wrapping a TUI
-//! gives no reliable extraction path. Once we have an ACP-native codex
-//! adapter (`@zed-industries/codex-acp`) this whole module gets archived.
+//! 1. First turn (no `codex_thread_id` cached): spawn
+//!    `codex exec --json --skip-git-repo-check --cd <cwd> -`. Write the
+//!    user prompt to stdin, close stdin. Capture the `thread.started`
+//!    event's `thread_id` and cache it on the session row.
+//! 2. Subsequent turns: spawn `codex exec resume <thread_id> --json
+//!    --skip-git-repo-check --cd <cwd> -`. Codex restores context from its
+//!    on-disk session store; we re-attach as if it were a fresh turn.
+//! 3. When `turn.completed` arrives → return `StopReason::EndTurn`.
+//!    `turn.failed` → emit an error chunk + return `StopReason::Refusal`.
+//!    EOF without a terminal event → fall back to `EndTurn`.
+//!
+//! ### Why per-turn
+//!
+//! Codex's non-interactive exec mode is one-prompt-per-process by design.
+//! There's no long-lived stdio session like `claude --output-format
+//! stream-json`. The `codex exec resume` subcommand papers over this for
+//! us — context is preserved on disk between turns.
+//!
+//! ### What was retired vs. the previous PTY-wrap stub
+//!
+//! - `strip_ansi_escapes` use — no longer relevant; stream is structured.
+//! - `PtyManager` plumbing — kept as a constructor param to avoid a
+//!   `lib.rs` ripple, but unused. TODO: drop the param in the next ADR
+//!   that lets us rename the module path.
+//! - 60s wallclock idle-marker timeout — the JSONL stream has explicit
+//!   turn boundaries, so no timer is needed.
 
 use std::collections::HashMap;
+use std::process::Stdio;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 
 use agent_client_protocol::schema::{
-    LoadSessionResponse, NewSessionResponse, PromptResponse, SessionId, SessionNotification,
-    StopReason,
+    AgentCapabilities, InitializeRequest, InitializeResponse, LoadSessionResponse, McpCapabilities,
+    NewSessionResponse, PromptCapabilities, PromptResponse, ProtocolVersion, SessionId,
+    SessionNotification, StopReason,
 };
 use tauri::{AppHandle, Emitter};
-use tokio::sync::{broadcast, Mutex};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::process::{Child, Command};
+use tokio::sync::Mutex;
 
-use crate::engines::codex_pty::parser::{is_done_marker, parse_chunk};
-use crate::pty::{ByteSubscriber, PtyManager, SpawnOpts};
+use crate::engines::codex_pty::parser::{parse_event, to_session_updates, ParsedEvent};
+use crate::pty::PtyManager;
 
-/// Maximum wallclock we wait for an idle-prompt marker before giving up
-/// and returning `StopReason::EndTurn`. Matches the "the model is wedged"
-/// failure mode the Claude engine handles via its `Done` watch; codex has
-/// no equivalent stream-json signal, so we lean on a timer instead.
-const PROMPT_TIMEOUT_SECS: u64 = 60;
+/// Default codex executable name. Resolved via `$PATH` at spawn time.
+const DEFAULT_CODEX_CMD: &str = "codex";
 
-/// Capacity of the per-session byte broadcast channel. The reader thread
-/// that the PtyManager owns shoves chunks in here; the prompt handler
-/// drains. 256 is the same number `claude::session` uses for its event
-/// bus — keeps us out of `RecvError::Lagged` territory for any reasonable
-/// terminal output rate (codex tops out around a few KB/s of rendered text).
-const BROADCAST_CAPACITY: usize = 256;
-
-/// Default PTY dimensions for codex. Codex re-renders the whole frame on
-/// every keystroke, so an over-tall pty wastes cycles; 24x100 is enough
-/// to capture realistic prompts without slowing down ANSI re-layout. The
-/// dimensions are local to the engine — the user never sees this PTY's
-/// rendered output directly.
-const DEFAULT_ROWS: u16 = 24;
-const DEFAULT_COLS: u16 = 100;
-
-/// One row in the engine's session table. Tracks the PTY id (None until
-/// the first prompt spawns it) plus a `broadcast::Sender<Vec<u8>>` that
-/// the PTY's byte subscriber feeds. Subscribing late is fine: the prompt
-/// handler subscribes before writing, so any output triggered by the
-/// write is observed.
+/// One entry in the engine's session table.
+///
+/// `codex_thread_id` is the id returned by codex's first `thread.started`
+/// event; we feed it back via `codex exec resume <id>` on subsequent turns
+/// so Codex restores context from its on-disk session store.
 struct CodexSession {
     cwd: String,
-    pty_id: Option<String>,
-    bytes: broadcast::Sender<Vec<u8>>,
+    /// Resume id captured from `thread.started`. None until the first
+    /// successful turn.
+    codex_thread_id: Option<String>,
+    /// The currently in-flight child, if any. Used by `handle_cancel`
+    /// to send SIGINT.
+    in_flight: Option<Arc<Mutex<Child>>>,
 }
 
 impl CodexSession {
     fn new(cwd: String) -> Self {
-        let (tx, _rx) = broadcast::channel(BROADCAST_CAPACITY);
         Self {
             cwd,
-            pty_id: None,
-            bytes: tx,
+            codex_thread_id: None,
+            in_flight: None,
         }
     }
 }
 
 pub struct CodexPtyEngine {
+    // PtyManager is retained for ABI compatibility with `lib.rs::run()`
+    // but no longer used — codex exec runs through tokio::process. TODO:
+    // drop this param in the same change that renames the module path
+    // off `codex_pty`.
+    #[allow(dead_code)]
     pty: Arc<PtyManager>,
     sessions: Arc<Mutex<HashMap<String, Arc<Mutex<CodexSession>>>>>,
 }
@@ -87,16 +99,44 @@ impl CodexPtyEngine {
         }
     }
 
+    pub const PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion::V1;
+
+    /// Static capabilities advertisement. Codex via `codex exec --json`:
+    /// - No image input through this surface (CLI is text in, JSON out).
+    /// - No streaming-thinking surface; reasoning items arrive as
+    ///   completed chunks.
+    /// - Has MCP via codex's own MCP integration (configured per-user
+    ///   in `~/.codex/config.toml`, not through the AppBridge).
+    /// - Supports session resume (`codex exec resume <thread_id>`).
+    pub fn handle_initialize(&self, req: InitializeRequest) -> InitializeResponse {
+        let negotiated = std::cmp::min(req.protocol_version, Self::PROTOCOL_VERSION);
+        let prompt_caps = PromptCapabilities::default()
+            .image(false)
+            .embedded_context(true)
+            .audio(false);
+        let mcp_caps = McpCapabilities::default().http(false).sse(false);
+        let agent_caps = AgentCapabilities::default()
+            .load_session(true)
+            .prompt_capabilities(prompt_caps)
+            .mcp_capabilities(mcp_caps);
+        InitializeResponse::new(negotiated)
+            .agent_capabilities(agent_caps)
+            .auth_methods(Vec::new())
+    }
+
     /// Register a session id with the engine. Idempotent — re-registering
-    /// the same id updates the recorded cwd but doesn't touch the PTY.
-    /// The codex child is NOT spawned here; that's deferred until the
-    /// first `handle_prompt` so opening a thread the user never types
-    /// into doesn't pay the launch cost.
+    /// the same id updates the recorded cwd but otherwise no-ops. The
+    /// codex child is NOT spawned here; that's deferred to `handle_prompt`.
     pub async fn handle_new_session(
         &self,
         thread_id: String,
         cwd: String,
     ) -> Result<NewSessionResponse, String> {
+        let cwd = if cwd.is_empty() {
+            std::env::var("HOME").unwrap_or_else(|_| "/".to_string())
+        } else {
+            cwd
+        };
         let mut sessions = self.sessions.lock().await;
         sessions
             .entry(thread_id.clone())
@@ -104,9 +144,9 @@ impl CodexPtyEngine {
         Ok(NewSessionResponse::new(SessionId::new(thread_id)))
     }
 
-    /// Spawn the PTY on first call, then write `text\n` to it and drain
-    /// the parser's emissions until we see the idle-prompt marker (or
-    /// time out at 60s).
+    /// Spawn `codex exec --json` for one turn, feed the user prompt on
+    /// stdin, drain the JSONL stream, emit SessionUpdates as we go, and
+    /// return when we see a terminal event.
     pub async fn handle_prompt(
         &self,
         app: AppHandle,
@@ -121,112 +161,210 @@ impl CodexPtyEngine {
                 .ok_or_else(|| format!("no codex session for thread {thread_id}"))?
         };
 
-        // Subscribe BEFORE we write so we never miss bytes that arrive
-        // between the write returning and us subscribing.
-        let mut rx = {
+        let (cwd, resume_id) = {
             let s = session_arc.lock().await;
-            s.bytes.subscribe()
+            (s.cwd.clone(), s.codex_thread_id.clone())
         };
 
-        // Ensure the PTY is alive. Done under the per-session lock so two
-        // concurrent prompts on the same thread don't double-spawn.
-        self.ensure_spawned(&app, &session_arc).await?;
+        // Build the per-turn command. `codex exec` reads the prompt from
+        // stdin when given `-` as the positional arg. `--skip-git-repo-check`
+        // makes the spawn predictable inside arbitrary project dirs
+        // (codex defaults to refusing to run outside a git repo otherwise).
+        let mut cmd = Command::new(DEFAULT_CODEX_CMD);
+        if let Some(resume) = &resume_id {
+            cmd.args(["exec", "resume", resume, "--json"]);
+        } else {
+            cmd.args(["exec", "--json"]);
+        }
+        cmd.args(["--skip-git-repo-check", "--cd", &cwd, "-"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true);
 
-        // Write the user text + newline to drive codex into "do work" mode.
-        let pty_id = {
-            let s = session_arc.lock().await;
-            s.pty_id
-                .clone()
-                .ok_or_else(|| "PTY id missing after spawn".to_string())?
-        };
-        let mut payload = text.into_bytes();
-        payload.push(b'\n');
-        self.pty
-            .write(&pty_id, &payload)
-            .map_err(|e| format!("codex pty write failed: {e}"))?;
+        let mut child = cmd
+            .spawn()
+            .map_err(|e| format!("spawn codex exec: {e}"))?;
 
-        // Drain output until we see the done marker or hit the deadline.
+        // Write the prompt to stdin and close it so codex knows the user
+        // input is complete.
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| "codex stdin not piped".to_string())?;
+        let prompt = text.clone();
+        let mut stdin = stdin;
+        if let Err(e) = stdin.write_all(prompt.as_bytes()).await {
+            return Err(format!("write codex stdin: {e}"));
+        }
+        // Drop closes the pipe — equivalent to EOF on stdin.
+        drop(stdin);
+
+        // Drain stderr in the background so the pipe doesn't fill up.
+        if let Some(stderr) = child.stderr.take() {
+            let tid = thread_id.clone();
+            tauri::async_runtime::spawn(async move {
+                let mut lines = BufReader::new(stderr).lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    log::debug!(
+                        target: "ikenga::engines::codex_pty",
+                        "codex[{tid}] stderr: {line}",
+                    );
+                }
+            });
+        }
+
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| "codex stdout not piped".to_string())?;
+
+        // Stash the child in the session so `handle_cancel` can SIGINT it.
+        // The Arc<Mutex<>> wrapping is so the cancel path and the post-loop
+        // wait path can both take ownership semantics.
+        let child_handle = Arc::new(Mutex::new(child));
+        {
+            let mut s = session_arc.lock().await;
+            s.in_flight = Some(child_handle.clone());
+        }
+
         let channel = format!("chat://session/{thread_id}");
-        let deadline = Instant::now() + Duration::from_secs(PROMPT_TIMEOUT_SECS);
-        // Skip the user-echo + any chrome carried in the first chunk by
-        // requiring we see at least one non-echo line _then_ the marker.
-        // (Codex sometimes leaves a stale `❯` at the head of the buffer
-        // from the previous turn; if we returned on the first marker we'd
-        // ship empty turns. Tracking `saw_content` guards against that.)
-        let mut saw_content = false;
+        let mut lines = BufReader::new(stdout).lines();
+        let mut stop_reason: Option<StopReason> = None;
+        let mut error_message: Option<String> = None;
 
         loop {
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            if remaining.is_zero() {
-                log::warn!(
-                    target: "ikenga::engines::codex_pty",
-                    "codex prompt timed out after {PROMPT_TIMEOUT_SECS}s on thread {thread_id}",
-                );
-                break;
-            }
-            let chunk = match tokio::time::timeout(remaining, rx.recv()).await {
-                Ok(Ok(c)) => c,
-                Ok(Err(broadcast::error::RecvError::Lagged(n))) => {
+            match lines.next_line().await {
+                Ok(Some(line)) => {
+                    if line.trim().is_empty() {
+                        continue;
+                    }
+                    let parsed = match parse_event(&line) {
+                        Ok(ev) => ev,
+                        Err(e) => {
+                            log::warn!(
+                                target: "ikenga::engines::codex_pty",
+                                "codex[{thread_id}] failed to parse line: {e} (raw: {line})",
+                            );
+                            continue;
+                        }
+                    };
+
+                    match &parsed {
+                        ParsedEvent::ThreadStarted { thread_id: codex_tid } => {
+                            // Capture the resume id for subsequent turns.
+                            // Only update if we don't already have one (defensive —
+                            // codex might re-emit it on resume too).
+                            let mut s = session_arc.lock().await;
+                            if s.codex_thread_id.is_none() && !codex_tid.is_empty() {
+                                s.codex_thread_id = Some(codex_tid.clone());
+                            }
+                        }
+                        ParsedEvent::TurnCompleted { .. } => {
+                            stop_reason = Some(StopReason::EndTurn);
+                        }
+                        ParsedEvent::TurnFailed { message } => {
+                            error_message = Some(message.clone());
+                            stop_reason = Some(StopReason::Refusal);
+                        }
+                        ParsedEvent::Unknown(raw) => {
+                            log::debug!(
+                                target: "ikenga::engines::codex_pty",
+                                "codex[{thread_id}] unknown event: {raw}",
+                            );
+                        }
+                        _ => {}
+                    }
+
+                    // Emit translated SessionUpdates regardless of phase
+                    // (top-level events return empty, items return the
+                    // mapped chunk/tool call/plan).
+                    for upd in to_session_updates(&parsed) {
+                        let notif =
+                            SessionNotification::new(SessionId::new(thread_id.clone()), upd);
+                        let _ = app.emit(&channel, &notif);
+                    }
+
+                    // turn.completed / turn.failed are terminal; break
+                    // here so we don't keep blocking on stdout if the
+                    // child takes a moment to exit.
+                    if stop_reason.is_some() {
+                        break;
+                    }
+                }
+                Ok(None) => break, // EOF
+                Err(e) => {
                     log::warn!(
                         target: "ikenga::engines::codex_pty",
-                        "codex prompt lagged {n} chunks on thread {thread_id}",
+                        "codex[{thread_id}] stdout read error: {e}",
                     );
-                    continue;
-                }
-                Ok(Err(broadcast::error::RecvError::Closed)) => {
-                    // PTY died.
                     break;
                 }
-                Err(_elapsed) => break,
-            };
-
-            // Done-marker check uses the same stripped-and-trimmed line
-            // logic the parser uses internally, but at the chunk level so
-            // we don't need to emit updates one-by-one to detect "turn over".
-            let stripped = strip_ansi_escapes::strip(&chunk);
-            let text = String::from_utf8_lossy(&stripped);
-            let marker_seen = text.lines().any(is_done_marker);
-
-            let updates = parse_chunk(&chunk);
-            for upd in updates {
-                saw_content = true;
-                let notif = SessionNotification::new(SessionId::new(thread_id.clone()), upd);
-                let _ = app.emit(&channel, &notif);
-            }
-
-            if marker_seen && saw_content {
-                break;
             }
         }
 
-        Ok(PromptResponse::new(StopReason::EndTurn))
+        // Reap the child so we don't leak zombies even on short turns.
+        // Best-effort — if it's already gone, that's fine.
+        {
+            let mut guard = child_handle.lock().await;
+            let _ = guard.wait().await;
+        }
+        // Clear the in_flight handle so a stale cancel doesn't kill a
+        // future turn.
+        {
+            let mut s = session_arc.lock().await;
+            s.in_flight = None;
+        }
+
+        match stop_reason {
+            Some(StopReason::Refusal) => {
+                log::warn!(
+                    target: "ikenga::engines::codex_pty",
+                    "codex[{thread_id}] turn.failed: {}",
+                    error_message.as_deref().unwrap_or("(no message)"),
+                );
+                Ok(PromptResponse::new(StopReason::Refusal))
+            }
+            Some(reason) => Ok(PromptResponse::new(reason)),
+            None => {
+                // EOF without a terminal event — codex exited cleanly but
+                // never emitted turn.completed. Fall back to EndTurn so
+                // the FE's request future resolves.
+                log::warn!(
+                    target: "ikenga::engines::codex_pty",
+                    "codex[{thread_id}] stdout closed without turn.completed; defaulting to EndTurn",
+                );
+                Ok(PromptResponse::new(StopReason::EndTurn))
+            }
+        }
     }
 
-    /// Best-effort cancel. Codex doesn't have a clean interrupt envelope
-    /// the way claude does — Ctrl-C (SIGINT) on the child is the canonical
-    /// way to stop a runaway turn. We send `\x03` (ETX) over the PTY,
-    /// which the PTY layer relays to the foreground process group.
+    /// Best-effort cancel: send SIGKILL to the in-flight `codex exec`
+    /// child. Codex doesn't have a graceful interrupt envelope on its
+    /// non-interactive surface, so this is the available lever. Stale
+    /// `threadId` is a no-op.
     pub async fn handle_cancel(&self, thread_id: String) -> Result<(), String> {
         let Some(session_arc) = self.sessions.lock().await.get(&thread_id).cloned() else {
             return Ok(());
         };
-        let pty_id = session_arc.lock().await.pty_id.clone();
-        let Some(pty_id) = pty_id else {
+        let child = {
+            let s = session_arc.lock().await;
+            s.in_flight.clone()
+        };
+        let Some(child) = child else {
             return Ok(());
         };
-        // 0x03 = ETX (Ctrl-C). PTY relays this to the foreground PG, which
-        // signals SIGINT to the codex process. Best-effort — if the PTY is
-        // already dead the write errors out and we surface it.
-        self.pty
-            .write(&pty_id, b"\x03")
-            .map_err(|e| format!("codex pty cancel write failed: {e}"))?;
+        let mut guard = child.lock().await;
+        // tokio::process::Child::start_kill sends SIGKILL on Unix. We
+        // don't bother with SIGINT-then-SIGKILL because codex exec
+        // doesn't checkpoint between events — a SIGINT race is no
+        // friendlier than a hard kill, and slower to surface to the FE.
+        let _ = guard.start_kill();
         Ok(())
     }
 
-    /// Minimal load-session: just confirm the thread is registered. We
-    /// don't have any session-level modes / picker state to advertise
-    /// (codex's models are picked at spawn-time by codex's own CLI flags,
-    /// not exposed through this engine).
+    /// Re-attach to a session by thread id. Codex's resume context lives
+    /// on disk; here we just confirm the in-memory row exists.
     pub async fn handle_load_session(
         &self,
         thread_id: String,
@@ -239,59 +377,47 @@ impl CodexPtyEngine {
         }
     }
 
-    /// Spawn the underlying codex PTY for this session if it hasn't been
-    /// already. The subscriber forwards every raw byte chunk into the
-    /// session's broadcast bus so concurrent prompt handlers (only one at
-    /// a time today, but the abstraction permits more) can each drain.
-    async fn ensure_spawned(
+    /// Modes / model / effort are no-ops for codex today. Codex's CLI
+    /// reads model + reasoning settings from its own config; per-turn
+    /// switching via the chat header is deferred.
+    pub async fn handle_set_mode(
         &self,
-        app: &AppHandle,
-        session_arc: &Arc<Mutex<CodexSession>>,
+        _thread_id: String,
+        _mode_id: String,
     ) -> Result<(), String> {
-        let needs_spawn = {
-            let s = session_arc.lock().await;
-            s.pty_id.is_none()
-        };
-        if !needs_spawn {
-            return Ok(());
-        }
+        Ok(())
+    }
 
-        let (cwd, tx) = {
-            let s = session_arc.lock().await;
-            (s.cwd.clone(), s.bytes.clone())
-        };
+    pub async fn handle_set_model(
+        &self,
+        _thread_id: String,
+        _model: Option<String>,
+    ) -> Result<(), String> {
+        Ok(())
+    }
 
-        let subscriber: ByteSubscriber = Box::new(move |bytes: &[u8]| {
-            // `broadcast::send` errors only if there are zero receivers,
-            // which is the steady-state between turns. Drop silently —
-            // the next prompt's subscription will catch the next chunk.
-            let _ = tx.send(bytes.to_vec());
-        });
+    pub async fn handle_set_effort(
+        &self,
+        _thread_id: String,
+        _effort: crate::claude::session::EffortLevel,
+    ) -> Result<(), String> {
+        Ok(())
+    }
 
-        let opts = SpawnOpts {
-            cwd,
-            cmd: vec!["codex".to_string()],
-            env: HashMap::new(),
-            rows: DEFAULT_ROWS,
-            cols: DEFAULT_COLS,
-        };
-
-        let pty_id = self
-            .pty
-            .spawn_with_subscriber(app.clone(), opts, subscriber)
-            .await
-            .map_err(|e| format!("codex pty spawn failed: {e}"))?;
-
-        {
-            let mut s = session_arc.lock().await;
-            s.pty_id = Some(pty_id);
-        }
+    /// Codex exec runs with its own sandbox policy (configured via
+    /// `--sandbox`), so we don't drive interactive permission round-trips
+    /// through this engine today. Resolving a permission is therefore a
+    /// no-op — kept for dispatcher symmetry with Claude / Gemini.
+    pub async fn resolve_permission(
+        &self,
+        _request_id: String,
+        _response: agent_client_protocol::schema::RequestPermissionResponse,
+    ) -> Result<(), String> {
         Ok(())
     }
 }
 
-/// Tauri-friendly wrapper around the engine. The parallel agent's
-/// `EngineHandle` refactor will wrap one of these in its enum variant.
+/// Tauri-friendly wrapper around the engine.
 pub type CodexPtyEngineState = Arc<CodexPtyEngine>;
 
 #[cfg(test)]
@@ -300,9 +426,6 @@ mod tests {
 
     #[tokio::test]
     async fn new_session_is_idempotent() {
-        // Re-registering the same thread id doesn't error and doesn't
-        // wipe the session row. The CLI scaffolder relies on this when
-        // a thread is re-opened across an app restart.
         let pty = Arc::new(PtyManager::new());
         let engine = CodexPtyEngine::new(pty);
         let resp1 = engine
@@ -315,15 +438,24 @@ mod tests {
             .expect("second new_session");
         assert_eq!(resp1.session_id.0.as_ref(), "t1");
         assert_eq!(resp2.session_id.0.as_ref(), "t1");
-        // Internal map still has exactly one entry.
         assert_eq!(engine.sessions.lock().await.len(), 1);
     }
 
     #[tokio::test]
+    async fn new_session_falls_back_to_home_when_cwd_empty() {
+        let pty = Arc::new(PtyManager::new());
+        let engine = CodexPtyEngine::new(pty);
+        let _ = engine
+            .handle_new_session("t_empty".into(), String::new())
+            .await
+            .expect("ok");
+        let sessions = engine.sessions.lock().await;
+        let s = sessions.get("t_empty").unwrap().lock().await;
+        assert!(!s.cwd.is_empty());
+    }
+
+    #[tokio::test]
     async fn cancel_on_unknown_thread_is_ok() {
-        // Stale Stop clicks (thread never registered, app cold-started
-        // and lost in-memory state) must be no-ops. Mirrors the claude
-        // engine's `handle_cancel` semantics.
         let pty = Arc::new(PtyManager::new());
         let engine = CodexPtyEngine::new(pty);
         engine
@@ -333,10 +465,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn cancel_with_no_pty_is_ok() {
-        // Session exists but the PTY was never spawned (no prompts yet).
-        // Cancel should silently no-op rather than complain about a
-        // missing PTY id.
+    async fn cancel_with_no_in_flight_child_is_ok() {
         let pty = Arc::new(PtyManager::new());
         let engine = CodexPtyEngine::new(pty);
         engine
@@ -372,5 +501,35 @@ mod tests {
             .await
             .expect_err("unknown thread errors");
         assert!(err.contains("no codex session for thread"));
+    }
+
+    #[tokio::test]
+    async fn set_mode_model_effort_are_noops() {
+        let pty = Arc::new(PtyManager::new());
+        let engine = CodexPtyEngine::new(pty);
+        engine
+            .handle_set_mode("t".into(), "auto".into())
+            .await
+            .expect("set_mode no-op");
+        engine
+            .handle_set_model("t".into(), Some("gpt-5".into()))
+            .await
+            .expect("set_model no-op");
+        engine
+            .handle_set_effort("t".into(), crate::claude::session::EffortLevel::Off)
+            .await
+            .expect("set_effort no-op");
+    }
+
+    #[test]
+    fn initialize_advertises_codex_capabilities() {
+        let pty = Arc::new(PtyManager::new());
+        let engine = CodexPtyEngine::new(pty);
+        let req = InitializeRequest::new(ProtocolVersion::V1);
+        let resp = engine.handle_initialize(req);
+        assert_eq!(resp.protocol_version, ProtocolVersion::V1);
+        // Codex via exec doesn't accept images through this surface.
+        assert!(!resp.agent_capabilities.prompt_capabilities.image);
+        assert!(resp.agent_capabilities.load_session);
     }
 }

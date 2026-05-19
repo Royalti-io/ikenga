@@ -1,27 +1,34 @@
-//! `CodexPtyEngine` — Rust adapter that spawns the OpenAI Codex CLI inside a
-//! PTY and shuttles its TUI output into the shell's internal `SessionUpdate`
-//! stream (Phase 3 of the multi-engine rebuild).
+//! Codex CLI engine adapter.
 //!
-//! Codex doesn't ship a structured stream-json mode the way `claude` does;
-//! it's a full-screen TUI with ANSI cursor positioning, box-drawing chrome,
-//! and a `❯ ` (or `›`) idle-prompt marker. We treat it like the lowest
-//! common denominator:
+//! ADR-013 Phase 3: codex CLI doesn't speak ACP natively (no `--acp` flag,
+//! no `acp` subcommand). Instead, this engine drives `codex exec --json`
+//! one-shot per turn, parses the line-delimited JSON event stream
+//! (`thread.started` → `turn.started` → `item.*` → `turn.completed`), and
+//! emits ACP-shaped `SessionUpdate` envelopes on the same
+//! `chat://session/{thread_id}` Tauri channel Claude and Gemini use. From
+//! the FE's perspective the wire is uniform.
 //!
-//!   1. Strip ANSI escapes from each chunk.
-//!   2. Split into lines, drop TUI chrome (`╭ │ ╰ ` and `>>` echo lines).
-//!   3. Emit each remaining content line as an `agent_message_chunk` text.
-//!   4. Treat an idle-prompt marker as "turn done" and return from the
-//!      handler. Fall back to a 60s wallclock timeout so a model that
-//!      hangs (network glitch, runaway tool) doesn't hold the UI hostage.
+//! Resume across turns is handled by capturing the `thread_id` codex
+//! returns on the first `thread.started` event and feeding it back via
+//! `codex exec resume <id>` on the next prompt. Context lives on disk in
+//! codex's session store; we just track the id.
 //!
-//! Tool-use, thinking, model picker, permissions, OAuth flows — all
-//! explicitly out of scope. When/if we replace this with the Zed
-//! `@zed-industries/codex-acp` adapter, those capabilities can return.
+//! ### Why the module is still called `codex_pty`
 //!
-//! TODO(phase-3-integration): wire CodexPty into `engines::EngineHandle`,
-//! `commands/chat.rs`, and `lib.rs`. A parallel agent owns those files
-//! this session; this module exposes the `CodexPtyEngineState` alias so
-//! the wire-up is a one-line addition once their refactor lands.
+//! The original Phase 3 scaffold wrapped codex in a PTY because the only
+//! mode that existed was the TUI. `codex exec --json` is a structured
+//! non-interactive mode that landed later. The module name is misleading
+//! but the rename is churn for zero behavioural change; deferred to a
+//! future ADR. See ADR-013 §6 ("Negative: keeps a misleading suffix") for
+//! the rationale.
+//!
+//! ### What's NOT in scope
+//!
+//! - Interactive permission round-trips. Codex exec uses its own
+//!   `--sandbox` policy; we don't bridge approval prompts to the FE.
+//! - Image input. The exec surface is text-only.
+//! - Per-turn model / effort switching. Codex reads those from its own
+//!   config; the chat header still stages the values but they no-op here.
 
 pub mod engine;
 pub mod parser;

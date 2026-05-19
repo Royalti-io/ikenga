@@ -106,9 +106,9 @@ pub fn run() {
     // memory session table. Phase 11 retires the legacy path.
     let claude_code_engine: engines::claude_code::server::ClaudeCodeEngineState =
         Arc::new(engines::claude_code::server::ClaudeCodeEngine::new(sessions_manager.clone()));
-    // Phase 2: Gemini ACP engine. Spawns the `gemini --experimental-acp`
-    // child lazily on first new_session per thread; one child per
-    // threadId, reused across prompts.
+    // Phase 2: Gemini ACP engine. Spawns the `gemini --acp` child
+    // lazily on first new_session per thread; one child per threadId,
+    // reused across prompts. (ADR-013 §1.)
     let gemini_acp_engine: engines::gemini_acp::GeminiAcpEngineState =
         Arc::new(engines::gemini_acp::GeminiAcpEngine::new());
     // Phase 3: Codex PTY engine. Lazy-spawns the `codex` CLI in a PTY on
@@ -117,6 +117,14 @@ pub fn run() {
     // shell's PTY surface.
     let codex_pty_engine: engines::codex_pty::CodexPtyEngineState =
         Arc::new(engines::codex_pty::CodexPtyEngine::new(pty_manager.clone()));
+    // Phase 4: cursor-agent scaffold (ADR-013 §6). Runtime stubbed —
+    // every method returns `cursor-agent runtime not implemented` until
+    // the Cursor CLI is installable and an `--acp`-equivalent is
+    // verified. Registered now so the FE engine catalog can show the
+    // row and the dispatcher can resolve "cursor-agent" without a
+    // special case.
+    let cursor_agent_engine: engines::cursor_agent::CursorAgentEngineState =
+        Arc::new(engines::cursor_agent::CursorAgentEngine::new());
     // Multi-engine dispatcher used by `commands/chat.rs`. Built once
     // here and `.manage()`d so every Tauri command resolves engines
     // through the same registry.
@@ -126,10 +134,13 @@ pub fn run() {
         let claude_handle = engines::EngineHandle::ClaudeCode(claude_code_engine.clone());
         let gemini_handle = engines::EngineHandle::GeminiAcp(gemini_acp_engine.clone());
         let codex_handle = engines::EngineHandle::CodexPty(codex_pty_engine.clone());
+        let cursor_agent_handle =
+            engines::EngineHandle::CursorAgent(cursor_agent_engine.clone());
         tauri::async_runtime::block_on(async move {
             reg.insert("claude-code", claude_handle).await;
             reg.insert("gemini", gemini_handle).await;
             reg.insert("codex", codex_handle).await;
+            reg.insert("cursor-agent", cursor_agent_handle).await;
         });
     }
     let screenshot_pending: ScreenshotPending = new_screenshot_pending();
@@ -182,6 +193,7 @@ pub fn run() {
         .manage(claude_code_engine)
         .manage(gemini_acp_engine)
         .manage(codex_pty_engine)
+        .manage(cursor_agent_engine)
         .manage(engine_registry)
         .manage(screenshot_pending.clone())
         .manage(SecretsLock::new())
