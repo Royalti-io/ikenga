@@ -104,14 +104,6 @@ pub async fn pkg_sidecar_rpc_send(
 
     let key: StreamKey = (pkg_id.clone(), name.clone());
 
-    // std::sync::Mutex — held synchronously across cmd.spawn() (which is
-    // itself sync). Required because tokio::sync::Mutex was exhibiting an
-    // unexplained visibility issue where two concurrent invocations both
-    // saw empty map despite the previous call's insert being verified-
-    // present immediately after.
-    //
-    // We do all the locked work in a sync block, returning the stdin Arc
-    // outside so the MutexGuard (which is !Send) never crosses an .await.
     let stdin = {
         let mut children = manager.children.lock().expect("children mutex poisoned");
         if let Some(e) = children.get(&key) {
@@ -247,26 +239,42 @@ fn spawn_streaming_child_sync(
         });
     }
 
-    // Lifecycle watcher: when child exits, remove the map entry so the next
-    // RPC send spawns fresh.
+    // Construct the stdin Arc up front so the lifecycle watcher can keep a
+    // marker clone for ptr_eq matching.
+    let stdin_arc = Arc::new(AsyncMutex::new(stdin));
+
+    // Lifecycle watcher. When the child exits, remove the map entry —
+    // but ONLY if the entry is still ours. A race (e.g. React StrictMode
+    // double-mount triggers two `pkg_sidecar_rpc_send` invocations near
+    // simultaneously and both end up spawning) could have overwritten our
+    // entry with a fresh spawn. Without the ptr_eq guard, our lifecycle
+    // would remove the *replacement's* entry when the original dies,
+    // cascading more deaths.
     {
         let app = app.clone();
         let manager = manager.clone();
         let key = key.clone();
+        let our_stdin_marker = stdin_arc.clone();
         tokio::spawn(async move {
             let status = child.wait().await;
             log::info!(
-                "[pkg_sidecar_rpc_send] child exited pkg={} name={} status={:?}",
-                key.0, key.1, status
+                "[pkg_sidecar_rpc_send] child exited pkg={} name={} pid={} status={:?}",
+                key.0, key.1, pid, status
             );
             let mut children = manager.children.lock().expect("children mutex poisoned");
-            children.remove(&key);
+            let is_ours = children
+                .get(&key)
+                .map(|e| Arc::ptr_eq(&e.stdin, &our_stdin_marker))
+                .unwrap_or(false);
+            if is_ours {
+                children.remove(&key);
+            }
             drop(children);
             let _ = app.emit(&exit_event, ());
         });
     }
 
-    Ok(Arc::new(AsyncMutex::new(stdin)))
+    Ok(stdin_arc)
 }
 
 /// Explicit shutdown — drop the live entry so the child sees stdin EOF.
