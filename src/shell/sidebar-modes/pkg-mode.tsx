@@ -20,6 +20,12 @@ import {
 import { cn } from '@/components/ui/utils';
 import { usePkgMenuStore, type PkgMenuItem } from '@/lib/pkg/pkg-menu-store';
 
+// Stable empty-array sentinel — used by the menu selector when no menu has
+// been published for this pkg yet. Without this, `?? []` returns a fresh
+// array every render, Zustand sees a referential change, and the
+// "getSnapshot should be cached" guard triggers a re-render loop.
+const EMPTY_ITEMS: readonly PkgMenuItem[] = [];
+
 const ICONS: Record<string, LucideIcon> = {
 	'layout-dashboard': LayoutDashboard,
 	'list-checks': ListChecks,
@@ -38,7 +44,7 @@ function iconFor(name: string | null | undefined): LucideIcon {
 }
 
 export function PkgMode({ pkgId }: { pkgId: string }) {
-	const items = usePkgMenuStore((s) => s.menus[pkgId] ?? []);
+	const items = usePkgMenuStore((s) => s.menus[pkgId] ?? EMPTY_ITEMS);
 	const activeFeature = usePkgMenuStore((s) => s.activeFeatures[pkgId]);
 	const setActiveFeature = usePkgMenuStore((s) => s.setActiveFeature);
 
