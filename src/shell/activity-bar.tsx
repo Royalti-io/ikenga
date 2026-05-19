@@ -3,7 +3,10 @@ import {
 	Folder,
 	FolderKanban,
 	Grid3x3,
+	LayoutDashboard,
 	LayoutGrid,
+	ListChecks,
+	Mail,
 	Monitor,
 	Moon,
 	Package,
@@ -11,14 +14,18 @@ import {
 	Pin as PinGlyph,
 	PinOff,
 	Plus,
+	Send,
 	Settings,
 	Settings2,
 	SquareDashed,
 	SquareTerminal,
 	Sun,
 	Trash2,
+	TrendingUp,
 	type LucideIcon,
 } from 'lucide-react';
+import { listen } from '@tauri-apps/api/event';
+import { pkgKernelStatus } from '@/lib/tauri-cmd';
 import { useShellStore, type ActivityMode, type CoreMode } from '@/lib/shell/shell-store';
 import { usePaneStore } from '@/lib/panes/pane-store';
 import { useIkengaStore, type IkengaMode, type IkengaWorkspace } from '@/lib/ikenga/theme-store';
@@ -99,6 +106,76 @@ function modeToWorkspace(mode: ActivityMode): IkengaWorkspace {
 	return mode;
 }
 
+// Map manifest `ui.nav[].icon` strings to LucideIcon components. Pkg authors
+// reference icons by name; the shell controls which ones are actually
+// available. Unknown names fall back to a generic `Package` glyph.
+const PKG_ICONS: Record<string, LucideIcon> = {
+	'layout-dashboard': LayoutDashboard,
+	'list-checks': ListChecks,
+	'trending-up': TrendingUp,
+	send: Send,
+	mail: Mail,
+	folder: Folder,
+	'folder-kanban': FolderKanban,
+	pencil: Pencil,
+	package: Package,
+};
+
+function iconForPkg(name: string | null | undefined): LucideIcon {
+	if (name && name in PKG_ICONS) return PKG_ICONS[name]!;
+	return Package;
+}
+
+// Activity-bar entries contributed by installed pkgs via manifest `ui.nav[0]`.
+// Shape mirrors the Rust `ActivityBarEntry` in `pkg/registries/activity_bar.rs`.
+interface PkgActivityBarEntry {
+	pkg_id: string;
+	id: string;
+	label: string;
+	icon?: string | null;
+	section?: string | null;
+	route: string;
+}
+
+/** Read the activity_bar registry from the kernel snapshot. Re-fetches on
+ *  pkg install / uninstall / reload events so newly-mounted pkgs appear
+ *  immediately without a shell restart. */
+function usePkgActivityBarEntries(): PkgActivityBarEntry[] {
+	const [entries, setEntries] = useState<PkgActivityBarEntry[]>([]);
+
+	useEffect(() => {
+		let cancelled = false;
+
+		async function refresh() {
+			try {
+				const status = await pkgKernelStatus();
+				const reg = (status.registries.activity_bar ?? {}) as {
+					entries?: PkgActivityBarEntry[];
+				};
+				if (!cancelled) setEntries(reg.entries ?? []);
+			} catch {
+				if (!cancelled) setEntries([]);
+			}
+		}
+
+		void refresh();
+
+		// Kernel lifecycle events. The names match those emitted by the pkg
+		// kernel in `lifecycle.rs` and `commands/pkg_dev.rs`.
+		const unsubs: Array<Promise<() => void>> = [
+			listen('pkg-installed', () => void refresh()),
+			listen('pkg-uninstalled', () => void refresh()),
+			listen('pkg-reloaded', () => void refresh()),
+		];
+		return () => {
+			cancelled = true;
+			for (const p of unsubs) void p.then((fn) => fn());
+		};
+	}, []);
+
+	return entries;
+}
+
 export function ActivityBar() {
 	const activeMode = useShellStore((s) => s.activeMode);
 	const setActiveMode = useShellStore((s) => s.setActiveMode);
@@ -119,6 +196,14 @@ export function ActivityBar() {
 	}, [activeMode, setWorkspace]);
 
 	const updatesAvailable = useUpdatesAvailable();
+	const pkgEntries = usePkgActivityBarEntries();
+
+	function handleSelectPkg(entry: PkgActivityBarEntry) {
+		// Flip to App mode so the sidebar slot is in the right mode to render
+		// the pkg's runtime menu (AppMode branches on focused-tab pkg routes).
+		setActiveMode('app');
+		usePaneStore.getState().navigateFocused(entry.route);
+	}
 
 	function handleSelectMode(mode: ActivityMode) {
 		setActiveMode(mode);
@@ -178,6 +263,21 @@ export function ActivityBar() {
 					/>
 				))}
 			</div>
+
+			{pkgEntries.length > 0 && (
+				<>
+					<div
+						className="my-2 h-px w-6 shrink-0"
+						style={{ background: 'var(--border-soft)' }}
+						aria-hidden="true"
+					/>
+					<div className="flex flex-col items-center" data-section="pkgs">
+						{pkgEntries.map((entry) => (
+							<PkgRailButton key={entry.pkg_id} entry={entry} onSelect={handleSelectPkg} />
+						))}
+					</div>
+				</>
+			)}
 
 			{hasAnyPins && (
 				<>
@@ -390,6 +490,33 @@ function ProjectIndicator() {
 				</div>
 			</PopoverContent>
 		</Popover>
+	);
+}
+
+interface PkgRailButtonProps {
+	entry: PkgActivityBarEntry;
+	onSelect: (entry: PkgActivityBarEntry) => void;
+}
+
+/** Lightweight rail button for pkg activity-bar entries. Doesn't switch
+ *  shell mode — just navigates the focused pane to the pkg's route. The
+ *  active-route indicator is omitted v1; pkgs don't claim a workspace tint. */
+function PkgRailButton({ entry, onSelect }: PkgRailButtonProps) {
+	const Icon = iconForPkg(entry.icon);
+	return (
+		<button
+			type="button"
+			onClick={() => onSelect(entry)}
+			title={entry.label}
+			aria-label={entry.label}
+			className={cn(
+				'relative my-0.5 grid h-9 w-9 place-items-center rounded-md transition-colors',
+				'hover:bg-card'
+			)}
+			style={{ color: 'var(--fg-faint)' }}
+		>
+			<Icon className="h-[18px] w-[18px]" />
+		</button>
 	);
 }
 

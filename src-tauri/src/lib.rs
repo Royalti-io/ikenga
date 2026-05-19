@@ -334,6 +334,7 @@ pub fn run() {
                 sidecars_reg.clone(),
             ));
             let ui_routes_reg = Arc::new(pkg::registries::UiRoutesRegistry::new());
+            let activity_bar_reg = Arc::new(pkg::registries::ActivityBarRegistry::new());
             // ADR-012 Tracks D + P: kernel-resident engine adapter registry.
             // v1 contains exactly one adapter — `ClaudeCodeAdapter` — and
             // it's registered statically here. Both the `McpRegistry` (MCP
@@ -442,6 +443,7 @@ pub fn run() {
                     settings_reg.clone() as Arc<dyn pkg::Registry>,
                     cron_reg as Arc<dyn pkg::Registry>,
                     ui_routes_reg as Arc<dyn pkg::Registry>,
+                    activity_bar_reg as Arc<dyn pkg::Registry>,
                     engine_assets_reg as Arc<dyn pkg::Registry>,
                     mcp_reg as Arc<dyn pkg::Registry>,
                     queries_reg as Arc<dyn pkg::Registry>,
