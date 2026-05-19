@@ -8,6 +8,7 @@ import { mintThreadId } from '@/chat';
 import { activeProjectCwd } from '@/lib/shell/active-project-cwd';
 import { sessionEnsure } from '@/lib/tauri-cmd';
 import { NAV_GROUPS } from '@/shell/nav-config';
+import { defaultShellLabel } from '@/lib/platform';
 
 interface NewTabMenuProps {
 	leaf: LeafNode;
@@ -75,7 +76,7 @@ export function NewTabMenu({ leaf, open, onClose, anchor }: NewTabMenuProps) {
 						<MenuItem
 							onSelect={() => commit({ kind: 'terminal', sessionId: createTerminalSession() })}
 							Icon={TerminalIcon}
-							label="Terminal (bash)"
+							label={`Terminal (${defaultShellLabel()})`}
 							shortcut="⌘T"
 						/>
 						<MenuItem

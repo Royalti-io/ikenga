@@ -475,9 +475,8 @@ pub fn platform_default_screenshot_dir() -> Result<PathBuf> {
 }
 
 fn default_screenshot_dir() -> Result<PathBuf> {
-    let home = std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .ok_or_else(|| anyhow!("HOME not set"))?;
+    let home = crate::platform::home_dir()
+        .ok_or_else(|| anyhow!("could not resolve home directory (HOME / USERPROFILE unset)"))?;
     #[cfg(target_os = "macos")]
     let dir = home.join("Library/Application Support/ikenga/screenshots");
     #[cfg(all(unix, not(target_os = "macos")))]
