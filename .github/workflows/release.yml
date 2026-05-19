@@ -436,7 +436,11 @@ jobs:
             echo '```'
           } > "$BODY_FILE"
 
-          gh release edit "$TAG" --repo "$REPO" --notes-file "$BODY_FILE"
+          # Write the body AND flip the draft to published in one call —
+          # tauri-action leaves the release as a draft so the per-platform
+          # build jobs can attach assets atomically; we promote it now that
+          # all assets are in and the body is final.
+          gh release edit "$TAG" --repo "$REPO" --notes-file "$BODY_FILE" --draft=false
 
           # Short summary for latest.json (in-app updater UI). Take the
           # commit-count line + the first feat (if any) + a pointer.
@@ -445,7 +449,11 @@ jobs:
             "$(awk 'NR==3' "$BODY_FILE")" \
             "https://github.com/$REPO/releases/tag/$TAG")
 
-          TMP_JSON=$(mktemp --suffix=.json)
+          # Note: `mktemp` creates the file as an anti-race measure, but
+          # `gh release download -O` then refuses to overwrite it. Use a
+          # synthesized name (mktemp -u just reserves it) so the download
+          # writes cleanly.
+          TMP_JSON=$(mktemp -u --suffix=.json)
           gh release download "$TAG" --repo "$REPO" -p latest.json -O "$TMP_JSON"
           node -e '
             const fs = require("fs");
