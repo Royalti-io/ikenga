@@ -113,6 +113,7 @@ impl GeminiAcpEngine {
             transport,
             child: TokioMutex::new(child_proc),
             initialized: TokioMutex::new(false),
+            gemini_session_id: TokioMutex::new(None),
         });
 
         // Send the initialize handshake before any session/* call.
@@ -149,21 +150,57 @@ impl GeminiAcpEngine {
         let child = self.ensure_child(&thread_id, &cwd, app).await?;
 
         // Forward a real `session/new` to Gemini so it allocates its
-        // own session-side state. We ignore Gemini's returned id and
-        // surface the Ikenga thread id back to the caller — that's the
-        // key the FE uses for everything downstream.
+        // own session-side state. Per ACP the agent allocates the session id
+        // — we MUST capture it and use it on subsequent session/* requests,
+        // otherwise gemini returns `-32602 Session not found`. The Ikenga
+        // `threadId` is what the FE/SQLite use as the key; gemini's id lives
+        // only on the child and is rewritten into outbound params by
+        // `gemini_session_id_for` + the per-method forward sites.
         let params = serde_json::json!({
             "mcpServers": [],
             "cwd": cwd,
         });
-        let _result = child
+        let result = child
             .transport
             .request(METHOD_SESSION_NEW, Some(params))
             .await?;
+        let gemini_sid = result
+            .get("sessionId")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                format!(
+                    "gemini session/new result missing string `sessionId` (got: {})",
+                    result
+                )
+            })?
+            .to_string();
+        *child.gemini_session_id.lock().await = Some(gemini_sid);
 
         // Phase 2: don't advertise modes — Gemini doesn't have the
         // four-canonical-mode shape Claude has.
         Ok(NewSessionResponse::new(SessionId::new(thread_id)))
+    }
+
+    /// Resolve the gemini-side session id for a thread, or error with a
+    /// clear hint if the FE hasn't called `session/new` yet for this engine.
+    /// Used by every method that forwards a session/* request to gemini so
+    /// the outbound params carry gemini's id, not the Ikenga thread id.
+    async fn gemini_session_id_for(
+        &self,
+        child: &GeminiChild,
+        thread_id: &str,
+    ) -> Result<String, String> {
+        child
+            .gemini_session_id
+            .lock()
+            .await
+            .clone()
+            .ok_or_else(|| {
+                format!(
+                    "no gemini session id for thread {thread_id} — call session/new before \
+                     session/prompt (per-turn engine swap?)"
+                )
+            })
     }
 
     /// ACP `session/prompt`. Forwards the prompt to Gemini's child and
@@ -186,8 +223,13 @@ impl GeminiAcpEngine {
                 .ok_or_else(|| format!("no gemini session for thread {thread_id}"))?
         };
 
-        // Forward the prompt by serialising the schema struct directly.
-        // The PromptRequest already carries the sessionId Gemini wants.
+        // Rewrite the outbound sessionId to gemini's own id (allocated by
+        // `session/new`). The FE addresses the session by the Ikenga
+        // `threadId`, but gemini knows it by the id it returned — sending the
+        // wrong one yields `-32602 Session not found`.
+        let gemini_sid = self.gemini_session_id_for(&child, &thread_id).await?;
+        let mut req = req;
+        req.session_id = SessionId::new(gemini_sid);
         let params =
             serde_json::to_value(&req).map_err(|e| format!("serialize PromptRequest: {e}"))?;
         let result = child
@@ -212,7 +254,13 @@ impl GeminiAcpEngine {
         let Some(child) = child else {
             return Ok(());
         };
-        let params = serde_json::json!({ "sessionId": thread_id });
+        // Use gemini's session id, not the Ikenga thread id. If session/new
+        // hasn't run yet on this engine there's nothing to cancel — treat as
+        // a no-op (mirrors the "unknown thread" branch above).
+        let Some(gemini_sid) = child.gemini_session_id.lock().await.clone() else {
+            return Ok(());
+        };
+        let params = serde_json::json!({ "sessionId": gemini_sid });
         child
             .transport
             .notify(METHOD_SESSION_CANCEL, Some(params))
@@ -271,8 +319,11 @@ impl GeminiAcpEngine {
             cwd
         };
         let child = self.ensure_child(&thread_id, &cwd, app).await?;
+        // Use gemini's stored session id; session/load can only resume a
+        // session gemini already knows about.
+        let gemini_sid = self.gemini_session_id_for(&child, &thread_id).await?;
         let params = serde_json::json!({
-            "sessionId": thread_id,
+            "sessionId": gemini_sid,
             "mcpServers": [],
             "cwd": cwd,
         });
@@ -300,8 +351,9 @@ impl GeminiAcpEngine {
                 .cloned()
                 .ok_or_else(|| format!("no gemini session for thread {thread_id}"))?
         };
+        let gemini_sid = self.gemini_session_id_for(&child, &thread_id).await?;
         let params = serde_json::json!({
-            "sessionId": thread_id,
+            "sessionId": gemini_sid,
             "modeId": mode_id,
         });
         let _ = child

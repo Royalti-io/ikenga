@@ -178,6 +178,14 @@ pub struct GeminiChild {
     /// Whether we've sent the `initialize` handshake yet. The Gemini ACP
     /// CLI requires this before any session/* call.
     pub initialized: TokioMutex<bool>,
+    /// Gemini's own session id (returned from `session/new` — agent-allocated
+    /// per ACP). All subsequent session/* requests MUST address Gemini using
+    /// THIS id, not the Ikenga `threadId` we use as the FE-visible session
+    /// key. `None` until `session/new` has run; populated by
+    /// `handle_new_session` and read by every forwarding call site so the
+    /// kernel never sends gemini a sessionId it has never heard of (the
+    /// `-32602 Session not found` bug).
+    pub gemini_session_id: TokioMutex<Option<String>>,
 }
 
 impl Transport {
