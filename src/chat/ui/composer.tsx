@@ -28,12 +28,12 @@ import {
 } from '@/components/ui/select';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
-	Sheet,
-	SheetContent,
-	SheetDescription,
-	SheetHeader,
-	SheetTitle,
-} from '@/components/ui/sheet';
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogHeader,
+	DialogTitle,
+} from '@/components/ui/dialog';
 import { useNavigate } from '@tanstack/react-router';
 import {
 	chatPrompt,
@@ -458,9 +458,9 @@ export function Composer({ threadId, className, placeholder }: ComposerProps) {
 	// `panelEngineId`'s model list with a back affordance.
 	const [pickerPanel, setPickerPanel] = useState<'engines' | 'models'>('engines');
 	const [panelEngineId, setPanelEngineId] = useState<string | null>(null);
-	// ADR-013 §5 lazy-auth sheet — set to the engine id whose auth surface
+	// ADR-013 §5 lazy-auth dialog — set to the engine id whose auth surface
 	// the user opened by clicking a not-installed picker row. Null = closed.
-	const [authSheetEngineId, setAuthSheetEngineId] = useState<string | null>(null);
+	const [authDialogEngineId, setAuthDialogEngineId] = useState<string | null>(null);
 	const navigate = useNavigate();
 	// Live engine catalog — registered ∩ detected. The popover renders
 	// every catalog entry; rows whose `installed === false` are non-
@@ -514,7 +514,7 @@ export function Composer({ threadId, className, placeholder }: ComposerProps) {
 			// navigating away. The footer "install engine pkg" link still hops
 			// to /settings/agent for the general browse flow.
 			setEngineMenuOpen(false);
-			setAuthSheetEngineId(engineId);
+			setAuthDialogEngineId(engineId);
 			return;
 		}
 		// Drill into this engine's model list.
@@ -562,37 +562,36 @@ export function Composer({ threadId, className, placeholder }: ComposerProps) {
 			onDrop={handleDrop}
 			onDragOver={handleDragOver}
 		>
-			{/* ADR-013 §5 lazy-auth sheet — opened from a not-installed engine
+			{/* ADR-013 §5 lazy-auth dialog — opened from a not-installed engine
 			    picker row. Reuses the same EngineAuthPanel as the onboarding
-			    wizard step. */}
-			<Sheet
-				open={authSheetEngineId !== null}
+			    wizard step. A centered modal fits this one-shot auth task better
+			    than a side sheet (and avoids the sheet's right-edge clipping). */}
+			<Dialog
+				open={authDialogEngineId !== null}
 				onOpenChange={(open) => {
-					if (!open) setAuthSheetEngineId(null);
+					if (!open) setAuthDialogEngineId(null);
 				}}
 			>
-				<SheetContent>
-					{authSheetEngineId && (
+				<DialogContent>
+					{authDialogEngineId && (
 						<>
-							<SheetHeader>
-								<SheetTitle>
+							<DialogHeader>
+								<DialogTitle>
 									Set up{' '}
-									{catalog.find((e) => e.id === authSheetEngineId)?.label ?? authSheetEngineId}
-								</SheetTitle>
-								<SheetDescription>
+									{catalog.find((e) => e.id === authDialogEngineId)?.label ?? authDialogEngineId}
+								</DialogTitle>
+								<DialogDescription>
 									Add an API key or run the engine's auth command. We'll re-check once it's done.
-								</SheetDescription>
-							</SheetHeader>
-							<div className="mt-4">
-								<EngineAuthPanel
-									engineId={authSheetEngineId}
-									engineLabel={catalog.find((e) => e.id === authSheetEngineId)?.label}
-								/>
-							</div>
+								</DialogDescription>
+							</DialogHeader>
+							<EngineAuthPanel
+								engineId={authDialogEngineId}
+								engineLabel={catalog.find((e) => e.id === authDialogEngineId)?.label}
+							/>
 						</>
 					)}
-				</SheetContent>
-			</Sheet>
+				</DialogContent>
+			</Dialog>
 			{lastError && !isStreaming && (
 				<div className="mb-2 flex items-start gap-2 rounded-md border border-destructive/50 bg-destructive/10 p-2 text-xs text-destructive">
 					<AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
