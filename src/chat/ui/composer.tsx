@@ -14,7 +14,6 @@ import type { ChatStatus } from 'ai';
 import { cn } from '@/components/ui/utils';
 import {
 	PromptInput,
-	PromptInputBody,
 	PromptInputSubmit,
 	PromptInputTextarea,
 	type PromptInputMessage,
@@ -689,334 +688,332 @@ export function Composer({ threadId, className, placeholder }: ComposerProps) {
 				</div>
 			)}
 			<PromptInput onSubmit={handleSubmit} className="rounded-md border border-input">
-				<PromptInputBody>
-					<PromptInputTextarea
-						value={text}
-						onChange={(e) => setText(e.target.value)}
-						onKeyDown={onKeyDown}
-						onPaste={handlePaste}
-						placeholder={placeholder ?? 'Send a message — Enter to submit, Shift+Enter for newline'}
-						disabled={disabled && !isStreaming}
-					/>
-					<div className="flex items-center justify-between gap-2 px-2 py-1.5">
-						<div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-							{/* Phase 7 attach button: opens a native file picker for images.
+				<PromptInputTextarea
+					value={text}
+					onChange={(e) => setText(e.target.value)}
+					onKeyDown={onKeyDown}
+					onPaste={handlePaste}
+					placeholder={placeholder ?? 'Send a message — Enter to submit, Shift+Enter for newline'}
+					disabled={disabled && !isStreaming}
+				/>
+				<div className="flex items-center justify-between gap-2 px-2 py-1.5" data-align="block-end">
+					<div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+						{/* Phase 7 attach button: opens a native file picker for images.
                   Paste + drag/drop still work (handlePaste / handleDrop above);
                   this gives the affordance a discoverable home. */}
-							<input
-								ref={fileInputRef}
-								type="file"
-								accept="image/*"
-								multiple
-								hidden
-								onChange={(e) => {
-									void appendImagesFromFiles(e.target.files);
-									// Reset so picking the same file twice re-fires onChange.
-									e.target.value = '';
-								}}
-							/>
-							<button
-								type="button"
-								onClick={() => fileInputRef.current?.click()}
-								className="inline-flex h-5 items-center gap-1 rounded-sm border border-[var(--rule)] bg-transparent px-1.5 font-mono text-[10px] uppercase tracking-wider text-foreground transition-colors hover:border-[var(--kola-amber)] hover:bg-[var(--rule-soft)]"
-								aria-label="Attach image"
-								title="Attach image (or paste / drag-drop)"
-							>
-								<ImagePlus className="h-3 w-3" />
-								<span className="hidden sm:inline">attach</span>
-							</button>
-							<span className="text-[var(--chip-carve)]">{adapterLabel}</span>
-							{/* ADR-013 §3 two-level Engine → Model popover. Top panel
+						<input
+							ref={fileInputRef}
+							type="file"
+							accept="image/*"
+							multiple
+							hidden
+							onChange={(e) => {
+								void appendImagesFromFiles(e.target.files);
+								// Reset so picking the same file twice re-fires onChange.
+								e.target.value = '';
+							}}
+						/>
+						<button
+							type="button"
+							onClick={() => fileInputRef.current?.click()}
+							className="inline-flex h-5 items-center gap-1 rounded-sm border border-[var(--rule)] bg-transparent px-1.5 font-mono text-[10px] uppercase tracking-wider text-foreground transition-colors hover:border-[var(--kola-amber)] hover:bg-[var(--rule-soft)]"
+							aria-label="Attach image"
+							title="Attach image (or paste / drag-drop)"
+						>
+							<ImagePlus className="h-3 w-3" />
+							<span className="hidden sm:inline">attach</span>
+						</button>
+						<span className="text-[var(--chip-carve)]">{adapterLabel}</span>
+						{/* ADR-013 §3 two-level Engine → Model popover. Top panel
 							    shows installed-first engines; clicking an installed engine
 							    drills into its model list. Engine + model are PER-TURN —
 							    each send routes through `selectedEngineId`. The thread's
 							    persisted `engineId` (the engine at creation) stays
 							    pinned; flipping back to it resumes the original engine's
 							    native session id. Footer routes to the pkg manager. */}
-							<Popover open={engineMenuOpen} onOpenChange={setEngineMenuOpen}>
-								<PopoverTrigger
-									type="button"
-									disabled={!threadId}
-									className="inline-flex h-5 items-center gap-1 rounded-sm border border-[var(--rule)] bg-transparent px-1.5 font-mono text-[10px] uppercase tracking-wider text-[var(--kola-amber-soft)] transition-colors hover:border-[var(--kola-amber)] hover:bg-[var(--rule-soft)] disabled:cursor-not-allowed disabled:opacity-60"
-									aria-label="Engine and model"
-									title="Engine → Model — applied per turn"
-								>
-									{selectedEngine ? (
+						<Popover open={engineMenuOpen} onOpenChange={setEngineMenuOpen}>
+							<PopoverTrigger
+								type="button"
+								disabled={!threadId}
+								className="inline-flex h-5 items-center gap-1 rounded-sm border border-[var(--rule)] bg-transparent px-1.5 font-mono text-[10px] uppercase tracking-wider text-[var(--kola-amber-soft)] transition-colors hover:border-[var(--kola-amber)] hover:bg-[var(--rule-soft)] disabled:cursor-not-allowed disabled:opacity-60"
+								aria-label="Engine and model"
+								title="Engine → Model — applied per turn"
+							>
+								{selectedEngine ? (
+									<>
+										<span className="text-[var(--chip-carve)]">{selectedEngine.label}</span>
+										<span className="text-[var(--chip-carve)]">·</span>
+										<span>{currentModelLabel}</span>
+									</>
+								) : (
+									<span>{currentModelLabel}</span>
+								)}
+							</PopoverTrigger>
+							<PopoverContent
+								align="start"
+								className="w-[360px] border border-[var(--rule)] bg-background p-0 font-sans"
+							>
+								{/* Header — label + (in model panel) back affordance. */}
+								<div className="flex items-center gap-2 border-b border-[var(--rule)] px-3 py-1.5 font-mono text-[9px] uppercase tracking-[0.22em] text-[var(--chip-carve)]">
+									{pickerPanel === 'models' && panelEngine ? (
 										<>
-											<span className="text-[var(--chip-carve)]">{selectedEngine.label}</span>
+											<button
+												type="button"
+												onClick={() => {
+													setPickerPanel('engines');
+													setPanelEngineId(null);
+												}}
+												className="inline-flex items-center gap-1 text-[var(--chip-carve)] transition-colors hover:text-[var(--kola-amber)]"
+												aria-label="Back to engines"
+												title="Back to engines"
+											>
+												<ChevronLeft className="h-3 w-3" />
+												<span>engines</span>
+											</button>
 											<span className="text-[var(--chip-carve)]">·</span>
-											<span>{currentModelLabel}</span>
+											<span className="text-foreground">{panelEngine.label}</span>
 										</>
 									) : (
-										<span>{currentModelLabel}</span>
+										<>
+											<span className="text-[var(--kola-amber)]">◾</span>
+											<span className="text-foreground">Engine</span>
+										</>
 									)}
-								</PopoverTrigger>
-								<PopoverContent
-									align="start"
-									className="w-[360px] border border-[var(--rule)] bg-background p-0 font-sans"
-								>
-									{/* Header — label + (in model panel) back affordance. */}
-									<div className="flex items-center gap-2 border-b border-[var(--rule)] px-3 py-1.5 font-mono text-[9px] uppercase tracking-[0.22em] text-[var(--chip-carve)]">
-										{pickerPanel === 'models' && panelEngine ? (
-											<>
+								</div>
+
+								{pickerPanel === 'engines' ? (
+									<ul className="max-h-[280px] overflow-auto py-1">
+										{catalog.map((eng) => {
+											const isSelected = eng.id === selectedEngineId;
+											const isInstalled = eng.installed;
+											const hint = !isInstalled
+												? (eng.notInstalledHint ?? 'not installed')
+												: undefined;
+											return (
+												<li key={eng.id}>
+													<button
+														type="button"
+														onClick={() => handleEngineRowClick(eng.id, isInstalled)}
+														title={hint}
+														className={cn(
+															'flex w-full items-center gap-2 border-l-2 border-transparent px-3 py-1.5 text-left text-xs transition-colors hover:bg-[var(--rule-soft)]',
+															!isInstalled && 'opacity-70',
+															isSelected &&
+																'border-l-[var(--kola-amber)] bg-[var(--rule-soft)] text-foreground'
+														)}
+													>
+														<span className="font-mono">{eng.label}</span>
+														{isSelected && (
+															<span className="font-mono text-[9px] uppercase tracking-[0.22em] text-[var(--kola-amber)]">
+																active
+															</span>
+														)}
+														<span className="ml-auto font-mono text-[9px] uppercase tracking-wider text-[var(--chip-carve)]">
+															{isInstalled ? 'installed' : (hint ?? 'not installed')}
+														</span>
+													</button>
+												</li>
+											);
+										})}
+									</ul>
+								) : panelEngine ? (
+									<ul className="max-h-[280px] overflow-auto py-1">
+										{panelEngine.models.length === 0 ? (
+											// Engines whose model picker isn't pinned yet (e.g.
+											// Codex pre-Phase 3, cursor-agent stub) get a single
+											// "Use this engine" row that pins the engine without
+											// a specific model id.
+											<li>
 												<button
 													type="button"
-													onClick={() => {
-														setPickerPanel('engines');
-														setPanelEngineId(null);
-													}}
-													className="inline-flex items-center gap-1 text-[var(--chip-carve)] transition-colors hover:text-[var(--kola-amber)]"
-													aria-label="Back to engines"
-													title="Back to engines"
+													onClick={() => handleModelPick(panelEngine.id, null)}
+													className="flex w-full items-center gap-2 border-l-2 border-transparent px-3 py-1.5 text-left text-xs transition-colors hover:bg-[var(--rule-soft)]"
 												>
-													<ChevronLeft className="h-3 w-3" />
-													<span>engines</span>
+													<span className="font-mono">Use {panelEngine.label}</span>
+													<span className="ml-auto font-mono text-[9px] uppercase tracking-wider text-[var(--chip-carve)]">
+														default model
+													</span>
 												</button>
-												<span className="text-[var(--chip-carve)]">·</span>
-												<span className="text-foreground">{panelEngine.label}</span>
-											</>
+											</li>
 										) : (
-											<>
-												<span className="text-[var(--kola-amber)]">◾</span>
-												<span className="text-foreground">Engine</span>
-											</>
-										)}
-									</div>
-
-									{pickerPanel === 'engines' ? (
-										<ul className="max-h-[280px] overflow-auto py-1">
-											{catalog.map((eng) => {
-												const isSelected = eng.id === selectedEngineId;
-												const isInstalled = eng.installed;
-												const hint = !isInstalled
-													? (eng.notInstalledHint ?? 'not installed')
-													: undefined;
+											panelEngine.models.map((m) => {
+												const isSelected =
+													panelEngine.id === selectedEngineId && m.id === selectedModelId;
 												return (
-													<li key={eng.id}>
+													<li key={m.id}>
 														<button
 															type="button"
-															onClick={() => handleEngineRowClick(eng.id, isInstalled)}
-															title={hint}
+															onClick={() => handleModelPick(panelEngine.id, m.id)}
 															className={cn(
 																'flex w-full items-center gap-2 border-l-2 border-transparent px-3 py-1.5 text-left text-xs transition-colors hover:bg-[var(--rule-soft)]',
-																!isInstalled && 'opacity-70',
 																isSelected &&
 																	'border-l-[var(--kola-amber)] bg-[var(--rule-soft)] text-foreground'
 															)}
 														>
-															<span className="font-mono">{eng.label}</span>
+															<span className="font-mono">{m.label}</span>
 															{isSelected && (
 																<span className="font-mono text-[9px] uppercase tracking-[0.22em] text-[var(--kola-amber)]">
-																	active
+																	✓
 																</span>
 															)}
 															<span className="ml-auto font-mono text-[9px] uppercase tracking-wider text-[var(--chip-carve)]">
-																{isInstalled ? 'installed' : (hint ?? 'not installed')}
+																{m.id}
 															</span>
 														</button>
 													</li>
 												);
-											})}
-										</ul>
-									) : panelEngine ? (
-										<ul className="max-h-[280px] overflow-auto py-1">
-											{panelEngine.models.length === 0 ? (
-												// Engines whose model picker isn't pinned yet (e.g.
-												// Codex pre-Phase 3, cursor-agent stub) get a single
-												// "Use this engine" row that pins the engine without
-												// a specific model id.
-												<li>
-													<button
-														type="button"
-														onClick={() => handleModelPick(panelEngine.id, null)}
-														className="flex w-full items-center gap-2 border-l-2 border-transparent px-3 py-1.5 text-left text-xs transition-colors hover:bg-[var(--rule-soft)]"
-													>
-														<span className="font-mono">Use {panelEngine.label}</span>
-														<span className="ml-auto font-mono text-[9px] uppercase tracking-wider text-[var(--chip-carve)]">
-															default model
-														</span>
-													</button>
-												</li>
-											) : (
-												panelEngine.models.map((m) => {
-													const isSelected =
-														panelEngine.id === selectedEngineId && m.id === selectedModelId;
-													return (
-														<li key={m.id}>
-															<button
-																type="button"
-																onClick={() => handleModelPick(panelEngine.id, m.id)}
-																className={cn(
-																	'flex w-full items-center gap-2 border-l-2 border-transparent px-3 py-1.5 text-left text-xs transition-colors hover:bg-[var(--rule-soft)]',
-																	isSelected &&
-																		'border-l-[var(--kola-amber)] bg-[var(--rule-soft)] text-foreground'
-																)}
-															>
-																<span className="font-mono">{m.label}</span>
-																{isSelected && (
-																	<span className="font-mono text-[9px] uppercase tracking-[0.22em] text-[var(--kola-amber)]">
-																		✓
-																	</span>
-																)}
-																<span className="ml-auto font-mono text-[9px] uppercase tracking-wider text-[var(--chip-carve)]">
-																	{m.id}
-																</span>
-															</button>
-														</li>
-													);
-												})
-											)}
-										</ul>
-									) : null}
+											})
+										)}
+									</ul>
+								) : null}
 
-									{/* ADR-013 §4 warn affordance — only when the picker's
+								{/* ADR-013 §4 warn affordance — only when the picker's
 									    engine diverges from the thread's persisted engine.
 									    Component-local `warnDismissed` state, no persistence;
 									    resets when the user navigates to a different thread or
 									    flips back to the pinned engine. */}
-									{threadEngineId &&
-										selectedEngineId &&
-										selectedEngineId !== threadEngineId &&
-										!warnDismissed && (
-											<div className="flex items-start gap-2 border-t border-[var(--rule)] bg-[var(--rule-soft)] px-3 py-2 text-[11px] text-[var(--chip-carve)]">
-												<span className="text-[var(--kola-amber)]">◾</span>
-												<span className="flex-1 leading-snug">
-													Switching engines starts a fresh context — previous turns won't be visible
-													to {selectedEngine?.label ?? selectedEngineId}.
-												</span>
-												<button
-													type="button"
-													onClick={() => setWarnDismissed(true)}
-													className="shrink-0 text-[var(--chip-carve)] transition-colors hover:text-[var(--kola-amber)]"
-													aria-label="Dismiss warning"
-												>
-													<X className="h-3 w-3" />
-												</button>
-											</div>
-										)}
+								{threadEngineId &&
+									selectedEngineId &&
+									selectedEngineId !== threadEngineId &&
+									!warnDismissed && (
+										<div className="flex items-start gap-2 border-t border-[var(--rule)] bg-[var(--rule-soft)] px-3 py-2 text-[11px] text-[var(--chip-carve)]">
+											<span className="text-[var(--kola-amber)]">◾</span>
+											<span className="flex-1 leading-snug">
+												Switching engines starts a fresh context — previous turns won't be visible
+												to {selectedEngine?.label ?? selectedEngineId}.
+											</span>
+											<button
+												type="button"
+												onClick={() => setWarnDismissed(true)}
+												className="shrink-0 text-[var(--chip-carve)] transition-colors hover:text-[var(--kola-amber)]"
+												aria-label="Dismiss warning"
+											>
+												<X className="h-3 w-3" />
+											</button>
+										</div>
+									)}
 
-									<div className="border-t border-[var(--rule)] bg-[var(--rule-soft)] px-2 py-1.5">
-										<button
-											type="button"
-											onClick={handleInstallEnginePkg}
-											className="flex w-full items-center gap-1 font-mono text-[10px] uppercase tracking-wider text-[var(--chip-carve)] transition-colors hover:text-[var(--kola-amber)]"
-											title="Browse engine pkgs in the package manager"
-										>
-											<span className="text-[var(--kola-amber)]">+</span>
-											<span>install engine pkg</span>
-										</button>
-									</div>
-								</PopoverContent>
-							</Popover>
-							{/* ADR-011 phase 3: Effort picker — session-level. Maps to
+								<div className="border-t border-[var(--rule)] bg-[var(--rule-soft)] px-2 py-1.5">
+									<button
+										type="button"
+										onClick={handleInstallEnginePkg}
+										className="flex w-full items-center gap-1 font-mono text-[10px] uppercase tracking-wider text-[var(--chip-carve)] transition-colors hover:text-[var(--kola-amber)]"
+										title="Browse engine pkgs in the package manager"
+									>
+										<span className="text-[var(--kola-amber)]">+</span>
+										<span>install engine pkg</span>
+									</button>
+								</div>
+							</PopoverContent>
+						</Popover>
+						{/* ADR-011 phase 3: Effort picker — session-level. Maps to
 							    --thinking-budget-tokens at spawn. */}
-							<Select
-								value={currentEffort}
-								onValueChange={(v) => void handleEffortChange(v as ChatEffort)}
-								disabled={!threadId}
+						<Select
+							value={currentEffort}
+							onValueChange={(v) => void handleEffortChange(v as ChatEffort)}
+							disabled={!threadId}
+						>
+							<SelectTrigger
+								className="h-5 gap-1.5 rounded-sm border border-[var(--rule)] bg-transparent px-1.5 py-0 font-mono text-[10px] uppercase tracking-wider text-[var(--ember-soft)] transition-colors hover:border-[var(--ember)] hover:bg-[var(--rule-soft)] [&>svg]:size-3"
+								aria-label="Effort"
+								title="Extended-thinking effort — applied on next spawn"
 							>
-								<SelectTrigger
-									className="h-5 gap-1.5 rounded-sm border border-[var(--rule)] bg-transparent px-1.5 py-0 font-mono text-[10px] uppercase tracking-wider text-[var(--ember-soft)] transition-colors hover:border-[var(--ember)] hover:bg-[var(--rule-soft)] [&>svg]:size-3"
-									aria-label="Effort"
-									title="Extended-thinking effort — applied on next spawn"
-								>
-									<SelectValue asChild>
-										<span className="inline-flex items-center gap-1.5">
-											<span>
-												{EFFORT_OPTIONS.find((o) => o.id === currentEffort)?.label ?? 'Off'}
-											</span>
-											<span aria-hidden className="inline-flex items-center gap-[2px]">
-												{[0, 1, 2, 3, 4].map((i) => (
-													<span
-														key={i}
-														className={cn(
-															'inline-block h-2 w-[2px]',
-															i < (EFFORT_OPTIONS.find((o) => o.id === currentEffort)?.lit ?? 0)
-																? 'bg-[var(--ember)]'
-																: 'bg-[var(--rule)]'
-														)}
-													/>
-												))}
-											</span>
+								<SelectValue asChild>
+									<span className="inline-flex items-center gap-1.5">
+										<span>
+											{EFFORT_OPTIONS.find((o) => o.id === currentEffort)?.label ?? 'Off'}
 										</span>
-									</SelectValue>
-								</SelectTrigger>
-								<SelectContent>
-									{EFFORT_OPTIONS.map((o) => (
-										<SelectItem key={o.id} value={o.id} className="text-xs">
-											{o.label}
-										</SelectItem>
-									))}
-								</SelectContent>
-							</Select>
-							{/* Phase 5 mode picker: badge-styled trigger + select dropdown. */}
-							<Select
-								value={currentMode}
-								onValueChange={(v) => void handleModeChange(v as AcpSessionModeId)}
-								disabled={!threadId}
+										<span aria-hidden className="inline-flex items-center gap-[2px]">
+											{[0, 1, 2, 3, 4].map((i) => (
+												<span
+													key={i}
+													className={cn(
+														'inline-block h-2 w-[2px]',
+														i < (EFFORT_OPTIONS.find((o) => o.id === currentEffort)?.lit ?? 0)
+															? 'bg-[var(--ember)]'
+															: 'bg-[var(--rule)]'
+													)}
+												/>
+											))}
+										</span>
+									</span>
+								</SelectValue>
+							</SelectTrigger>
+							<SelectContent>
+								{EFFORT_OPTIONS.map((o) => (
+									<SelectItem key={o.id} value={o.id} className="text-xs">
+										{o.label}
+									</SelectItem>
+								))}
+							</SelectContent>
+						</Select>
+						{/* Phase 5 mode picker: badge-styled trigger + select dropdown. */}
+						<Select
+							value={currentMode}
+							onValueChange={(v) => void handleModeChange(v as AcpSessionModeId)}
+							disabled={!threadId}
+						>
+							<SelectTrigger
+								className="h-5 gap-1 rounded-sm border border-[var(--rule)] bg-transparent px-1.5 py-0 font-mono text-[10px] uppercase tracking-wider text-foreground transition-colors hover:border-[var(--kola-amber)] hover:bg-[var(--rule-soft)] [&>svg]:size-3"
+								aria-label="Session mode"
 							>
-								<SelectTrigger
-									className="h-5 gap-1 rounded-sm border border-[var(--rule)] bg-transparent px-1.5 py-0 font-mono text-[10px] uppercase tracking-wider text-foreground transition-colors hover:border-[var(--kola-amber)] hover:bg-[var(--rule-soft)] [&>svg]:size-3"
-									aria-label="Session mode"
-								>
-									<SelectValue>{MODE_LABELS[currentMode]}</SelectValue>
-								</SelectTrigger>
-								<SelectContent>
-									{MODE_IDS.map((m) => (
-										<SelectItem key={m} value={m} className="text-xs">
-											{MODE_LABELS[m]}
-										</SelectItem>
-									))}
-								</SelectContent>
-							</Select>
-							{modeError && (
-								<span className="text-destructive" title={modeError}>
-									· mode change failed
-								</span>
-							)}
-							{isStreaming && <span>· Esc or Stop to cancel</span>}
-						</div>
-						<div className="flex items-center gap-2">
-							{/* ADR-011 phase 1: heat-dot — ember intensity tracks composer state.
-							    cold = idle, warm = user typing / image attached, hot = streaming. */}
-							<span
-								aria-hidden
-								className={cn(
-									'inline-block h-1.5 w-1.5 rounded-full transition-all',
-									heatIntensity === 'cold' && 'bg-[var(--rule)]',
-									heatIntensity === 'warm' &&
-										'bg-[var(--ember-soft)] shadow-[0_0_4px_var(--ember-soft)]',
-									heatIntensity === 'hot' &&
-										'animate-pulse bg-[var(--ember)] shadow-[0_0_6px_var(--ember),0_0_12px_color-mix(in_oklab,var(--ember)_40%,transparent)]'
-								)}
-								title={`composer heat: ${heatIntensity}`}
-							/>
-							{isStreaming && (
-								<button
-									type="button"
-									onClick={() => void cancel()}
-									className="inline-flex items-center gap-1 rounded-md border border-input bg-background px-2.5 py-1 text-xs hover:bg-accent"
-									title="Stop generation (Esc)"
-								>
-									<Square className="h-3 w-3 fill-current" />
-									Stop
-								</button>
-							)}
-							<PromptInputSubmit
-								status={status}
-								onStop={() => void cancel()}
-								disabled={
-									!isStreaming &&
-									(disabled ||
-										(text.trim().length === 0 &&
-											// Image-only sends are valid — the Rust-side extractor
-											// adds a default text anchor when needed.
-											pendingImages.length === 0))
-								}
-							/>
-						</div>
+								<SelectValue>{MODE_LABELS[currentMode]}</SelectValue>
+							</SelectTrigger>
+							<SelectContent>
+								{MODE_IDS.map((m) => (
+									<SelectItem key={m} value={m} className="text-xs">
+										{MODE_LABELS[m]}
+									</SelectItem>
+								))}
+							</SelectContent>
+						</Select>
+						{modeError && (
+							<span className="text-destructive" title={modeError}>
+								· mode change failed
+							</span>
+						)}
+						{isStreaming && <span>· Esc or Stop to cancel</span>}
 					</div>
-				</PromptInputBody>
+					<div className="flex items-center gap-2">
+						{/* ADR-011 phase 1: heat-dot — ember intensity tracks composer state.
+							    cold = idle, warm = user typing / image attached, hot = streaming. */}
+						<span
+							aria-hidden
+							className={cn(
+								'inline-block h-1.5 w-1.5 rounded-full transition-all',
+								heatIntensity === 'cold' && 'bg-[var(--rule)]',
+								heatIntensity === 'warm' &&
+									'bg-[var(--ember-soft)] shadow-[0_0_4px_var(--ember-soft)]',
+								heatIntensity === 'hot' &&
+									'animate-pulse bg-[var(--ember)] shadow-[0_0_6px_var(--ember),0_0_12px_color-mix(in_oklab,var(--ember)_40%,transparent)]'
+							)}
+							title={`composer heat: ${heatIntensity}`}
+						/>
+						{isStreaming && (
+							<button
+								type="button"
+								onClick={() => void cancel()}
+								className="inline-flex items-center gap-1 rounded-md border border-input bg-background px-2.5 py-1 text-xs hover:bg-accent"
+								title="Stop generation (Esc)"
+							>
+								<Square className="h-3 w-3 fill-current" />
+								Stop
+							</button>
+						)}
+						<PromptInputSubmit
+							status={status}
+							onStop={() => void cancel()}
+							disabled={
+								!isStreaming &&
+								(disabled ||
+									(text.trim().length === 0 &&
+										// Image-only sends are valid — the Rust-side extractor
+										// adds a default text anchor when needed.
+										pendingImages.length === 0))
+							}
+						/>
+					</div>
+				</div>
 			</PromptInput>
 		</div>
 	);
