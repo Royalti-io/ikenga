@@ -497,6 +497,18 @@ export function Composer({ threadId, className, placeholder }: ComposerProps) {
 		setPanelEngineId(null);
 	}, [engineMenuOpen]);
 
+	// ADR-013 §5 — auto-close the lazy-auth dialog once its engine flips to
+	// `installed` in the live catalog. The EngineAuthPanel's onAuthComplete
+	// invalidates `detect-agents` / `chat-engines-list` after the auth pane
+	// exits; when the refetched catalog reports the engine installed, this
+	// effect dismisses the now-stale "Set up X" UI. Failed auth leaves the
+	// dialog open so the user can retry without re-clicking the picker row.
+	useEffect(() => {
+		if (!authDialogEngineId) return;
+		const engine = catalog.find((e) => e.id === authDialogEngineId);
+		if (engine?.installed) setAuthDialogEngineId(null);
+	}, [catalog, authDialogEngineId]);
+
 	function handleInstallEnginePkg() {
 		setEngineMenuOpen(false);
 		// Source of truth for installed engines is `agent_detect`, not the
