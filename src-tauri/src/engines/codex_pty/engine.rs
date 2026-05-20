@@ -232,7 +232,10 @@ impl CodexPtyEngine {
             s.in_flight = Some(child_handle.clone());
         }
 
-        let channel = format!("chat://session/{thread_id}");
+        // Per-engine channel suffix (`.../codex`) so two adapters attached
+        // to the same thread don't both render every event — see the same
+        // change in claude_code/server.rs + gemini_acp/transport.rs.
+        let channel = format!("chat://session/{thread_id}/codex");
         let mut lines = BufReader::new(stdout).lines();
         let mut stop_reason: Option<StopReason> = None;
         let mut error_message: Option<String> = None;

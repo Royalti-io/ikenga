@@ -824,14 +824,23 @@ export async function chatCancel(threadId: string, engineId?: ChatEngineId): Pro
 	return invoke('chat_cancel', { engineId, threadId });
 }
 
-/** Subscribe to ACP session updates for a given thread. Tauri side emits
- *  `AcpSessionNotification`s on `chat://session/{threadId}` for every
- *  `SessionUpdate` derived from the underlying ChatEvent stream. */
+/** Subscribe to ACP session updates for a given thread.
+ *
+ *  Channel is per-engine — `chat://session/{threadId}/{engineId}` — so an
+ *  adapter only receives events from its own engine. Without that, two
+ *  adapters attached to the same thread (e.g. claude-code as the original
+ *  engine + gemini after a per-turn engine swap) would BOTH receive every
+ *  emission on a shared `chat://session/{threadId}` channel and both render,
+ *  producing duplicated assistant text. `engineId` defaults to `'claude-code'`
+ *  to keep legacy callers + the dev smoke harness working unchanged. */
 export async function chatListen(
 	threadId: string,
-	onUpdate: (notification: AcpSessionNotification) => void
+	onUpdate: (notification: AcpSessionNotification) => void,
+	engineId: ChatEngineId = 'claude-code'
 ): Promise<UnlistenFn> {
-	return listen<AcpSessionNotification>(`chat://session/${threadId}`, (e) => onUpdate(e.payload));
+	return listen<AcpSessionNotification>(`chat://session/${threadId}/${engineId}`, (e) =>
+		onUpdate(e.payload)
+	);
 }
 
 // ─── ACP permission round-trip (phase 4) ──────────────────────────────────────
@@ -890,14 +899,17 @@ export interface AcpRequestEnvelope {
 	request: AcpRequestPermissionRequest;
 }
 
-/** Subscribe to `session/request_permission` requests for a thread. Used by
- *  the Phase 4 PermissionDialog and the acp-smoke harness. */
+/** Subscribe to `session/request_permission` requests for a thread.
+ *  Channel is per-engine (`chat://session/{threadId}/{engineId}/request`) for
+ *  the same reason as `chatListen` — see its docblock. */
 export async function chatListenRequests(
 	threadId: string,
-	onRequest: (envelope: AcpRequestEnvelope) => void
+	onRequest: (envelope: AcpRequestEnvelope) => void,
+	engineId: ChatEngineId = 'claude-code'
 ): Promise<UnlistenFn> {
-	return listen<AcpRequestEnvelope>(`chat://session/${threadId}/request`, (e) =>
-		onRequest(e.payload)
+	return listen<AcpRequestEnvelope>(
+		`chat://session/${threadId}/${engineId}/request`,
+		(e) => onRequest(e.payload)
 	);
 }
 

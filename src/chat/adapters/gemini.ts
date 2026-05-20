@@ -183,7 +183,11 @@ class GeminiAdapterImpl implements ChatAdapter {
 		const placeholder: ActiveStream = { threadId, unlisten: null };
 		this.streams.set(threadId, placeholder);
 		try {
-			const unlisten = await chatListen(threadId, (notif) => this.onNotification(threadId, notif));
+			const unlisten = await chatListen(
+				threadId,
+				(notif) => this.onNotification(threadId, notif),
+				ENGINE_ID,
+			);
 			placeholder.unlisten = unlisten;
 		} catch (e) {
 			this.streams.delete(threadId);

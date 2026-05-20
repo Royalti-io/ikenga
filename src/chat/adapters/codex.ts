@@ -129,7 +129,11 @@ class CodexAdapterImpl implements ChatAdapter {
 		const placeholder: ActiveStream = { threadId, unlisten: null };
 		this.streams.set(threadId, placeholder);
 		try {
-			const unlisten = await chatListen(threadId, (notif) => this.onNotification(threadId, notif));
+			const unlisten = await chatListen(
+				threadId,
+				(notif) => this.onNotification(threadId, notif),
+				'codex',
+			);
 			placeholder.unlisten = unlisten;
 		} catch (e) {
 			this.streams.delete(threadId);

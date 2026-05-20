@@ -317,8 +317,11 @@ impl ClaudeCodeEngine {
         // text-only path when `content.images` is empty.
         send_user_message_with_content(app.clone(), session.clone(), content).await?;
 
-        let channel = format!("chat://session/{thread_id}");
-        let request_channel = format!("chat://session/{thread_id}/request");
+        // Per-engine channel suffix so two adapters attached to the same
+        // thread (claude as the original engine + e.g. gemini after a
+        // per-turn engine swap) don't both render every event.
+        let channel = format!("chat://session/{thread_id}/claude-code");
+        let request_channel = format!("chat://session/{thread_id}/claude-code/request");
         let stop_reason = loop {
             match rx.recv().await {
                 Ok(ev) => {

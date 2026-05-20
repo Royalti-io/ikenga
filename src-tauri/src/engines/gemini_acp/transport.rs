@@ -452,12 +452,17 @@ async fn dispatch_line(inner: &Arc<TransportInner>, app: &AppHandle, thread_id: 
 /// listener handles them with no shape change.
 async fn handle_notification(app: &AppHandle, thread_id: &str, method: &str, params: Value) {
     if method == METHOD_SESSION_UPDATE {
+        // Per-engine channel suffix (`.../gemini`) so an adapter only
+        // receives its own engine's events — without it, two adapters
+        // attached to the same thread (e.g. claude-code as the original
+        // engine + gemini after a per-turn swap) both render every event
+        // and assistant text appears doubled.
+        let channel = format!("chat://session/{thread_id}/gemini");
         // Gemini emits a fully-formed SessionNotification — try to parse
         // it through the schema crate to confirm shape, but fall through
         // and emit the raw value if our schema version is behind.
         match serde_json::from_value::<SessionNotification>(params.clone()) {
             Ok(notif) => {
-                let channel = format!("chat://session/{thread_id}");
                 let _ = app.emit(&channel, &notif);
             }
             Err(e) => {
@@ -465,7 +470,6 @@ async fn handle_notification(app: &AppHandle, thread_id: &str, method: &str, par
                     target: "ikenga::engines::gemini_acp",
                     "gemini[{thread_id}] session/update did not fit SessionNotification schema ({e}); emitting raw",
                 );
-                let channel = format!("chat://session/{thread_id}");
                 let _ = app.emit(&channel, &params);
             }
         }
@@ -547,7 +551,9 @@ async fn handle_inbound_request(
 
     // Emit on the request channel using the same payload shape Claude
     // uses: `{ requestId, request }`. The FE adapter consumes both.
-    let request_channel = format!("chat://session/{thread_id}/request");
+    // Engine suffix so chatListenRequests' per-engine listener picks it
+    // up without colliding with the other engines on the same thread.
+    let request_channel = format!("chat://session/{thread_id}/gemini/request");
     let payload = serde_json::json!({
         "requestId": id_key,
         "request": params,
