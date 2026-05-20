@@ -322,11 +322,23 @@ impl ClaudeCodeEngine {
         // per-turn engine swap) don't both render every event.
         let channel = format!("chat://session/{thread_id}/claude-code");
         let request_channel = format!("chat://session/{thread_id}/claude-code/request");
+        // Real claude session id, captured the first time we see a
+        // `SessionInit`. We forward it to the FE on the notification `_meta`
+        // so the adapter can persist `chat_sessions.claude_session_id` — that
+        // id is what the reload path uses to find the on-disk JSONL and what
+        // `claude --resume` targets. Without it a reloaded thread renders
+        // empty and can't continue.
+        let mut claude_sid: Option<String> = None;
         let stop_reason = loop {
             match rx.recv().await {
                 Ok(ev) => {
                     if let ChatEvent::Done { stop_reason, .. } = &ev {
                         break map_stop_reason(stop_reason.as_deref());
+                    }
+                    if let ChatEvent::SessionInit { session_id, .. } = &ev {
+                        if !session_id.is_empty() {
+                            claude_sid = Some(session_id.clone());
+                        }
                     }
                     // Phase 9: surface Notification / PermissionRequest
                     // hooks as `acp://notify` Tauri events. The frontend
@@ -375,14 +387,30 @@ impl ClaudeCodeEngine {
                         }
                         continue;
                     }
+                    // Fall back to the session's captured id if we never saw a
+                    // raw SessionInit on this turn (e.g. the reader populated
+                    // the Mutex on a prior turn / before we subscribed).
+                    if claude_sid.is_none() {
+                        claude_sid = session.claude_session_id.lock().await.clone();
+                    }
                     let updates = chat_event_to_session_updates(&ev);
                     for upd in updates {
                         // Wrap each update in a SessionNotification so the
                         // frontend receives the canonical ACP envelope on
                         // the wire (sessionId + update). This matches what
                         // a real ACP JSON-RPC peer would send.
-                        let notif =
+                        let mut notif =
                             SessionNotification::new(SessionId::new(thread_id.clone()), upd);
+                        // Forward the claude session id on `_meta` so the FE
+                        // adapter persists it (see claude-code.ts onNotification).
+                        if let Some(sid) = &claude_sid {
+                            let mut meta = serde_json::Map::new();
+                            meta.insert(
+                                "claudeSessionId".to_string(),
+                                serde_json::Value::String(sid.clone()),
+                            );
+                            notif = notif.meta(meta);
+                        }
                         let _ = app.emit(&channel, &notif);
                     }
                 }

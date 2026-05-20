@@ -133,7 +133,7 @@ function SessionDetailPage() {
 		const resumeId = claudeSessionId ?? threadId;
 		const fallbackCwd = await loadHome();
 		const sessionId = createTerminalSession({
-			cwd: summary?.projectDir ?? fallbackCwd,
+			cwd: threadProject?.root_path ?? summary?.projectDir ?? fallbackCwd,
 			cmd: buildClaudeWrappedCmd({ resumeSessionId: resumeId }),
 			title: `claude · ${resumeId.slice(0, 8)}`,
 		});
