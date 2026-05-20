@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { useTerminalStore } from './session-store';
+import { stripSecretEnv, useTerminalStore } from './session-store';
 
 // The store loads `@tauri-apps/plugin-sql` lazily on persist; mocking it
 // keeps the tests offline. Failure to load falls back to localStorage
@@ -84,5 +84,45 @@ describe('useTerminalStore ownership', () => {
 		expect(useTerminalStore.getState().findStudioAttachment('pane-1')).toBeNull();
 		// `a` was never attached.
 		expect(useTerminalStore.getState().tabs.find((t) => t.id === a)!.owner.kind).toBe('sidepane');
+	});
+});
+
+describe('stripSecretEnv (ADR-013 §Addendum Decision 3)', () => {
+	it('drops credential-shaped keys', () => {
+		const out = stripSecretEnv({
+			ANTHROPIC_API_KEY: 'sk-ant-xxx',
+			OPENAI_API_KEY: 'sk-xxx',
+			GEMINI_API_KEY: 'g-xxx',
+			GITHUB_TOKEN: 'ghp_xxx',
+			AWS_SECRET_ACCESS_KEY: 'aws-xxx',
+			DB_PASSWORD: 'hunter2',
+			CLIENT_SECRET: 'cs-xxx',
+			SESSION_TOKEN: 'st-xxx',
+		});
+		expect(out).toEqual({});
+	});
+
+	it('keeps non-secret keys', () => {
+		const out = stripSecretEnv({
+			PATH: '/usr/bin',
+			TERM: 'xterm-256color',
+			LANG: 'en_US.UTF-8',
+			MY_FEATURE_FLAG: '1',
+		});
+		expect(out).toEqual({
+			PATH: '/usr/bin',
+			TERM: 'xterm-256color',
+			LANG: 'en_US.UTF-8',
+			MY_FEATURE_FLAG: '1',
+		});
+	});
+
+	it('mixes: strips only the secret-shaped ones', () => {
+		const out = stripSecretEnv({ PATH: '/usr/bin', NPM_TOKEN: 'npm-xxx', NODE_ENV: 'production' });
+		expect(out).toEqual({ PATH: '/usr/bin', NODE_ENV: 'production' });
+	});
+
+	it('passes through undefined', () => {
+		expect(stripSecretEnv(undefined)).toBeUndefined();
 	});
 });

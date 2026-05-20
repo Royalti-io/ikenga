@@ -80,11 +80,41 @@ interface SerializedTab {
 	owner?: TerminalOwner;
 }
 
+/** ADR-013 §Addendum Decision 3 — drop credential-shaped env vars before a
+ *  terminal tab's `spec.env` is persisted to SQLite/localStorage. Today
+ *  nothing routes secrets through `spec.env`, but the restored tab is a
+ *  durable on-disk record, so we strip defensively: any key matching a
+ *  credential pattern (API keys, tokens, secrets, passwords, AWS creds)
+ *  never reaches the persisted blob. Mirrors cmux's "strip secrets from
+ *  captured env before saving resume state." */
+const SECRET_ENV_PATTERN =
+	/(_|^)(API_?KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|ACCESS_KEY|PRIVATE_KEY|SESSION_TOKEN|REFRESH_TOKEN|CLIENT_SECRET)S?(_|$)/i;
+
+export function stripSecretEnv(
+	env: Record<string, string> | undefined
+): Record<string, string> | undefined {
+	if (!env) return env;
+	let stripped = false;
+	const clean: Record<string, string> = {};
+	for (const [k, v] of Object.entries(env)) {
+		if (SECRET_ENV_PATTERN.test(k)) {
+			stripped = true;
+			continue;
+		}
+		clean[k] = v;
+	}
+	// Preserve `undefined` vs `{}` distinction only when we actually removed
+	// something or there were keys to begin with.
+	return stripped || Object.keys(env).length > 0 ? clean : env;
+}
+
 function serialize(tabs: TerminalTab[]): SerializedTab[] {
 	return tabs.map(({ id, title, spec, status, exitCode, createdAt, owner }) => ({
 		id,
 		title,
-		spec,
+		// Strip credential-shaped env vars before persisting (ADR-013
+		// §Addendum Decision 3) — the restored tab is a durable on-disk record.
+		spec: { ...spec, env: stripSecretEnv(spec.env) },
 		// ptyIds are runtime-only; restored tabs always start exited.
 		status: status === 'running' || status === 'spawning' ? 'exited' : status,
 		exitCode,

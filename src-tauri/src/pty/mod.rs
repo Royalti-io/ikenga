@@ -132,6 +132,11 @@ impl PtyManager {
         for (k, v) in std::env::vars() {
             builder.env(&k, &v);
         }
+        // Override PATH with the augmented one (ADR-013 §Addendum Decision 2)
+        // so interactive auth terminals (`gemini auth`, `codex login`) and any
+        // agent CLI launched in a pane resolve under nvm/npm/homebrew even when
+        // the app inherited a thin GUI $PATH. Caller env below still wins.
+        builder.env("PATH", crate::runtime::augmented_path());
         // Caller-supplied env wins.
         for (k, v) in &opts.env {
             builder.env(k, v);
