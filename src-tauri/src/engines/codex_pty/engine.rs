@@ -180,6 +180,10 @@ impl CodexPtyEngine {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
+            // Augmented PATH so codex (and any node it shells out to) resolves
+            // under nvm/npm/homebrew when the app has a thin GUI $PATH
+            // (ADR-013 §Addendum Decision 2).
+            .env("PATH", crate::runtime::augmented_path())
             .kill_on_drop(true);
 
         let mut child = cmd

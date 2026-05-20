@@ -378,6 +378,11 @@ pub async fn spawn_streaming(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
+        // Augmented PATH so `claude` (and node it shells out to) resolves
+        // under nvm/npm/homebrew even from a thin GUI $PATH (ADR-013 §Addendum
+        // Decision 2). Set before the layered project `.env` below so an
+        // explicit `PATH=` in a project `.env` still wins.
+        .env("PATH", crate::runtime::augmented_path())
         .kill_on_drop(true);
     // Phase 5 (projects-first-class): redirect claude's user-config
     // discovery into the session-local overlay dir built by

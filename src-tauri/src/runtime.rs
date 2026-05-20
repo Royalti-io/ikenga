@@ -15,6 +15,7 @@
 //!   3. Last resort: bare `"bun"`, deferring to PATH lookup. Logged WARN so
 //!      we notice if dev/CI forgot to fetch the binary.
 
+use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
@@ -112,6 +113,73 @@ pub fn bun_path() -> Option<&'static Path> {
     BUN_PATH.get().and_then(|opt| opt.as_deref())
 }
 
+static AUGMENTED_PATH: OnceLock<OsString> = OnceLock::new();
+
+/// `$PATH` augmented with well-known per-user bin dirs that GUI-launched
+/// processes routinely miss — nvm/npm global bins, Homebrew, `~/.local/bin`,
+/// `/snap/bin`, bun, cargo. Built once and cached.
+///
+/// The inherited `$PATH` entries come first so a user's explicit ordering
+/// still wins; the extras are appended as fallbacks and only when the dir
+/// actually exists.
+///
+/// Fixes the class of "installed but invisible" agent-detection
+/// false-negatives where `gemini`/`codex` live under an nvm node `bin/` that
+/// the app's inherited `$PATH` doesn't include (ADR-013 §Addendum Decision 2;
+/// tuicommander resolves the same GUI-launch gap). Use via
+/// `which::which_in(name, Some(augmented_path()), cwd)` for detection and
+/// `cmd.env("PATH", augmented_path())` at engine spawn sites.
+pub fn augmented_path() -> &'static OsStr {
+    AUGMENTED_PATH.get_or_init(build_augmented_path).as_os_str()
+}
+
+fn build_augmented_path() -> OsString {
+    let mut entries: Vec<PathBuf> = Vec::new();
+
+    // Inherited PATH first — the user's explicit ordering wins.
+    if let Some(path) = std::env::var_os("PATH") {
+        entries.extend(std::env::split_paths(&path));
+    }
+
+    // Candidate per-user bin dirs to append as fallbacks.
+    let mut extras: Vec<PathBuf> = Vec::new();
+    if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
+        extras.push(home.join(".local/bin"));
+        extras.push(home.join(".bun/bin"));
+        extras.push(home.join(".cargo/bin"));
+        extras.push(home.join(".npm-global/bin"));
+        // nvm installs CLIs under the active node version's bin/. Add every
+        // installed version's bin so the agent is found regardless of which
+        // node version `npm i -g` landed it under.
+        if let Ok(rd) = std::fs::read_dir(home.join(".nvm/versions/node")) {
+            for ent in rd.flatten() {
+                extras.push(ent.path().join("bin"));
+            }
+        }
+    }
+    for p in [
+        "/opt/homebrew/bin",
+        "/opt/homebrew/sbin",
+        "/usr/local/bin",
+        "/usr/local/sbin",
+        "/snap/bin",
+    ] {
+        extras.push(PathBuf::from(p));
+    }
+    #[cfg(windows)]
+    if let Some(appdata) = std::env::var_os("APPDATA").map(PathBuf::from) {
+        extras.push(appdata.join("npm"));
+    }
+
+    for e in extras {
+        if e.is_dir() && !entries.iter().any(|x| x == &e) {
+            entries.push(e);
+        }
+    }
+
+    std::env::join_paths(entries).unwrap_or_else(|_| std::env::var_os("PATH").unwrap_or_default())
+}
+
 /// Rewrite a manifest's `command` for spawn. Bare `"bun"` becomes the bundled
 /// binary; absolute paths and `./bin/foo` shell-outs pass through unchanged.
 pub fn resolve_command(declared: &str) -> PathBuf {
@@ -157,6 +225,25 @@ mod tests {
             PathBuf::from("/usr/bin/node")
         );
         assert_eq!(resolve_command("uvx"), PathBuf::from("uvx"));
+    }
+
+    #[test]
+    fn augmented_path_is_superset_of_inherited_path() {
+        // The inherited $PATH must always be preserved (and come first) so a
+        // user's explicit ordering still wins; we only append fallbacks.
+        let built = build_augmented_path();
+        let built_set: std::collections::HashSet<PathBuf> =
+            std::env::split_paths(&built).collect();
+        if let Some(inherited) = std::env::var_os("PATH") {
+            for entry in std::env::split_paths(&inherited) {
+                assert!(
+                    built_set.contains(&entry),
+                    "augmented PATH dropped inherited entry {}",
+                    entry.display()
+                );
+            }
+        }
+        assert!(!built.is_empty(), "augmented PATH should never be empty");
     }
 
     #[test]

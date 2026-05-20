@@ -199,6 +199,10 @@ impl Transport {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
+            // Augmented PATH so the spawned CLI (and any node/bun it shells
+            // out to) resolves under nvm/npm/homebrew even when the app
+            // inherited a thin GUI $PATH (ADR-013 §Addendum Decision 2).
+            .env("PATH", crate::runtime::augmented_path())
             .kill_on_drop(true);
         if !cwd.is_empty() {
             cmd.current_dir(cwd);

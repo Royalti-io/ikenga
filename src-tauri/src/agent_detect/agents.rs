@@ -98,7 +98,12 @@ fn resolve_executable(def: &AgentDef, os: &str) -> Option<PathBuf> {
 
 fn lookup_spec(spec: &ExecutableSpec) -> Option<PathBuf> {
     for name in spec.names {
-        if let Ok(found) = which::which(name) {
+        // Resolve against the augmented PATH (ADR-013 §Addendum Decision 2)
+        // so a GUI-launched app — which inherits a thin $PATH missing the
+        // nvm/npm/homebrew shims — still finds CLIs installed there. `cwd` is
+        // irrelevant here since `name` is always a bare binary name, not a
+        // relative path.
+        if let Ok(found) = which::which_in(name, Some(crate::runtime::augmented_path()), ".") {
             return Some(found);
         }
     }
