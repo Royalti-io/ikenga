@@ -71,6 +71,7 @@ function SessionDetailPage() {
 	// placeholder→real navigate dance.
 	const { loading, error } = useThread(threadId);
 	const claudeSessionId = useChatStore((s) => s.threads[threadId]?.thread.claudeSessionId ?? null);
+	const adapterId = useChatStore((s) => s.threads[threadId]?.thread.adapterId ?? null);
 	// ADR-011 phase 1: cumulative thread cost — sum of `totalCostUsd` across
 	// all `done` events so the user sees lifetime spend on the thread, not
 	// just per-turn cost. Surfaces in the .ses-det-meta row below.
@@ -127,15 +128,18 @@ function SessionDetailPage() {
 	// pane. The shell-wrapper (see claude-wrap.ts) keeps the PTY alive on
 	// any claude failure mode and lets the user edit/retry the command.
 	async function handleAttachTerminal() {
-		// Resume id priority: the chat store's claudeSessionId (set when the
-		// streaming child emitted system:init) → threadId (legacy sessions
-		// where threadId IS the claude session id; the JSONL is named after it).
-		const resumeId = claudeSessionId ?? threadId;
+		// Resume id: the real claude session id captured from system:init. For
+		// legacy 'cli'-adapter threads the threadId IS the claude session id
+		// (the JSONL is named after it), so it's a valid fallback there. ACP
+		// threads mint their own frontend uuid that is NOT a claude session —
+		// resuming with it just fails ("No conversation found"), so when we
+		// have no real id we open claude fresh instead of crashing.
+		const resumeId = claudeSessionId ?? (adapterId === 'cli' ? threadId : null);
 		const fallbackCwd = await loadHome();
 		const sessionId = createTerminalSession({
 			cwd: threadProject?.root_path ?? summary?.projectDir ?? fallbackCwd,
 			cmd: buildClaudeWrappedCmd({ resumeSessionId: resumeId }),
-			title: `claude · ${resumeId.slice(0, 8)}`,
+			title: resumeId ? `claude · ${resumeId.slice(0, 8)}` : 'claude',
 		});
 		const focusedId = usePaneStore.getState().focusedId;
 		usePaneStore.getState().addTab(focusedId, { kind: 'terminal', sessionId });
