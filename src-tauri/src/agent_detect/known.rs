@@ -228,8 +228,17 @@ pub const KNOWN_AGENTS: &[AgentDef] = &[
                 AuthCheck::EnvVar {
                     name: "GEMINI_API_KEY",
                 },
+                // oauth-personal (the default `gemini auth` flow) writes its
+                // token store to `~/.gemini/oauth_creds.json`. The older
+                // `~/.config/gemini/credentials.json` path is kept as a
+                // fallback for API-key-file installs. Probing only the latter
+                // produced a false-negative for oauth-personal users even
+                // though `gemini --acp` authenticates fine.
                 AuthCheck::FilePresent {
-                    paths: &["~/.config/gemini/credentials.json"],
+                    paths: &[
+                        "~/.gemini/oauth_creds.json",
+                        "~/.config/gemini/credentials.json",
+                    ],
                 },
             ],
         }),
