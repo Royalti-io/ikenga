@@ -212,7 +212,129 @@ async fn probe_auth_with_hint(
             };
             (Some(false), hint)
         }
+        AuthCheck::AcpHandshake { args, timeout_ms } => {
+            probe_auth_acp_handshake(exec, args, *timeout_ms).await
+        }
+        AuthCheck::FirstConclusive { checks } => {
+            // Return the first *conclusive* nested result; fall through only
+            // on inconclusive (`None`) so an earlier check (e.g. the ACP
+            // handshake) stays authoritative over later fallbacks.
+            let mut hints: Vec<String> = Vec::new();
+            for inner in *checks {
+                let (val, hint) = Box::pin(probe_auth_with_hint(exec, inner)).await;
+                if val.is_some() {
+                    return (val, hint);
+                }
+                if let Some(h) = hint {
+                    hints.push(h);
+                }
+            }
+            let hint = if hints.is_empty() {
+                None
+            } else {
+                Some(format!("inconclusive: {}", hints.join(" / ")))
+            };
+            (None, hint)
+        }
     }
+}
+
+/// Spawn an ACP CLI and run a minimal `initialize` → `session/new` handshake
+/// to read auth state from the protocol (ADR-013 §Addendum Decision 1). This
+/// is a standalone, throwaway probe — deliberately NOT the runtime transport
+/// in `engines/gemini_acp` (that's bound to a thread id, AppHandle, and event
+/// channels). Returns `Some(true)` when `session/new` yields a result,
+/// `Some(false)` on a `-32000` (`AuthRequired`) error, and `None` (with a
+/// hint) on any spawn/IO/parse/timeout failure so the caller can fall back.
+async fn probe_auth_acp_handshake(
+    exec: &std::path::Path,
+    args: &[&str],
+    timeout_ms: u64,
+) -> (Option<bool>, Option<String>) {
+    match timeout(Duration::from_millis(timeout_ms), acp_handshake(exec, args)).await {
+        Ok(Ok(true)) => (Some(true), None),
+        Ok(Ok(false)) => (
+            Some(false),
+            Some("not authenticated (ACP session/new → auth_required)".to_string()),
+        ),
+        Ok(Err(e)) => (None, Some(format!("ACP handshake probe failed: {e}"))),
+        Err(_) => (
+            None,
+            Some(format!("ACP handshake probe timed out after {timeout_ms}ms")),
+        ),
+    }
+}
+
+/// The handshake itself: write `initialize`, then `session/new`, and inspect
+/// the `id:2` response. `Ok(true)` = authed, `Ok(false)` = `-32000`, `Err` =
+/// transport/parse problem (inconclusive).
+async fn acp_handshake(exec: &std::path::Path, args: &[&str]) -> Result<bool, String> {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+    let mut child = Command::new(exec)
+        .args(args)
+        .env("PATH", crate::runtime::augmented_path())
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .kill_on_drop(true)
+        .spawn()
+        .map_err(|e| format!("spawn: {e}"))?;
+
+    let mut stdin = child.stdin.take().ok_or("no stdin")?;
+    let stdout = child.stdout.take().ok_or("no stdout")?;
+    let mut lines = BufReader::new(stdout).lines();
+
+    // 1. initialize
+    stdin
+        .write_all(
+            b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\
+              \"params\":{\"protocolVersion\":1,\"clientCapabilities\":{}}}\n",
+        )
+        .await
+        .map_err(|e| format!("write initialize: {e}"))?;
+    stdin.flush().await.map_err(|e| format!("flush: {e}"))?;
+
+    // 2. session/new — its result vs `-32000` error is the auth verdict.
+    stdin
+        .write_all(
+            b"{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"session/new\",\
+              \"params\":{\"cwd\":\"/\",\"mcpServers\":[]}}\n",
+        )
+        .await
+        .map_err(|e| format!("write session/new: {e}"))?;
+    stdin.flush().await.map_err(|e| format!("flush: {e}"))?;
+
+    // Read line-delimited JSON-RPC until we see the response to id:2. Gemini
+    // interleaves the id:1 result, notifications, and the id:2 response; we
+    // skip anything that isn't our request id.
+    while let Some(line) = lines.next_line().await.map_err(|e| format!("read: {e}"))? {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let Ok(msg) = serde_json::from_str::<serde_json::Value>(trimmed) else {
+            continue;
+        };
+        if msg.get("id").and_then(|v| v.as_i64()) != Some(2) {
+            continue;
+        }
+        if let Some(err) = msg.get("error") {
+            let code = err.get("code").and_then(|v| v.as_i64());
+            // -32000 = ACP `AuthRequired`. Any other error is a real problem,
+            // not an auth verdict — surface as inconclusive.
+            return if code == Some(-32000) {
+                Ok(false)
+            } else {
+                Err(format!("session/new error: {err}"))
+            };
+        }
+        if msg.get("result").is_some() {
+            return Ok(true);
+        }
+        return Err("session/new response had neither result nor error".to_string());
+    }
+    Err("child closed stdout before responding to session/new".to_string())
 }
 
 async fn probe_auth_exec(
@@ -368,5 +490,46 @@ mod tests {
         assert!(!env_truthy("IKENGA_DETECT_TEST_VAR"));
         std::env::remove_var("IKENGA_DETECT_TEST_VAR");
         assert!(!env_truthy("IKENGA_DETECT_TEST_VAR"));
+    }
+
+    #[tokio::test]
+    async fn first_conclusive_keeps_the_first_conclusive_verdict() {
+        // EnvVar is always conclusive. FirstConclusive must return the FIRST
+        // conclusive verdict — unlike `Any`, a later positive must NOT flip an
+        // earlier negative. This is what keeps the ACP handshake authoritative
+        // over the cred-file/env fallbacks (ADR-013 §Addendum Decision 1).
+        std::env::set_var("IKENGA_FC_PRESENT", "1");
+        std::env::remove_var("IKENGA_FC_ABSENT");
+        let dummy = std::path::Path::new("/nonexistent-exec");
+
+        // First conclusive is positive → true.
+        let check = AuthCheck::FirstConclusive {
+            checks: &[
+                AuthCheck::EnvVar {
+                    name: "IKENGA_FC_PRESENT",
+                },
+                AuthCheck::EnvVar {
+                    name: "IKENGA_FC_ABSENT",
+                },
+            ],
+        };
+        assert_eq!(probe_auth_with_hint(dummy, &check).await.0, Some(true));
+
+        // First conclusive is negative → false, even though a LATER check
+        // would be positive. (`Any` would return true here — that's the bug
+        // FirstConclusive exists to avoid.)
+        let check = AuthCheck::FirstConclusive {
+            checks: &[
+                AuthCheck::EnvVar {
+                    name: "IKENGA_FC_ABSENT",
+                },
+                AuthCheck::EnvVar {
+                    name: "IKENGA_FC_PRESENT",
+                },
+            ],
+        };
+        assert_eq!(probe_auth_with_hint(dummy, &check).await.0, Some(false));
+
+        std::env::remove_var("IKENGA_FC_PRESENT");
     }
 }

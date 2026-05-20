@@ -61,6 +61,25 @@ pub enum AuthCheck {
     FilePresent { paths: &'static [&'static str] },
     /// Truthy if *any* of the nested checks succeed.
     Any { checks: &'static [AuthCheck] },
+    /// Spawn an ACP CLI (e.g. `gemini --acp`), run the `initialize` +
+    /// `session/new` handshake, and read auth state from the protocol:
+    /// `session/new` returning a result ⇒ authed; a JSON-RPC `-32000`
+    /// (`AuthRequired`) error ⇒ not authed. This is the **authoritative**
+    /// signal for ACP-native engines (ADR-013 §Addendum Decision 1) — robust
+    /// against auth tokens stored anywhere a `FilePresent` probe can't
+    /// enumerate. Wrapped in a `timeout_ms`. Inconclusive (`None`) on spawn
+    /// failure / timeout so a `FirstConclusive` wrapper can fall back.
+    AcpHandshake {
+        args: &'static [&'static str],
+        timeout_ms: u64,
+    },
+    /// Return the result of the first nested check that is *conclusive*
+    /// (`Some(true)` or `Some(false)`); only fall through to the next when a
+    /// check is inconclusive (`None`). Unlike `Any` (which OR-s and lets a
+    /// stale file override a negative protocol probe), this preserves the
+    /// authority of an earlier conclusive check — used to put `AcpHandshake`
+    /// ahead of cred-file/env fallbacks (ADR-013 §Addendum Decision 1).
+    FirstConclusive { checks: &'static [AuthCheck] },
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -223,22 +242,36 @@ pub const KNOWN_AGENTS: &[AgentDef] = &[
         ],
         version_arg: Some("--version"),
         version_regex: Some(DEFAULT_VERSION_REGEX),
-        auth_check: Some(AuthCheck::Any {
+        // ADR-013 §Addendum Decision 1: the ACP handshake is authoritative for
+        // this ACP-native engine — `gemini --acp` + `session/new` reports auth
+        // state directly, so we don't have to guess where the token lives. The
+        // cred-file / env-var checks remain only as a fast fallback for when
+        // the handshake can't run (spawn failure / timeout). `FirstConclusive`
+        // (not `Any`) keeps the handshake's verdict authoritative — a stale
+        // cred file can't flip a negative protocol probe back to "authed".
+        auth_check: Some(AuthCheck::FirstConclusive {
             checks: &[
-                AuthCheck::EnvVar {
-                    name: "GEMINI_API_KEY",
+                // `--debug` is REQUIRED: gemini block-buffers stdout without
+                // it, so the `session/new` response never flushes before our
+                // timeout (ADR-013 §Probe findings). The probe tolerates the
+                // extra debug lines — it skips anything that isn't the id:2
+                // JSON-RPC response.
+                AuthCheck::AcpHandshake {
+                    args: &["--acp", "--debug"],
+                    timeout_ms: 6000,
                 },
-                // oauth-personal (the default `gemini auth` flow) writes its
-                // token store to `~/.gemini/oauth_creds.json`. The older
-                // `~/.config/gemini/credentials.json` path is kept as a
-                // fallback for API-key-file installs. Probing only the latter
-                // produced a false-negative for oauth-personal users even
-                // though `gemini --acp` authenticates fine.
+                // oauth-personal writes `~/.gemini/oauth_creds.json`; the older
+                // `~/.config/gemini/credentials.json` covers API-key-file
+                // installs. Fallback only — used when the handshake is
+                // inconclusive.
                 AuthCheck::FilePresent {
                     paths: &[
                         "~/.gemini/oauth_creds.json",
                         "~/.config/gemini/credentials.json",
                     ],
+                },
+                AuthCheck::EnvVar {
+                    name: "GEMINI_API_KEY",
                 },
             ],
         }),
