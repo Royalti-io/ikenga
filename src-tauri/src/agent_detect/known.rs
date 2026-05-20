@@ -220,8 +220,21 @@ pub const KNOWN_AGENTS: &[AgentDef] = &[
         ],
         version_arg: Some("--version"),
         version_regex: Some(DEFAULT_VERSION_REGEX),
-        auth_check: Some(AuthCheck::EnvVar {
-            name: "OPENAI_API_KEY",
+        // `codex login` (the canonical ChatGPT/Codex flow) writes its token to
+        // `~/.codex/auth.json` (mode 600). The bare `OPENAI_API_KEY` env-var
+        // path covers users who plug in an API key directly. Same false-
+        // negative class the gemini fix tackled — without the file check, a
+        // freshly-logged-in user shows as "OPENAI_API_KEY not set" even though
+        // `codex login status` reports `Logged in`.
+        auth_check: Some(AuthCheck::Any {
+            checks: &[
+                AuthCheck::FilePresent {
+                    paths: &["~/.codex/auth.json"],
+                },
+                AuthCheck::EnvVar {
+                    name: "OPENAI_API_KEY",
+                },
+            ],
         }),
         capabilities: CAP_CODEX,
     },
