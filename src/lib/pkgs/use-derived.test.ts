@@ -237,6 +237,22 @@ describe('deriveFromQueries', () => {
 			expect(d.installed[0]?.latest).toBeNull();
 			expect(d.updates).toHaveLength(0);
 		});
+
+		it('matches across the reverse-DNS id / npm-name boundary', () => {
+			// Kernel id is `com.ikenga.engine-claude-code`; registry name is
+			// `@ikenga/pkg-engine-claude-code`. These never match on exact
+			// equality, which is the bug that double-listed installed pkgs.
+			const d = deriveFromQueries({
+				statusData: {
+					installed: [makeInstalled('com.ikenga.engine-claude-code', { version: '0.1.0' })],
+				},
+				registryEntries: [
+					makeRegistryEntry('@ikenga/pkg-engine-claude-code', { latest: '0.2.0' }),
+				],
+			});
+			expect(d.installed[0]?.latest).toBe('0.2.0');
+			expect(d.updates).toHaveLength(1);
+		});
 	});
 
 	describe('registry rows', () => {
@@ -264,6 +280,14 @@ describe('deriveFromQueries', () => {
 			const d = deriveFromQueries({
 				statusData: { installed: [makeInstalled('com.test.x')] },
 				registryEntries: [makeRegistryEntry('com.test.x')],
+			});
+			expect(d.registry).toHaveLength(0);
+		});
+
+		it('hides an installed pkg whose registry name uses the npm namespace', () => {
+			const d = deriveFromQueries({
+				statusData: { installed: [makeInstalled('com.ikenga.mcp-browser')] },
+				registryEntries: [makeRegistryEntry('@ikenga/mcp-browser')],
 			});
 			expect(d.registry).toHaveLength(0);
 		});

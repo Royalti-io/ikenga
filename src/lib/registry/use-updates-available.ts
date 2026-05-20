@@ -50,7 +50,7 @@ export function useUpdatesAvailable(): number {
  * and `@ikenga/pkg-<short>` for the npm name. Until that diverges, suffix
  * matching is enough.
  */
-function entryMatchesPkgId(npmName: string, manifestId: string): boolean {
+export function entryMatchesPkgId(npmName: string, manifestId: string): boolean {
 	const npmShort = npmName.replace(/^@ikenga\//, '').replace(/^pkg-/, '');
 	const idShort = manifestId.replace(/^com\.ikenga\./, '');
 	return npmShort === idShort;

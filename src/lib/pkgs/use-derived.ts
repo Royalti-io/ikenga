@@ -21,6 +21,8 @@ import {
 	type PkgTrustEntry,
 } from '@/lib/tauri-cmd';
 import { useRegistryIndex, type RegistryEntry } from '@/lib/registry/use-registry';
+import { entryMatchesPkgId } from '@/lib/registry/use-updates-available';
+import { semverCompare } from '@ikenga/registry-client';
 
 export type RowOrigin = 'builtin' | 'engine' | 'user' | 'registry';
 export type RowState = 'running' | 'idle' | 'disabled' | 'not-installed';
@@ -230,16 +232,20 @@ export function deriveFromQueries(inputs: DeriveInputs): DerivedPkgs {
 		};
 	});
 
-	// Cross-reference registry for updates + dangling registry entries.
-	const installedById = new Set(installedRows.map((r) => r.id));
+	// Cross-reference registry for updates + dangling registry entries. The
+	// kernel records reverse-DNS ids (`com.ikenga.mcp-iyke`) while the registry
+	// index lists npm names (`@ikenga/mcp-iyke`); `entryMatchesPkgId` bridges
+	// the two so installed pkgs are deduped from the "Available in registry"
+	// group and their available-update version is detected. Same matcher the
+	// activity-bar badge uses, so both surfaces agree.
 	for (const row of installedRows) {
-		const match = registryEntries.find((e) => e.name === row.id);
-		if (match && match.latest && match.latest !== row.version) {
+		const match = registryEntries.find((e) => entryMatchesPkgId(e.name, row.id));
+		if (match && match.latest && semverCompare(row.version, match.latest) < 0) {
 			row.latest = match.latest;
 		}
 	}
 	const registryRows: PkgRowV2[] = registryEntries
-		.filter((e) => !installedById.has(e.name))
+		.filter((e) => !installedRows.some((r) => entryMatchesPkgId(e.name, r.id)))
 		.map((e) => {
 			const heroShot = (e as { screenshot?: string }).screenshot ?? null;
 			const screenshots: PkgScreenshotRef[] = heroShot
