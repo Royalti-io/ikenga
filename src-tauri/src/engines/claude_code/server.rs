@@ -607,7 +607,7 @@ impl ClaudeCodeEngine {
     }
 
     /// Handle ACP `session/fork`. Phase 8 minimum implementation: clone an
-    /// existing session by recording a new `chat_threads` row whose
+    /// existing session by recording a new `chat_sessions` row whose
     /// `branched_from` points at the source thread. The new session's
     /// `SessionOpts.resume_session_id` is seeded with the source's
     /// `claude_session_id` so the first prompt on the forked thread spawns
@@ -642,7 +642,7 @@ impl ClaudeCodeEngine {
         // rows surface as a typed error rather than an FK violation on the
         // INSERT below.
         let row: Option<(Option<String>, Option<String>)> =
-            sqlx::query_as("SELECT claude_session_id, project_dir FROM chat_threads WHERE id = ?")
+            sqlx::query_as("SELECT claude_session_id, project_dir FROM chat_sessions WHERE id = ?")
                 .bind(&req.source_thread_id)
                 .fetch_optional(&pool)
                 .await
@@ -655,10 +655,10 @@ impl ClaudeCodeEngine {
         let title = req.label.clone();
 
         sqlx::query(
-            "INSERT INTO chat_threads
+            "INSERT INTO chat_sessions
                 (id, adapter, title, cwd, project_dir, claude_session_id,
-                 branched_from, branched_from_turn, created_at, updated_at)
-             VALUES (?, 'cli', ?, ?, ?, ?, ?, ?, ?, ?)",
+                 branched_from, branched_from_turn, engine_id, created_at, updated_at)
+             VALUES (?, 'cli', ?, ?, ?, ?, ?, ?, 'claude-code', ?, ?)",
         )
         .bind(&new_thread_id)
         .bind(&title)

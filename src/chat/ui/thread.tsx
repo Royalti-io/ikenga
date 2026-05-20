@@ -49,9 +49,46 @@ interface ThreadProps {
 	onBranch?: (upToTurn: number) => void;
 }
 
+/** ADR-013 §7 OQ#3: fork is only supported on engines whose resume +
+ *  fork mechanics are pinned. Claude Code is the original; Gemini's
+ *  `--resume <index>` / `--session-id <uuid>` is enough to fork.
+ *  Codex's `codex fork` subcommand exists but its wire shape isn't
+ *  verified yet; cursor-agent has no runtime adapter. Until those land
+ *  we gate the Branch affordance to this set. */
+const FORK_SUPPORTED_ENGINES: ReadonlySet<string> = new Set(['claude-code', 'gemini']);
+
+function normaliseEngineId(id: string | null | undefined): string | null {
+	if (!id) return null;
+	if (id === 'acp' || id === 'cli') return 'claude-code';
+	return id;
+}
+
+function engineLabelFromId(id: string | null): string | null {
+	if (!id) return null;
+	switch (id) {
+		case 'claude-code':
+			return 'Claude Code';
+		case 'gemini':
+			return 'Gemini';
+		case 'codex':
+			return 'Codex';
+		case 'cursor-agent':
+			return 'Cursor Agent';
+		default:
+			return id;
+	}
+}
+
 export function Thread({ threadId, className, onBranch }: ThreadProps) {
 	const state = useChatStore((s) => (threadId ? (s.threads[threadId] ?? null) : null));
 	const cwd = state?.thread.cwd ?? undefined;
+	// ADR-013 §7 OQ#3 fork gating. Read the thread's persisted engine
+	// (`engineId` post-0024, falling back to `adapterId` defensively) and
+	// only enable the Branch affordance when the engine has a verified
+	// fork path. Disabled rows render with a tooltip explaining why.
+	const threadEngineId = normaliseEngineId(state?.thread.engineId ?? state?.thread.adapterId);
+	const threadEngineLabel = engineLabelFromId(threadEngineId) ?? 'this engine';
+	const forkSupported = !!threadEngineId && FORK_SUPPORTED_ENGINES.has(threadEngineId);
 	const includeDebug = import.meta.env.DEV;
 	const items = useMemo(
 		() => (state ? buildRenderItems(state.events, false) : []),
@@ -166,6 +203,10 @@ export function Thread({ threadId, className, onBranch }: ThreadProps) {
 								cwd={cwd}
 								branchTurn={branchTurnByItem.get(item.key)}
 								onBranch={onBranch}
+								forkSupported={forkSupported}
+								forkUnsupportedHint={
+									forkSupported ? undefined : `Fork is not yet supported for ${threadEngineLabel}`
+								}
 								isStreamingTail={item.key === streamingTailKey}
 								model={modelByItem.get(item.key) ?? null}
 								timestamp={timestampByItem.get(item.key) ?? null}
@@ -203,6 +244,8 @@ function RenderRow({
 	cwd,
 	branchTurn,
 	onBranch,
+	forkSupported,
+	forkUnsupportedHint,
 	isStreamingTail,
 	model,
 	timestamp,
@@ -215,6 +258,11 @@ function RenderRow({
 	 *  `chatForkSession` when the user clicks "Branch from here". */
 	branchTurn?: number;
 	onBranch?: (upToTurn: number) => void;
+	/** ADR-013 §7 OQ#3: whether the thread's engine supports fork. When
+	 *  false, the Branch button is rendered disabled with `forkUnsupportedHint`
+	 *  as the tooltip. */
+	forkSupported?: boolean;
+	forkUnsupportedHint?: string;
 	/** ADR-011 phase 1: true on the last assistant `text` row while the
 	 *  thread is streaming. Drives the ember-edge animation. */
 	isStreamingTail?: boolean;
@@ -280,9 +328,22 @@ function RenderRow({
 					{canBranch && (
 						<button
 							type="button"
-							onClick={() => onBranch(branchTurn)}
-							className="absolute right-4 top-4 inline-flex items-center gap-1 rounded-sm border border-[var(--rule)] bg-transparent px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-[var(--chip-carve)] opacity-0 transition-colors hover:border-[var(--kola-amber)] hover:bg-[var(--rule-soft)] hover:text-[var(--kola-amber)] group-hover:opacity-100"
-							title="Branch from here — fork this thread into a new conversation that continues from this assistant turn"
+							onClick={() => {
+								if (forkSupported === false) return;
+								onBranch(branchTurn);
+							}}
+							disabled={forkSupported === false}
+							className={cn(
+								'absolute right-4 top-4 inline-flex items-center gap-1 rounded-sm border border-[var(--rule)] bg-transparent px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-[var(--chip-carve)] opacity-0 transition-colors group-hover:opacity-100',
+								forkSupported === false
+									? 'cursor-not-allowed opacity-40 group-hover:opacity-40'
+									: 'hover:border-[var(--kola-amber)] hover:bg-[var(--rule-soft)] hover:text-[var(--kola-amber)]'
+							)}
+							title={
+								forkSupported === false
+									? (forkUnsupportedHint ?? 'Fork is not supported on this engine')
+									: 'Branch from here — fork this thread into a new conversation that continues from this assistant turn'
+							}
 						>
 							<GitBranch className="h-3 w-3" />
 							Branch

@@ -28,6 +28,8 @@ import {
 import { useShellStore } from '@/lib/shell/shell-store';
 import { type AgentDetectEntry, useAgentDetect } from '@/lib/shell/use-agent-detect';
 import { setDefaultEngineId } from '@/chat/default-adapter';
+import { engineOnboardingFor } from '@/chat/engines';
+import { EngineAuthPanel } from '@/chat/ui/engine-auth-panel';
 import { EngineLogo } from '@/shell/onboarding/engine-logo';
 
 import { useOnboardingStep } from './use-onboarding-step';
@@ -78,7 +80,7 @@ const SUPPORTED_ENGINES: ReadonlyArray<{
 		installCmd: 'npm install -g @openai/codex',
 	},
 	{
-		id: 'gemini-cli',
+		id: 'gemini',
 		display: 'Gemini CLI',
 		description: 'Google — streaming + tool use.',
 		binaryHint: 'gemini',
@@ -407,8 +409,8 @@ export function AgentBody({ onContinue }: AgentBodyProps) {
 				</div>
 			)}
 
-			{/* ── Auth-warning banner ──────────────────────────────────────── */}
-			{missingAuth && (
+			{/* ── Per-engine auth (ADR-013 §5) ─────────────────────────────── */}
+			{missingAuth && selectedAgent && engineOnboardingFor(selectedAgent.id) && (
 				<div
 					className="mt-6 rounded-md border p-4"
 					style={{
@@ -418,12 +420,17 @@ export function AgentBody({ onContinue }: AgentBodyProps) {
 					data-testid="agents-auth-warning"
 				>
 					<div className="text-[13px] font-semibold">
-						{selectedAgent?.display} isn't signed in yet
+						{selectedAgent.display} isn't signed in yet
 					</div>
-					<div className="mt-1 text-xs" style={{ color: 'var(--fg-muted)' }}>
-						{selectedAgent?.auth_hint ??
-							'Run the agent CLI once to authenticate, or set the relevant API key in your environment. You can finish onboarding now and fix this later from Settings → Engine.'}
+					<div className="mb-3 mt-1 text-xs" style={{ color: 'var(--fg-muted)' }}>
+						{selectedAgent.auth_hint ??
+							'Set the API key or run the auth command below. You can also finish onboarding now and fix this later from Settings → Engine.'}
 					</div>
+					<EngineAuthPanel
+						engineId={selectedAgent.id}
+						engineLabel={selectedAgent.display}
+						onAuthComplete={refresh}
+					/>
 				</div>
 			)}
 

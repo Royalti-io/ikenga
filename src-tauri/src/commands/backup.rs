@@ -83,12 +83,12 @@ struct PathColumn {
 
 const PATH_COLUMNS: &[PathColumn] = &[
     PathColumn {
-        table: "chat_threads",
+        table: "chat_sessions",
         column: "cwd",
         where_clause: None,
     },
     PathColumn {
-        table: "chat_threads",
+        table: "chat_sessions",
         column: "project_dir",
         where_clause: None,
     },

@@ -238,6 +238,10 @@ async function mountChatAgent(args: {
 	useChatStore.getState().upsertThread({
 		id: threadId,
 		adapterId,
+		// ADR-013 §2: `engineId` is the persisted engine for the thread.
+		// New threads default to the adapter that minted them, matching
+		// what `createThread()` writes to `chat_sessions.engine_id`.
+		engineId: adapterId,
 		title,
 		cwd: args.cwd,
 		model: null,

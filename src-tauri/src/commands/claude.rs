@@ -358,7 +358,7 @@ pub async fn chat_threads_list_by_project(
         Some(pid) => {
             sqlx::query(
                 "SELECT id, title, cwd, project_id, claude_session_id, created_at, updated_at
-             FROM chat_threads
+             FROM chat_sessions
              WHERE project_id = ?
              ORDER BY updated_at DESC
              LIMIT ?",
@@ -371,7 +371,7 @@ pub async fn chat_threads_list_by_project(
         None => {
             sqlx::query(
                 "SELECT id, title, cwd, project_id, claude_session_id, created_at, updated_at
-             FROM chat_threads
+             FROM chat_sessions
              ORDER BY updated_at DESC
              LIMIT ?",
             )
@@ -380,7 +380,7 @@ pub async fn chat_threads_list_by_project(
             .await
         }
     }
-    .map_err(|e| format!("list chat_threads: {e}"))?;
+    .map_err(|e| format!("list chat_sessions: {e}"))?;
 
     Ok(rows
         .iter()
@@ -398,7 +398,7 @@ pub async fn chat_threads_list_by_project(
 
 /// Reattribute a chat thread to a different project. Metadata-only — the
 /// in-memory `Session` and any live claude subprocess keep the cwd they
-/// were spawned with; only `chat_threads.project_id` changes.
+/// were spawned with; only `chat_sessions.project_id` changes.
 #[tauri::command]
 pub async fn chat_thread_move(
     db: State<'_, Arc<PaDb>>,
@@ -416,7 +416,7 @@ pub async fn chat_thread_move(
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0);
-    let res = sqlx::query("UPDATE chat_threads SET project_id = ?, updated_at = ? WHERE id = ?")
+    let res = sqlx::query("UPDATE chat_sessions SET project_id = ?, updated_at = ? WHERE id = ?")
         .bind(&projectId)
         .bind(now)
         .bind(&threadId)

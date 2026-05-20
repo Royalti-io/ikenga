@@ -73,9 +73,26 @@ What ships in `src-tauri/resources/builtin-pkgs/` today:
 
 Future workers should arrive as **registry pkgs** declaring `command: "bun"` + `args: ["run", "src/index.ts"]`. The kernel's MCP and supervised-sidecar spawn sites both route through `runtime::resolve_command`, so the bundled Bun resolves automatically — no changes needed for new pkgs as long as they declare `bun` (not an absolute path).
 
-### Claude session integration
+### Engine session integration
 
-`src-tauri/src/claude/` + `commands/claude.rs` spawn `claude` CLI subprocesses, parse stream-json, persist sessions to SQLite (migration `0003_claude_sessions`) and read the on-disk session jsonl. Frontend surfaces at `/sessions`, `/sessions/by-agent/$agent`, `/sessions/$sessionId`. Requires `claude` on `$PATH`.
+Per [ADR-013](../docs/adr/013-multi-engine-runtime-wire-protocols.md) the chat layer is **multi-engine**. Each engine adapter lives under `src-tauri/src/engines/<engine>/` and is keyed by a stable id in the `EngineRegistry` (`engines/mod.rs`). The frontend sees **one wire** regardless of engine: ACP-shaped `SessionUpdate` envelopes on `chat://session/{thread_id}`. Whether the underlying CLI speaks ACP natively or the Rust adapter translates is invisible above the kernel boundary.
+
+Sessions persist to SQLite as `chat_sessions` (migration `0024` renamed it from `chat_threads` and added `engine_id TEXT NOT NULL DEFAULT 'claude-code'`). `engine_id` is the engine the thread was *created* with and stays pinned; the composer's per-turn engine swap routes a single send to a different engine without mutating the row. The `claude_session_id` column is reused as the **engine-native resume id** — its interpretation depends on `engine_id` (see ADR-013 §2). Engine + model are per-turn (ADR-011 §5–§6); the picker is a two-level Engine→Model popover.
+
+| Engine | Wire protocol | Module | Resume | Auth |
+|---|---|---|---|---|
+| **Claude Code** | stream-json child + Rust translator (unchanged) | `engines/claude_code/` (+ `src-tauri/src/claude/`, `commands/claude.rs`) | `claude --resume <id>` | `claude login` / `ANTHROPIC_API_KEY` |
+| **Gemini** | **ACP passthrough** — spawn `gemini --acp`, proxy JSON-RPC 2.0 NDJSON bidirectionally; no translation | `engines/gemini_acp/` | `gemini --resume` / `--session-id <uuid>` | `gemini auth` / `GEMINI_API_KEY` |
+| **Codex** | **custom adapter** — `codex exec --json` stream-parse → ACP-shaped envelopes | `engines/codex_pty/` (the `pty` suffix is historical — see ADR-013 §1; the adapter uses non-interactive `codex exec`, not a PTY) | `codex resume` / `codex exec resume --last` | `codex login` / `OPENAI_API_KEY` |
+| **cursor-agent** | scaffold only — runtime stubbed (`throw RUNTIME_NOT_IMPLEMENTED`) pending local install + `--acp` verification | `engines/cursor_agent/` | TBD | TBD |
+
+Gotcha for ACP-passthrough engines: **Gemini block-buffers stdout** when not in `--debug`. The adapter reads line-by-line and relies on the engine flushing per JSON-RPC message.
+
+Per-engine onboarding metadata (vault keys + auth command) is declared in each engine pkg's `metadata.onboarding` block (`ikenga-pkgs/packages/engine/<id>/src/index.ts`) and mirrored as a static FE map in `src/chat/engines.ts` (`ENGINE_ONBOARDING`) so the lazy-auth surface works for not-yet-installed engines too. The shared auth component is `src/chat/ui/engine-auth-panel.tsx`, mounted in the onboarding wizard step (`shell/onboarding/agent-body.tsx`) and a lazy chat-header sheet (`chat/ui/composer.tsx`).
+
+Frontend session surfaces: `/sessions`, `/sessions/by-agent/$agent`, `/sessions/$sessionId`. Each engine requires its CLI on `$PATH`.
+
+**Wire smoke**: `bun run engine:smoke` (`scripts/engine-wire-smoke.ts`) probes the gemini `--acp` handshake + `codex exec --json` stream directly against the installed CLIs — no built shell required. It validates the exact wire the Rust adapters wrap, so a CLI upgrade that breaks the protocol is caught before it surfaces as a chat failure. Reports PASS / BLOCKED (auth or config prerequisite) / FAIL per engine; exits non-zero only on an unexpected wire FAIL. The in-shell ACP path (Claude) is exercised separately by `src/lib/dev/acp-smoke.ts` via iyke.
 
 ### Iyke control bridge
 

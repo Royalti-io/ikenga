@@ -321,7 +321,7 @@ export async function runAcpInterruptSmokeTest(
  * fork it and return the result. The new thread's first prompt will
  * spawn `claude --resume <source_session_id>` so it resumes from the
  * same on-disk JSONL transcript — the fork relationship is recorded in
- * `chat_threads.branched_from` / `branched_from_turn`.
+ * `chat_sessions.branched_from` / `branched_from_turn`.
  *
  * Bound to `globalThis.ikengaAcpForkSmoke` from `src/lib/dev/index.ts`.
  * From iyke:

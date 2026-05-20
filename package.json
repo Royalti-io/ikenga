@@ -19,7 +19,8 @@
 		"test": "vitest run",
 		"test:watch": "vitest",
 		"fmt": "biome format --write .",
-		"lint": "biome lint ."
+		"lint": "biome lint .",
+		"engine:smoke": "bun run scripts/engine-wire-smoke.ts"
 	},
 	"dependencies": {
 		"@ikenga/contract": "workspace:*",

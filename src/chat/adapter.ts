@@ -64,6 +64,14 @@ export interface ChatInput {
 export interface ChatThread {
 	id: string;
 	adapterId: string;
+	/** ADR-013 §2: the engine the thread was originally created with.
+	 *  Persisted in `chat_sessions.engine_id`. Stays pinned across the
+	 *  thread's lifetime — per-turn engine swap in the composer does NOT
+	 *  mutate this column. Used by the picker's "switching engines starts
+	 *  a fresh context" warn affordance to detect mid-thread divergence,
+	 *  and by fork-gating to decide whether `chatForkSession` is supported
+	 *  for the engine that produced the transcript. */
+	engineId: string;
 	title: string | null;
 	cwd: string;
 	model: string | null;

@@ -3,7 +3,7 @@
 //! surface.
 //!
 //! Phase 3 of the projects-first-class plan. Sessions are scoped by
-//! `chat_threads.project_id` (nullable, ON DELETE SET NULL). The list
+//! `chat_sessions.project_id` (nullable, ON DELETE SET NULL). The list
 //! endpoint filters by the active project by default; `include_all=true`
 //! drops the filter. `move` is a metadata-only re-attribution — it does
 //! NOT respawn the claude subprocess. The cwd captured at session-spawn
@@ -82,7 +82,7 @@ pub async fn get_session_list(
         Some(pid) => {
             sqlx::query(
                 "SELECT id, title, cwd, project_id, claude_session_id, created_at, updated_at
-             FROM chat_threads
+             FROM chat_sessions
              WHERE project_id = ?
              ORDER BY updated_at DESC
              LIMIT ?",
@@ -95,7 +95,7 @@ pub async fn get_session_list(
         None => {
             sqlx::query(
                 "SELECT id, title, cwd, project_id, claude_session_id, created_at, updated_at
-             FROM chat_threads
+             FROM chat_sessions
              ORDER BY updated_at DESC
              LIMIT ?",
             )
@@ -104,7 +104,7 @@ pub async fn get_session_list(
             .await
         }
     }
-    .map_err(|e| map_err(format!("list chat_threads: {e}")))?;
+    .map_err(|e| map_err(format!("list chat_sessions: {e}")))?;
 
     let threads: Vec<ChatThreadRow> = rows
         .iter()
@@ -148,7 +148,7 @@ pub async fn post_session_move(
             format!("project is archived: {}", body.project_id),
         ));
     }
-    let res = sqlx::query("UPDATE chat_threads SET project_id = ?, updated_at = ? WHERE id = ?")
+    let res = sqlx::query("UPDATE chat_sessions SET project_id = ?, updated_at = ? WHERE id = ?")
         .bind(&body.project_id)
         .bind(now_ms())
         .bind(&body.thread_id)

@@ -4,7 +4,7 @@
  * Phase 1 of the multi-engine rebuild registers `ClaudeCodeAdapter` under
  * the canonical id `'claude-code'`. The legacy `'cli'` and `'acp'` ids
  * remain registered as **aliases** to the same instance so existing
- * persisted `chat_threads.adapter` values keep resolving without a SQL
+ * persisted `chat_sessions.adapter` values keep resolving without a SQL
  * migration. New chats use `'claude-code'` (see `defaultChatAdapterId`).
  * Phase 2+ adds Gemini/Codex adapters here under their own ids.
  */

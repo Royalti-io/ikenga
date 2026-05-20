@@ -9,7 +9,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertCircle, ImagePlus, Square, X } from 'lucide-react';
+import { AlertCircle, ChevronLeft, ImagePlus, Square, X } from 'lucide-react';
 import type { ChatStatus } from 'ai';
 import { cn } from '@/components/ui/utils';
 import {
@@ -27,20 +27,26 @@ import {
 	SelectValue,
 } from '@/components/ui/select';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import {
+	Sheet,
+	SheetContent,
+	SheetDescription,
+	SheetHeader,
+	SheetTitle,
+} from '@/components/ui/sheet';
 import { useNavigate } from '@tanstack/react-router';
 import {
 	chatPrompt,
 	chatSetEffort,
 	chatSetMode,
-	chatSetModel,
 	type AcpContentBlock,
 	type AcpSessionModeId,
 } from '@/lib/tauri-cmd';
 import { useChatActions, useThreadState } from '../hooks';
-import { useChatStore } from '../store';
 import { usePendingPrompts } from '../pending-prompts';
 import { type ChatEffort } from '../adapter';
 import { modelLabelFor, useEngineCatalog } from '../engines';
+import { EngineAuthPanel } from './engine-auth-panel';
 import { createThread } from '../persist';
 import { mintThreadId } from '../hooks';
 import { createTerminalSession } from '@/terminal/single-terminal';
@@ -132,7 +138,49 @@ export function Composer({ threadId, className, placeholder }: ComposerProps) {
 		setText((cur) => (cur.length === 0 ? pendingForThread : cur));
 		consumePendingPrompt(threadId);
 	}, [threadId, pendingForThread, consumePendingPrompt]);
-	const { send, cancel, isStreaming, canSend, lastError } = useChatActions(threadId);
+	// ADR-013 Phase 6: per-turn engine selection. `selectedEngineId` is
+	// the composer-local override threaded into `useChatActions` so each
+	// send routes through the picker's current engine. The thread's
+	// persisted `engineId` (the engine the thread was created with)
+	// stays pinned across swaps — only the per-turn route changes.
+	// Initialise to the thread's adapter so behaviour matches the prior
+	// implementation until the user changes the picker.
+	const initialEngineId = (() => {
+		const id = state?.thread.adapterId ?? null;
+		if (id === 'acp' || id === 'cli') return 'claude-code';
+		return id;
+	})();
+	const [selectedEngineId, setSelectedEngineId] = useState<string | null>(initialEngineId);
+	// Selected model — composer-local, transient. NOT persisted via
+	// `chatSetModel` per ADR-013 Phase 6 ("treat the picker as
+	// transient"). Resets to the thread's persisted model when the
+	// composer remounts (route change, tab swap).
+	const [selectedModelId, setSelectedModelId] = useState<string | null>(
+		state?.thread.model ?? null
+	);
+	// ADR-013 Phase 6 warn affordance — dismissible per session (component
+	// state, no persistence). Shows only when `selectedEngineId !==
+	// thread.engineId` so swapping back to the thread's original engine
+	// makes the warn go away.
+	const [warnDismissed, setWarnDismissed] = useState(false);
+	// When the thread changes (route nav), reset the picker selection to
+	// the thread's persisted defaults. Without this the composer would
+	// hold onto the previous thread's engine/model selection.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: intentionally keyed on threadId only — re-reading `state` on every thread switch is the whole point of the reset, but listing `state` would re-fire on every render.
+	useEffect(() => {
+		const id = state?.thread.adapterId ?? null;
+		const normalized = id === 'acp' || id === 'cli' ? 'claude-code' : id;
+		setSelectedEngineId(normalized);
+		setSelectedModelId(state?.thread.model ?? null);
+		// Reset the warn dismiss when we change threads so each new thread
+		// surfaces the warn once if the user diverges.
+		setWarnDismissed(false);
+	}, [threadId]);
+
+	const { send, cancel, isStreaming, canSend, lastError } = useChatActions(
+		threadId,
+		selectedEngineId ?? undefined
+	);
 	const lastSentRef = useRef<string | null>(null);
 	/** Hidden file input ref. Triggered by the Attach button so users have a
 	 *  discoverable affordance alongside paste + drag/drop. */
@@ -311,7 +359,19 @@ export function Composer({ threadId, className, placeholder }: ComposerProps) {
 				blocks.push({ type: 'image', data: img.base64, mimeType: img.mimeType });
 			}
 			try {
-				await chatPrompt({ sessionId: threadId, prompt: blocks });
+				// ADR-013 §4: per-turn engineId override for image sends too.
+				// `selectedEngineId` is the picker's current pick; `ChatEngineId`
+				// in tauri-cmd is the union of canonical engine ids, so cast
+				// once at the boundary.
+				await chatPrompt(
+					{ sessionId: threadId, prompt: blocks },
+					(selectedEngineId ?? undefined) as
+						| 'claude-code'
+						| 'gemini'
+						| 'codex'
+						| 'cursor-agent'
+						| undefined
+				);
 			} catch (e) {
 				// Surface failures via the same lastError banner the legacy path
 				// uses. The hooks layer doesn't own this state for ACP yet, so
@@ -384,33 +444,58 @@ export function Composer({ threadId, className, placeholder }: ComposerProps) {
 		}
 	}
 
-	// ADR-011 phase 3: Model + Effort selection. Model is mirrored on
-	// `ChatThread.model` so the pill stays in sync across composer
-	// remounts. Effort doesn't have a persisted thread field yet, so it
-	// lives purely in local state and resets on remount — the Rust side
-	// keeps the authoritative value on `SessionOpts.effort`. Per-turn
-	// switching is deferred per ADR; changes take effect on next spawn.
-	const setThread = useChatStore((s) => s.setThread);
-	const currentModel = state?.thread.model ?? null;
-	const currentModelLabel = modelLabelFor(currentModel);
+	// ADR-013 Phase 6: model + engine are per-turn. We track them as
+	// composer-local state (`selectedEngineId`, `selectedModelId` above)
+	// rather than persisting via `chatSetModel`. Effort is still
+	// session-level — the Rust side keeps the authoritative value on
+	// `SessionOpts.effort` and applies it on next spawn.
 	const [currentEffort, setCurrentEffort] = useState<ChatEffort>('off');
-	// ADR-011 phase 4: open/close state for the Engine→Model popover.
-	// Tracking it lets us auto-close when the user picks a model.
+	// ADR-011 phase 4 / ADR-013 §3: open/close state for the Engine→Model
+	// popover. Tracking it lets us auto-close when the user picks a model.
 	const [engineMenuOpen, setEngineMenuOpen] = useState(false);
+	// ADR-013 §3 two-level picker — which panel is currently visible inside
+	// the single Popover. `engines` shows the engine list; `models` shows
+	// `panelEngineId`'s model list with a back affordance.
+	const [pickerPanel, setPickerPanel] = useState<'engines' | 'models'>('engines');
+	const [panelEngineId, setPanelEngineId] = useState<string | null>(null);
+	// ADR-013 §5 lazy-auth sheet — set to the engine id whose auth surface
+	// the user opened by clicking a not-installed picker row. Null = closed.
+	const [authSheetEngineId, setAuthSheetEngineId] = useState<string | null>(null);
 	const navigate = useNavigate();
 	// Live engine catalog — registered ∩ detected. The popover renders
 	// every catalog entry; rows whose `installed === false` are non-
 	// clickable with a tooltip explaining why.
 	const catalog = useEngineCatalog();
-	// The thread's bound engine (`adapterId`) decides whether a clicked
-	// model triggers a same-engine `chat_set_model` or a cross-engine
-	// "start new thread" flow. Persisted `'acp'` / `'cli'` alias to
-	// `'claude-code'` per the registry; treat them as identical here.
+	// ADR-013 §4: `thread.engineId` is the engine the thread was created
+	// with (persisted in `chat_sessions.engine_id`). The warn affordance
+	// fires when `selectedEngineId` diverges from this. Persisted `'acp'`
+	// / `'cli'` alias to `'claude-code'` per the registry; treat them as
+	// identical here. Falls back to `adapterId` for any thread whose
+	// `engineId` column couldn't be read (defensive; the migration covers
+	// every real row).
 	const threadEngineId = (() => {
-		const id = state?.thread.adapterId ?? null;
+		const id = state?.thread.engineId ?? state?.thread.adapterId ?? null;
 		if (id === 'acp' || id === 'cli') return 'claude-code';
 		return id;
 	})();
+	const selectedEngine = useMemo(
+		() => catalog.find((e) => e.id === selectedEngineId) ?? null,
+		[catalog, selectedEngineId]
+	);
+	const panelEngine = useMemo(
+		() => catalog.find((e) => e.id === panelEngineId) ?? null,
+		[catalog, panelEngineId]
+	);
+	const currentModelLabel = modelLabelFor(selectedModelId);
+
+	// When the popover opens, reset the panel to the engine list so each
+	// open starts from the top level. Cheaper than tracking "which engine
+	// the user was last looking at" across opens.
+	useEffect(() => {
+		if (!engineMenuOpen) return;
+		setPickerPanel('engines');
+		setPanelEngineId(null);
+	}, [engineMenuOpen]);
 
 	function handleInstallEnginePkg() {
 		setEngineMenuOpen(false);
@@ -422,40 +507,31 @@ export function Composer({ threadId, className, placeholder }: ComposerProps) {
 		void navigate({ to: '/settings/agent' });
 	}
 
-	async function handleModelChange(nextId: string) {
-		if (!threadId) return;
-		if (nextId === currentModel) return;
-		const previous = currentModel;
-		// Optimistic local mirror so the pill flips immediately.
-		setThread(threadId, { model: nextId });
-		try {
-			await chatSetModel(threadId, nextId);
-		} catch (e) {
-			setThread(threadId, { model: previous });
-			console.warn('chatSetModel:', e);
+	function handleEngineRowClick(engineId: string, installed: boolean) {
+		if (!installed) {
+			// ADR-013 §5 lazy-auth path: clicking a not-installed engine row
+			// opens the shared auth sheet for that engine in place rather than
+			// navigating away. The footer "install engine pkg" link still hops
+			// to /settings/agent for the general browse flow.
+			setEngineMenuOpen(false);
+			setAuthSheetEngineId(engineId);
+			return;
 		}
+		// Drill into this engine's model list.
+		setPanelEngineId(engineId);
+		setPickerPanel('models');
 	}
 
-	/** Cross-engine pick: the user selected a model from an engine that
-	 *  isn't bound to the current thread. Engines have incompatible
-	 *  session/transcript shapes (Claude's JSONL vs Gemini's ACP child vs
-	 *  Codex's PTY), so we can't safely swap mid-thread. Create a sibling
-	 *  thread bound to the new engine and navigate to it; the prior thread
-	 *  stays intact in /sessions for reference. */
-	async function handleStartNewThreadWithEngine(engineId: string, modelId: string | null) {
+	function handleModelPick(engineId: string, modelId: string | null) {
+		setSelectedEngineId(engineId);
+		setSelectedModelId(modelId);
+		// If the user swaps away from the thread's pinned engine, surface
+		// the warn affordance again (reset the dismiss). Swapping back to
+		// the pinned engine clears the warn implicitly.
+		if (engineId !== threadEngineId) {
+			setWarnDismissed(false);
+		}
 		setEngineMenuOpen(false);
-		if (!state?.thread.cwd) return;
-		const newId = mintThreadId();
-		await createThread({
-			id: newId,
-			adapterId: engineId,
-			cwd: state.thread.cwd,
-			claudeSessionId: null,
-			model: modelId,
-			title: null,
-			projectId: state.thread.projectId ?? null,
-		});
-		void navigate({ to: '/sessions/$sessionId', params: { sessionId: newId } });
 	}
 
 	async function handleEffortChange(next: ChatEffort) {
@@ -486,6 +562,37 @@ export function Composer({ threadId, className, placeholder }: ComposerProps) {
 			onDrop={handleDrop}
 			onDragOver={handleDragOver}
 		>
+			{/* ADR-013 §5 lazy-auth sheet — opened from a not-installed engine
+			    picker row. Reuses the same EngineAuthPanel as the onboarding
+			    wizard step. */}
+			<Sheet
+				open={authSheetEngineId !== null}
+				onOpenChange={(open) => {
+					if (!open) setAuthSheetEngineId(null);
+				}}
+			>
+				<SheetContent>
+					{authSheetEngineId && (
+						<>
+							<SheetHeader>
+								<SheetTitle>
+									Set up{' '}
+									{catalog.find((e) => e.id === authSheetEngineId)?.label ?? authSheetEngineId}
+								</SheetTitle>
+								<SheetDescription>
+									Add an API key or run the engine's auth command. We'll re-check once it's done.
+								</SheetDescription>
+							</SheetHeader>
+							<div className="mt-4">
+								<EngineAuthPanel
+									engineId={authSheetEngineId}
+									engineLabel={catalog.find((e) => e.id === authSheetEngineId)?.label}
+								/>
+							</div>
+						</>
+					)}
+				</SheetContent>
+			</Sheet>
 			{lastError && !isStreaming && (
 				<div className="mb-2 flex items-start gap-2 rounded-md border border-destructive/50 bg-destructive/10 p-2 text-xs text-destructive">
 					<AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
@@ -608,123 +715,175 @@ export function Composer({ threadId, className, placeholder }: ComposerProps) {
 								<span className="hidden sm:inline">attach</span>
 							</button>
 							<span className="text-[var(--chip-carve)]">{adapterLabel}</span>
-							{/* ADR-011 phase 4: Engine → Model two-level popover. Top group
-							    is the active engine (Claude Code); other engines render
-							    greyed with a "not installed" tag. Footer routes to
-							    `/packages_/browse?filter=engine`. Session-level — applied
-							    on next spawn (per-turn switching deferred). */}
+							{/* ADR-013 §3 two-level Engine → Model popover. Top panel
+							    shows installed-first engines; clicking an installed engine
+							    drills into its model list. Engine + model are PER-TURN —
+							    each send routes through `selectedEngineId`. The thread's
+							    persisted `engineId` (the engine at creation) stays
+							    pinned; flipping back to it resumes the original engine's
+							    native session id. Footer routes to the pkg manager. */}
 							<Popover open={engineMenuOpen} onOpenChange={setEngineMenuOpen}>
 								<PopoverTrigger
 									type="button"
 									disabled={!threadId}
 									className="inline-flex h-5 items-center gap-1 rounded-sm border border-[var(--rule)] bg-transparent px-1.5 font-mono text-[10px] uppercase tracking-wider text-[var(--kola-amber-soft)] transition-colors hover:border-[var(--kola-amber)] hover:bg-[var(--rule-soft)] disabled:cursor-not-allowed disabled:opacity-60"
 									aria-label="Engine and model"
-									title="Engine → Model — applied on next spawn"
+									title="Engine → Model — applied per turn"
 								>
-									{currentModelLabel}
+									{selectedEngine ? (
+										<>
+											<span className="text-[var(--chip-carve)]">{selectedEngine.label}</span>
+											<span className="text-[var(--chip-carve)]">·</span>
+											<span>{currentModelLabel}</span>
+										</>
+									) : (
+										<span>{currentModelLabel}</span>
+									)}
 								</PopoverTrigger>
 								<PopoverContent
 									align="start"
-									className="w-64 border border-[var(--rule)] bg-background p-0 font-sans"
+									className="w-[360px] border border-[var(--rule)] bg-background p-0 font-sans"
 								>
-									<div className="max-h-[280px] overflow-auto py-1">
-										{catalog.map((eng) => {
-											const isCurrentEngine = eng.id === threadEngineId;
-											const isInstalled = eng.installed;
-											return (
-												<div
-													key={eng.id}
-													className={cn(
-														'border-b border-[var(--rule)] py-1 last:border-b-0',
-														!isInstalled && 'opacity-60'
-													)}
+									{/* Header — label + (in model panel) back affordance. */}
+									<div className="flex items-center gap-2 border-b border-[var(--rule)] px-3 py-1.5 font-mono text-[9px] uppercase tracking-[0.22em] text-[var(--chip-carve)]">
+										{pickerPanel === 'models' && panelEngine ? (
+											<>
+												<button
+													type="button"
+													onClick={() => {
+														setPickerPanel('engines');
+														setPanelEngineId(null);
+													}}
+													className="inline-flex items-center gap-1 text-[var(--chip-carve)] transition-colors hover:text-[var(--kola-amber)]"
+													aria-label="Back to engines"
+													title="Back to engines"
 												>
-													<div
-														className="flex items-baseline gap-2 px-3 pb-1 font-mono text-[9px] uppercase tracking-[0.22em] text-[var(--chip-carve)]"
-														title={
-															!isInstalled ? (eng.notInstalledHint ?? 'not installed') : undefined
-														}
-													>
-														<span className="text-[var(--kola-amber)]">◾</span>
-														<span className="text-foreground">{eng.label}</span>
-														{isCurrentEngine && (
-															<span className="ml-auto text-[var(--kola-amber)]">active</span>
-														)}
-														{!isInstalled && !isCurrentEngine && (
-															<span className="ml-auto text-[var(--chip-carve)]">
-																{eng.notInstalledHint ?? 'not installed'}
-															</span>
-														)}
-													</div>
-													{eng.models.length === 0 && isInstalled && !isCurrentEngine && (
-														// Engines with no model picker (e.g. Codex) get a single
-														// "Use this engine in a new thread" row instead.
-														<ul>
-															<li>
-																<button
-																	type="button"
-																	onClick={() => void handleStartNewThreadWithEngine(eng.id, null)}
-																	className="flex w-full items-center gap-2 border-l-2 border-transparent px-3 py-1 text-left text-xs transition-colors hover:bg-[var(--rule-soft)]"
-																	title="Start a new thread using this engine"
-																>
-																	<span className="font-mono">Use in new thread</span>
-																</button>
-															</li>
-														</ul>
-													)}
-													<ul>
-														{eng.models.map((m) => {
-															const selected = isCurrentEngine && m.id === currentModel;
-															const isCrossEngine = !isCurrentEngine;
-															const clickable = isInstalled;
-															const title = !isInstalled
-																? (eng.notInstalledHint ?? 'not installed')
-																: isCrossEngine
-																	? `Start a new thread with ${eng.label} — engines can't swap mid-thread`
-																	: undefined;
-															return (
-																<li key={m.id}>
-																	<button
-																		type="button"
-																		disabled={!clickable}
-																		title={title}
-																		onClick={() => {
-																			if (!clickable) return;
-																			setEngineMenuOpen(false);
-																			if (isCrossEngine) {
-																				void handleStartNewThreadWithEngine(eng.id, m.id);
-																			} else {
-																				void handleModelChange(m.id);
-																			}
-																		}}
-																		className={cn(
-																			'flex w-full items-center gap-2 border-l-2 border-transparent px-3 py-1 text-left text-xs transition-colors',
-																			clickable && 'hover:bg-[var(--rule-soft)]',
-																			!clickable && 'cursor-not-allowed',
-																			selected &&
-																				'border-l-[var(--kola-amber)] bg-[var(--rule-soft)] text-foreground'
-																		)}
-																	>
-																		<span className="font-mono">{m.label}</span>
-																		{isCrossEngine && clickable && (
-																			<span className="ml-auto font-mono text-[9px] uppercase tracking-[0.16em] text-[var(--kola-amber)]">
-																				new thread →
-																			</span>
-																		)}
-																		{!isCrossEngine && (
-																			<span className="ml-auto font-mono text-[9px] uppercase tracking-wider text-[var(--chip-carve)]">
-																				{m.id}
-																			</span>
-																		)}
-																	</button>
-																</li>
-															);
-														})}
-													</ul>
-												</div>
-											);
-										})}
+													<ChevronLeft className="h-3 w-3" />
+													<span>engines</span>
+												</button>
+												<span className="text-[var(--chip-carve)]">·</span>
+												<span className="text-foreground">{panelEngine.label}</span>
+											</>
+										) : (
+											<>
+												<span className="text-[var(--kola-amber)]">◾</span>
+												<span className="text-foreground">Engine</span>
+											</>
+										)}
 									</div>
+
+									{pickerPanel === 'engines' ? (
+										<ul className="max-h-[280px] overflow-auto py-1">
+											{catalog.map((eng) => {
+												const isSelected = eng.id === selectedEngineId;
+												const isInstalled = eng.installed;
+												const hint = !isInstalled
+													? (eng.notInstalledHint ?? 'not installed')
+													: undefined;
+												return (
+													<li key={eng.id}>
+														<button
+															type="button"
+															onClick={() => handleEngineRowClick(eng.id, isInstalled)}
+															title={hint}
+															className={cn(
+																'flex w-full items-center gap-2 border-l-2 border-transparent px-3 py-1.5 text-left text-xs transition-colors hover:bg-[var(--rule-soft)]',
+																!isInstalled && 'opacity-70',
+																isSelected &&
+																	'border-l-[var(--kola-amber)] bg-[var(--rule-soft)] text-foreground'
+															)}
+														>
+															<span className="font-mono">{eng.label}</span>
+															{isSelected && (
+																<span className="font-mono text-[9px] uppercase tracking-[0.22em] text-[var(--kola-amber)]">
+																	active
+																</span>
+															)}
+															<span className="ml-auto font-mono text-[9px] uppercase tracking-wider text-[var(--chip-carve)]">
+																{isInstalled ? 'installed' : (hint ?? 'not installed')}
+															</span>
+														</button>
+													</li>
+												);
+											})}
+										</ul>
+									) : panelEngine ? (
+										<ul className="max-h-[280px] overflow-auto py-1">
+											{panelEngine.models.length === 0 ? (
+												// Engines whose model picker isn't pinned yet (e.g.
+												// Codex pre-Phase 3, cursor-agent stub) get a single
+												// "Use this engine" row that pins the engine without
+												// a specific model id.
+												<li>
+													<button
+														type="button"
+														onClick={() => handleModelPick(panelEngine.id, null)}
+														className="flex w-full items-center gap-2 border-l-2 border-transparent px-3 py-1.5 text-left text-xs transition-colors hover:bg-[var(--rule-soft)]"
+													>
+														<span className="font-mono">Use {panelEngine.label}</span>
+														<span className="ml-auto font-mono text-[9px] uppercase tracking-wider text-[var(--chip-carve)]">
+															default model
+														</span>
+													</button>
+												</li>
+											) : (
+												panelEngine.models.map((m) => {
+													const isSelected =
+														panelEngine.id === selectedEngineId && m.id === selectedModelId;
+													return (
+														<li key={m.id}>
+															<button
+																type="button"
+																onClick={() => handleModelPick(panelEngine.id, m.id)}
+																className={cn(
+																	'flex w-full items-center gap-2 border-l-2 border-transparent px-3 py-1.5 text-left text-xs transition-colors hover:bg-[var(--rule-soft)]',
+																	isSelected &&
+																		'border-l-[var(--kola-amber)] bg-[var(--rule-soft)] text-foreground'
+																)}
+															>
+																<span className="font-mono">{m.label}</span>
+																{isSelected && (
+																	<span className="font-mono text-[9px] uppercase tracking-[0.22em] text-[var(--kola-amber)]">
+																		✓
+																	</span>
+																)}
+																<span className="ml-auto font-mono text-[9px] uppercase tracking-wider text-[var(--chip-carve)]">
+																	{m.id}
+																</span>
+															</button>
+														</li>
+													);
+												})
+											)}
+										</ul>
+									) : null}
+
+									{/* ADR-013 §4 warn affordance — only when the picker's
+									    engine diverges from the thread's persisted engine.
+									    Component-local `warnDismissed` state, no persistence;
+									    resets when the user navigates to a different thread or
+									    flips back to the pinned engine. */}
+									{threadEngineId &&
+										selectedEngineId &&
+										selectedEngineId !== threadEngineId &&
+										!warnDismissed && (
+											<div className="flex items-start gap-2 border-t border-[var(--rule)] bg-[var(--rule-soft)] px-3 py-2 text-[11px] text-[var(--chip-carve)]">
+												<span className="text-[var(--kola-amber)]">◾</span>
+												<span className="flex-1 leading-snug">
+													Switching engines starts a fresh context — previous turns won't be visible
+													to {selectedEngine?.label ?? selectedEngineId}.
+												</span>
+												<button
+													type="button"
+													onClick={() => setWarnDismissed(true)}
+													className="shrink-0 text-[var(--chip-carve)] transition-colors hover:text-[var(--kola-amber)]"
+													aria-label="Dismiss warning"
+												>
+													<X className="h-3 w-3" />
+												</button>
+											</div>
+										)}
+
 									<div className="border-t border-[var(--rule)] bg-[var(--rule-soft)] px-2 py-1.5">
 										<button
 											type="button"

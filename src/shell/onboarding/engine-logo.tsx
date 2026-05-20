@@ -1,6 +1,6 @@
 // Brand logo for an onboarding engine row.
 //
-// Maps the onboarding's engine ids (claude-code, codex, gemini-cli,
+// Maps the onboarding's engine ids (claude-code, codex, gemini,
 // cursor-agent, ollama) to `@lobehub/icons` color variants. Unknown ids
 // fall back to a question-mark glyph so we don't crash on a future
 // engine that hasn't been wired yet.
@@ -15,7 +15,7 @@ import Ollama from '@lobehub/icons/es/Ollama';
 export type EngineId =
 	| 'claude-code'
 	| 'codex'
-	| 'gemini-cli'
+	| 'gemini'
 	| 'cursor-agent'
 	| 'ollama'
 	| (string & {});
@@ -38,7 +38,7 @@ export function EngineLogo({
 			return <Claude.Avatar size={px} className={className} />;
 		case 'codex':
 			return <Codex.Avatar size={px} className={className} />;
-		case 'gemini-cli':
+		case 'gemini':
 			return <Gemini.Avatar size={px} className={className} />;
 		case 'cursor-agent':
 			return <Cursor.Avatar size={px} className={className} />;

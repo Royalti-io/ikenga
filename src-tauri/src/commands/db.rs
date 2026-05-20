@@ -203,6 +203,11 @@ async fn ensure_schema(pool: &sqlx::SqlitePool) -> Result<(), String> {
             "0023_studio_threads",
             include_str!("../../migrations/0023_studio_threads.sql"),
         ),
+        (
+            24,
+            "0024_rename_chat_threads_to_chat_sessions",
+            include_str!("../../migrations/0024_rename_chat_threads_to_chat_sessions.sql"),
+        ),
     ];
 
     for (id, name, sql) in migrations {
@@ -258,7 +263,7 @@ async fn bootstrap_default_project(pool: &sqlx::SqlitePool) -> Result<(), String
     .map_err(|e| format!("seed default project: {e}"))?;
 
     for table in [
-        "chat_threads",
+        "chat_sessions",
         "pkg_installed",
         "layout_state",
         "browser_sessions",

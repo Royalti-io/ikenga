@@ -30,7 +30,7 @@ export function sessionsListQueryOptions(projectDir?: string | null, limit?: num
 }
 
 /**
- * Phase 3 (projects-first-class): list `chat_threads` rows scoped by the
+ * Phase 3 (projects-first-class): list `chat_sessions` rows scoped by the
  * active project. Distinct from `sessionsListQueryOptions` which scans
  * `~/.claude/projects/<slug>/*.jsonl` on disk — that view is the legacy
  * surface for "all sessions Claude has ever seen on this machine"; the

@@ -25,7 +25,7 @@ import type { ModelOption } from './adapter';
 
 export interface EngineEntry {
 	/** Stable id — used as a popover-row key, the persisted
-	 *  `chat_threads.adapter` value, and the Tauri-command `engineId` arg. */
+	 *  `chat_sessions.adapter` value, and the Tauri-command `engineId` arg. */
 	id: string;
 	/** Display label rendered in the popover group header. */
 	label: string;
@@ -45,13 +45,77 @@ export interface EngineEntry {
 
 /** Maps engine ids to the `agent_detect` ids they correspond to. The two
  *  taxonomies differ deliberately — engine ids are the chat-layer label
- *  (`claude-code`, `gemini`, `codex`) while detect ids are the CLI-family
- *  label (`claude-code`, `gemini-cli`, `codex`). */
+ *  (`claude-code`, `gemini`, `codex`, `cursor-agent`) while detect ids
+ *  are the CLI-family label (`claude-code`, `gemini-cli`, `codex`,
+ *  `cursor-agent`). ADR-013 §3 harmonised the chat-layer id `gemini-cli`
+ *  → `gemini` so the onboarding wizard and the composer picker agree;
+ *  the Rust `agent_detect` side keeps `gemini-cli` because that's the
+ *  CLI binary family name and stays as-is. */
 const DETECT_ID_FOR_ENGINE: Record<string, string> = {
 	'claude-code': 'claude-code',
 	gemini: 'gemini-cli',
 	codex: 'codex',
+	'cursor-agent': 'cursor-agent',
 };
+
+/** ADR-013 §5 — per-engine onboarding metadata. Mirrors the
+ *  `metadata.onboarding` block each engine pkg declares in its source
+ *  (`ikenga-pkgs/packages/engine/<id>/src/index.ts`). Kept as a static FE
+ *  map rather than read from the installed-pkg manifest because the lazy
+ *  auth path targets engines the user has NOT installed yet — there's no
+ *  installed manifest to read for a greyed picker row. The values are
+ *  stable (env-var name + login command), so a second source of truth
+ *  here is a deliberate, low-churn trade. If these ever diverge from the
+ *  pkg manifests, the pkg manifest is authoritative. */
+export interface EngineOnboarding {
+	/** Vault keys the engine can read (written workspace-scoped). Empty for
+	 *  engines with no API-key path (e.g. cursor-agent scaffold). */
+	vaultKeys: string[];
+	/** When true the API key is OPTIONAL because an interactive login
+	 *  (`authCommand`) is the canonical path (Claude, Gemini). Codex
+	 *  requires `OPENAI_API_KEY`, so it's false there. */
+	vaultKeyOptional: boolean;
+	/** Interactive auth command run in a transient side-pane terminal.
+	 *  Undefined for engines with no verified auth path yet. */
+	authCommand?: string;
+	docsUrl?: string;
+}
+
+export const ENGINE_ONBOARDING: Record<string, EngineOnboarding> = {
+	'claude-code': {
+		vaultKeys: ['ANTHROPIC_API_KEY'],
+		vaultKeyOptional: true,
+		authCommand: 'claude login',
+		docsUrl: 'https://docs.anthropic.com/en/docs/claude-code',
+	},
+	gemini: {
+		vaultKeys: ['GEMINI_API_KEY'],
+		vaultKeyOptional: true,
+		authCommand: 'gemini auth',
+		docsUrl: 'https://geminicli.com/docs/',
+	},
+	codex: {
+		vaultKeys: ['OPENAI_API_KEY'],
+		vaultKeyOptional: false,
+		authCommand: 'codex login',
+		docsUrl: 'https://developers.openai.com/codex/cli',
+	},
+	'cursor-agent': {
+		vaultKeys: [],
+		vaultKeyOptional: true,
+		authCommand: undefined,
+		docsUrl: 'https://docs.cursor.com/en/cli',
+	},
+};
+
+/** Look up the onboarding metadata for an engine id, normalising the
+ *  persisted `'acp'` / `'cli'` aliases to `'claude-code'`. Returns null
+ *  for engines we have no auth metadata for (offline, custom binaries). */
+export function engineOnboardingFor(engineId: string | null | undefined): EngineOnboarding | null {
+	if (!engineId) return null;
+	const id = engineId === 'acp' || engineId === 'cli' ? 'claude-code' : engineId;
+	return ENGINE_ONBOARDING[id] ?? null;
+}
 
 /** Base catalog — the shape of every engine we know about, used as the
  *  synchronous fallback before the live query resolves. Order is the
@@ -85,6 +149,17 @@ export const ENGINE_CATALOG_BASE: EngineEntry[] = [
 		installed: false,
 		models: [],
 		description: 'OpenAI Codex CLI, wrapped in a PTY. Streaming only.',
+	},
+	{
+		// ADR-013 Phase 4 scaffold: cursor-agent is known but the runtime
+		// adapter is stubbed pending an `--acp`-equivalent probe. It shows
+		// in the catalog so the picker can offer it (greyed) and route to
+		// the pkg manager / install hint when the user clicks it.
+		id: 'cursor-agent',
+		label: 'Cursor Agent',
+		installed: false,
+		models: [],
+		description: 'Cursor — streaming + tool use + MCP. Runtime pending verification.',
 	},
 ];
 

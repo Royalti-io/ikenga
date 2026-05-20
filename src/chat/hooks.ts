@@ -157,6 +157,7 @@ export function useThread(threadId: string | null): {
 					thread = (await findThreadById(threadId)) ?? {
 						id: threadId,
 						adapterId,
+						engineId: adapterId,
 						title,
 						cwd: meta.cwd ?? '',
 						model: meta.model,
@@ -295,7 +296,13 @@ export interface ChatActions {
 	lastError: string | null;
 }
 
-export function useChatActions(threadId: string | null): ChatActions {
+/** ADR-013 Phase 6 — `engineId` override is the composer picker's current
+ *  per-turn selection. When provided it routes the send through that
+ *  engine's adapter; when omitted we fall back to `thread.adapterId`
+ *  (back-compat with all the legacy single-engine call sites). The
+ *  thread's persisted `engineId` column stays pinned to whatever it was
+ *  at creation — we don't mutate it on per-turn swap. */
+export function useChatActions(threadId: string | null, engineId?: string): ChatActions {
 	const state = useChatStore((s) => (threadId ? (s.threads[threadId] ?? null) : null));
 	const setStatus = useChatStore((s) => s.setStatus);
 	const setStream = useChatStore((s) => s.setStream);
@@ -324,7 +331,12 @@ export function useChatActions(threadId: string | null): ChatActions {
 				},
 			]);
 
-			const adapter = getAdapter(state?.thread.adapterId ?? defaultChatAdapterId());
+			// Per-turn engine routing (ADR-013 §4): prefer the composer's
+			// `engineId` override so each send hits the picker's current
+			// selection. Fall back to the thread's adapterId for callers
+			// that don't yet thread the picker through (test harnesses,
+			// pin-routed prompts, etc).
+			const adapter = getAdapter(engineId ?? state?.thread.adapterId ?? defaultChatAdapterId());
 			const { streamId, iterable } = adapter.send({ threadId, text });
 			setStream(threadId, streamId);
 			setStatus(threadId, 'streaming');
@@ -355,6 +367,11 @@ export function useChatActions(threadId: string | null): ChatActions {
 
 	const cancel = async () => {
 		if (!threadId || !state || !state.streamId) return;
+		// Cancel always routes through the engine that's currently streaming
+		// — we don't know which engine the live streamId belongs to other
+		// than `thread.adapterId` (set when the send started). Using the
+		// picker's override here would mis-route a cancel to a different
+		// engine than the in-flight turn.
 		const adapter = getAdapter(state.thread.adapterId);
 		await adapter.cancel(state.streamId);
 	};
@@ -368,7 +385,7 @@ export function useChatActions(threadId: string | null): ChatActions {
 			lastError,
 		}),
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-		[threadId, isStreaming, state?.streamId, state?.thread.adapterId, lastError]
+		[threadId, isStreaming, state?.streamId, state?.thread.adapterId, engineId, lastError]
 	);
 }
 

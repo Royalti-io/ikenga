@@ -52,7 +52,7 @@ export function ClearDataSectionBody() {
 					'storyboards',
 					'storyboard_beats',
 					'storyboard_jobs',
-					'chat_threads',
+					'chat_sessions',
 					'chat_messages',
 				];
 				for (const t of tables) {

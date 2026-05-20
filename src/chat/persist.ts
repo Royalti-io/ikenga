@@ -22,12 +22,21 @@ interface ChatThreadRow {
 	project_dir: string | null;
 	project_id: string | null;
 	pty_id: string | null;
+	/** ADR-013 §2 — added by migration 0024. NOT NULL DEFAULT 'claude-code'
+	 *  so pre-migration rows backfill cleanly. */
+	engine_id: string;
 }
 
 function rowToThread(r: ChatThreadRow): ChatThread {
 	return {
 		id: r.id,
 		adapterId: r.adapter,
+		// Fall back to `adapter` for any row that pre-dates the migration
+		// 0024 default backfill (defensive — the default covers all real
+		// rows). The two-level picker uses `engineId` to detect mid-thread
+		// engine divergence and fork-gating reads it for the engine_id
+		// gate per ADR-013 §7 OQ#3.
+		engineId: r.engine_id ?? r.adapter,
 		title: r.title,
 		cwd: r.project_dir ?? r.cwd ?? '',
 		model: r.model,
@@ -44,8 +53,8 @@ export async function findThreadByClaudeSessionId(
 ): Promise<ChatThread | null> {
 	const rows = await dbQuery<ChatThreadRow>(
 		`SELECT id, adapter, title, cwd, model, created_at, updated_at,
-            claude_session_id, project_dir, project_id, pty_id
-       FROM chat_threads
+            claude_session_id, project_dir, project_id, pty_id, engine_id
+       FROM chat_sessions
       WHERE claude_session_id = ?
       LIMIT 1`,
 		[claudeSessionId]
@@ -56,8 +65,8 @@ export async function findThreadByClaudeSessionId(
 export async function findThreadById(id: string): Promise<ChatThread | null> {
 	const rows = await dbQuery<ChatThreadRow>(
 		`SELECT id, adapter, title, cwd, model, created_at, updated_at,
-            claude_session_id, project_dir, project_id, pty_id
-       FROM chat_threads WHERE id = ? LIMIT 1`,
+            claude_session_id, project_dir, project_id, pty_id, engine_id
+       FROM chat_sessions WHERE id = ? LIMIT 1`,
 		[id]
 	);
 	return rows[0] ? rowToThread(rows[0]) : null;
@@ -66,6 +75,11 @@ export async function findThreadById(id: string): Promise<ChatThread | null> {
 export interface CreateThreadInput {
 	id: string;
 	adapterId: string;
+	/** ADR-013 §2: the engine to pin this thread to. Defaults to the
+	 *  `adapterId` when omitted — for the Phase 6 picker rewrite, the
+	 *  composer's per-turn engine swap does NOT mint a new thread, so this
+	 *  is set once at creation and never reassigned. */
+	engineId?: string;
 	cwd: string;
 	claudeSessionId: string | null;
 	model: string | null;
@@ -79,13 +93,21 @@ export interface CreateThreadInput {
 
 export async function createThread(input: CreateThreadInput): Promise<void> {
 	const now = Date.now();
+	// ADR-013 §2: `engine_id` defaults to `adapterId` for backward-compat —
+	// today every FE call site mints a Claude-code thread, so the default
+	// matches. New paths (e.g. onboarding-picked Gemini default) can pass
+	// `engineId` explicitly. The column is NOT NULL DEFAULT 'claude-code' in
+	// the schema (migration 0024), so omitting it from the INSERT would also
+	// work, but we set it explicitly so the engine pin is intentional.
+	const engineId = input.engineId ?? input.adapterId;
 	await dbExec(
-		`INSERT OR IGNORE INTO chat_threads
-       (id, adapter, claude_session_id, project_dir, cwd, model, title, project_id, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT OR IGNORE INTO chat_sessions
+       (id, adapter, engine_id, claude_session_id, project_dir, cwd, model, title, project_id, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		[
 			input.id,
 			input.adapterId,
+			engineId,
 			input.claudeSessionId,
 			input.cwd,
 			input.cwd,
@@ -134,7 +156,7 @@ export async function updateThreadMeta(
 	sets.push('updated_at = ?');
 	params.push(Date.now());
 	params.push(id);
-	await dbExec(`UPDATE chat_threads SET ${sets.join(', ')} WHERE id = ?`, params);
+	await dbExec(`UPDATE chat_sessions SET ${sets.join(', ')} WHERE id = ?`, params);
 }
 
 export type MessageRole = 'user' | 'assistant' | 'system' | 'tool';
@@ -156,7 +178,7 @@ export async function appendMessage(
 /** Cold-start hygiene: drop stale pty_id values left over from a previous
  *  app run. PTYs don't survive process exits. */
 export async function clearLivePtys(): Promise<void> {
-	await dbExec(`UPDATE chat_threads SET pty_id = NULL WHERE pty_id IS NOT NULL`, []);
+	await dbExec(`UPDATE chat_sessions SET pty_id = NULL WHERE pty_id IS NOT NULL`, []);
 }
 
 // ─── User turns ───────────────────────────────────────────────────────────────

@@ -778,10 +778,11 @@ export interface AcpSessionNotification {
 }
 
 /** Canonical engine ids the Rust multi-engine dispatcher recognises.
- *  Phase 2 adds 'gemini'; future phases add 'codex' etc. Defaults to
- *  'claude-code' when omitted by callers — keeps the legacy single-
+ *  Phase 2 added 'gemini'; Phase 3 added 'codex'; Phase 4 scaffolded
+ *  'cursor-agent' (runtime still stubbed in the Rust adapter). Defaults
+ *  to 'claude-code' when omitted by callers — keeps the legacy single-
  *  engine call sites working unchanged during the migration. */
-export type ChatEngineId = 'claude-code' | 'gemini';
+export type ChatEngineId = 'claude-code' | 'gemini' | 'codex' | 'cursor-agent';
 
 /** ACP `initialize` — handshake. Returns the negotiated protocol version
  *  + the agent's advertised capabilities. */
