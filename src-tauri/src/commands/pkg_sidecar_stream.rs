@@ -24,16 +24,15 @@
 //! Permission model mirrors `pkg_sidecar_call`: the registry binds each
 //! sidecar `name` to a single `pkg_id`; cross-pkg invocation is refused.
 
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::{Arc, OnceLock};
 
+use dashmap::DashMap;
 use tauri::{AppHandle, Emitter, State};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{ChildStdin, Command};
 use tokio::sync::Mutex as AsyncMutex;
-use std::sync::Mutex as StdMutex;
 
 use crate::commands::pkg::KernelState;
 use crate::commands::pkg_sidecar::SidecarsRegistryState;
@@ -41,13 +40,28 @@ use crate::commands::pkg_sidecar::SidecarsRegistryState;
 /// Key into the streaming map: `(pkg_id, sidecar_name)`.
 type StreamKey = (String, String);
 
-struct StreamEntry {
-    stdin: Arc<AsyncMutex<ChildStdin>>,
-}
+/// Result of a single spawn attempt. `Ok` carries the stdin Arc that all
+/// concurrent callers will share; `Err` carries the spawn error string so
+/// every waiter sees the same failure without re-spawning.
+type SpawnResult = Result<Arc<AsyncMutex<ChildStdin>>, String>;
+
+/// Slot in the children map. `OnceCell` guarantees the bridge spawn runs
+/// AT MOST ONCE per (pkg_id, name) — concurrent callers find the same
+/// `Arc<OnceCell<…>>` in the map and `get_or_init` serialises them
+/// without us needing to hold the std::sync::Mutex across the (async)
+/// spawn. This is what makes the double-spawn race impossible.
+type SpawnSlot = Arc<tokio::sync::OnceCell<SpawnResult>>;
 
 #[derive(Default)]
 pub struct StreamingSidecarManager {
-    children: StdMutex<HashMap<StreamKey, StreamEntry>>,
+    // DashMap gives us atomic `entry().or_insert_with()` semantics across
+    // threads. The earlier std::sync::Mutex<HashMap> approach exhibited a
+    // visibility bug under Tauri's multi-thread command dispatch (two
+    // concurrent invocations both saw `size_before=0` for the same map
+    // address inside what should have been mutually-exclusive locked
+    // regions). With DashMap each shard owns its own lock and atomic
+    // insert is built in.
+    children: DashMap<StreamKey, SpawnSlot>,
 }
 
 impl StreamingSidecarManager {
@@ -104,31 +118,35 @@ pub async fn pkg_sidecar_rpc_send(
 
     let key: StreamKey = (pkg_id.clone(), name.clone());
 
-    let stdin = {
-        let mut children = manager.children.lock().expect("children mutex poisoned");
-        if let Some(e) = children.get(&key) {
-            e.stdin.clone()
-        } else {
+    let slot: SpawnSlot = manager
+        .children
+        .entry(key.clone())
+        .or_insert_with(|| Arc::new(tokio::sync::OnceCell::new()))
+        .clone();
+
+    let bin_path = entry.bin_path.clone();
+    let key_for_spawn = key.clone();
+    let app_for_spawn = app.clone();
+    let manager_for_spawn = manager.clone();
+    let slot_for_spawn = slot.clone();
+    let spawned: &SpawnResult = slot
+        .get_or_init(|| async move {
             log::info!(
                 "[pkg_sidecar_rpc_send] spawning fresh sidecar for {}::{}",
-                key.0, key.1
+                key_for_spawn.0, key_for_spawn.1
             );
-            let stdin_arc = spawn_streaming_child_sync(
-                app.clone(),
-                manager.clone(),
-                key.clone(),
-                entry.bin_path.clone(),
+            spawn_streaming_child_sync(
+                app_for_spawn,
+                manager_for_spawn,
+                key_for_spawn,
+                slot_for_spawn,
+                bin_path,
                 install_path,
-            )?;
-            children.insert(
-                key.clone(),
-                StreamEntry {
-                    stdin: stdin_arc.clone(),
-                },
-            );
-            stdin_arc
-        }
-    };
+            )
+        })
+        .await;
+
+    let stdin = spawned.as_ref().map_err(|e| e.clone())?.clone();
     write_line(stdin, &message).await
 }
 
@@ -150,6 +168,7 @@ fn spawn_streaming_child_sync(
     app: AppHandle,
     manager: Arc<StreamingSidecarManager>,
     key: StreamKey,
+    slot: SpawnSlot,
     bin_path: PathBuf,
     install_path: PathBuf,
 ) -> Result<Arc<AsyncMutex<ChildStdin>>, String> {
@@ -239,37 +258,29 @@ fn spawn_streaming_child_sync(
         });
     }
 
-    // Construct the stdin Arc up front so the lifecycle watcher can keep a
-    // marker clone for ptr_eq matching.
     let stdin_arc = Arc::new(AsyncMutex::new(stdin));
 
-    // Lifecycle watcher. When the child exits, remove the map entry —
-    // but ONLY if the entry is still ours. A race (e.g. React StrictMode
-    // double-mount triggers two `pkg_sidecar_rpc_send` invocations near
-    // simultaneously and both end up spawning) could have overwritten our
-    // entry with a fresh spawn. Without the ptr_eq guard, our lifecycle
-    // would remove the *replacement's* entry when the original dies,
-    // cascading more deaths.
+    // Lifecycle watcher. When the child exits, evict the slot from the map
+    // so the next RPC send spawns fresh. Guard against a stale eviction:
+    // only remove if the slot Arc in the map is still ours (Arc::ptr_eq).
+    // A fresh respawn after our death would replace the entry with a new
+    // OnceCell; we shouldn't disturb that.
     {
         let app = app.clone();
         let manager = manager.clone();
         let key = key.clone();
-        let our_stdin_marker = stdin_arc.clone();
+        let our_slot = slot;
         tokio::spawn(async move {
             let status = child.wait().await;
             log::info!(
                 "[pkg_sidecar_rpc_send] child exited pkg={} name={} pid={} status={:?}",
                 key.0, key.1, pid, status
             );
-            let mut children = manager.children.lock().expect("children mutex poisoned");
-            let is_ours = children
-                .get(&key)
-                .map(|e| Arc::ptr_eq(&e.stdin, &our_stdin_marker))
-                .unwrap_or(false);
-            if is_ours {
-                children.remove(&key);
-            }
-            drop(children);
+            // remove_if guarantees the predicate runs under the per-shard
+            // lock; the entry is only removed if it's still our slot.
+            manager
+                .children
+                .remove_if(&key, |_, slot_in_map| Arc::ptr_eq(slot_in_map, &our_slot));
             let _ = app.emit(&exit_event, ());
         });
     }
@@ -285,6 +296,5 @@ pub async fn pkg_sidecar_rpc_shutdown(
     name: String,
 ) -> Result<bool, String> {
     let manager = global_manager().clone();
-    let mut children = manager.children.lock().expect("children mutex poisoned");
-    Ok(children.remove(&(pkg_id, name)).is_some())
+    Ok(manager.children.remove(&(pkg_id, name)).is_some())
 }
