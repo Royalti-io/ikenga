@@ -15,6 +15,13 @@
 // The watcher outlives the wizard component — fire-and-forget side effect
 // with a 30-minute self-timeout so it doesn't leak if the agent never
 // writes anything.
+//
+// The chat half of that flow is also exported on its own as
+// `startSeededChat()` — the shared seam for non-wizard callers that need to
+// open a chat pane pre-loaded with a kickoff prompt. Phase-2's
+// `host.startChatSession` verb (WP-10) is the first such consumer; keep this
+// the single mint → mount → send path so behavior stays consistent across the
+// wizard and any future seeded-session entrypoint.
 
 import { mintThreadId, defaultChatAdapterId } from '@/chat';
 import { appendUserTurn, createThread } from '@/chat/persist';
