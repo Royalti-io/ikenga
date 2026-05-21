@@ -7,6 +7,7 @@ import { Dock } from './dock/dock';
 import { useDockStore } from './dock/dock-store';
 import { CommandPalette, useCommandPalette } from './command-palette';
 import { TerminalHandoffPrompt } from './artifact-wizard/terminal-handoff-prompt';
+import { SeedChatConfirmPrompt } from '@/components/pkg/seed-chat-confirm-prompt';
 import { WizardPopRecoveryChip } from './artifact-wizard/wizard-pop-recovery-chip';
 import { ConnectorBanner } from './connector-banner';
 import { TrustReviewBanner } from './trust-review-banner';
@@ -324,6 +325,8 @@ export function Workspace() {
 			/>
 
 			<TerminalHandoffPrompt />
+
+			<SeedChatConfirmPrompt />
 
 			<WizardPopRecoveryChip />
 		</div>
