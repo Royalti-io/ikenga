@@ -30,8 +30,7 @@ interface PkgMenuState {
 export const usePkgMenuStore = create<PkgMenuState>((set) => ({
 	menus: {},
 	activeFeatures: {},
-	setMenu: (pkgId, items) =>
-		set((s) => ({ menus: { ...s.menus, [pkgId]: items } })),
+	setMenu: (pkgId, items) => set((s) => ({ menus: { ...s.menus, [pkgId]: items } })),
 	clearMenu: (pkgId) =>
 		set((s) => {
 			const next = { ...s.menus };

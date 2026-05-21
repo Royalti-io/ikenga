@@ -149,10 +149,7 @@ export function PkgWebviewHost({ pkgId, paneId, source, partition }: PkgWebviewH
 			if (cancelled) return;
 			if (ev.payload?.pkg_id !== pkgId) return;
 			pkgWebviewNavigate(pkgId, paneId, source).catch((e) => {
-				console.warn(
-					`[pkg-webview-host] navigate on reload failed for ${pkgId}/${paneId}:`,
-					e,
-				);
+				console.warn(`[pkg-webview-host] navigate on reload failed for ${pkgId}/${paneId}:`, e);
 			});
 		}).then((fn) => {
 			if (cancelled) {

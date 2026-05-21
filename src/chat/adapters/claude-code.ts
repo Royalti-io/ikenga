@@ -219,7 +219,7 @@ class ClaudeCodeAdapterImpl implements ChatAdapter {
 			const unlisten = await chatListen(
 				threadId,
 				(notif) => this.onNotification(threadId, notif),
-				'claude-code',
+				'claude-code'
 			);
 			placeholder.unlisten = unlisten;
 		} catch (e) {

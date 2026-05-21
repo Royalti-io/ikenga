@@ -132,7 +132,7 @@ class CodexAdapterImpl implements ChatAdapter {
 			const unlisten = await chatListen(
 				threadId,
 				(notif) => this.onNotification(threadId, notif),
-				'codex',
+				'codex'
 			);
 			placeholder.unlisten = unlisten;
 		} catch (e) {

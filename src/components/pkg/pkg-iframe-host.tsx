@@ -195,10 +195,7 @@ async function dispatchHostCall(
 				id: obj.id,
 				label: obj.label,
 				icon: typeof obj.icon === 'string' ? obj.icon : null,
-				badge:
-					typeof obj.badge === 'string' || typeof obj.badge === 'number'
-						? obj.badge
-						: null,
+				badge: typeof obj.badge === 'string' || typeof obj.badge === 'number' ? obj.badge : null,
 			});
 		}
 		usePkgMenuStore.getState().setMenu(pkgId, items);

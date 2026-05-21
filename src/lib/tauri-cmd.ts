@@ -907,9 +907,8 @@ export async function chatListenRequests(
 	onRequest: (envelope: AcpRequestEnvelope) => void,
 	engineId: ChatEngineId = 'claude-code'
 ): Promise<UnlistenFn> {
-	return listen<AcpRequestEnvelope>(
-		`chat://session/${threadId}/${engineId}/request`,
-		(e) => onRequest(e.payload)
+	return listen<AcpRequestEnvelope>(`chat://session/${threadId}/${engineId}/request`, (e) =>
+		onRequest(e.payload)
 	);
 }
 

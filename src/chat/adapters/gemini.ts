@@ -186,7 +186,7 @@ class GeminiAdapterImpl implements ChatAdapter {
 			const unlisten = await chatListen(
 				threadId,
 				(notif) => this.onNotification(threadId, notif),
-				ENGINE_ID,
+				ENGINE_ID
 			);
 			placeholder.unlisten = unlisten;
 		} catch (e) {
