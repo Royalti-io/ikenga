@@ -32,11 +32,11 @@
  *   }>
  */
 
-import { useState } from 'react';
 import { CheckCircle2 } from 'lucide-react';
 import { sessionToolResult } from '@/lib/tauri-cmd';
 import type { PairedToolCall } from '../../store';
 import { AskUserQuestionPrompt, type AskQuestion } from '../ask-user-question-form';
+import { useAskAnswerStore } from '../ask-answer-store';
 
 interface AskUserQuestionInput {
 	questions: AskQuestion[];
@@ -51,11 +51,16 @@ export function AskUserQuestionRenderer({ pair, threadId }: AskUserQuestionRende
 	const input = (pair.use.input ?? {}) as Partial<AskUserQuestionInput>;
 	const questions = input.questions ?? [];
 
-	// Local record of what we submitted. The answering tool_result isn't
-	// echoed back as a stream event, so this is our only signal that the
-	// question has been answered from this session.
-	const [submitted, setSubmitted] = useState<Record<string, string | string[]> | null>(null);
-	const [cancelled, setCancelled] = useState(false);
+	// Resolution is keyed by tool_use id in a store, not local state: the
+	// answering tool_result is never echoed back (so `pair.result` stays null),
+	// and component state would reset on remount — resurfacing an already-
+	// answered form and letting it submit a second tool_result. See
+	// `ask-answer-store`.
+	const toolUseId = pair.use.id;
+	const resolution = useAskAnswerStore((s) => s.resolved[toolUseId]);
+	const markAnswered = useAskAnswerStore((s) => s.markAnswered);
+	const markCancelled = useAskAnswerStore((s) => s.markCancelled);
+	const clear = useAskAnswerStore((s) => s.clear);
 
 	if (questions.length === 0) {
 		return (
@@ -63,37 +68,43 @@ export function AskUserQuestionRenderer({ pair, threadId }: AskUserQuestionRende
 		);
 	}
 
-	// Already resolved — either we answered it locally, the caller cancelled,
-	// or (defensively) a paired tool_result arrived. Show a compact summary
-	// instead of a re-submittable form.
-	const isResolved = submitted != null || cancelled || pair.result != null;
+	// Already resolved — we answered/cancelled it (persisted in the store), or
+	// defensively a paired tool_result arrived. Show a compact summary instead
+	// of a re-submittable form.
+	const isResolved = resolution != null || pair.result != null;
 	if (isResolved) {
-		return <AnsweredSummary questions={questions} answers={submitted} cancelled={cancelled} />;
+		return (
+			<AnsweredSummary
+				questions={questions}
+				answers={resolution?.answers ?? null}
+				cancelled={resolution?.cancelled ?? false}
+			/>
+		);
 	}
 
 	async function handleSubmit(answers: Record<string, string | string[]>) {
 		// Optimistically flip to the answered state so the form can't be
 		// re-submitted while the round-trip is in flight.
-		setSubmitted(answers);
+		markAnswered(toolUseId, answers);
 		try {
-			await sessionToolResult(threadId, pair.use.id, { answers: flattenAnswers(answers) });
+			await sessionToolResult(threadId, toolUseId, { answers: flattenAnswers(answers) });
 		} catch {
 			// Revert on failure so the user can retry.
-			setSubmitted(null);
+			clear(toolUseId);
 		}
 	}
 
 	async function handleCancel() {
-		setCancelled(true);
+		markCancelled(toolUseId);
 		try {
 			await sessionToolResult(
 				threadId,
-				pair.use.id,
+				toolUseId,
 				'The user cancelled the question without answering.',
 				true
 			);
 		} catch {
-			setCancelled(false);
+			clear(toolUseId);
 		}
 	}
 

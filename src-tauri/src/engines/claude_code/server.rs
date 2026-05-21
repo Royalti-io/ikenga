@@ -237,14 +237,9 @@ impl ClaudeCodeEngine {
         let session = self.sessions.get_or_create(&thread_id, &cwd, opts).await;
 
         // Apply a permission mode the FE picked before this session existed
-        // (the mode picker can fire before `attach` creates the session). The
-        // child is still lazy, so updating `opts.permission_mode` here is
-        // enough — the first prompt's `spawn_streaming` reads it for the
-        // `--permission-mode` flag.
-        if let Some(pending) = self.pending_modes.lock().await.remove(&thread_id) {
-            *session.current_mode.lock().await = pending;
-            session.opts.lock().await.permission_mode = pending;
-            initial_mode = pending;
+        // (the mode picker can fire before `attach` creates the session).
+        if let Some(applied) = self.apply_pending_mode(&thread_id, &session).await {
+            initial_mode = applied;
         }
 
         // Phase 5 (projects-first-class): build the per-session overlay
@@ -580,6 +575,25 @@ impl ClaudeCodeEngine {
         send_interrupt(session).await
     }
 
+    /// Drain a permission mode stashed by `handle_set_mode` before this
+    /// session existed and apply it to the session's tracked mode + opts, so
+    /// the first `spawn_streaming` reads it for `--permission-mode`. Returns
+    /// the applied mode, or `None` when nothing was pending for this thread.
+    /// Does NOT push a runtime `set_permission_mode` control_request — callers
+    /// that need the live switch (when a child is already alive) send it
+    /// themselves; on the `handle_new_session` path the child is still lazy so
+    /// updating opts is sufficient.
+    async fn apply_pending_mode(
+        &self,
+        thread_id: &str,
+        session: &crate::claude::session::Session,
+    ) -> Option<AcpSessionMode> {
+        let pending = self.pending_modes.lock().await.remove(thread_id)?;
+        *session.current_mode.lock().await = pending;
+        session.opts.lock().await.permission_mode = pending;
+        Some(pending)
+    }
+
     /// Handle ACP `session/set_mode`. Updates the tracked current mode for
     /// the session and, if a streaming child is alive, writes a
     /// `set_permission_mode` control_request to its stdin so the change
@@ -605,15 +619,15 @@ impl ClaudeCodeEngine {
                 // spurious "mode change failed".
                 self.pending_modes.lock().await.insert(thread_id.clone(), mode);
                 // Close the race where `handle_new_session` created the
-                // session (and drained pending) between our `get` miss and the
-                // insert above: if it exists now, apply directly and drop the
-                // stash so the choice can't be orphaned.
+                // session between our `get` miss and the insert above: if it
+                // exists now, drain+apply via the same helper so the choice
+                // can't be orphaned (and push the runtime switch if a child is
+                // already alive).
                 if let Some(s) = self.sessions.get(&thread_id).await {
-                    self.pending_modes.lock().await.remove(&thread_id);
-                    *s.current_mode.lock().await = mode;
-                    s.opts.lock().await.permission_mode = mode;
-                    if s.streaming.lock().await.is_some() {
-                        send_set_mode(s.clone(), mode).await?;
+                    if let Some(applied) = self.apply_pending_mode(&thread_id, &s).await {
+                        if s.streaming.lock().await.is_some() {
+                            send_set_mode(s.clone(), applied).await?;
+                        }
                     }
                 }
                 return Ok(());
@@ -981,6 +995,51 @@ mod tests {
             AcpSessionMode::BypassPermissions,
         );
         assert!(server.pending_modes.lock().await.get("ui-thread").is_none());
+    }
+
+    #[tokio::test]
+    async fn apply_pending_mode_drains_and_applies_to_session() {
+        // The consume side of the stash: `handle_new_session` calls this after
+        // `get_or_create`. A stashed mode lands on the session opts (read by
+        // the first spawn's `--permission-mode`) and is removed from pending.
+        let server = ClaudeCodeEngine::default();
+        server
+            .pending_modes
+            .lock()
+            .await
+            .insert("t".into(), AcpSessionMode::BypassPermissions);
+        let session = server
+            .sessions
+            .get_or_create("t", "/tmp", SessionOpts::default())
+            .await;
+        let applied = server.apply_pending_mode("t", &session).await;
+        assert_eq!(applied, Some(AcpSessionMode::BypassPermissions));
+        assert_eq!(
+            session.opts.lock().await.permission_mode,
+            AcpSessionMode::BypassPermissions,
+        );
+        assert_eq!(
+            *session.current_mode.lock().await,
+            AcpSessionMode::BypassPermissions,
+        );
+        assert!(server.pending_modes.lock().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn apply_pending_mode_is_noop_when_nothing_pending() {
+        // The common case (no race): nothing stashed, session keeps its
+        // default mode and the helper signals "nothing applied".
+        let server = ClaudeCodeEngine::default();
+        let session = server
+            .sessions
+            .get_or_create("t", "/tmp", SessionOpts::default())
+            .await;
+        let applied = server.apply_pending_mode("t", &session).await;
+        assert_eq!(applied, None);
+        assert_eq!(
+            session.opts.lock().await.permission_mode,
+            SessionOpts::default().permission_mode,
+        );
     }
 
     #[tokio::test]
