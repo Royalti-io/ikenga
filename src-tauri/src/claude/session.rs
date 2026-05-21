@@ -24,7 +24,7 @@
 //! listeners (e.g. live-sessions store keyed on Claude id) keep working until
 //! they migrate.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::process::Stdio;
 use std::sync::Arc;
 
@@ -155,6 +155,14 @@ pub struct Session {
     /// + commands that reference `${CLAUDE_PROJECT_DIR}` even when cwd has
     /// been changed by an `--add-dir`.
     pub claude_project_dir: Mutex<Option<String>>,
+    /// tool_use ids we've already answered via `send_tool_result` this run.
+    /// A `tool_use` must be answered exactly once; this guard makes a duplicate
+    /// `session_tool_result` (e.g. an interactive `AskUserQuestion` form that
+    /// got resurfaced by a UI remount/race) a harmless no-op instead of
+    /// shipping a second `tool_result` into claude's transcript. Authoritative
+    /// because the renderer's own state can't always know what was already
+    /// sent.
+    answered_tool_uses: Mutex<HashSet<String>>,
 }
 
 impl Session {
@@ -175,6 +183,7 @@ impl Session {
             current_mode: Mutex::new(initial_mode),
             claude_config_dir: Mutex::new(None),
             claude_project_dir: Mutex::new(None),
+            answered_tool_uses: Mutex::new(HashSet::new()),
         }
     }
 
@@ -666,6 +675,23 @@ pub async fn send_tool_result(
     output: serde_json::Value,
     is_error: bool,
 ) -> Result<(), String> {
+    // Answer each tool_use exactly once. A duplicate call (e.g. an
+    // AskUserQuestion form resurfaced by a UI remount/race after a reload
+    // wiped the FE's resolution store) is a harmless no-op rather than a
+    // second tool_result in claude's transcript. We mark the id only after a
+    // successful write below, so a failed send can still be retried.
+    if session
+        .answered_tool_uses
+        .lock()
+        .await
+        .contains(&tool_use_id)
+    {
+        log::debug!(
+            target: "ikenga::claude::session",
+            "tool_result for {tool_use_id} already sent; ignoring duplicate",
+        );
+        return Ok(());
+    }
     let streaming = session
         .streaming
         .lock()
@@ -683,6 +709,8 @@ pub async fn send_tool_result(
         .flush()
         .await
         .map_err(|e| format!("stdin flush: {e}"))?;
+    drop(stdin);
+    session.answered_tool_uses.lock().await.insert(tool_use_id);
     Ok(())
 }
 
@@ -912,6 +940,44 @@ mod tests {
             .expect("no-op send_set_mode returns Ok");
         // Still no child afterwards.
         assert!(session.streaming.lock().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn send_tool_result_ignores_already_answered_id() {
+        // Idempotency guard: a tool_use answered once is a no-op on a repeat
+        // call (e.g. an AskUserQuestion form resurfaced by a remount). The
+        // early no-op returns Ok *without* needing a live child, so a
+        // duplicate can't push a second tool_result into the transcript.
+        let session = Arc::new(Session::new(
+            "thread_dedup".into(),
+            "/tmp".into(),
+            SessionOpts::default(),
+        ));
+        session
+            .answered_tool_uses
+            .lock()
+            .await
+            .insert("tool_1".into());
+        send_tool_result(session.clone(), "tool_1".into(), json!({ "answers": {} }), false)
+            .await
+            .expect("duplicate tool_result is a no-op Ok");
+    }
+
+    #[tokio::test]
+    async fn send_tool_result_unanswered_without_child_errors_and_stays_retryable() {
+        // A first-time id with no streaming child errors (nothing to write to)
+        // and must NOT be marked answered — otherwise the FE's retry-after-
+        // failure path would be silently swallowed by the dedup guard.
+        let session = Arc::new(Session::new(
+            "thread_retry".into(),
+            "/tmp".into(),
+            SessionOpts::default(),
+        ));
+        let err = send_tool_result(session.clone(), "tool_2".into(), json!({}), false)
+            .await
+            .expect_err("no streaming child should error");
+        assert!(err.contains("no streaming child"));
+        assert!(!session.answered_tool_uses.lock().await.contains("tool_2"));
     }
 
     #[test]
