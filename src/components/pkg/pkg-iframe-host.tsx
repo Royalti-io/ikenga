@@ -130,7 +130,10 @@ async function pkgDeclaresScope(pkgId: string, resource: string, action: string)
 	}
 }
 
-async function dispatchHostCall(
+// Exported for unit tests (the verb's scope-gate + confirm + decline
+// branches). Not part of the pkg-facing API — callers go through the
+// AppBridge `oncalltool` path below.
+export async function dispatchHostCall(
 	pkgId: string,
 	name: string,
 	rawArgs: unknown
