@@ -37,8 +37,23 @@ export function registerIykeIframe(
 	};
 }
 
+/**
+ * Resolve a pane id that may be a truncated prefix (the CLI's `iyke state`
+ * prints the first 8 chars only — `iyke-cli/src/output.rs`) to the full
+ * registered id. Exact match wins; otherwise a *unique* prefix match. Returns
+ * undefined when nothing matches or the prefix is ambiguous (caller then
+ * treats it as a non-iframe pane and falls back to host targeting).
+ */
+export function resolveIframePaneId(idOrPrefix: string): string | undefined {
+	if (registry.has(idOrPrefix)) return idOrPrefix;
+	const matches: string[] = [];
+	for (const key of registry.keys()) if (key.startsWith(idOrPrefix)) matches.push(key);
+	return matches.length === 1 ? matches[0] : undefined;
+}
+
 export function getIframe(paneId: string): IframeRegistration | undefined {
-	return registry.get(paneId);
+	const full = resolveIframePaneId(paneId);
+	return full ? registry.get(full) : undefined;
 }
 
 export function listIframes(): IframeRegistration[] {
@@ -76,7 +91,7 @@ function postWithReply<T>(
 	payload: unknown,
 	timeoutMs = 5000
 ): Promise<T> {
-	const reg = registry.get(paneId);
+	const reg = registry.get(resolveIframePaneId(paneId) ?? paneId);
 	if (!reg) {
 		return Promise.reject(new Error(`iyke iframe not registered: paneId=${paneId}`));
 	}
@@ -106,7 +121,7 @@ function postWithReply<T>(
 }
 
 export function postToIframeFireAndForget(paneId: string, kind: string, payload: unknown): void {
-	const reg = registry.get(paneId);
+	const reg = registry.get(resolveIframePaneId(paneId) ?? paneId);
 	if (!reg || !reg.iframe.contentWindow) return;
 	reg.iframe.contentWindow.postMessage({ __iyke: true, kind, payload }, '*');
 }
