@@ -1,22 +1,24 @@
 // Pending-confirm store for `host.startChatSession`.
 //
-// A pkg iframe calling the verb (e.g. a plan board's "Start session") hands
-// the shell a seed *prompt* derived from plan text. Per 01-plan §Risks
-// (prompt-injection via auto-seeded sessions), that text is surfaced to the
-// user for explicit approval before it's sent to an engine — and since
-// nothing sends without a click, this confirm also serves as the rate gate
-// against unbounded auto-spawns.
+// Something calling the verb (a pkg iframe, or a first-party plan-board
+// artifact via the iyke iframe channel) hands the shell a seed *prompt*
+// derived from plan text. Per 01-plan §Risks (prompt-injection via
+// auto-seeded sessions), that text is surfaced to the user for explicit
+// approval before it's sent to an engine — and since nothing sends without a
+// click, this confirm also serves as the rate gate against unbounded
+// auto-spawns. The confirm is required on BOTH paths; only the pkg path adds
+// an `engine:invoke` scope check on top (artifacts are first-party).
 //
-// The verb (in pkg-iframe-host.tsx) is a non-React async path, so it requests
-// a modal here and awaits the promise; the workspace-mounted prompt component
-// renders the dialog and resolves it. Mirrors the wizard's handoff-store.
+// Callers are non-React async paths, so they request a modal here and await
+// the promise; the workspace-mounted prompt component renders the dialog and
+// resolves it. Mirrors the wizard's handoff-store.
 
 import { create } from 'zustand';
 
 export interface PendingSeedConfirm {
-	/** Id of the pkg that requested the session — shown so the user knows
-	 *  who is asking. */
-	pkgId: string;
+	/** Human label for whoever requested the session (a pkg id, or a
+	 *  first-party artifact label) — shown so the user knows who is asking. */
+	requester: string;
 	/** The seed prompt that will be sent as the thread's first user turn. */
 	prompt: string;
 	/** Pane title the pkg proposed, or null to use the helper's default. */

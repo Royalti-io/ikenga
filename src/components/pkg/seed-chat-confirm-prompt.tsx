@@ -29,8 +29,8 @@ export function SeedChatConfirmPrompt() {
 				<DialogHeader>
 					<DialogTitle>Start a chat session?</DialogTitle>
 					<DialogDescription>
-						<code className="font-mono text-foreground">{pending.pkgId}</code> wants to open a new
-						chat session seeded with the prompt below. Review it before it's sent to the engine.
+						<code className="font-mono text-foreground">{pending.requester}</code> wants to open a
+						new chat session seeded with the prompt below. Review it before it's sent to the engine.
 					</DialogDescription>
 				</DialogHeader>
 

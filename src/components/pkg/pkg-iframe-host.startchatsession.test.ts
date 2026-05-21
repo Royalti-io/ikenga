@@ -81,7 +81,7 @@ describe('host.startChatSession', () => {
 		});
 
 		expect(request).toHaveBeenCalledWith({
-			pkgId: PKG,
+			requester: PKG,
 			prompt: 'Build the WP-09 brief',
 			title: 'WP-09',
 		});

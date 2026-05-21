@@ -49,8 +49,7 @@ import {
 	pkgPreviewManifest,
 	pkgSidecarCall,
 } from '@/lib/tauri-cmd';
-import { useSeedChatConfirmStore } from '@/components/pkg/seed-chat-confirm-store';
-import { startSeededChat } from '@/shell/artifact-wizard/scaffold';
+import { startSeededChatWithConfirm } from '@/components/pkg/start-seeded-chat-confirmed';
 
 // Tauri event payload emitted by `Kernel::reload_pkg`. The FE only cares about
 // `pkg_id` for the host filter; `version` + `registries` are useful for debug
@@ -271,32 +270,33 @@ export async function dispatchHostCall(
 				? args.split
 				: undefined;
 
-		// Scope gate — the kernel doesn't enforce scopes on host.* verbs.
+		// Scope gate — the kernel doesn't enforce scopes on host.* verbs. The
+		// confirm + send core is shared with the first-party artifact channel
+		// (iyke iframe-registry), which skips this scope check.
 		if (!(await pkgDeclaresScope(pkgId, 'engine', 'invoke'))) {
 			return errResult("host.startChatSession: pkg lacks the 'engine:invoke' scope");
 		}
 
-		// User-confirm the seed text before it reaches the engine. Doubles as
-		// the rate gate — nothing is sent without an explicit click.
-		const approved = await useSeedChatConfirmStore
-			.getState()
-			.request({ pkgId, prompt, title: title ?? null });
-		if (!approved) {
+		const res = await startSeededChatWithConfirm(pkgId, {
+			prompt,
+			projectId,
+			title,
+			engineId,
+			split,
+		});
+		if (res.declined) {
 			return {
 				content: [{ type: 'text', text: 'declined by user' }],
 				structuredContent: { ok: false, declined: true },
 			};
 		}
-
-		try {
-			const res = await startSeededChat({ prompt, projectId, title, engineId, split });
-			return {
-				content: [{ type: 'text', text: `session started: ${res.threadId}` }],
-				structuredContent: { ok: true, threadId: res.threadId, paneId: res.paneId },
-			};
-		} catch (e) {
-			return errResult(`host.startChatSession failed: ${(e as Error).message ?? String(e)}`);
+		if (!res.ok) {
+			return errResult(`host.startChatSession failed: ${res.error ?? 'unknown error'}`);
 		}
+		return {
+			content: [{ type: 'text', text: `session started: ${res.threadId}` }],
+			structuredContent: { ok: true, threadId: res.threadId, paneId: res.paneId },
+		};
 	}
 
 	return errResult(`unknown host tool: ${name}`);
