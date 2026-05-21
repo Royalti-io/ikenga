@@ -87,6 +87,19 @@ export function resolveActiveChatThreadId(): string | null {
  * `pkgDeclaresScope` because the artifact-channel path (iframe-registry)
  * deliberately skips it (first-party). The pkg verb wraps this in an
  * `engine:invoke` check; the artifact channel calls it raw.
+ *
+ * Verb-surface signature (frozen by G-ACTIVE-SESSION — WP-21 codes
+ * against this shape and depends on its stability):
+ *
+ * ```ts
+ * host.sendToActiveSession({ prompt: string, source?: string })
+ *   → { ok: true; threadId: string }
+ *   | { ok: false; reason: 'no-active-session' | 'scope-denied' }
+ * ```
+ *
+ * `scope-denied` is produced only on the pkg-iframe path (the artifact
+ * channel skips the scope check) and is filled in by the verb wrapper in
+ * `pkg-iframe-host.tsx`, not by this core.
  */
 export async function sendToActiveSession(
 	opts: SendToActiveSessionOptions
