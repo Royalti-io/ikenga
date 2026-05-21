@@ -9,12 +9,19 @@
 // once a `home_layout` migration lands), widget bodies use placeholder data
 // pending the pkg-source wiring.
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import {
+	Canvas,
+	type CanvasHandle,
+	type ItemId,
+	type ItemRenderState,
+	type Placement,
+	type Viewport,
+} from '@ikenga/contract/canvas';
 import { dailyAddress, quoteOfTheDay, partOfDay } from '@/lib/lore';
 import { sessionsListQueryOptions, type SessionSummary } from '@/lib/queries/sessions';
 import { listScratchpads } from '@/lib/iyke/memory';
-import './canvas.css';
 
 // ───────────────────────── session helpers ─────────────────────────
 // Map a SessionSummary's last activity timestamp to a coarse state used by
@@ -522,11 +529,32 @@ function widgetMeta(kind: WidgetKind): {
 }
 
 // ───────────────────────── canvas ─────────────────────────
+// The free-form pan/zoom/grid-snap surface now lives in the reusable
+// <Canvas> primitive (`@ikenga/contract/canvas`). Home stays the source of
+// truth for `layout` (+ localStorage persistence), `editMode`, `selectedId`,
+// and the viewport; Canvas drives the gestures and calls back on change.
+//
+// Two adapters bridge home's legacy `WidgetPlacement[]` (ordered, kind-tagged)
+// to the canvas's `Record<ItemId, Placement>`: `toRecord` strips to geometry,
+// `applyRecord` writes moved coordinates back onto the ordered array so order
+// + kind + patina survive the round-trip.
 
-interface DragState {
-	id: string;
-	startMouse: { x: number; y: number };
-	startPos: { x: number; y: number };
+function toRecord(layout: WidgetPlacement[]): Record<ItemId, Placement> {
+	const rec: Record<ItemId, Placement> = {};
+	for (const w of layout) {
+		rec[w.id as ItemId] = { x: w.x, y: w.y, w: w.w, h: w.h };
+	}
+	return rec;
+}
+
+function applyRecord(
+	layout: WidgetPlacement[],
+	rec: Record<ItemId, Placement>
+): WidgetPlacement[] {
+	return layout.map((w) => {
+		const p = rec[w.id as ItemId];
+		return p ? { ...w, x: p.x, y: p.y, w: p.w, h: p.h } : w;
+	});
 }
 
 export function Home() {
@@ -554,187 +582,71 @@ export function Home() {
 	}, [layout]);
 
 	const [editMode, setEditMode] = useState(false);
-	const [selectedId, setSelectedId] = useState<string | null>(null);
-	const [pan, setPan] = useState({ x: 0, y: 0, scale: 1 });
+	const [selectedId, setSelectedId] = useState<ItemId | null>(null);
+	const [viewport, setViewport] = useState<Viewport>({ x: 0, y: 0, scale: 1 });
 
-	const canvasRef = useRef<HTMLDivElement>(null);
-	const stageRef = useRef<HTMLDivElement>(null);
-	const spaceDown = useRef(false);
-	const panStart = useRef<{ x: number; y: number } | null>(null);
-	const dragState = useRef<DragState | null>(null);
+	const canvasHandle = useRef<CanvasHandle>(null);
 
-	// Auto-fit on load + when palette opens (palette eats 320px on the right).
-	const autoFit = useCallback(
-		(animate = true) => {
-			const canvas = canvasRef.current;
-			if (!canvas || !layout.length) return;
-			let minX = Infinity,
-				minY = Infinity,
-				maxX = -Infinity,
-				maxY = -Infinity;
-			for (const w of layout) {
-				if (w.x < minX) minX = w.x;
-				if (w.y < minY) minY = w.y;
-				if (w.x + w.w > maxX) maxX = w.x + w.w;
-				if (w.y + w.h > maxY) maxY = w.y + w.h;
-			}
-			const cw = canvas.clientWidth - (editMode ? 320 : 0) - 40;
-			const ch = canvas.clientHeight - 44 - 32;
-			const bw = maxX - minX;
-			const bh = maxY - minY;
-			const sx = bw > 0 ? cw / bw : 1;
-			const sy = bh > 0 ? ch / bh : 1;
-			const scale = Math.min(1, sx, sy);
-			const offX = Math.round((cw + 40 - bw * scale) / 2 - minX * scale);
-			const offY = Math.round((ch + 32 - bh * scale) / 2 - minY * scale + 22);
-			setPan({ x: offX, y: offY, scale });
-			if (stageRef.current) stageRef.current.classList.toggle('is-dragging', !animate);
-		},
-		[layout, editMode]
-	);
+	const layoutRecord = useMemo(() => toRecord(layout), [layout]);
 
-	useEffect(() => {
-		requestAnimationFrame(() => autoFit(false));
-		const onResize = () => autoFit(true);
-		window.addEventListener('resize', onResize);
-		return () => window.removeEventListener('resize', onResize);
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, []);
-	useEffect(() => {
-		autoFit(true);
-	}, [editMode, autoFit]);
-
-	// Keyboard — Escape exits edit, Space enables pan-grab cursor.
-	useEffect(() => {
-		const down = (e: KeyboardEvent) => {
-			if (e.key === 'Escape' && editMode) {
-				setEditMode(false);
-				setSelectedId(null);
-			}
-			if (
-				e.code === 'Space' &&
-				!e.repeat &&
-				document.activeElement === document.body &&
-				canvasRef.current
-			) {
-				spaceDown.current = true;
-				canvasRef.current.style.cursor = 'grab';
-				e.preventDefault();
-			}
-		};
-		const up = (e: KeyboardEvent) => {
-			if (e.code === 'Space') {
-				spaceDown.current = false;
-				if (canvasRef.current) canvasRef.current.style.cursor = '';
-			}
-		};
-		window.addEventListener('keydown', down);
-		window.addEventListener('keyup', up);
-		return () => {
-			window.removeEventListener('keydown', down);
-			window.removeEventListener('keyup', up);
-		};
-	}, [editMode]);
-
-	function onCanvasMouseDown(e: React.MouseEvent<HTMLDivElement>) {
-		const target = e.target as HTMLElement;
-		if (target.closest('.home-bar') || target.closest('.home-palette')) return;
-		const middle = e.button === 1;
-		const widgetEl = target.closest('.home-widget, .home-greeting') as HTMLElement | null;
-
-		if (editMode && widgetEl && !middle && !spaceDown.current) {
-			const id = widgetEl.getAttribute('data-id');
-			if (!id) return;
-			setSelectedId(id);
-			const w = layout.find((l) => l.id === id);
-			if (!w) return;
-			dragState.current = {
-				id,
-				startMouse: { x: e.clientX, y: e.clientY },
-				startPos: { x: w.x, y: w.y },
-			};
-			stageRef.current?.classList.add('is-dragging');
-			e.preventDefault();
-			return;
+	// renderItem owns the widgetMeta lookup + Body invocation + greeting
+	// special-case. It returns the consumer's positioned element (home-greeting
+	// or home-widget) carrying its base class + height; Canvas injects data-id,
+	// left/top/width geometry, and the is-selected class.
+	function renderItem(w: WidgetPlacement, state: ItemRenderState): ReactNode {
+		if (w.kind === 'greeting') {
+			return (
+				<div className="home-greeting" style={{ minHeight: state.placement.h }}>
+					<GreetingBody name="friend" />
+				</div>
+			);
 		}
-		if (middle || spaceDown.current || (!editMode && !widgetEl)) {
-			panStart.current = { x: e.clientX - pan.x, y: e.clientY - pan.y };
-			stageRef.current?.classList.add('is-dragging');
-			if (canvasRef.current) canvasRef.current.style.cursor = 'grabbing';
-			e.preventDefault();
-		}
-		if (editMode && !widgetEl) setSelectedId(null);
+		const m = widgetMeta(w.kind);
+		if (!m) return null;
+		const Body = m.Body;
+		return (
+			<div
+				className={`home-widget ${m.cls ?? ''}`.trim()}
+				data-patina={w.patina ?? undefined}
+				style={{ height: state.placement.h }}
+			>
+				<div className="w-head">
+					<div className="w-icon">{m.icon}</div>
+					<div className="w-title">{m.title}</div>
+					<div className="w-tag">{m.tag}</div>
+				</div>
+				<div className="w-body">
+					<Body />
+				</div>
+			</div>
+		);
 	}
-
-	useEffect(() => {
-		const onMove = (e: MouseEvent) => {
-			if (panStart.current) {
-				setPan((p) => ({
-					...p,
-					x: e.clientX - panStart.current!.x,
-					y: e.clientY - panStart.current!.y,
-				}));
-			} else if (dragState.current) {
-				const scale = pan.scale || 1;
-				const dx = e.clientX - dragState.current.startMouse.x;
-				const dy = e.clientY - dragState.current.startMouse.y;
-				const nx = Math.round((dragState.current.startPos.x + dx / scale) / 12) * 12;
-				const ny = Math.round((dragState.current.startPos.y + dy / scale) / 12) * 12;
-				const id = dragState.current.id;
-				setLayout((L) => L.map((w) => (w.id === id ? { ...w, x: nx, y: ny } : w)));
-			}
-		};
-		const onUp = () => {
-			if (panStart.current) {
-				panStart.current = null;
-				stageRef.current?.classList.remove('is-dragging');
-				if (canvasRef.current) canvasRef.current.style.cursor = spaceDown.current ? 'grab' : '';
-			}
-			if (dragState.current) {
-				dragState.current = null;
-				stageRef.current?.classList.remove('is-dragging');
-			}
-		};
-		window.addEventListener('mousemove', onMove);
-		window.addEventListener('mouseup', onUp);
-		return () => {
-			window.removeEventListener('mousemove', onMove);
-			window.removeEventListener('mouseup', onUp);
-		};
-	}, [pan.scale]);
-
-	function onDblClick(e: React.MouseEvent<HTMLDivElement>) {
-		const t = e.target as HTMLElement;
-		if (
-			t.closest('.home-widget') ||
-			t.closest('.home-greeting') ||
-			t.closest('.home-bar') ||
-			t.closest('.home-palette')
-		)
-			return;
-		autoFit(true);
-	}
-
-	const transform = `translate(${pan.x}px, ${pan.y}px) scale(${pan.scale})`;
 
 	return (
-		<div
-			ref={canvasRef}
-			className="home-canvas"
-			data-mode-edit={editMode ? 'true' : 'false'}
-			onMouseDown={onCanvasMouseDown}
-			onDoubleClick={onDblClick}
+		<Canvas<WidgetPlacement>
+			ref={canvasHandle}
+			items={layout}
+			itemId={(w) => w.id as ItemId}
+			itemKind={(w) => w.kind}
+			layout={layoutRecord}
+			viewport={viewport}
+			editMode={editMode}
+			selectedId={selectedId}
+			gridSnap={12}
+			renderItem={renderItem}
+			onLayoutChange={(rec) => setLayout((L) => applyRecord(L, rec))}
+			onViewportChange={setViewport}
+			onEditModeChange={setEditMode}
+			onSelectionChange={setSelectedId}
 		>
-			<div className="home-canvas-grain" />
-
-			<div className="home-bar">
+			<div className="ikenga-canvas-bar">
 				<div className="crumb">
 					App · <b>Home</b>
 				</div>
 				<div className="hint">
 					<span className="kbd">space</span> drag · <span className="kbd">dbl-click</span> re-fit
 				</div>
-				<button className="btn" type="button" onClick={() => autoFit(true)}>
+				<button className="btn" type="button" onClick={() => canvasHandle.current?.autoFit(true)}>
 					{Icons.recenter}
 					Recenter
 				</button>
@@ -749,44 +661,6 @@ export function Home() {
 					{Icons.edit}
 					{editMode ? 'Done' : 'Customize'}
 				</button>
-			</div>
-
-			<div ref={stageRef} className="home-stage" style={{ transform }}>
-				{layout.map((w) => {
-					if (w.kind === 'greeting') {
-						return (
-							<div
-								key={w.id}
-								data-id={w.id}
-								className={`home-greeting${selectedId === w.id ? ' is-selected' : ''}`}
-								style={{ left: w.x, top: w.y, width: w.w, minHeight: w.h }}
-							>
-								<GreetingBody name="friend" />
-							</div>
-						);
-					}
-					const m = widgetMeta(w.kind);
-					if (!m) return null;
-					const Body = m.Body;
-					return (
-						<div
-							key={w.id}
-							data-id={w.id}
-							className={`home-widget ${m.cls ?? ''}${selectedId === w.id ? ' is-selected' : ''}`}
-							data-patina={w.patina ?? undefined}
-							style={{ left: w.x, top: w.y, width: w.w, height: w.h }}
-						>
-							<div className="w-head">
-								<div className="w-icon">{m.icon}</div>
-								<div className="w-title">{m.title}</div>
-								<div className="w-tag">{m.tag}</div>
-							</div>
-							<div className="w-body">
-								<Body />
-							</div>
-						</div>
-					);
-				})}
 			</div>
 
 			<aside className="home-palette" onClick={(e) => e.stopPropagation()}>
@@ -826,6 +700,6 @@ export function Home() {
 					</div>
 				</div>
 			</aside>
-		</div>
+		</Canvas>
 	);
 }
