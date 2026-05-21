@@ -41,7 +41,16 @@ import { buildHostContext } from '@/lib/pkg/host-context';
 import { useIkengaStore } from '@/lib/ikenga/theme-store';
 import { usePaneStore } from '@/lib/panes/pane-store';
 import { usePkgMenuStore, type PkgMenuItem } from '@/lib/pkg/pkg-menu-store';
-import { pkgContentHtml, pkgContentRevoke, pkgMcpCall, pkgSidecarCall } from '@/lib/tauri-cmd';
+import {
+	pkgContentHtml,
+	pkgContentRevoke,
+	pkgKernelStatus,
+	pkgMcpCall,
+	pkgPreviewManifest,
+	pkgSidecarCall,
+} from '@/lib/tauri-cmd';
+import { useSeedChatConfirmStore } from '@/components/pkg/seed-chat-confirm-store';
+import { startSeededChat } from '@/shell/artifact-wizard/scaffold';
 
 // Tauri event payload emitted by `Kernel::reload_pkg`. The FE only cares about
 // `pkg_id` for the host filter; `version` + `registries` are useful for debug
@@ -90,12 +99,37 @@ interface HostCallResult {
 //   to wrapping raw stdout when the sidecar emits non-JSON.
 // - `host.navigate({ path })` — navigates the focused pane to the given
 //   route path. Mirrors the `hostNavigate` shape used by older pkgs.
+// - `host.startChatSession({ prompt, projectId?, title?, engineId?, split? })`
+//   — mints a fresh chat session seeded with the prompt and mounts it as a
+//   pane. Gated on the `engine:invoke` scope + a per-call user confirmation
+//   of the seed text (prompt-injection mitigation). Always a *new* session.
 //
 // Anything else under `host.*` returns an MCP-protocol error (isError:
 // true) so the iframe's error handling fires. We intentionally do NOT
 // fall through to pkg_mcp_call for unknown host.* names — that would
 // make typo'd tool names look like missing-MCP-server failures, which
 // is harder to debug.
+
+// `host.*` verbs are dispatched FE-side before the kernel's IPC boundary, so
+// the kernel's scope enforcement (RpcErrorCode.scope_denied) never runs for
+// them. Verbs that touch a sensitive capability must therefore check the
+// calling pkg's declared scope here. Manifest permissions are shaped as
+// `{ <resource>: [<action>, …] }` (contract/src/manifest.ts), so `engine:invoke`
+// is `permissions.engine` containing `'invoke'`. Fails closed on any error.
+async function pkgDeclaresScope(pkgId: string, resource: string, action: string): Promise<boolean> {
+	try {
+		const status = await pkgKernelStatus();
+		const entry = status.installed.find((p) => p.id === pkgId);
+		if (!entry) return false;
+		const manifest = await pkgPreviewManifest(entry.install_path);
+		const actions = (manifest.permissions as Record<string, unknown> | undefined)?.[resource];
+		return Array.isArray(actions) && actions.includes(action);
+	} catch (e) {
+		console.warn(`[pkg-host] scope check ${resource}:${action} for ${pkgId} failed:`, e);
+		return false;
+	}
+}
+
 async function dispatchHostCall(
 	pkgId: string,
 	name: string,
@@ -211,6 +245,55 @@ async function dispatchHostCall(
 			content: [{ type: 'text', text: `menu set: ${items.length} items` }],
 			structuredContent: { ok: true, count: items.length },
 		};
+	}
+
+	// host.startChatSession({ prompt, projectId?, title?, engineId?, split? }) —
+	// mint a fresh chat session seeded with a kickoff prompt and mount it as a
+	// pane (via WP-09's startSeededChat seam). Gated on the `engine:invoke`
+	// scope and a per-call user confirmation of the seed text. Always seeds a
+	// *new* session — there is no path to inject into an existing thread.
+	// See 01-plan §Risks (prompt-injection via auto-seeded sessions).
+	if (name === 'host.startChatSession') {
+		const prompt = typeof args.prompt === 'string' ? args.prompt : null;
+		if (!prompt) {
+			return errResult('host.startChatSession: missing required `prompt` argument');
+		}
+		const projectId = typeof args.projectId === 'string' ? args.projectId : undefined;
+		const title = typeof args.title === 'string' ? args.title : undefined;
+		const engineId = typeof args.engineId === 'string' ? args.engineId : undefined;
+		// split is 'right' | 'bottom' | null; anything else falls back to the
+		// helper's default (null) by passing undefined.
+		const split =
+			args.split === 'right' || args.split === 'bottom' || args.split === null
+				? args.split
+				: undefined;
+
+		// Scope gate — the kernel doesn't enforce scopes on host.* verbs.
+		if (!(await pkgDeclaresScope(pkgId, 'engine', 'invoke'))) {
+			return errResult("host.startChatSession: pkg lacks the 'engine:invoke' scope");
+		}
+
+		// User-confirm the seed text before it reaches the engine. Doubles as
+		// the rate gate — nothing is sent without an explicit click.
+		const approved = await useSeedChatConfirmStore
+			.getState()
+			.request({ pkgId, prompt, title: title ?? null });
+		if (!approved) {
+			return {
+				content: [{ type: 'text', text: 'declined by user' }],
+				structuredContent: { ok: false, declined: true },
+			};
+		}
+
+		try {
+			const res = await startSeededChat({ prompt, projectId, title, engineId, split });
+			return {
+				content: [{ type: 'text', text: `session started: ${res.threadId}` }],
+				structuredContent: { ok: true, threadId: res.threadId, paneId: res.paneId },
+			};
+		} catch (e) {
+			return errResult(`host.startChatSession failed: ${(e as Error).message ?? String(e)}`);
+		}
 	}
 
 	return errResult(`unknown host tool: ${name}`);
