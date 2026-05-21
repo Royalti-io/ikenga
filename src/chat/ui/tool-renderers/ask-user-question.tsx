@@ -1,23 +1,27 @@
 /**
  * Renderer for Anthropic's built-in `AskUserQuestion` tool.
  *
- * Phase 4 of the ACP migration moved the canonical flow to a real
- * permission round-trip (claude spawned with
- * `--permission-prompt-tool stdio`, the ACP server forwards as
- * `session/request_permission`, and the answer is replied with
- * `{ behavior: 'allow', updatedInput: { answers } }`). The Phase 4
- * `PermissionDialog` is the production UI for that path.
+ * Two ways AskUserQuestion reaches the user on the Claude Code engine:
  *
- * Phase 11 retired the legacy auto-error / follow-up-message workaround
- * that lived here. This renderer is still reachable from the legacy
- * `claude-cli` adapter (opt-out flag `ikenga_chat_engine=legacy`) — in
- * that mode it renders the question read-only with a "switch to ACP for
- * a full answer flow" hint. On the ACP path the tool call never reaches
- * this renderer because permission round-trips don't surface as
- * `tool_use` events; the `PermissionDialog` overlays the request before
- * any tool event is emitted.
+ *   1. As an ACP permission round-trip — when claude (spawned with
+ *      `--permission-prompt-tool stdio`) routes it through the prompt tool.
+ *      The `PermissionDialog` overlay handles that path; this renderer is
+ *      never reached for it (permission round-trips don't surface as
+ *      `tool_use` events).
  *
- * Shape captured 2026-05-11 against Claude Code (the tool is invoked as
+ *   2. As a plain `tool_use` — when the permission prompt is bypassed for
+ *      the turn (e.g. `--permission-mode bypassPermissions`). claude emits
+ *      AskUserQuestion as an ordinary tool call and waits for the harness to
+ *      send a `tool_result`. THIS renderer owns that path: it shows the same
+ *      interactive form as the overlay and ferries the answer back via
+ *      `sessionToolResult`, unblocking the turn.
+ *
+ * Because the answering `tool_result` is written to claude's stdin (not
+ * re-emitted on its output stream), `pair.result` stays null after we
+ * answer — so we track submission in local state to flip to the read-only
+ * summary and prevent a double-submit.
+ *
+ * Shape captured 2026-05-11 (the tool is invoked as
  * `mcp__anthropic__AskUserQuestion` or the unscoped `AskUserQuestion`):
  *
  *   input.questions: Array<{
@@ -28,37 +32,30 @@
  *   }>
  */
 
-import { Info } from 'lucide-react';
-import { Markdown } from '@/components/markdown';
+import { useState } from 'react';
+import { CheckCircle2 } from 'lucide-react';
+import { sessionToolResult } from '@/lib/tauri-cmd';
 import type { PairedToolCall } from '../../store';
+import { AskUserQuestionPrompt, type AskQuestion } from '../ask-user-question-form';
 
 interface AskUserQuestionInput {
-	questions: AskUserQuestionEntry[];
-}
-
-interface AskUserQuestionEntry {
-	question: string;
-	header?: string;
-	multiSelect?: boolean;
-	options: AskUserQuestionOption[];
-}
-
-interface AskUserQuestionOption {
-	label: string;
-	description?: string;
-	preview?: string;
+	questions: AskQuestion[];
 }
 
 interface AskUserQuestionRendererProps {
 	pair: PairedToolCall;
-	// threadId retained for API parity with other renderers; the active path
-	// (ACP) handles AskUserQuestion via PermissionDialog, not this renderer.
 	threadId: string;
 }
 
-export function AskUserQuestionRenderer({ pair }: AskUserQuestionRendererProps) {
+export function AskUserQuestionRenderer({ pair, threadId }: AskUserQuestionRendererProps) {
 	const input = (pair.use.input ?? {}) as Partial<AskUserQuestionInput>;
 	const questions = input.questions ?? [];
+
+	// Local record of what we submitted. The answering tool_result isn't
+	// echoed back as a stream event, so this is our only signal that the
+	// question has been answered from this session.
+	const [submitted, setSubmitted] = useState<Record<string, string | string[]> | null>(null);
+	const [cancelled, setCancelled] = useState(false);
 
 	if (questions.length === 0) {
 		return (
@@ -66,43 +63,89 @@ export function AskUserQuestionRenderer({ pair }: AskUserQuestionRendererProps) 
 		);
 	}
 
+	// Already resolved — either we answered it locally, the caller cancelled,
+	// or (defensively) a paired tool_result arrived. Show a compact summary
+	// instead of a re-submittable form.
+	const isResolved = submitted != null || cancelled || pair.result != null;
+	if (isResolved) {
+		return <AnsweredSummary questions={questions} answers={submitted} cancelled={cancelled} />;
+	}
+
+	async function handleSubmit(answers: Record<string, string | string[]>) {
+		// Optimistically flip to the answered state so the form can't be
+		// re-submitted while the round-trip is in flight.
+		setSubmitted(answers);
+		try {
+			await sessionToolResult(threadId, pair.use.id, { answers: flattenAnswers(answers) });
+		} catch {
+			// Revert on failure so the user can retry.
+			setSubmitted(null);
+		}
+	}
+
+	async function handleCancel() {
+		setCancelled(true);
+		try {
+			await sessionToolResult(
+				threadId,
+				pair.use.id,
+				'The user cancelled the question without answering.',
+				true
+			);
+		} catch {
+			setCancelled(false);
+		}
+	}
+
 	return (
-		<div className="space-y-3">
-			<div className="flex items-start gap-2 border border-[var(--rule)] bg-transparent p-2 font-mono text-[10px] uppercase tracking-wider text-[var(--chip-carve)]">
-				<Info className="mt-0.5 h-3 w-3 shrink-0 text-[var(--kola-amber)]" />
-				<div className="normal-case tracking-normal">
-					AskUserQuestion is handled via the ACP permission dialog on the default chat engine. This
-					read-only view appears only on the legacy CLI path.
-				</div>
-			</div>
-			{questions.map((q, i) => (
-				<ReadOnlyQuestion key={`q-${i}`} q={q} />
-			))}
-		</div>
+		<AskUserQuestionPrompt questions={questions} onSubmit={handleSubmit} onCancel={handleCancel} />
 	);
 }
 
-function ReadOnlyQuestion({ q }: { q: AskUserQuestionEntry }) {
+/** Flatten the form's `string | string[]` answers into the comma-joined
+ *  string shape claude's AskUserQuestion contract expects (mirrors the
+ *  permission path's `ask_user_question_allow_body_from_meta`). */
+function flattenAnswers(answers: Record<string, string | string[]>): Record<string, string> {
+	const out: Record<string, string> = {};
+	for (const [q, v] of Object.entries(answers)) {
+		out[q] = Array.isArray(v) ? v.join(', ') : v;
+	}
+	return out;
+}
+
+function AnsweredSummary({
+	questions,
+	answers,
+	cancelled,
+}: {
+	questions: AskQuestion[];
+	answers: Record<string, string | string[]> | null;
+	cancelled: boolean;
+}) {
+	if (cancelled) {
+		return (
+			<div className="flex items-center gap-2 border border-[var(--rule)] bg-transparent p-3 font-mono text-[10px] uppercase tracking-wider text-[var(--chip-carve)]">
+				cancelled — no answer sent
+			</div>
+		);
+	}
+	const flat = answers ? flattenAnswers(answers) : {};
 	return (
-		<div className="space-y-2 border border-[var(--rule)] bg-transparent p-3">
-			<div className="flex items-baseline gap-2 border-b border-[var(--rule)] pb-1.5 font-mono text-[9px] uppercase tracking-[0.22em] text-[var(--chip-carve)]">
-				{q.header && <span className="text-[var(--kola-amber)]">◾ {q.header}</span>}
-				<span>·</span>
-				<span>{q.multiSelect ? 'pick any' : 'pick one'}</span>
+		<div className="space-y-2">
+			<div className="flex items-center gap-2 font-mono text-[9px] uppercase tracking-[0.22em] text-[var(--kola-amber)]">
+				<CheckCircle2 className="h-3 w-3" />
+				answered
 			</div>
-			<div className="text-sm font-medium">
-				<Markdown content={q.question} density="compact" />
-			</div>
-			<ul className="space-y-1.5 text-xs">
-				{q.options.map((opt) => (
+			<ul className="space-y-2">
+				{questions.map((q) => (
 					<li
-						key={opt.label}
-						className="flex items-start gap-2 border-l-2 border-[var(--rule)] pl-2"
+						key={`${q.header ?? ''}::${q.question}`}
+						className="border border-[var(--rule)] bg-transparent p-3"
 					>
-						<span className="font-mono font-medium uppercase tracking-wider text-[10px] text-foreground">
-							{opt.label}
-						</span>
-						{opt.description && <span className="text-[var(--chip-carve)]">{opt.description}</span>}
+						<div className="font-mono text-[9px] uppercase tracking-[0.22em] text-[var(--chip-carve)]">
+							{q.header ? `◾ ${q.header}` : (q.question ?? 'question')}
+						</div>
+						<div className="mt-1 text-[13px] text-foreground">{flat[q.question] || '—'}</div>
 					</li>
 				))}
 			</ul>
