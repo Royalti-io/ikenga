@@ -31,6 +31,8 @@ import {
 } from '@/lib/tauri-cmd';
 import { findLeaf } from '@/lib/panes/pane-reducer';
 import { usePaneStore } from '@/lib/panes/pane-store';
+import { defaultCwd } from '@/lib/shell/default-cwd';
+import { useShellStore } from '@/lib/shell/shell-store';
 import { createTerminalSession } from '@/terminal/single-terminal';
 import { useTerminalStore } from '@/terminal/session-store';
 import { type Archetype, slugifyName } from '@/shell/artifact-wizard/archetypes';
@@ -138,21 +140,27 @@ export async function startArtifact(args: StartArgs): Promise<StartResult> {
 		path: args.folder,
 		density: 'grid',
 	});
-	paneStore.splitPane(studioLeafId, 'horizontal');
-	const agentLeafId = usePaneStore.getState().focusedId;
 
 	let terminalSessionId: string | null = null;
 	let threadId: string | null = null;
+	let agentLeafId: string;
 
 	if (args.agent.kind === 'chat') {
-		threadId = await mountChatAgent({
-			project: args.project,
-			cwd,
-			archetypeLabel: args.archetype.label,
-			agentLeafId,
-			kickoffPrompt,
+		// The chat surface delegates its full mint → mount → send pipeline to
+		// the shared `startSeededChat` seam. With `split: 'right'` it splits
+		// the focused (Studio) leaf horizontally and mounts the chat pane on
+		// the new right leaf, returning that pane's id.
+		const seeded = await startSeededChat({
+			prompt: kickoffPrompt,
+			projectId: args.project.id,
+			title: `${args.archetype.label}: ${args.project.display_name}`,
+			split: 'right',
 		});
+		threadId = seeded.threadId;
+		agentLeafId = seeded.paneId;
 	} else {
+		paneStore.splitPane(studioLeafId, 'horizontal');
+		agentLeafId = usePaneStore.getState().focusedId;
 		terminalSessionId = mountTerminalAgent({
 			agent: args.agent,
 			cwd,
@@ -205,31 +213,71 @@ function mountTerminalAgent(args: {
 	return sessionId;
 }
 
-async function mountChatAgent(args: {
-	project: Project;
-	cwd: string;
-	archetypeLabel: string;
-	agentLeafId: string;
-	kickoffPrompt: string;
-}): Promise<string> {
+export interface StartSeededChatOptions {
+	/** Kickoff prompt; rendered as the thread's first user turn and sent. */
+	prompt: string;
+	/** Project to scope the thread to. Defaults to the active project
+	 *  (`shell-store.activeProjectId`). The session cwd is resolved from this
+	 *  project's `root_path`, falling back to `defaultCwd()` when the project
+	 *  has none (e.g. the seed Default project). */
+	projectId?: string;
+	/** Chat pane title. Defaults to `'Untitled session'`. */
+	title?: string;
+	/** Engine/adapter to mount the thread on (`claude-code`, `gemini`, …).
+	 *  Defaults to `defaultChatAdapterId()`. Persisted as the thread's
+	 *  `engine_id` per ADR-013 §2. */
+	engineId?: string;
+	/** Where to mount the chat pane. `'right'`/`'bottom'` split the focused
+	 *  leaf (horizontal/vertical) and mount on the new leaf; `null` (default)
+	 *  mounts on the currently-focused leaf without splitting. */
+	split?: 'right' | 'bottom' | null;
+}
+
+export interface StartSeededChatResult {
+	threadId: string;
+	paneId: string;
+}
+
+/**
+ * Mint a fresh chat thread, mount a chat pane, and send the kickoff prompt.
+ *
+ * The artifact-creation wizard's proven mint → ensure → persist → mount → send
+ * pipeline, lifted out of its `onConfirm` chain so non-wizard callers (the
+ * Phase-2 `host.startChatSession` verb) can reuse it without re-implementing
+ * the dance. Returns the thread + pane ids so callers can publish them as
+ * state, focus the pane, etc.
+ *
+ * Ordering is load-bearing: the thread is minted and persisted before the pane
+ * mounts (so the pane hydrates from the in-memory store rather than racing the
+ * DB → store loop), and the kickoff send is fire-and-forget after mount.
+ */
+export async function startSeededChat(
+	opts: StartSeededChatOptions
+): Promise<StartSeededChatResult> {
+	const { prompt, title = 'Untitled session', split = null } = opts;
+
+	const shell = useShellStore.getState();
+	const projectId = opts.projectId ?? shell.activeProjectId;
+	const project = shell.projects.find((p) => p.id === projectId);
+	const cwd = project?.root_path ?? defaultCwd();
+	const adapterId = opts.engineId ?? defaultChatAdapterId();
+
 	const threadId = mintThreadId();
-	const adapterId = defaultChatAdapterId();
-	const title = `${args.archetypeLabel}: ${args.project.display_name}`;
 	const now = Date.now();
 
 	// Rust-side session row up front so the streaming child can spawn on
 	// the first prompt (idempotent — adapter.attach also calls this).
-	await sessionEnsure(threadId, args.cwd, {});
+	await sessionEnsure(threadId, cwd, {});
 
 	// Persist the thread so it survives a reload.
 	await createThread({
 		id: threadId,
 		adapterId,
-		cwd: args.cwd,
+		cwd,
 		claudeSessionId: null,
 		model: null,
 		title,
-		projectId: args.project.id,
+		projectId,
 	});
 
 	// Mirror into the in-memory store so the chat pane mounts with the
@@ -243,23 +291,31 @@ async function mountChatAgent(args: {
 		// what `createThread()` writes to `chat_sessions.engine_id`.
 		engineId: adapterId,
 		title,
-		cwd: args.cwd,
+		cwd,
 		model: null,
 		claudeSessionId: null,
 		ptyId: null,
-		projectId: args.project.id,
+		projectId,
 		createdAt: now,
 		updatedAt: now,
 	});
 
+	// Resolve the mount target, splitting the focused leaf first if asked.
+	const paneStore = usePaneStore.getState();
+	let paneId = paneStore.focusedId;
+	if (split) {
+		paneStore.splitPane(paneId, split === 'right' ? 'horizontal' : 'vertical');
+		paneId = usePaneStore.getState().focusedId;
+	}
+
 	// Mount the chat pane and auto-send the kickoff prompt.
-	usePaneStore.getState().addTab(args.agentLeafId, {
+	usePaneStore.getState().addTab(paneId, {
 		kind: 'chat',
 		sessionId: threadId,
 	});
-	void autoSendKickoff(threadId, adapterId, args.kickoffPrompt);
+	void autoSendKickoff(threadId, adapterId, prompt);
 
-	return threadId;
+	return { threadId, paneId };
 }
 
 async function autoSendKickoff(threadId: string, adapterId: string, text: string): Promise<void> {
