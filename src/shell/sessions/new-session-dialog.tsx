@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { Loader2, MessageSquare, Terminal } from 'lucide-react';
 
@@ -25,16 +25,43 @@ import { usePaneStore } from '@/lib/panes/pane-store';
 
 type Mode = 'chat' | 'terminal';
 
+/**
+ * Result handed back to a programmatic caller (the `host.openSessionDialog`
+ * verb via `open-session-dialog.ts`). Direct callers of `<NewSessionDialog>`
+ * — the /claude route, /sessions index, sessions sidebar mode — don't pass
+ * `onComplete` and the dialog stays UI-only.
+ */
+export type NewSessionDialogResult =
+	| { ok: true; kind: 'chat'; threadId: string }
+	| { ok: true; kind: 'terminal'; paneId: string }
+	| { ok: false; reason: 'cancelled' };
+
 interface NewSessionDialogProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	defaultProjects?: string[];
 	/** Pre-filled prompt — used by /claude "New session" buttons that target a
-	 *  specific agent or run a command body. */
+	 *  specific agent or run a command body. Also threaded through by the
+	 *  `host.openSessionDialog` verb (WP-27 / G-SESSION-DIALOG): the dialog is
+	 *  the consent surface, the user can edit before Start. */
 	presetPrompt?: string;
 	/** Which mode to default to. Most callers want 'chat' now; the legacy
 	 *  /sessions list still defaults to 'chat' too. */
 	defaultMode?: Mode;
+	/** Engine adapter id to pre-select. The dialog enumerates installed
+	 *  engines via `useEngineCatalog()`; this just sets the initial highlight.
+	 *  No-op when the id isn't in the catalog. */
+	presetEngineId?: string;
+	/** Project directory to pre-select (e.g. an absolute path that exists in
+	 *  the `projects` list). No-op when the value isn't in the dropdown. */
+	presetCwd?: string;
+	/** Programmatic completion callback. Fired exactly once per open:
+	 *    - after Start in Chat mode  → `{ ok: true,  kind: 'chat',     threadId }`
+	 *    - after Start in Terminal mode → `{ ok: true,  kind: 'terminal', paneId   }`
+	 *    - on Cancel / dismiss        → `{ ok: false, reason: 'cancelled' }`
+	 *  Direct callers (sidebar new-chat button, /claude header) don't pass
+	 *  this and the dialog stays UI-only as today. */
+	onComplete?: (result: NewSessionDialogResult) => void;
 }
 
 export function NewSessionDialog({
@@ -43,7 +70,22 @@ export function NewSessionDialog({
 	defaultProjects = [],
 	presetPrompt,
 	defaultMode = 'chat',
+	presetEngineId,
+	presetCwd,
+	onComplete,
 }: NewSessionDialogProps) {
+	// Programmatic-open completion contract: exactly one settle per open.
+	// `completed` flips true when handleStartChat / handleOpenTerminal fire
+	// onComplete; the Cancel branch (via onOpenChange) reads it to know
+	// whether to fire 'cancelled' or stay quiet (Start already settled). This
+	// is also the guard against React re-mounts double-firing.
+	const completedRef = useRef(false);
+	// Reset the guard every time the dialog opens. Without this, a programmatic
+	// open after a previous run completes would never fire onComplete because
+	// completedRef is still latched true.
+	useEffect(() => {
+		if (open) completedRef.current = false;
+	}, [open]);
 	const navigate = useNavigate();
 
 	// When the caller doesn't pass project candidates, fall back to the
@@ -73,15 +115,38 @@ export function NewSessionDialog({
 			// it's set; otherwise fall back to the first configured file root.
 			// User can override either via the project picker (rebinds to a
 			// different project's root) or by editing the dir directly.
+			//
+			// `presetCwd` (programmatic open) takes priority — but ONLY when
+			// the value is in the projects dropdown. A bogus cwd just falls
+			// through to the regular default; we don't surface "no such
+			// project" because the user can pick another from the dropdown.
 			const root = activeProject?.root_path ?? null;
-			setProject(root ?? projects[0] ?? '');
+			const fallbackCwd = root ?? projects[0] ?? '';
+			const cwd = presetCwd && projects.includes(presetCwd) ? presetCwd : fallbackCwd;
+			setProject(cwd);
 			setProjectId(activeProjectId);
 			setPrompt(presetPrompt ?? '');
 			setMode(defaultMode);
-			setEngineId(defaultChatAdapterId());
+			// Engine pre-select: programmatic callers can pin an engine id;
+			// falls back to the user's configured default. We don't validate
+			// against `engineCatalog` here because the catalog renders the
+			// chip as disabled when the engine isn't installed — the user
+			// sees and can pick another. (Validation would just silently
+			// drop the preset on a fresh install where catalogs hydrate
+			// asynchronously.)
+			setEngineId(presetEngineId ?? defaultChatAdapterId());
 			setErr(null);
 		}
-	}, [open, projects, presetPrompt, defaultMode, activeProject?.root_path, activeProjectId]);
+	}, [
+		open,
+		projects,
+		presetPrompt,
+		defaultMode,
+		presetEngineId,
+		presetCwd,
+		activeProject?.root_path,
+		activeProjectId,
+	]);
 
 	async function handleStartChat() {
 		if (!project) return;
@@ -99,6 +164,11 @@ export function NewSessionDialog({
 				projectId,
 			});
 			await sessionEnsure(threadId, project, {});
+			// Settle the programmatic-open promise (if any) BEFORE closing the
+			// dialog so the verb's caller sees the result without racing the
+			// Radix close transition.
+			completedRef.current = true;
+			onComplete?.({ ok: true, kind: 'chat', threadId });
 			onOpenChange(false);
 			navigate({ to: '/sessions/$sessionId', params: { sessionId: threadId } });
 			// If the user pre-filled a prompt, kick it off immediately. We need
@@ -126,11 +196,30 @@ export function NewSessionDialog({
 		});
 		const focusedId = usePaneStore.getState().focusedId;
 		usePaneStore.getState().addTab(focusedId, { kind: 'terminal', sessionId });
+		// `addTab` returns void today — we use the focused pane id as the
+		// "where the terminal landed" handle the verb returns. (The pane
+		// store doesn't currently expose a "newly added tab id"; if it does
+		// in the future we should swap this to that.)
+		completedRef.current = true;
+		onComplete?.({ ok: true, kind: 'terminal', paneId: focusedId });
 		onOpenChange(false);
 	}
 
+	// One-shot cancel emitter: Radix fires onOpenChange(false) for the
+	// Cancel button, ESC, and outside-click. We can't tell those apart from
+	// a successful Start that also calls onOpenChange(false) — so we use
+	// `completedRef` as the witness. Without it, Start would settle with
+	// `ok:true` and then immediately settle again with `cancelled`.
+	function handleOpenChange(next: boolean) {
+		if (!next && !completedRef.current && onComplete) {
+			completedRef.current = true;
+			onComplete({ ok: false, reason: 'cancelled' });
+		}
+		onOpenChange(next);
+	}
+
 	return (
-		<Dialog open={open} onOpenChange={onOpenChange}>
+		<Dialog open={open} onOpenChange={handleOpenChange}>
 			<DialogContent className="sm:max-w-lg">
 				<DialogHeader>
 					<DialogTitle>New session</DialogTitle>
@@ -208,7 +297,10 @@ export function NewSessionDialog({
 								<button
 									type="button"
 									onClick={() => {
-										onOpenChange(false);
+										// Treat as cancel: the user is leaving for settings, so
+										// any programmatic caller awaiting a start sees a clean
+										// 'cancelled' result rather than a hanging promise.
+										handleOpenChange(false);
 										navigate({ to: '/settings/agent' });
 									}}
 									className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground transition-colors hover:text-foreground"
@@ -290,7 +382,7 @@ export function NewSessionDialog({
 				</div>
 
 				<DialogFooter>
-					<Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
+					<Button type="button" variant="ghost" onClick={() => handleOpenChange(false)}>
 						Cancel
 					</Button>
 					{mode === 'chat' ? (

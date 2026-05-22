@@ -10,8 +10,11 @@
 
 import { invoke } from '@tauri-apps/api/core';
 
+import {
+	openSessionDialog,
+	type OpenSessionDialogOptions,
+} from '@/components/pkg/open-session-dialog';
 import { sendToActiveSession } from '@/components/pkg/send-to-active-session';
-import { startSeededChatWithConfirm } from '@/components/pkg/start-seeded-chat-confirmed';
 
 export interface IframeRegistration {
 	paneId: string;
@@ -207,12 +210,13 @@ export function installIykeIframeMessageListener() {
 				}
 				return;
 			}
-			// First-party artifact channel for the seeded-session verb (Opt-A,
-			// 04 Round 6). The pkg AppBridge has its own `host.startChatSession`
-			// (scope-gated); artifacts are first-party so they skip the scope
-			// check but share the same user-confirm + startSeededChat core.
-			// Request/response: we post the result back keyed by `request_id`.
-			case 'host.startChatSession': {
+			// First-party artifact channel for host.openSessionDialog (WP-27 /
+			// G-SESSION-DIALOG). Mirrors the verb's shape from pkg-iframe-host
+			// but without a scope check — plan-folder artifacts are first-party.
+			// The dialog itself is the consent surface (Round 7 lock); no
+			// separate confirm modal. Result envelope is the frozen union
+			// from open-session-dialog.ts.
+			case 'host.openSessionDialog': {
 				const reqId = data.request_id;
 				const src = e.source as Window | null;
 				const respond = (result: unknown) => {
@@ -221,7 +225,7 @@ export function installIykeIframeMessageListener() {
 						src.postMessage(
 							{
 								__iyke: true,
-								kind: 'host.startChatSession:result',
+								kind: 'host.openSessionDialog:result',
 								request_id: reqId,
 								payload: result,
 							},
@@ -230,29 +234,23 @@ export function installIykeIframeMessageListener() {
 					} catch {}
 				};
 				const payload = (data.payload ?? {}) as Record<string, unknown>;
-				const prompt = typeof payload.prompt === 'string' ? payload.prompt : null;
-				if (!prompt) {
-					respond({ ok: false, error: 'missing prompt' });
-					return;
-				}
-				const projectId = typeof payload.projectId === 'string' ? payload.projectId : undefined;
-				const title = typeof payload.title === 'string' ? payload.title : undefined;
-				const engineId = typeof payload.engineId === 'string' ? payload.engineId : undefined;
-				const split =
-					payload.split === 'right' || payload.split === 'bottom' || payload.split === null
-						? payload.split
-						: undefined;
-				void startSeededChatWithConfirm('this artifact', {
-					prompt,
-					projectId,
-					title,
-					engineId,
-					split,
-				}).then(respond);
+				const opts: OpenSessionDialogOptions = {
+					initialPrompt:
+						typeof payload.initialPrompt === 'string' ? payload.initialPrompt : undefined,
+					title: typeof payload.title === 'string' ? payload.title : undefined,
+					engineId: typeof payload.engineId === 'string' ? payload.engineId : undefined,
+					sessionKind:
+						payload.sessionKind === 'chat' || payload.sessionKind === 'terminal'
+							? payload.sessionKind
+							: undefined,
+					cwd: typeof payload.cwd === 'string' ? payload.cwd : undefined,
+					source: typeof payload.source === 'string' ? payload.source : undefined,
+				};
+				void openSessionDialog(opts).then(respond);
 				return;
 			}
 			// First-party artifact channel for the WP-22 attach verb. Mirrors
-			// the startChatSession case immediately above: artifacts are
+			// the openSessionDialog case above: artifacts are
 			// first-party so they skip the pkg `engine:invoke` scope check
 			// (Round-6 Opt-A). No per-call confirm modal — see
 			// plans/groundwork/10-* §Prompt-injection notes (locked
