@@ -14,6 +14,7 @@ import {
 	openSessionDialog,
 	type OpenSessionDialogOptions,
 } from '@/components/pkg/open-session-dialog';
+import { sendToActiveSession } from '@/components/pkg/send-to-active-session';
 
 export interface IframeRegistration {
 	paneId: string;
@@ -246,6 +247,42 @@ export function installIykeIframeMessageListener() {
 					source: typeof payload.source === 'string' ? payload.source : undefined,
 				};
 				void openSessionDialog(opts).then(respond);
+				return;
+			}
+			// First-party artifact channel for the WP-22 attach verb. Mirrors
+			// the openSessionDialog case above: artifacts are
+			// first-party so they skip the pkg `engine:invoke` scope check
+			// (Round-6 Opt-A). No per-call confirm modal — see
+			// plans/groundwork/10-* §Prompt-injection notes (locked
+			// 2026-05-21). The source-stamp inside the core is the audit
+			// trail; `reason: 'no-active-session'` is the safety floor.
+			// Frozen by G-ACTIVE-SESSION — WP-21's palette codes against the
+			// `{ ok, threadId?, reason? }` shape on the result message.
+			case 'host.sendToActiveSession': {
+				const reqId = data.request_id;
+				const src = e.source as Window | null;
+				const respond = (result: unknown) => {
+					if (!reqId || !src) return;
+					try {
+						src.postMessage(
+							{
+								__iyke: true,
+								kind: 'host.sendToActiveSession:result',
+								request_id: reqId,
+								payload: result,
+							},
+							'*'
+						);
+					} catch {}
+				};
+				const payload = (data.payload ?? {}) as Record<string, unknown>;
+				const prompt = typeof payload.prompt === 'string' ? payload.prompt : null;
+				if (!prompt) {
+					respond({ ok: false, error: 'missing prompt' });
+					return;
+				}
+				const source = typeof payload.source === 'string' ? payload.source : undefined;
+				void sendToActiveSession({ prompt, source }).then(respond);
 				return;
 			}
 			case 'dom-response':

@@ -36,6 +36,7 @@ import { AppBridge, PostMessageTransport } from '@modelcontextprotocol/ext-apps/
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { useEffect, useRef, useState } from 'react';
 
+import { sendToActiveSession } from '@/components/pkg/send-to-active-session';
 import { mintPkgToken } from '@/lib/pkg/auth-token';
 import { buildHostContext } from '@/lib/pkg/host-context';
 import { useIkengaStore } from '@/lib/ikenga/theme-store';
@@ -108,6 +109,13 @@ interface HostCallResult {
 //   replaces the retired `host.startChatSession` verb + WP-10's separate
 //   confirm modal. The dialog IS the consent surface. Gated on `engine:invoke`
 //   (install-time sensitive per WP-13).
+// - `host.sendToActiveSession({ prompt, source? })` — posts a user turn
+//   into the focused chat pane's existing thread (WP-22 / G-ACTIVE-SESSION).
+//   Gated on the same `engine:invoke` scope. **No per-call confirm modal**
+//   — the user is already watching the thread the message lands in; the
+//   source-stamp + strict refusal are the mitigations (locked 2026-05-21,
+//   plans/groundwork/10-* §Prompt-injection notes). Refuses with
+//   `reason: 'no-active-session'` when no chat pane is focused.
 //
 // Anything else under `host.*` returns an MCP-protocol error (isError:
 // true) so the iframe's error handling fires. We intentionally do NOT
@@ -286,6 +294,51 @@ export async function dispatchHostCall(
 		return {
 			content: [{ type: 'text', text: summary }],
 			structuredContent: result as unknown as Record<string, unknown>,
+		};
+	}
+
+	// host.sendToActiveSession({ prompt, source? }) — post a user turn into
+	// the focused chat pane's existing thread (WP-22 / G-ACTIVE-SESSION).
+	// Reuses the `engine:invoke` scope (install-time sensitive per WP-13).
+	// **No per-call confirm modal** (locked 2026-05-21, see
+	// plans/groundwork/10-* §Prompt-injection notes): the user is already
+	// watching the thread the message lands in, the source-stamp creates
+	// the audit trail, and refusal-on-no-active-session is the safety floor.
+	// The signature is frozen by G-ACTIVE-SESSION — WP-21's palette codes
+	// against `{ ok, threadId?, reason? }` and depends on its stability.
+	if (name === 'host.sendToActiveSession') {
+		const prompt = typeof args.prompt === 'string' ? args.prompt : null;
+		if (!prompt) {
+			return errResult('host.sendToActiveSession: missing required `prompt` argument');
+		}
+		const source = typeof args.source === 'string' ? args.source : undefined;
+
+		// Scope gate (mirrors host.startChatSession). The kernel doesn't
+		// enforce scopes on host.* verbs FE-side. Surface as `scope-denied`
+		// in the structured payload so palette callers can branch cleanly
+		// instead of treating it as a generic error.
+		if (!(await pkgDeclaresScope(pkgId, 'engine', 'invoke'))) {
+			return {
+				content: [{ type: 'text', text: "lacks the 'engine:invoke' scope" }],
+				isError: true,
+				structuredContent: { ok: false, reason: 'scope-denied' },
+			};
+		}
+
+		const res = await sendToActiveSession({ prompt, source });
+		if (!res.ok) {
+			// reason: 'no-active-session' | 'scope-denied' (the latter is
+			// already handled above; keep the branch defensive in case the
+			// core grows new refusal codes).
+			return {
+				content: [{ type: 'text', text: `refused: ${res.reason}` }],
+				isError: true,
+				structuredContent: { ok: false, reason: res.reason },
+			};
+		}
+		return {
+			content: [{ type: 'text', text: `sent to ${res.threadId}` }],
+			structuredContent: { ok: true, threadId: res.threadId },
 		};
 	}
 
