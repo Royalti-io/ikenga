@@ -13,7 +13,10 @@
 export interface ClaudeWrapOpts {
 	/** Claude session id to resume. Omit to start a fresh session. */
 	resumeSessionId?: string | null;
-	/** One-shot prompt — becomes `-p <prompt>`. */
+	/** Initial prompt — passed as a positional arg so claude starts an
+	 *  interactive session seeded with it. Not `-p`: that flag runs claude
+	 *  in headless print mode (one-shot, no TTY), which is wrong for a
+	 *  terminal spawn the user is meant to keep driving. */
 	prompt?: string | null;
 	/** `default` | `acceptEdits` | `plan` | etc. — becomes `--permission-mode`. */
 	permissionMode?: string | null;
@@ -30,7 +33,9 @@ export function buildClaudeWrappedCmd(opts: ClaudeWrapOpts = {}): string[] {
 	if (opts.resumeSessionId) args.push('--resume', opts.resumeSessionId);
 	if (opts.permissionMode) args.push('--permission-mode', opts.permissionMode);
 	if (opts.model) args.push('--model', opts.model);
-	if (opts.prompt) args.push('-p', opts.prompt);
+	// Positional, last — seeds an interactive session. `-p` would force
+	// headless print mode; see ClaudeWrapOpts.prompt.
+	if (opts.prompt) args.push(opts.prompt);
 
 	const quoted = args.map(shQuote).join(' ');
 	const script =
