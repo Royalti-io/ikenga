@@ -22,6 +22,13 @@
 // `host.startChatSession` verb (WP-10) is the first such consumer; keep this
 // the single mint → mount → send path so behavior stays consistent across the
 // wizard and any future seeded-session entrypoint.
+//
+// Phase-4 (WP-22) adds a *sibling* path in
+// `src/components/pkg/send-to-active-session.ts` that targets the focused
+// chat pane's existing thread instead of minting. That sibling reuses this
+// file's `appendUserTurn → adapter.send → drain` pipeline but skips the
+// mint + mount + pane-split steps. The frozen verb is
+// `host.sendToActiveSession({ prompt, source? })` (G-ACTIVE-SESSION).
 
 import { mintThreadId, defaultChatAdapterId } from '@/chat';
 import { appendUserTurn, createThread } from '@/chat/persist';
