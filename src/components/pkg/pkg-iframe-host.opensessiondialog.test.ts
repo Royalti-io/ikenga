@@ -19,10 +19,6 @@ vi.mock('@/lib/tauri-cmd', () => ({
 	supabaseConfigGet: vi.fn(),
 }));
 
-vi.mock('@/components/pkg/start-seeded-chat-confirmed', () => ({
-	startSeededChatWithConfirm: vi.fn(),
-}));
-
 vi.mock('@/components/pkg/open-session-dialog', async () => {
 	const actual = await vi.importActual<
 		typeof import('@/components/pkg/open-session-dialog')

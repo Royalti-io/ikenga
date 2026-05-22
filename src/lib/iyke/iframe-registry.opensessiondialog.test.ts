@@ -1,10 +1,9 @@
 // Artifact-channel tests for host.openSessionDialog (WP-27 / G-SESSION-DIALOG).
 //
-// Same request/response shape as the existing host.startChatSession channel:
-// a {kind:'host.openSessionDialog'} message runs the openSessionDialog API
+// A {kind:'host.openSessionDialog'} message runs the openSessionDialog API
 // (which the dialog will eventually resolve) and posts a :result back keyed
-// by request_id. First-party — no scope check at this layer, the verb path
-// from pkg-iframe-host.tsx is where the scope gate lives.
+// by request_id. First-party — no scope check at this layer; the pkg verb
+// path from pkg-iframe-host.tsx is where the engine:invoke gate lives.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -17,9 +16,6 @@ vi.mock('@/components/pkg/open-session-dialog', async () => {
 		openSessionDialog: vi.fn(),
 	};
 });
-vi.mock('@/components/pkg/start-seeded-chat-confirmed', () => ({
-	startSeededChatWithConfirm: vi.fn(),
-}));
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 
 import { installIykeIframeMessageListener } from './iframe-registry';

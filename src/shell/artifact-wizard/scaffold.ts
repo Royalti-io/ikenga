@@ -18,10 +18,12 @@
 //
 // The chat half of that flow is also exported on its own as
 // `startSeededChat()` — the shared seam for non-wizard callers that need to
-// open a chat pane pre-loaded with a kickoff prompt. Phase-2's
-// `host.startChatSession` verb (WP-10) is the first such consumer; keep this
-// the single mint → mount → send path so behavior stays consistent across the
-// wizard and any future seeded-session entrypoint.
+// open a chat pane pre-loaded with a kickoff prompt. The shell's New-Session
+// dialog (WP-27 / G-SESSION-DIALOG, supersedes the retired
+// `host.startChatSession` verb / WP-10) drives this through its own Start
+// handler; keep this the single mint → mount → send path so behavior stays
+// consistent across the wizard, the dialog, and any future seeded-session
+// entrypoint.
 
 import { mintThreadId, defaultChatAdapterId } from '@/chat';
 import { appendUserTurn, createThread } from '@/chat/persist';
@@ -250,9 +252,9 @@ export interface StartSeededChatResult {
  *
  * The artifact-creation wizard's proven mint → ensure → persist → mount → send
  * pipeline, lifted out of its `onConfirm` chain so non-wizard callers (the
- * Phase-2 `host.startChatSession` verb) can reuse it without re-implementing
- * the dance. Returns the thread + pane ids so callers can publish them as
- * state, focus the pane, etc.
+ * shell's New-Session dialog Start handler) can reuse it without
+ * re-implementing the dance. Returns the thread + pane ids so callers can
+ * publish them as state, focus the pane, etc.
  *
  * Ordering is load-bearing: the thread is minted and persisted before the pane
  * mounts (so the pane hydrates from the in-memory store rather than racing the

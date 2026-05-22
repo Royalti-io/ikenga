@@ -7,7 +7,6 @@ import { Dock } from './dock/dock';
 import { useDockStore } from './dock/dock-store';
 import { CommandPalette, useCommandPalette } from './command-palette';
 import { TerminalHandoffPrompt } from './artifact-wizard/terminal-handoff-prompt';
-import { SeedChatConfirmPrompt } from '@/components/pkg/seed-chat-confirm-prompt';
 import { OpenSessionDialogHost } from '@/components/pkg/open-session-dialog-host';
 import { WizardPopRecoveryChip } from './artifact-wizard/wizard-pop-recovery-chip';
 import { ConnectorBanner } from './connector-banner';
@@ -326,8 +325,6 @@ export function Workspace() {
 			/>
 
 			<TerminalHandoffPrompt />
-
-			<SeedChatConfirmPrompt />
 
 			<OpenSessionDialogHost />
 

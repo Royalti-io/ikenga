@@ -10,7 +10,6 @@
 
 import { invoke } from '@tauri-apps/api/core';
 
-import { startSeededChatWithConfirm } from '@/components/pkg/start-seeded-chat-confirmed';
 import {
 	openSessionDialog,
 	type OpenSessionDialogOptions,
@@ -208,50 +207,6 @@ export function installIykeIframeMessageListener() {
 					reg.state[key] = value;
 					bumpStateGeneration();
 				}
-				return;
-			}
-			// First-party artifact channel for the seeded-session verb (Opt-A,
-			// 04 Round 6). The pkg AppBridge has its own `host.startChatSession`
-			// (scope-gated); artifacts are first-party so they skip the scope
-			// check but share the same user-confirm + startSeededChat core.
-			// Request/response: we post the result back keyed by `request_id`.
-			case 'host.startChatSession': {
-				const reqId = data.request_id;
-				const src = e.source as Window | null;
-				const respond = (result: unknown) => {
-					if (!reqId || !src) return;
-					try {
-						src.postMessage(
-							{
-								__iyke: true,
-								kind: 'host.startChatSession:result',
-								request_id: reqId,
-								payload: result,
-							},
-							'*'
-						);
-					} catch {}
-				};
-				const payload = (data.payload ?? {}) as Record<string, unknown>;
-				const prompt = typeof payload.prompt === 'string' ? payload.prompt : null;
-				if (!prompt) {
-					respond({ ok: false, error: 'missing prompt' });
-					return;
-				}
-				const projectId = typeof payload.projectId === 'string' ? payload.projectId : undefined;
-				const title = typeof payload.title === 'string' ? payload.title : undefined;
-				const engineId = typeof payload.engineId === 'string' ? payload.engineId : undefined;
-				const split =
-					payload.split === 'right' || payload.split === 'bottom' || payload.split === null
-						? payload.split
-						: undefined;
-				void startSeededChatWithConfirm('this artifact', {
-					prompt,
-					projectId,
-					title,
-					engineId,
-					split,
-				}).then(respond);
 				return;
 			}
 			// First-party artifact channel for host.openSessionDialog (WP-27 /

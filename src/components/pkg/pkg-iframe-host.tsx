@@ -49,7 +49,6 @@ import {
 	pkgPreviewManifest,
 	pkgSidecarCall,
 } from '@/lib/tauri-cmd';
-import { startSeededChatWithConfirm } from '@/components/pkg/start-seeded-chat-confirmed';
 import {
 	openSessionDialog,
 	type OpenSessionDialogOptions,
@@ -102,10 +101,13 @@ interface HostCallResult {
 //   to wrapping raw stdout when the sidecar emits non-JSON.
 // - `host.navigate({ path })` — navigates the focused pane to the given
 //   route path. Mirrors the `hostNavigate` shape used by older pkgs.
-// - `host.startChatSession({ prompt, projectId?, title?, engineId?, split? })`
-//   — mints a fresh chat session seeded with the prompt and mounts it as a
-//   pane. Gated on the `engine:invoke` scope + a per-call user confirmation
-//   of the seed text (prompt-injection mitigation). Always a *new* session.
+// - `host.openSessionDialog({ initialPrompt?, title?, engineId?, sessionKind?,
+//   cwd?, source? })` — opens the shell's New-Session dialog pre-filled with
+//   the passed args; the user reads, edits, picks Chat vs Terminal, and
+//   clicks Start (or Cancel). G-SESSION-DIALOG (Round 7, 2026-05-22) —
+//   replaces the retired `host.startChatSession` verb + WP-10's separate
+//   confirm modal. The dialog IS the consent surface. Gated on `engine:invoke`
+//   (install-time sensitive per WP-13).
 //
 // Anything else under `host.*` returns an MCP-protocol error (isError:
 // true) so the iframe's error handling fires. We intentionally do NOT
@@ -250,56 +252,6 @@ export async function dispatchHostCall(
 		return {
 			content: [{ type: 'text', text: `menu set: ${items.length} items` }],
 			structuredContent: { ok: true, count: items.length },
-		};
-	}
-
-	// host.startChatSession({ prompt, projectId?, title?, engineId?, split? }) —
-	// mint a fresh chat session seeded with a kickoff prompt and mount it as a
-	// pane (via WP-09's startSeededChat seam). Gated on the `engine:invoke`
-	// scope and a per-call user confirmation of the seed text. Always seeds a
-	// *new* session — there is no path to inject into an existing thread.
-	// See 01-plan §Risks (prompt-injection via auto-seeded sessions).
-	if (name === 'host.startChatSession') {
-		const prompt = typeof args.prompt === 'string' ? args.prompt : null;
-		if (!prompt) {
-			return errResult('host.startChatSession: missing required `prompt` argument');
-		}
-		const projectId = typeof args.projectId === 'string' ? args.projectId : undefined;
-		const title = typeof args.title === 'string' ? args.title : undefined;
-		const engineId = typeof args.engineId === 'string' ? args.engineId : undefined;
-		// split is 'right' | 'bottom' | null; anything else falls back to the
-		// helper's default (null) by passing undefined.
-		const split =
-			args.split === 'right' || args.split === 'bottom' || args.split === null
-				? args.split
-				: undefined;
-
-		// Scope gate — the kernel doesn't enforce scopes on host.* verbs. The
-		// confirm + send core is shared with the first-party artifact channel
-		// (iyke iframe-registry), which skips this scope check.
-		if (!(await pkgDeclaresScope(pkgId, 'engine', 'invoke'))) {
-			return errResult("host.startChatSession: pkg lacks the 'engine:invoke' scope");
-		}
-
-		const res = await startSeededChatWithConfirm(pkgId, {
-			prompt,
-			projectId,
-			title,
-			engineId,
-			split,
-		});
-		if (res.declined) {
-			return {
-				content: [{ type: 'text', text: 'declined by user' }],
-				structuredContent: { ok: false, declined: true },
-			};
-		}
-		if (!res.ok) {
-			return errResult(`host.startChatSession failed: ${res.error ?? 'unknown error'}`);
-		}
-		return {
-			content: [{ type: 'text', text: `session started: ${res.threadId}` }],
-			structuredContent: { ok: true, threadId: res.threadId, paneId: res.paneId },
 		};
 	}
 
