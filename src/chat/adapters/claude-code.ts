@@ -194,28 +194,37 @@ class ClaudeCodeAdapterImpl implements ChatAdapter {
 	 *  Idempotent; safe to call from a hook on every mount. */
 	async attach(threadId: string, cwd: string, projectId?: string | null): Promise<void> {
 		if (this.streams.has(threadId)) return;
-		if (!this.sessioned.has(threadId)) {
-			// `acp_new_session` is idempotent on the Rust side via the threadId
-			// key: it returns the existing modes state if the thread already
-			// exists. The child stays lazy — spawn happens on the first prompt.
-			// Phase 3 (projects-first-class): thread the active project's id via
-			// `_meta.projectId` so the Rust side can resolve the cwd to the
-			// project's root_path when the caller's cwd is empty/wrong.
-			try {
-				const meta: Record<string, unknown> = { threadId };
-				if (projectId) meta.projectId = projectId;
-				await chatNewSession({ cwd, mcpServers: [], _meta: meta }, 'claude-code');
-				this.sessioned.add(threadId);
-			} catch (e) {
-				// If the Rust side decides the thread already has a different cwd
-				// and rejects, fall through to listening — the existing session
-				// remains valid.
-				console.warn('chatNewSession:', e);
-			}
-		}
+		// Claim the slot SYNCHRONOUSLY, before any await. `attach` is called
+		// concurrently from a thread's mount hook and from `send()`; the seeded-
+		// chat path fires both near-simultaneously. If we awaited `chatNewSession`
+		// before recording the entry, both callers would pass the `.has` guard
+		// above and each subscribe via `chatListen`, leaving two live listeners on
+		// `chat://session/{threadId}`. Every SessionUpdate would then be delivered
+		// twice — doubled assistant text (coalesced into one bubble) and duplicate
+		// tool-call cards. The placeholder closes that window: a concurrent caller
+		// sees it and bails.
 		const placeholder: ActiveStream = { threadId, unlisten: null };
 		this.streams.set(threadId, placeholder);
 		try {
+			if (!this.sessioned.has(threadId)) {
+				// `acp_new_session` is idempotent on the Rust side via the threadId
+				// key: it returns the existing modes state if the thread already
+				// exists. The child stays lazy — spawn happens on the first prompt.
+				// Phase 3 (projects-first-class): thread the active project's id via
+				// `_meta.projectId` so the Rust side can resolve the cwd to the
+				// project's root_path when the caller's cwd is empty/wrong.
+				try {
+					const meta: Record<string, unknown> = { threadId };
+					if (projectId) meta.projectId = projectId;
+					await chatNewSession({ cwd, mcpServers: [], _meta: meta }, 'claude-code');
+					this.sessioned.add(threadId);
+				} catch (e) {
+					// If the Rust side decides the thread already has a different cwd
+					// and rejects, fall through to listening — the existing session
+					// remains valid.
+					console.warn('chatNewSession:', e);
+				}
+			}
 			const unlisten = await chatListen(
 				threadId,
 				(notif) => this.onNotification(threadId, notif),
