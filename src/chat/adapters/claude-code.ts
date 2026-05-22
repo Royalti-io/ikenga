@@ -101,7 +101,26 @@ interface ActiveStream {
 interface AcpChunkUpdate {
 	sessionUpdate: string;
 	content?: { type: string; text?: string };
+	// ACP's ContentChunk gates its top-level `messageId` behind the
+	// `unstable_message_id` *schema-crate* feature. Our Rust mapper's
+	// `attach_message_id` is `#[cfg(feature = "unstable_message_id")]` —
+	// but that checks ikenga-desktop's OWN features, which don't include it
+	// (enabling the feature on the agent-client-protocol *dependency* does
+	// not define it on our crate). So the mapper always compiles its
+	// fallback branch and stamps the id under `_meta.ikenga.messageId`
+	// instead of the top-level field. Read both: top-level if the cfg ever
+	// gets wired correctly, `_meta` for what actually ships today.
 	messageId?: string;
+	_meta?: { ikenga?: { messageId?: string } };
+}
+
+/** Resolve the per-message id from a chunk update, tolerating either the
+ *  spec's top-level `messageId` or our Rust fallback at
+ *  `_meta.ikenga.messageId`. Without this the id is always undefined, which
+ *  (a) lets coalesceTail glue two distinct assistant messages into one block
+ *  and (b) breaks the JSONL reconciler's text/thinking dedup key. */
+function chunkMessageId(u: AcpChunkUpdate): string | undefined {
+	return u.messageId ?? u._meta?.ikenga?.messageId;
 }
 interface AcpToolCallUpdateWire {
 	sessionUpdate: 'tool_call';
@@ -126,7 +145,7 @@ export function acpUpdateToChatEvent(update: AcpSessionUpdate): ChatEvent | null
 			const u = update as AcpChunkUpdate;
 			const c = u.content;
 			if (c && c.type === 'text' && typeof c.text === 'string') {
-				return { kind: 'text', delta: c.text, messageId: u.messageId };
+				return { kind: 'text', delta: c.text, messageId: chunkMessageId(u) };
 			}
 			return null;
 		}
@@ -134,7 +153,7 @@ export function acpUpdateToChatEvent(update: AcpSessionUpdate): ChatEvent | null
 			const u = update as AcpChunkUpdate;
 			const c = u.content;
 			if (c && c.type === 'text' && typeof c.text === 'string') {
-				return { kind: 'thinking', delta: c.text, messageId: u.messageId };
+				return { kind: 'thinking', delta: c.text, messageId: chunkMessageId(u) };
 			}
 			return null;
 		}

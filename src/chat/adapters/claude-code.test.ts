@@ -148,3 +148,52 @@ describe('acpUpdateToChatEvent — tool_call_update flat shape', () => {
 		expect(ev).toBeNull();
 	});
 });
+
+// ─── acpUpdateToChatEvent: messageId resolution ──────────────────────────
+//
+// ContentChunk's top-level `messageId` is gated behind the schema crate's
+// `unstable_message_id` feature; our Rust mapper's `#[cfg(feature = ...)]`
+// checks ikenga-desktop's own (undefined) feature, so it always stamps the
+// id under `_meta.ikenga.messageId` instead. Verified by serializing
+// chat_event_to_session_updates(ChatEvent::Text { message_id: Some(...) }):
+//   {"sessionUpdate":"agent_message_chunk","content":{"type":"text",
+//    "text":"hello"},"_meta":{"ikenga":{"messageId":"msg_abc123"}}}
+// A missing messageId lets coalesceTail glue distinct assistant messages
+// and breaks the JSONL reconciler's text/thinking dedup key.
+
+describe('acpUpdateToChatEvent — messageId resolution', () => {
+	it('reads messageId from _meta.ikenga (the shape Rust actually ships)', () => {
+		const ev = acpUpdateToChatEvent({
+			sessionUpdate: 'agent_message_chunk',
+			content: { type: 'text', text: 'hello' },
+			_meta: { ikenga: { messageId: 'msg_abc123' } },
+		} as never);
+		expect(ev).toEqual({ kind: 'text', delta: 'hello', messageId: 'msg_abc123' });
+	});
+
+	it('still reads a top-level messageId if the cfg ever gets wired', () => {
+		const ev = acpUpdateToChatEvent({
+			sessionUpdate: 'agent_message_chunk',
+			content: { type: 'text', text: 'hi' },
+			messageId: 'msg_top',
+		} as never);
+		expect(ev).toMatchObject({ kind: 'text', messageId: 'msg_top' });
+	});
+
+	it('applies the same resolution to thinking chunks', () => {
+		const ev = acpUpdateToChatEvent({
+			sessionUpdate: 'agent_thought_chunk',
+			content: { type: 'text', text: 'pondering' },
+			_meta: { ikenga: { messageId: 'msg_think' } },
+		} as never);
+		expect(ev).toEqual({ kind: 'thinking', delta: 'pondering', messageId: 'msg_think' });
+	});
+
+	it('leaves messageId undefined when neither location carries it', () => {
+		const ev = acpUpdateToChatEvent({
+			sessionUpdate: 'agent_message_chunk',
+			content: { type: 'text', text: 'x' },
+		} as never);
+		expect(ev).toMatchObject({ kind: 'text', messageId: undefined });
+	});
+});

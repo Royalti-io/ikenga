@@ -91,14 +91,18 @@ interface AcpToolCallUpdateWire {
 	title: string;
 	rawInput?: unknown;
 }
+// ACP's `ToolCallUpdate` flattens its `fields` member (`#[serde(flatten)]`),
+// so `status` / `rawOutput` / `content` ship at the top level alongside
+// `toolCallId` — there is no `fields` wrapper on the wire. Gemini is an ACP
+// passthrough engine, so it emits the exact same spec shape Claude does;
+// reading `u.fields?.status` left every Gemini tool card stuck on "running".
+// Mirrors the fix in claude-code.ts.
 interface AcpToolCallUpdateUpdateWire {
 	sessionUpdate: 'tool_call_update';
 	toolCallId: string;
-	fields?: {
-		status?: string;
-		content?: unknown[];
-		rawOutput?: unknown;
-	};
+	status?: string;
+	content?: unknown[];
+	rawOutput?: unknown;
 }
 
 function acpUpdateToChatEvent(update: AcpSessionUpdate): ChatEvent | null {
@@ -130,13 +134,12 @@ function acpUpdateToChatEvent(update: AcpSessionUpdate): ChatEvent | null {
 		}
 		case 'tool_call_update': {
 			const u = update as AcpToolCallUpdateUpdateWire;
-			const status = u.fields?.status;
-			if (status === 'completed' || status === 'failed') {
+			if (u.status === 'completed' || u.status === 'failed') {
 				return {
 					kind: 'tool_result',
 					id: u.toolCallId,
-					output: u.fields?.rawOutput ?? u.fields?.content,
-					isError: status === 'failed',
+					output: u.rawOutput ?? u.content,
+					isError: u.status === 'failed',
 				};
 			}
 			return null;
