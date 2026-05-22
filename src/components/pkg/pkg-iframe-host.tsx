@@ -50,6 +50,10 @@ import {
 	pkgSidecarCall,
 } from '@/lib/tauri-cmd';
 import { startSeededChatWithConfirm } from '@/components/pkg/start-seeded-chat-confirmed';
+import {
+	openSessionDialog,
+	type OpenSessionDialogOptions,
+} from '@/components/pkg/open-session-dialog';
 
 // Tauri event payload emitted by `Kernel::reload_pkg`. The FE only cares about
 // `pkg_id` for the host filter; `version` + `registries` are useful for debug
@@ -299,7 +303,66 @@ export async function dispatchHostCall(
 		};
 	}
 
+	// host.openSessionDialog({ initialPrompt?, title?, engineId?, sessionKind?,
+	// cwd?, source? }) — open the shell's New-Session dialog pre-filled with
+	// the passed args; the user reads, edits, picks Chat vs Terminal, and
+	// clicks Start (or Cancel). G-SESSION-DIALOG (Round 7, 2026-05-22). The
+	// dialog IS the consent surface — no separate confirm modal. Gated on
+	// `engine:invoke` (install-time sensitive per WP-13) so pkgs declaring
+	// the scope cleared a trust prompt at install.
+	if (name === 'host.openSessionDialog') {
+		// Scope gate — same shape as host.startChatSession; the dialog is the
+		// per-call consent on top of the install-time trust check. Returns the
+		// frozen `{ ok: false, reason: 'scope-denied' }` envelope as
+		// structuredContent so callers can branch on it cleanly.
+		if (!(await pkgDeclaresScope(pkgId, 'engine', 'invoke'))) {
+			return {
+				content: [{ type: 'text', text: "host.openSessionDialog: pkg lacks 'engine:invoke'" }],
+				isError: true,
+				structuredContent: { ok: false, reason: 'scope-denied' },
+			};
+		}
+
+		const opts = coerceOpenSessionDialogArgs(args);
+		const result = await openSessionDialog(opts);
+
+		// Frozen signature: result is already in the shape callers expect
+		// (chat | terminal | cancelled | scope-denied). Pass through verbatim
+		// as structuredContent; mirror a human-readable summary into content
+		// so the MCP wire's text channel has something useful.
+		const summary = summarizeResult(result);
+		return {
+			content: [{ type: 'text', text: summary }],
+			structuredContent: result as unknown as Record<string, unknown>,
+		};
+	}
+
 	return errResult(`unknown host tool: ${name}`);
+}
+
+/**
+ * Defensive arg coercion for `host.openSessionDialog`. The verb's signature
+ * is frozen (G-SESSION-DIALOG); junk values for typed fields fall through to
+ * undefined rather than crashing the dialog. The dialog then applies its own
+ * defaults (chat mode, default engine, active project root).
+ */
+function coerceOpenSessionDialogArgs(args: Record<string, unknown>): OpenSessionDialogOptions {
+	const initialPrompt = typeof args.initialPrompt === 'string' ? args.initialPrompt : undefined;
+	const title = typeof args.title === 'string' ? args.title : undefined;
+	const engineId = typeof args.engineId === 'string' ? args.engineId : undefined;
+	const cwd = typeof args.cwd === 'string' ? args.cwd : undefined;
+	const sessionKind =
+		args.sessionKind === 'chat' || args.sessionKind === 'terminal' ? args.sessionKind : undefined;
+	const source = typeof args.source === 'string' ? args.source : undefined;
+	return { initialPrompt, title, engineId, sessionKind, cwd, source };
+}
+
+function summarizeResult(result: Awaited<ReturnType<typeof openSessionDialog>>): string {
+	if (result.ok && result.kind === 'chat') return `chat session started: ${result.threadId}`;
+	if (result.ok && result.kind === 'terminal') return `terminal opened: ${result.paneId}`;
+	if (!result.ok && result.reason === 'cancelled') return 'cancelled by user';
+	if (!result.ok && result.reason === 'scope-denied') return 'scope denied';
+	return 'unknown result';
 }
 
 function errResult(message: string): HostCallResult {
