@@ -12,7 +12,9 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use agent_client_protocol::schema::{Meta, NewSessionRequest};
+use agent_client_protocol::schema::{
+    ContentBlock, Meta, NewSessionRequest, PromptRequest, SessionId, TextContent,
+};
 use axum::{extract::Query, http::StatusCode, Extension, Json};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -182,9 +184,15 @@ pub struct StartBody {
 /// the in-process `ClaudeCodeEngineState::handle_new_session` — same code path
 /// the Tauri command `acp_new_session` uses, so all Phase 3+4+5 wiring
 /// (project resolution, claude config-dir overlay, env vars) applies.
-/// Returns the thread id; sending the initial prompt is the caller's job
-/// (use `acp_prompt` or the FE composer once the user navigates to
-/// `/sessions/$threadId`).
+///
+/// WP-17: when `initial_prompt` is supplied, the route now also **drives the
+/// first turn** — it builds a `PromptRequest` and hands it to
+/// `handle_prompt` on a spawned task, giving CLI / scheduled-routine callers
+/// the same seed-and-go behaviour the in-iframe `startSeededChat` path has.
+/// The turn runs in the background and streams to `chat://session/{thread_id}`
+/// like any other turn, so the route returns the thread id promptly rather
+/// than blocking for the full model response. `initial_prompt_sent` in the
+/// response reports whether a turn was kicked off.
 pub async fn post_session_start(
     Extension(db): Extension<Arc<PaDb>>,
     Extension(app): Extension<AppHandle>,
@@ -239,12 +247,42 @@ pub async fn post_session_start(
         .await
         .map_err(map_err)?;
 
+    // WP-17: actually send the initial prompt instead of just echoing it.
+    // `handle_prompt` blocks until the turn completes (it loops on the event
+    // stream until `Done`), so spawn it — the route returns the thread id now
+    // and the turn streams to `chat://session/{thread_id}` in the background,
+    // exactly as a follow-up turn would. The session row already exists
+    // (handle_new_session minted it under this `thread_id`), so handle_prompt
+    // resolves it by `session_id`.
+    let initial_prompt_sent = match body.initial_prompt.as_deref().map(str::trim) {
+        Some(prompt) if !prompt.is_empty() => {
+            let engine: ClaudeCodeEngineState = Arc::clone(state.inner());
+            let app_for_turn = app.clone();
+            let tid = thread_id.clone();
+            let text = prompt.to_string();
+            tauri::async_runtime::spawn(async move {
+                let req = PromptRequest::new(
+                    SessionId::new(tid.clone()),
+                    vec![ContentBlock::Text(TextContent::new(text))],
+                );
+                if let Err(e) = engine.handle_prompt(app_for_turn, req).await {
+                    log::warn!(
+                        "[iyke/session/start] initial_prompt turn for thread {tid} failed: {e}"
+                    );
+                }
+            });
+            true
+        }
+        _ => false,
+    };
+
     Ok(Json(serde_json::json!({
         "ok": true,
         "thread_id": thread_id,
         "project_id": body.project_id,
         "cwd": cwd,
         "initial_prompt": body.initial_prompt,
+        "initial_prompt_sent": initial_prompt_sent,
     })))
 }
 
