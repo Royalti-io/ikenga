@@ -109,17 +109,18 @@ interface AcpToolCallUpdateWire {
 	title: string;
 	rawInput?: unknown;
 }
+// `ToolCallUpdate` in the ACP schema crate is `#[serde(flatten)]`ed:
+// `status`, `rawOutput`, `content`, … land at the top level alongside
+// `sessionUpdate` + `toolCallId`. No `fields` wrapper on the wire.
 interface AcpToolCallUpdateUpdateWire {
 	sessionUpdate: 'tool_call_update';
 	toolCallId: string;
-	fields?: {
-		status?: string;
-		content?: unknown[];
-		rawOutput?: unknown;
-	};
+	status?: string;
+	content?: unknown[];
+	rawOutput?: unknown;
 }
 
-function acpUpdateToChatEvent(update: AcpSessionUpdate): ChatEvent | null {
+export function acpUpdateToChatEvent(update: AcpSessionUpdate): ChatEvent | null {
 	switch (update.sessionUpdate) {
 		case 'agent_message_chunk': {
 			const u = update as AcpChunkUpdate;
@@ -148,15 +149,14 @@ function acpUpdateToChatEvent(update: AcpSessionUpdate): ChatEvent | null {
 		}
 		case 'tool_call_update': {
 			const u = update as AcpToolCallUpdateUpdateWire;
-			const status = u.fields?.status;
 			// Only emit a tool_result row when the call has actually finished.
 			// Earlier "in_progress" updates have no equivalent in the legacy shape.
-			if (status === 'completed' || status === 'failed') {
+			if (u.status === 'completed' || u.status === 'failed') {
 				return {
 					kind: 'tool_result',
 					id: u.toolCallId,
-					output: u.fields?.rawOutput ?? u.fields?.content,
-					isError: status === 'failed',
+					output: u.rawOutput ?? u.content,
+					isError: u.status === 'failed',
 				};
 			}
 			return null;

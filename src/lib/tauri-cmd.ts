@@ -760,13 +760,18 @@ export type AcpSessionUpdate =
 			_meta?: Record<string, unknown>;
 	  }
 	| {
+			// ACP's `ToolCallUpdate` uses `#[serde(flatten)]` on its `fields`
+			// member, so on the wire `status` / `rawOutput` / `content` /
+			// `kind` / `title` / `locations` land at the top level alongside
+			// `toolCallId` — NOT nested under a `fields` object. (Verified by
+			// dumping the live wire — see history of this comment for the test.)
 			sessionUpdate: 'tool_call_update';
 			toolCallId: string;
-			fields: {
-				status?: string;
-				content?: unknown[];
-				rawOutput?: unknown;
-			};
+			status?: string;
+			content?: unknown[];
+			rawOutput?: unknown;
+			kind?: string;
+			title?: string;
 			_meta?: Record<string, unknown>;
 	  }
 	| { sessionUpdate: string; [k: string]: unknown };

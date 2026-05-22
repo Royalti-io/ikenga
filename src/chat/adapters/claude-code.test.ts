@@ -23,7 +23,7 @@ vi.mock('@/lib/shell/active-project-cwd', () => ({
 }));
 
 import { chatListen, chatNewSession } from '@/lib/tauri-cmd';
-import { getClaudeCodeAdapterInstance } from './claude-code';
+import { acpUpdateToChatEvent, getClaudeCodeAdapterInstance } from './claude-code';
 
 const listen = vi.mocked(chatListen);
 const newSession = vi.mocked(chatNewSession);
@@ -71,5 +71,80 @@ describe('ClaudeCodeAdapter.attach concurrency', () => {
 			adapter.attach('thread-b', '/tmp'),
 		]);
 		expect(listen).toHaveBeenCalledTimes(2);
+	});
+});
+
+// ─── acpUpdateToChatEvent: wire shape ────────────────────────────────────
+//
+// The ACP `ToolCallUpdate` struct uses `#[serde(flatten)]` on its `fields`
+// member, so on the wire `status` / `rawOutput` / `content` land at the top
+// level alongside `toolCallId` — NOT nested under a `fields` object. This
+// adapter previously read `u.fields?.status`, which was always undefined, so
+// every tool_call_update was silently dropped — every tool card stayed stuck
+// on RUNNING forever. Verified against the live Rust schema by serializing
+// SessionUpdate::ToolCallUpdate(...) and dumping the JSON:
+//   { "sessionUpdate": "tool_call_update",
+//     "toolCallId": "toolu_test",
+//     "status": "completed" }
+
+describe('acpUpdateToChatEvent — tool_call_update flat shape', () => {
+	it('emits tool_result on completed with rawOutput', () => {
+		const ev = acpUpdateToChatEvent({
+			sessionUpdate: 'tool_call_update',
+			toolCallId: 'toolu_42',
+			status: 'completed',
+			rawOutput: { stdout: '/home/me' },
+		} as never);
+		expect(ev).toEqual({
+			kind: 'tool_result',
+			id: 'toolu_42',
+			output: { stdout: '/home/me' },
+			isError: false,
+		});
+	});
+
+	it('falls back to content when rawOutput is missing', () => {
+		const ev = acpUpdateToChatEvent({
+			sessionUpdate: 'tool_call_update',
+			toolCallId: 'toolu_42',
+			status: 'completed',
+			content: [{ type: 'text', text: 'ok' }],
+		} as never);
+		expect(ev).toMatchObject({
+			kind: 'tool_result',
+			id: 'toolu_42',
+			isError: false,
+		});
+	});
+
+	it('emits tool_result with isError on failed', () => {
+		const ev = acpUpdateToChatEvent({
+			sessionUpdate: 'tool_call_update',
+			toolCallId: 'toolu_42',
+			status: 'failed',
+			rawOutput: { error: 'boom' },
+		} as never);
+		expect(ev).toMatchObject({ kind: 'tool_result', isError: true });
+	});
+
+	it('returns null for in-progress updates (no FE-side representation)', () => {
+		const ev = acpUpdateToChatEvent({
+			sessionUpdate: 'tool_call_update',
+			toolCallId: 'toolu_42',
+			status: 'in_progress',
+		} as never);
+		expect(ev).toBeNull();
+	});
+
+	it('regression: does NOT pick up the old nested-fields shape', () => {
+		// The shape the buggy code expected. If the wire ever changed back
+		// to this, the assertion below would flip — keep this here so the
+		// failure mode is loud, not silent.
+		const ev = acpUpdateToChatEvent({
+			sessionUpdate: 'tool_call_update',
+			toolCallId: 'toolu_42',
+			fields: { status: 'completed', rawOutput: { stdout: 'x' } },
+		} as never);
+		expect(ev).toBeNull();
 	});
 });
