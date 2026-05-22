@@ -28,7 +28,7 @@
 		"@ikenga/pkg-engine-claude-code": "^0.2.0",
 		"@ikenga/registry-client": "^0.1.0",
 		"@ikenga/tokens": "workspace:*",
-		"@ikenga/ui-lib": "workspace:*",
+		"@ikenga/ui-lib": "^0.2.0",
 		"@lobehub/icons": "^5.8.0",
 		"@modelcontextprotocol/ext-apps": "^1.7.1",
 		"@radix-ui/react-dialog": "^1.1.15",
