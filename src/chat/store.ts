@@ -79,6 +79,26 @@ export function coalesceAll(events: ChatEvent[]): ChatEvent[] {
 	return events.reduce<ChatEvent[]>((acc, e) => coalesceTail(acc, e), []);
 }
 
+/** Stable identity for an event across the live stream, SQLite-persisted
+ *  turns, and the on-disk JSONL transcript. Used by both the reload
+ *  assembler (SQLite ⊕ JSONL dedupe) and the periodic JSONL reconciler so
+ *  the same turn never double-renders.
+ *
+ *   - text / thinking — keyed by `messageId` (stable across live + JSONL).
+ *     The live stream coalesces multiple chunks into one block whose
+ *     JSON.stringify won't match JSONL's split blocks, so we key on the id.
+ *   - tool_use / tool_result — stable id from the envelope.
+ *   - everything else — fall back to JSON.stringify. */
+export function eventSignature(e: ChatEvent): string {
+	if ((e.kind === 'text' || e.kind === 'thinking') && e.messageId) {
+		return `${e.kind}:m:${e.messageId}`;
+	}
+	if (e.kind === 'tool_use' || e.kind === 'tool_result') {
+		return `${e.kind}:id:${e.id}`;
+	}
+	return `${e.kind}:${JSON.stringify(e)}`;
+}
+
 export const useChatStore = create<ChatStoreState>((set) => ({
 	threads: {},
 	hydratedAt: null,

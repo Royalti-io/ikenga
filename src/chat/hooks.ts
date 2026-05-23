@@ -11,18 +11,22 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { activeProjectCwd } from '@/lib/shell/active-project-cwd';
 import { useShellStore } from '@/lib/shell/shell-store';
-import { claudeReadJsonl, type ChatEvent } from '@/lib/tauri-cmd';
+import { type ChatEvent, claudeReadJsonl } from '@/lib/tauri-cmd';
+import { defaultChatAdapterId } from './default-adapter';
 import {
+	appendMessage,
 	appendUserTurn,
 	clearLivePtys,
 	createThread,
 	findThreadById,
+	loadMessages,
 	loadUserTurns,
+	type PersistedMessage,
+	pruneOldMessages,
 	updateThreadMeta,
 } from './persist';
 import { getAdapter } from './registry';
-import { useChatStore, type ThreadState } from './store';
-import { defaultChatAdapterId } from './default-adapter';
+import { eventSignature, type ThreadState, useChatStore } from './store';
 
 function deriveTitle(events: ChatEvent[]): string | null {
 	for (const e of events) {
@@ -89,6 +93,95 @@ function mergeUserTurnsWithEvents(
 	return merged;
 }
 
+/** Interleave persisted user turns and assistant message-turns into one
+ *  event list, ordered by their write timestamps. A user turn at T0 sorts
+ *  before the assistant turn it triggered (persisted at turn-end, T1 > T0);
+ *  ties break by insertion order. Used when JSONL has no assistant content
+ *  to reconstruct from — the SQLite record is then the source of truth. */
+function interleaveByTimestamp(
+	userTurns: Awaited<ReturnType<typeof loadUserTurns>>,
+	messages: PersistedMessage[]
+): ChatEvent[] {
+	interface Item {
+		ts: number;
+		order: number;
+		events: ChatEvent[];
+	}
+	const items: Item[] = [];
+	let order = 0;
+	for (const t of userTurns) {
+		items.push({
+			ts: t.createdAt,
+			order: order++,
+			events: [{ kind: 'user_turn', text: t.text, sequence: t.sequence, createdAt: t.createdAt }],
+		});
+	}
+	for (const m of messages) {
+		items.push({ ts: m.createdAt, order: order++, events: m.events });
+	}
+	items.sort((a, b) => a.ts - b.ts || a.order - b.order);
+	return items.flatMap((it) => it.events);
+}
+
+/**
+ * Reconcile the three durable sources into the render list:
+ *   - `chat_user_turns` (always — Claude's JSONL drops plain user messages)
+ *   - `chat_messages` (assistant turns we persisted ourselves, this PR)
+ *   - the on-disk JSONL transcript (claude only; backfill for older sessions)
+ *
+ * Strategy (see plans/shell discussion): JSONL stays authoritative *when it
+ * actually has assistant content*, so existing sessions render byte-identical
+ * (ordering, cost dividers, everything). Our persisted turns then only fill
+ * gaps JSONL is missing — the classic "last turn aborted before claude
+ * flushed its transcript" case, where the recovered turn appends in its
+ * correct trailing position.
+ *
+ * When JSONL has *no* assistant content — a missing/mismatched
+ * `claude_session_id`, format drift, or an engine that keeps no transcript at
+ * all (gemini/codex) — we reconstruct entirely from the SQLite record,
+ * interleaved by timestamp. This is the path that fixes the user-only-render
+ * bug.
+ *
+ * Exported for unit testing — not part of the public chat barrel.
+ */
+export function assembleThread(
+	jsonlEvents: ChatEvent[],
+	userTurns: Awaited<ReturnType<typeof loadUserTurns>>,
+	messages: PersistedMessage[]
+): ChatEvent[] {
+	const jsonlHasAssistant = jsonlEvents.some(
+		(e) => e.kind === 'text' || e.kind === 'thinking' || e.kind === 'tool_use'
+	);
+
+	if (jsonlHasAssistant) {
+		const base = mergeUserTurnsWithEvents(jsonlEvents, userTurns);
+		if (messages.length === 0) return base;
+		// Recovery: append any persisted assistant turn JSONL is missing. A turn
+		// counts as "covered" if any of its content events already appear in the
+		// base (matched by stable signature) — so partially-flushed turns aren't
+		// duplicated, and only wholly-absent turns get spliced back in.
+		const present = new Set(base.map(eventSignature));
+		const extra: ChatEvent[] = [];
+		for (const m of messages) {
+			if (m.events.some((e) => present.has(eventSignature(e)))) continue;
+			for (const e of m.events) {
+				const sig = eventSignature(e);
+				if (present.has(sig)) continue;
+				present.add(sig);
+				extra.push(e);
+			}
+		}
+		return extra.length > 0 ? [...base, ...extra] : base;
+	}
+
+	// JSONL gave us nothing to render the assistant side from.
+	if (messages.length === 0) {
+		// Nothing persisted either — preserve the legacy user-turns-only render.
+		return mergeUserTurnsWithEvents(jsonlEvents, userTurns);
+	}
+	return interleaveByTimestamp(userTurns, messages);
+}
+
 /**
  * Bind a route param (the stable `threadId`) to a chat thread:
  *   1. Find or create the thread row in SQLite.
@@ -140,6 +233,7 @@ export function useThread(threadId: string | null): {
 					}
 				}
 				const userTurns = await loadUserTurns(threadId);
+				const persistedMessages = await loadMessages(threadId);
 				const meta = deriveSessionMeta(jsonlEvents);
 				const title = deriveTitle(jsonlEvents);
 
@@ -186,7 +280,7 @@ export function useThread(threadId: string | null): {
 				}
 
 				if (cancelled) return;
-				const merged = mergeUserTurnsWithEvents(jsonlEvents, userTurns);
+				const merged = assembleThread(jsonlEvents, userTurns, persistedMessages);
 				upsertThread(thread, merged);
 
 				// Attach the live subscription via the thread's resolved adapter.
@@ -241,23 +335,12 @@ export function useThread(threadId: string | null): {
 					'rate_limit',
 					'artifact',
 				]);
-				// Identity:
-				//   * text / thinking — keyed by messageId (stable across live + JSONL),
-				//     since the live stream may have coalesced multiple chunks into
-				//     one block whose JSON.stringify won't match JSONL's split blocks.
-				//   * tool_use / tool_result — stable id from the envelope.
-				//   * everything else — fall back to JSON.stringify.
-				const sigOf = (e: (typeof onDisk)[number]): string => {
-					if ((e.kind === 'text' || e.kind === 'thinking') && e.messageId) {
-						return `${e.kind}:m:${e.messageId}`;
-					}
-					if (e.kind === 'tool_use' || e.kind === 'tool_result') {
-						return `${e.kind}:id:${e.id}`;
-					}
-					return `${e.kind}:${JSON.stringify(e)}`;
-				};
-				const existing = new Set(current.events.map(sigOf));
-				const missing = onDisk.filter((e) => canonicalKinds.has(e.kind) && !existing.has(sigOf(e)));
+				// Dedup via the shared `eventSignature` (store.ts) so the reconciler
+				// and the SQLite⊕JSONL reload assembler agree on identity.
+				const existing = new Set(current.events.map(eventSignature));
+				const missing = onDisk.filter(
+					(e) => canonicalKinds.has(e.kind) && !existing.has(eventSignature(e))
+				);
 				if (missing.length > 0) {
 					useChatStore.getState().appendEvents(threadId, missing);
 				}
@@ -307,6 +390,7 @@ export function useChatActions(threadId: string | null, engineId?: string): Chat
 	const setStatus = useChatStore((s) => s.setStatus);
 	const setStream = useChatStore((s) => s.setStream);
 	const appendEvents = useChatStore((s) => s.appendEvents);
+	const clearPendingTurn = useChatStore((s) => s.clearPendingTurn);
 	const sendingRef = useRef(false);
 	const [lastError, setLastError] = useState<string | null>(null);
 
@@ -353,6 +437,21 @@ export function useChatActions(threadId: string | null, engineId?: string): Chat
 				setStream(threadId, null);
 				if (useChatStore.getState().threads[threadId]?.status === 'streaming') {
 					setStatus(threadId, 'idle');
+				}
+				// Persist the assistant side of this turn so reopening the thread
+				// no longer depends on claude's JSONL transcript (and works at all
+				// for engines that keep no transcript — gemini/codex). The user
+				// turn was already persisted up top; drain the per-turn buffer and
+				// drop the synthetic `user_turn` echo before writing the assistant
+				// row. Best-effort: a persist failure must not surface as a send
+				// error — the JSONL reconciler still backfills claude threads.
+				const drained = clearPendingTurn(threadId).filter((e) => e.kind !== 'user_turn');
+				if (drained.length > 0) {
+					try {
+						await appendMessage(threadId, 'assistant', drained);
+					} catch (persistErr) {
+						console.warn('appendMessage (assistant turn):', persistErr);
+					}
 				}
 			}
 		} catch (e) {
@@ -402,6 +501,11 @@ export function useChatColdStart(): void {
 				await clearLivePtys();
 			} catch (e) {
 				console.warn('clearLivePtys:', e);
+			}
+			try {
+				await pruneOldMessages();
+			} catch (e) {
+				console.warn('pruneOldMessages:', e);
 			}
 			try {
 				const { sessionDestroyAll } = await import('@/lib/tauri-cmd');

@@ -242,6 +242,46 @@ impl ClaudeCodeEngine {
             initial_mode = applied;
         }
 
+        // Rehydrate the claude resume id after an app restart. `handle_new_session`
+        // runs on every reopen, and `get_or_create` hands back a fresh session
+        // whose `claude_session_id` is None. Without re-seeding it, the first
+        // post-reload turn spawns claude with no `--resume` — minting a brand-new
+        // session that has no memory of the conversation AND churning
+        // `chat_sessions.claude_session_id`. Seed it from the persisted id so the
+        // spawn path (`session.rs` send_user_message → `--resume <id>`) continues
+        // the same claude session.
+        //
+        // Guard on transcript existence: a stale id whose `.jsonl` is gone would
+        // make `claude --resume` hard-fail the turn, so we only seed when the
+        // transcript is actually on disk (legacy root or per-session overlay).
+        // Only touches a session that doesn't already know its id, so a live
+        // session mid-conversation is never clobbered.
+        {
+            let mut guard = session.claude_session_id.lock().await;
+            if guard.is_none() {
+                let persisted: Option<(Option<String>, Option<String>)> = sqlx::query_as(
+                    "SELECT claude_session_id, project_dir FROM chat_sessions WHERE id = ?",
+                )
+                .bind(&thread_id)
+                .fetch_optional(&pool)
+                .await
+                .ok()
+                .flatten();
+                if let Some(sid) = persisted.and_then(|(sid, _)| sid).filter(|s| !s.is_empty()) {
+                    if crate::commands::claude::locate_jsonl_for_session(&app, &sid).is_some() {
+                        tracing::info!(
+                            "rehydrating resume id {sid} for reopened thread {thread_id}",
+                        );
+                        *guard = Some(sid);
+                    } else {
+                        tracing::warn!(
+                            "persisted claude_session_id {sid} for thread {thread_id} has no transcript on disk; spawning fresh (context will not resume)",
+                        );
+                    }
+                }
+            }
+        }
+
         // Phase 5 (projects-first-class): build the per-session overlay
         // dir from the layered 4-tier discovery (personal + workspace pkg
         // + project + project pkg) so the spawned claude child sees the

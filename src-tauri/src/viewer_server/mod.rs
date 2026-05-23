@@ -53,6 +53,16 @@ const ARTIFACT_BRIDGE_JS: &str = include_str!("../../resources/artifact-iframe-b
 /// somehow flows through twice.
 const ARTIFACT_INJECT_MARKER: &str = "<!-- ikenga-artifact-bridge-injected -->";
 
+/// `@ikenga/tokens` design tokens, copied from `tokens/tokens.css` into
+/// `resources/ikenga-tokens.css` by the `tokens:copy` npm script (chained from
+/// `bun run dev` / `build`). Injected as an inline `<style>` into every served
+/// artifact so the shell palette's CSS custom properties resolve in-frame —
+/// the tokens key off `:root[data-mode='…']` / `[data-theme='…'][data-mode='…']`
+/// attributes, which the artifact bridge mirrors from the shell's `<html>`.
+/// Inline (not a `<link>`) so there's no extra fetch and no flash; `<style>`
+/// inline is permitted by `VIEWER_CSP`.
+const IKENGA_TOKENS_CSS: &str = include_str!("../../resources/ikenga-tokens.css");
+
 /// Cap the buffered body before injection. Anything bigger gets returned
 /// untouched — viewer pages are hand-written HTML, megabyte-sized payloads
 /// would be a data file mislabeled as HTML.
@@ -301,11 +311,13 @@ async fn serve_file(root: &PathBuf, rel_path: &str, mut req: Request<Body>) -> R
     }
 }
 
-/// Inject the Ikenga artifact bridge into every `text/html` response so
-/// host-aware artifacts (per the artifact-studio format defined in the
-/// 2026-05-14 Phase 0 plan) can detect they're inside the shell and swap
-/// their inline polyfill for the host-resolved runtime (data sources,
-/// secret resolution, structured logging).
+/// Inject the Ikenga artifact bridge (and the design-token stylesheet) into
+/// every `text/html` response so host-aware artifacts (per the artifact-studio
+/// format defined in the 2026-05-14 Phase 0 plan) can detect they're inside
+/// the shell and swap their inline polyfill for the host-resolved runtime (data
+/// sources, secret resolution, structured logging). The injected block is, in
+/// order: the `<style id="ikenga-tokens">` palette and then the bridge
+/// `<script>`. Both ride a single `ARTIFACT_INJECT_MARKER` for idempotency.
 ///
 /// Unlike `inject_iyke_bridge`, this middleware injects **right after the
 /// `<head>` opening tag** rather than before `</head>`. The artifact bridge
@@ -359,8 +371,9 @@ async fn inject_artifact_bridge(req: Request<Body>, next: Next) -> Response {
     // *synchronous* execution before the inline polyfill in <head> sees the
     // document, so plain `<script>` (no `type="module"`). The bundle is an
     // IIFE so it's safe to drop into a classic script tag.
-    let script =
-        format!("{ARTIFACT_INJECT_MARKER}\n<script>\n{ARTIFACT_BRIDGE_JS}\n</script>\n");
+    let script = format!(
+        "{ARTIFACT_INJECT_MARKER}\n<style id=\"ikenga-tokens\">\n{IKENGA_TOKENS_CSS}\n</style>\n<script>\n{ARTIFACT_BRIDGE_JS}\n</script>\n"
+    );
     let mut out = String::with_capacity(html.len() + script.len());
     // Inject right after `<head>` (allowing attributes like `<head class="…">`)
     // — scan for the opening tag then the `>` that closes it.
@@ -586,6 +599,43 @@ mod tests {
             marker_at < polyfill_at,
             "bridge bundle must run before the inline polyfill IIFE so the `|| (…)` guard short-circuits",
         );
+    }
+
+    /// The design-token stylesheet is injected into HTML responses exactly
+    /// once, carrying the palette custom properties the artifact bridge's
+    /// mirrored `data-mode`/`data-theme` attributes key on. Asserts one canary
+    /// token (`--bg-base`) rather than the whole sheet so a tokens.css edit
+    /// doesn't churn this test.
+    #[tokio::test]
+    async fn tokens_style_injected_into_html() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("a.html"), TINY_ARTIFACT).unwrap();
+
+        let token = "tok_t";
+        let app = router_for(token, dir.path().to_path_buf());
+
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri(format!("/__viewer/{token}/a.html"))
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let body = to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+        let html = std::str::from_utf8(&body).unwrap();
+
+        assert_eq!(
+            html.matches("id=\"ikenga-tokens\"").count(),
+            1,
+            "tokens <style> must be injected exactly once",
+        );
+        assert!(
+            html.contains("--bg-base"),
+            "tokens <style> must carry the palette custom properties",
+        );
+        // The bridge script must still co-exist in the same injected block.
+        assert!(html.contains(ARTIFACT_INJECT_MARKER));
     }
 
     /// Non-HTML responses (e.g. JSON data files served alongside an

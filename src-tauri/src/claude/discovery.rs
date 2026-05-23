@@ -809,13 +809,19 @@ pub fn build_session_config_dir(
         .app_cache_dir()
         .map_err(|e| format!("app_cache_dir: {e}"))?;
     let claude_dir = cache_dir.join("sessions").join(session_id).join(".claude");
-    // Fresh dir per session — wipe if it already exists (stale prior session).
-    if claude_dir.exists() {
-        std::fs::remove_dir_all(&claude_dir).map_err(|e| format!("clean: {e}"))?;
-    }
-    for sub in ["agents", "skills", "commands", "hooks"] {
-        std::fs::create_dir_all(claude_dir.join(sub)).map_err(|e| format!("mkdir {sub}: {e}"))?;
-    }
+    // Refresh only the discovery-managed subdirs (their symlinks change with
+    // pins/project and stale ones must go), but PRESERVE the rest of the
+    // overlay — most importantly `projects/`, where claude writes the
+    // conversation transcript that `claude --resume` and the reload
+    // reconciler both depend on. This builder runs on every `handle_new_session`
+    // (i.e. every reopen); the previous `remove_dir_all(claude_dir)` wiped the
+    // whole overlay each time, destroying the transcript claude had just
+    // written. That forced a brand-new claude session on every turn after the
+    // first — churning `claude_session_id` and losing all prior context.
+    // Anything claude owns at the overlay root (`projects/`, `sessions/`,
+    // `todos/`, `.claude.json`, statsig, …) is left untouched; the symlinked
+    // auth/settings/mcp files below overwrite themselves in place.
+    refresh_managed_subdirs(&claude_dir)?;
 
     for (name, sources) in &tree.agents {
         let pick = resolve_preferred(name, sources, pins);
@@ -862,6 +868,26 @@ pub fn build_session_config_dir(
     }
 
     Ok(claude_dir)
+}
+
+/// Discovery-managed subdirs of the overlay. Only these are cleared+recreated
+/// on each rebuild — everything else claude owns (notably `projects/`, the
+/// conversation transcripts) is preserved.
+const MANAGED_SUBDIRS: [&str; 4] = ["agents", "skills", "commands", "hooks"];
+
+/// Clear+recreate only the discovery-managed subdirs of `claude_dir`, leaving
+/// the rest of the overlay intact. Extracted from `build_session_config_dir`
+/// so the "don't wipe claude's transcripts on reopen" invariant is unit-
+/// testable without a Tauri `AppHandle`.
+fn refresh_managed_subdirs(claude_dir: &Path) -> Result<(), String> {
+    for sub in MANAGED_SUBDIRS {
+        let sub_dir = claude_dir.join(sub);
+        if sub_dir.exists() {
+            std::fs::remove_dir_all(&sub_dir).map_err(|e| format!("clean {sub}: {e}"))?;
+        }
+        std::fs::create_dir_all(&sub_dir).map_err(|e| format!("mkdir {sub}: {e}"))?;
+    }
+    Ok(())
 }
 
 /// Symlinks per-user `.credentials.json` + `settings*.json` from
@@ -1359,6 +1385,40 @@ mod tests {
         // Nothing copied; session dir stays empty.
         let count = std::fs::read_dir(&session_claude).unwrap().count();
         assert_eq!(count, 0);
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn refresh_managed_subdirs_preserves_transcripts_and_clears_managed() {
+        let tmp = std::env::temp_dir()
+            .join(format!("ikenga-overlay-preserve-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let claude_dir = tmp.join(".claude");
+
+        // Simulate the state after a turn: claude has written a transcript
+        // under projects/, and a previous rebuild left a stale skill dir.
+        let transcript = claude_dir.join("projects").join("-some-slug").join("sess.jsonl");
+        std::fs::create_dir_all(transcript.parent().unwrap()).unwrap();
+        std::fs::write(&transcript, b"{\"type\":\"text\"}").unwrap();
+        let claude_json = claude_dir.join(".claude.json");
+        std::fs::write(&claude_json, b"{}").unwrap();
+        std::fs::create_dir_all(claude_dir.join("skills").join("stale-skill")).unwrap();
+
+        refresh_managed_subdirs(&claude_dir).unwrap();
+
+        // Transcript + claude's own state survive the rebuild.
+        assert!(transcript.exists(), "projects/ transcript must survive reopen");
+        assert!(claude_json.exists(), ".claude.json must survive reopen");
+        // Managed subdirs exist but were cleared of stale entries.
+        for sub in MANAGED_SUBDIRS {
+            let p = claude_dir.join(sub);
+            assert!(p.is_dir(), "{sub}/ recreated");
+            assert_eq!(
+                std::fs::read_dir(&p).unwrap().count(),
+                0,
+                "{sub}/ cleared of stale links"
+            );
+        }
         let _ = std::fs::remove_dir_all(&tmp);
     }
 }
