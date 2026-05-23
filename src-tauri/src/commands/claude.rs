@@ -333,7 +333,11 @@ fn jsonl_projects_roots(app: &AppHandle) -> Vec<PathBuf> {
 /// Given a session id, find its on-disk jsonl by scanning project slug dirs
 /// across both the legacy `$HOME/.claude/projects` root and every per-session
 /// ACP overlay root (see `jsonl_projects_roots`).
-fn locate_jsonl_for_session(app: &AppHandle, session_id: &str) -> Option<PathBuf> {
+///
+/// `pub(crate)` so the claude_code engine can use it as a resume-existence
+/// guard before seeding `--resume <id>` on a reopened session — a stale id
+/// whose transcript is gone would otherwise hard-fail the turn.
+pub(crate) fn locate_jsonl_for_session(app: &AppHandle, session_id: &str) -> Option<PathBuf> {
     locate_jsonl_in_roots(&jsonl_projects_roots(app), session_id)
 }
 
