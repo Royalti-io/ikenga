@@ -24,7 +24,7 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 
 use crate::claude::{
     event::ChatEvent,
@@ -166,9 +166,10 @@ pub async fn claude_list_sessions(
 
 #[tauri::command]
 pub async fn claude_read_jsonl(
+    app: AppHandle,
     #[allow(non_snake_case)] sessionId: String,
 ) -> Result<Vec<ChatEvent>, String> {
-    let path = locate_jsonl_for_session(&sessionId)
+    let path = locate_jsonl_for_session(&app, &sessionId)
         .ok_or_else(|| format!("session {sessionId} not found on disk"))?;
     read_jsonl(&path).map_err(|e| format!("read_jsonl: {e}"))
 }
@@ -299,18 +300,111 @@ pub struct SessionHandle {
 
 // ─── internals ────────────────────────────────────────────────────────────────
 
-/// Given a session id, find its on-disk jsonl by scanning project slug dirs.
-fn locate_jsonl_for_session(session_id: &str) -> Option<PathBuf> {
-    let root = projects_root()?;
+/// Collect every `projects/` root that might hold a session transcript.
+///
+/// Legacy `claude` runs write to `$HOME/.claude/projects/`. But ACP chat
+/// threads spawn the child with a per-session `CLAUDE_CONFIG_DIR` overlay at
+/// `<app_cache>/sessions/<thread_id>/.claude/` (see
+/// `claude::discovery::build_session_config_dir`), so their transcripts land
+/// under `<app_cache>/sessions/<thread_id>/.claude/projects/<slug>/`. Scanning
+/// only `$HOME/.claude/projects` (as the locator used to) meant
+/// `claude_read_jsonl` returned "not found" for every ACP thread — silently
+/// disabling the JSONL reconciler that recovers events a live subscription
+/// drops (e.g. across an app reload mid-turn).
+fn jsonl_projects_roots(app: &AppHandle) -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    if let Some(home) = projects_root() {
+        roots.push(home);
+    }
+    if let Ok(cache) = app.path().app_cache_dir() {
+        let sessions = cache.join("sessions");
+        if let Ok(rd) = std::fs::read_dir(&sessions) {
+            for thread_entry in rd.flatten() {
+                let projects = thread_entry.path().join(".claude").join("projects");
+                if projects.is_dir() {
+                    roots.push(projects);
+                }
+            }
+        }
+    }
+    roots
+}
+
+/// Given a session id, find its on-disk jsonl by scanning project slug dirs
+/// across both the legacy `$HOME/.claude/projects` root and every per-session
+/// ACP overlay root (see `jsonl_projects_roots`).
+fn locate_jsonl_for_session(app: &AppHandle, session_id: &str) -> Option<PathBuf> {
+    locate_jsonl_in_roots(&jsonl_projects_roots(app), session_id)
+}
+
+/// Pure helper: scan each `projects/` root's slug dirs for `<session_id>.jsonl`.
+/// First match wins; roots are searched in order (legacy `$HOME` first).
+fn locate_jsonl_in_roots(roots: &[PathBuf], session_id: &str) -> Option<PathBuf> {
     let target = format!("{session_id}.jsonl");
-    for slug_entry in std::fs::read_dir(&root).ok()?.flatten() {
-        let slug_dir = slug_entry.path();
-        let candidate = slug_dir.join(&target);
-        if candidate.exists() {
-            return Some(candidate);
+    for root in roots {
+        let Ok(rd) = std::fs::read_dir(root) else {
+            continue;
+        };
+        for slug_entry in rd.flatten() {
+            let candidate = slug_entry.path().join(&target);
+            if candidate.exists() {
+                return Some(candidate);
+            }
         }
     }
     None
+}
+
+#[cfg(test)]
+mod jsonl_locator_tests {
+    use super::locate_jsonl_in_roots;
+    use std::fs;
+
+    #[test]
+    fn finds_jsonl_in_an_overlay_root_when_legacy_root_is_empty() {
+        let tmp = tempfile::tempdir().unwrap();
+        let legacy = tmp.path().join("home/.claude/projects");
+        let overlay = tmp
+            .path()
+            .join("cache/sessions/thread-1/.claude/projects");
+        let slug = overlay.join("-home-me-proj");
+        fs::create_dir_all(&legacy).unwrap();
+        fs::create_dir_all(&slug).unwrap();
+        let sid = "dc2e0da9-eadd-418f-82a3-8830150f36e0";
+        fs::write(slug.join(format!("{sid}.jsonl")), b"{}").unwrap();
+
+        let found = locate_jsonl_in_roots(&[legacy, overlay.clone()], sid);
+        assert_eq!(found, Some(slug.join(format!("{sid}.jsonl"))));
+    }
+
+    #[test]
+    fn legacy_root_wins_when_present_in_both() {
+        let tmp = tempfile::tempdir().unwrap();
+        let sid = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+        let legacy_slug = tmp.path().join("home/.claude/projects/slug");
+        let overlay_slug = tmp.path().join("cache/sessions/t/.claude/projects/slug");
+        fs::create_dir_all(&legacy_slug).unwrap();
+        fs::create_dir_all(&overlay_slug).unwrap();
+        fs::write(legacy_slug.join(format!("{sid}.jsonl")), b"{}").unwrap();
+        fs::write(overlay_slug.join(format!("{sid}.jsonl")), b"{}").unwrap();
+
+        let found = locate_jsonl_in_roots(
+            &[
+                tmp.path().join("home/.claude/projects"),
+                tmp.path().join("cache/sessions/t/.claude/projects"),
+            ],
+            sid,
+        );
+        assert_eq!(found, Some(legacy_slug.join(format!("{sid}.jsonl"))));
+    }
+
+    #[test]
+    fn returns_none_when_absent_everywhere() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("home/.claude/projects");
+        fs::create_dir_all(root.join("slug")).unwrap();
+        assert_eq!(locate_jsonl_in_roots(&[root], "no-such-session"), None);
+    }
 }
 
 // ─── Phase 3 (projects-first-class): project-scoped session listing ───────────
