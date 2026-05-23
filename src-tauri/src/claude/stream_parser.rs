@@ -108,20 +108,28 @@ pub(crate) fn dispatch_envelope(value: &Value, out: &mut Vec<ChatEvent>) {
         "rate_limit_event" => out.push(ChatEvent::RateLimit {
             info: value.clone(),
         }),
-        // Phase 4: tool-permission round-trip. `claude
-        // --permission-prompt-tool stdio` writes one of these to stdout when
-        // a tool needs approval; the ACP server forwards it as
-        // `session/request_permission`, then writes a `sdk_control_response`
-        // back to stdin. Some claude builds omit `request_id`; fall back to
-        // a locally-generated uuid so the bridge always has a key.
-        "sdk_control_request" => {
+        // Tool-permission round-trip. `claude --permission-prompt-tool stdio`
+        // writes one of these to stdout when a tool needs approval; the ACP
+        // server forwards it as `session/request_permission`, then writes a
+        // control_response back to stdin. Two wire shapes across builds, both
+        // normalized here (verified against claude 2.1.150):
+        //   • legacy `sdk_control_request` — `request_id` nested under
+        //     `.request`, `subtype:"permission"`, input at `.tool_input`.
+        //   • 2.1.x  `control_request`      — `request_id` at top level,
+        //     `subtype:"can_use_tool"`, input at `.input`, plus `.tool_use_id`.
+        // Some builds omit `request_id`; fall back to a generated uuid so the
+        // bridge always has a correlation key. `subtype` is preserved verbatim
+        // so the server can both route it and mirror the response wire shape.
+        "sdk_control_request" | "control_request" => {
             let req = value.get("request").cloned().unwrap_or(Value::Null);
+            let request_id = value
+                .get("request_id")
+                .and_then(Value::as_str)
+                .or_else(|| req.get("request_id").and_then(Value::as_str))
+                .map(str::to_string)
+                .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
             out.push(ChatEvent::ControlRequest {
-                request_id: req
-                    .get("request_id")
-                    .and_then(Value::as_str)
-                    .map(str::to_string)
-                    .unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
+                request_id,
                 subtype: req
                     .get("subtype")
                     .and_then(Value::as_str)
@@ -131,7 +139,14 @@ pub(crate) fn dispatch_envelope(value: &Value, out: &mut Vec<ChatEvent>) {
                     .get("tool_name")
                     .and_then(Value::as_str)
                     .map(str::to_string),
-                tool_input: req.get("tool_input").cloned(),
+                tool_input: req
+                    .get("input")
+                    .or_else(|| req.get("tool_input"))
+                    .cloned(),
+                tool_use_id: req
+                    .get("tool_use_id")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
             });
         }
         // Partial-message streaming (`--include-partial-messages`). We do NOT
@@ -457,11 +472,40 @@ mod tests {
                 subtype,
                 tool_name,
                 tool_input,
+                ..
             } => {
                 assert_eq!(request_id, "req_42");
                 assert_eq!(subtype, "permission");
                 assert_eq!(tool_name.as_deref(), Some("AskUserQuestion"));
                 assert!(tool_input.is_some());
+            }
+            other => panic!("expected ControlRequest, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn modern_control_request_parses_top_level_id_and_input() {
+        // claude 2.1.x wire shape: type `control_request`, request_id at the
+        // top level, subtype `can_use_tool`, tool input under `input`, plus a
+        // `tool_use_id` correlating to the assistant tool_use block.
+        let mut p = StreamParser::new();
+        let line = br#"{"type":"control_request","request_id":"605f","request":{"subtype":"can_use_tool","tool_name":"AskUserQuestion","input":{"questions":[{"question":"Pick"}]},"tool_use_id":"toolu_01"}}
+"#;
+        let events = p.feed(line);
+        assert_eq!(events.len(), 1);
+        match &events[0] {
+            ChatEvent::ControlRequest {
+                request_id,
+                subtype,
+                tool_name,
+                tool_input,
+                tool_use_id,
+            } => {
+                assert_eq!(request_id, "605f");
+                assert_eq!(subtype, "can_use_tool");
+                assert_eq!(tool_name.as_deref(), Some("AskUserQuestion"));
+                assert!(tool_input.is_some(), "input should map to tool_input");
+                assert_eq!(tool_use_id.as_deref(), Some("toolu_01"));
             }
             other => panic!("expected ControlRequest, got {other:?}"),
         }

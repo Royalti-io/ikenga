@@ -15,16 +15,17 @@
  * safe to mount unconditionally inside `Thread`.
  */
 
-import { useEffect, useState } from 'react';
 import { Info, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { cn } from '@/components/ui/utils';
 import {
-	chatListenRequests,
-	chatRespondPermission,
 	type AcpPermissionOption,
 	type AcpRequestEnvelope,
+	chatListenRequests,
+	chatRespondPermission,
 } from '@/lib/tauri-cmd';
-import { AskUserQuestionPrompt, type AskQuestion } from './ask-user-question-form';
+import { useAskAnswerStore } from './ask-answer-store';
+import { type AskQuestion, AskUserQuestionPrompt } from './ask-user-question-form';
 
 interface PermissionDialogProps {
 	threadId: string;
@@ -36,6 +37,8 @@ interface AskInput {
 
 export function PermissionDialog({ threadId }: PermissionDialogProps) {
 	const [active, setActive] = useState<AcpRequestEnvelope | null>(null);
+	const markAnswered = useAskAnswerStore((s) => s.markAnswered);
+	const markCancelled = useAskAnswerStore((s) => s.markCancelled);
 
 	useEffect(() => {
 		let unlisten: (() => void) | undefined;
@@ -69,10 +72,18 @@ export function PermissionDialog({ threadId }: PermissionDialogProps) {
 	 *  text. Rust's `outcome_to_response_body` short-circuits on this and
 	 *  forwards directly into Claude's `updatedInput.answers`. The
 	 *  canonical `optionId` is a synthetic stable id so ACP's singular
-	 *  `Selected(...)` slot still has something to point at. */
+	 *  `Selected(...)` slot still has something to point at.
+	 *
+	 *  We also stamp the shared `ask-answer-store` keyed by `toolUseId` so
+	 *  the inline AskUserQuestion tool-card (which is read-only — the dialog
+	 *  is the sole answer surface) flips to its answered summary. Claude
+	 *  never echoes a tool_result for AskUserQuestion, so this store is the
+	 *  only signal the card has. */
 	function handleAskSubmit(answers: Record<string, string | string[]>) {
 		const requestId = active!.requestId;
+		const toolUseId = active!.toolUseId;
 		setActive(null);
+		if (toolUseId) markAnswered(toolUseId, answers);
 		void chatRespondPermission(requestId, {
 			outcome: { outcome: 'selected', optionId: 'ask:submitted' },
 			_meta: { answers },
@@ -81,7 +92,9 @@ export function PermissionDialog({ threadId }: PermissionDialogProps) {
 
 	function handleCancel() {
 		const requestId = active!.requestId;
+		const toolUseId = active!.toolUseId;
 		setActive(null);
+		if (toolUseId) markCancelled(toolUseId);
 		void chatRespondPermission(requestId, {
 			outcome: { outcome: 'cancelled' },
 		});

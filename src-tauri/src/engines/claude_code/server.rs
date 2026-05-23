@@ -381,23 +381,30 @@ impl ClaudeCodeEngine {
                         subtype,
                         tool_name,
                         tool_input,
+                        tool_use_id,
                     } = &ev
                     {
-                        if subtype == "permission" {
+                        // `permission` (legacy) and `can_use_tool` (2.1.x) are
+                        // the same tool-approval round-trip under different
+                        // wire names. `subtype` is threaded through so the
+                        // response envelope mirrors the matching wire shape.
+                        if subtype == "permission" || subtype == "can_use_tool" {
                             self.spawn_permission_round_trip(
                                 app.clone(),
                                 session.clone(),
                                 thread_id.clone(),
                                 request_channel.clone(),
                                 request_id.clone(),
+                                subtype.clone(),
                                 tool_name.clone().unwrap_or_default(),
                                 tool_input.clone(),
+                                tool_use_id.clone(),
                             )
                             .await;
                         } else {
                             log::debug!(
                                 target: "ikenga::engines::claude_code::server",
-                                "ignoring control_request subtype={subtype} on thread {thread_id} (phase 4 handles permission only)",
+                                "ignoring control_request subtype={subtype} on thread {thread_id} (only tool-permission round-trips are handled here)",
                             );
                         }
                         continue;
@@ -458,6 +465,7 @@ impl ClaudeCodeEngine {
     /// is in flight — claude will emit assistant text in parallel with the
     /// permission round-trip, and blocking the loop would dead-end the
     /// transcript.
+    #[allow(clippy::too_many_arguments)]
     async fn spawn_permission_round_trip(
         &self,
         app: AppHandle,
@@ -465,8 +473,10 @@ impl ClaudeCodeEngine {
         thread_id: String,
         request_channel: String,
         request_id: String,
+        subtype: String,
         tool_name: String,
         tool_input: Option<Value>,
+        tool_use_id: Option<String>,
     ) {
         // Park the receiver up-front so a fast client response can't slip
         // in before we register the waiter.
@@ -493,9 +503,13 @@ impl ClaudeCodeEngine {
         );
 
         // Wire payload mirrors what an ACP peer would receive over JSON-RPC.
+        // `toolUseId` (when claude supplies it) lets the FE correlate this
+        // request to the assistant tool_use block so the inline AskUserQuestion
+        // card can flip to its answered state once the dialog resolves.
         let payload = serde_json::json!({
             "requestId": request_id,
             "request": req,
+            "toolUseId": tool_use_id,
         });
         let _ = app.emit(&request_channel, &payload);
 
@@ -516,6 +530,14 @@ impl ClaudeCodeEngine {
         let tool_name_for_task = tool_name;
         let tool_input_for_task = tool_input;
         let session_for_task = session.clone();
+        // Mirror the response wire shape to the request: `can_use_tool` →
+        // 2.1.x `control_response`, anything else → legacy
+        // `sdk_control_response` (see `claude::session::ControlWire`).
+        let wire = if subtype == "can_use_tool" {
+            crate::claude::session::ControlWire::Modern
+        } else {
+            crate::claude::session::ControlWire::Legacy
+        };
         tauri::async_runtime::spawn(async move {
             let response = match tokio::time::timeout(
                 Duration::from_secs(PERMISSION_TIMEOUT_SECS),
@@ -541,7 +563,8 @@ impl ClaudeCodeEngine {
                 tool_input_for_task.as_ref(),
                 &response,
             );
-            if let Err(e) = send_control_response(session_for_task, request_id_for_task, body).await
+            if let Err(e) =
+                send_control_response(session_for_task, request_id_for_task, body, wire).await
             {
                 log::warn!(
                     target: "ikenga::engines::claude_code::server",

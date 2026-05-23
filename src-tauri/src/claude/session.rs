@@ -715,31 +715,61 @@ pub async fn send_tool_result(
 }
 
 /// Build the line-delimited `sdk_control_response` envelope claude expects
-/// in reply to a `sdk_control_request`. `response_body` should be the inner
-/// object (`{"behavior":"allow","updatedInput":{...}}` or
-/// `{"behavior":"deny","message":"..."}`); we splice in the `request_id` so
-/// both sides agree on the correlation key.
+/// Which control-protocol wire shape to speak when replying. Mirrors the
+/// request: a `control_request` (claude 2.1.x) is answered with a
+/// `control_response`; a legacy `sdk_control_request` with an
+/// `sdk_control_response`. Both verified against claude 2.1.150.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ControlWire {
+    /// Legacy: `{"type":"sdk_control_response","response":{<body>,"request_id":..}}`
+    Legacy,
+    /// 2.1.x: `{"type":"control_response","response":{"subtype":"success","request_id":..,"response":{<body>}}}`
+    Modern,
+}
+
+/// Build the control-response envelope claude expects in reply to a
+/// control_request. `response_body` is the inner decision object
+/// (`{"behavior":"allow","updatedInput":{...}}` or
+/// `{"behavior":"deny","message":"..."}`); `wire` selects the matching
+/// envelope shape (see `ControlWire`). The trailing newline is part of the
+/// contract — claude reads stdin line-by-line.
 ///
 /// Public for unit tests; the only caller is `send_control_response`.
-pub fn control_response_envelope(request_id: &str, response_body: &serde_json::Value) -> String {
-    let mut inner = match response_body {
-        serde_json::Value::Object(m) => m.clone(),
-        // Defensive: spec says callers pass an object. If they don't,
-        // wrap so the envelope still parses on claude's end.
-        other => {
-            let mut m = serde_json::Map::new();
-            m.insert("response".into(), other.clone());
-            m
+pub fn control_response_envelope(
+    request_id: &str,
+    response_body: &serde_json::Value,
+    wire: ControlWire,
+) -> String {
+    let value = match wire {
+        ControlWire::Modern => serde_json::json!({
+            "type": "control_response",
+            "response": {
+                "subtype": "success",
+                "request_id": request_id,
+                "response": response_body,
+            },
+        }),
+        ControlWire::Legacy => {
+            let mut inner = match response_body {
+                serde_json::Value::Object(m) => m.clone(),
+                // Defensive: spec says callers pass an object. If they don't,
+                // wrap so the envelope still parses on claude's end.
+                other => {
+                    let mut m = serde_json::Map::new();
+                    m.insert("response".into(), other.clone());
+                    m
+                }
+            };
+            inner.insert(
+                "request_id".into(),
+                serde_json::Value::String(request_id.to_string()),
+            );
+            serde_json::json!({
+                "type": "sdk_control_response",
+                "response": serde_json::Value::Object(inner),
+            })
         }
     };
-    inner.insert(
-        "request_id".into(),
-        serde_json::Value::String(request_id.to_string()),
-    );
-    let value = serde_json::json!({
-        "type": "sdk_control_response",
-        "response": serde_json::Value::Object(inner),
-    });
     let mut s = serde_json::to_string(&value).unwrap_or_else(|_| String::from("{}"));
     s.push('\n');
     s
@@ -758,6 +788,7 @@ pub async fn send_control_response(
     session: Arc<Session>,
     request_id: String,
     response: serde_json::Value,
+    wire: ControlWire,
 ) -> Result<(), String> {
     let streaming = session
         .streaming
@@ -766,7 +797,7 @@ pub async fn send_control_response(
         .as_ref()
         .cloned()
         .ok_or_else(|| "no streaming child for control_response".to_string())?;
-    let envelope = control_response_envelope(&request_id, &response);
+    let envelope = control_response_envelope(&request_id, &response, wire);
     let mut stdin = streaming.stdin.lock().await;
     stdin
         .write_all(envelope.as_bytes())
@@ -879,7 +910,7 @@ mod tests {
             "behavior": "allow",
             "updatedInput": { "answers": { "Which color?": "Red" } },
         });
-        let env = control_response_envelope("req_42", &body);
+        let env = control_response_envelope("req_42", &body, ControlWire::Legacy);
         assert!(env.ends_with('\n'));
         let parsed: serde_json::Value =
             serde_json::from_str(env.trim_end()).expect("envelope is JSON");
@@ -895,12 +926,35 @@ mod tests {
     #[test]
     fn control_response_envelope_wraps_deny_body() {
         let body = json!({"behavior": "deny", "message": "User declined"});
-        let env = control_response_envelope("req_99", &body);
+        let env = control_response_envelope("req_99", &body, ControlWire::Legacy);
         let parsed: serde_json::Value =
             serde_json::from_str(env.trim_end()).expect("envelope is JSON");
         assert_eq!(parsed["response"]["behavior"], json!("deny"));
         assert_eq!(parsed["response"]["message"], json!("User declined"));
         assert_eq!(parsed["response"]["request_id"], json!("req_99"));
+    }
+
+    #[test]
+    fn control_response_envelope_modern_shape() {
+        // claude 2.1.x replies are nested: response.subtype="success",
+        // response.request_id, and the decision body under response.response.
+        // Verified to unblock claude 2.1.150 end-to-end.
+        let body = json!({
+            "behavior": "allow",
+            "updatedInput": { "answers": { "Pick": "Red" } },
+        });
+        let env = control_response_envelope("605f", &body, ControlWire::Modern);
+        assert!(env.ends_with('\n'));
+        let parsed: serde_json::Value =
+            serde_json::from_str(env.trim_end()).expect("envelope is JSON");
+        assert_eq!(parsed["type"], json!("control_response"));
+        assert_eq!(parsed["response"]["subtype"], json!("success"));
+        assert_eq!(parsed["response"]["request_id"], json!("605f"));
+        assert_eq!(parsed["response"]["response"]["behavior"], json!("allow"));
+        assert_eq!(
+            parsed["response"]["response"]["updatedInput"]["answers"]["Pick"],
+            json!("Red"),
+        );
     }
 
     #[tokio::test]

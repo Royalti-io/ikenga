@@ -1,28 +1,24 @@
 /**
  * Renderer for Anthropic's built-in `AskUserQuestion` tool.
  *
- * Two ways AskUserQuestion reaches the user on the Claude Code engine:
+ * On the Claude Code engine, AskUserQuestion ALWAYS reaches the user as a
+ * permission round-trip: claude (spawned with `--permission-prompt-tool
+ * stdio`) emits a `control_request`/`can_use_tool` and blocks waiting for a
+ * `control_response` — verified against claude 2.1.150 in default AND
+ * bypassPermissions modes. (It does NOT come as a plain `tool_use` awaiting a
+ * `tool_result`; an earlier build of this renderer answered via
+ * `sessionToolResult`, which writes the wrong channel and hangs the turn.)
  *
- *   1. As an ACP permission round-trip — when claude (spawned with
- *      `--permission-prompt-tool stdio`) routes it through the prompt tool.
- *      The `PermissionDialog` overlay handles that path; this renderer is
- *      never reached for it (permission round-trips don't surface as
- *      `tool_use` events).
+ * The `PermissionDialog` overlay (anchored above the composer) is therefore
+ * the SOLE answer surface. claude also emits the `tool_use` block, which is
+ * what mounts this renderer — but it is **read-only**: it previews the
+ * questions while pending and shows the answered summary once the dialog
+ * resolves. The dialog stamps the shared `ask-answer-store` (keyed by
+ * `tool_use` id) on submit/cancel; claude never echoes a `tool_result` for
+ * AskUserQuestion, so that store is the only signal this card has.
  *
- *   2. As a plain `tool_use` — when the permission prompt is bypassed for
- *      the turn (e.g. `--permission-mode bypassPermissions`). claude emits
- *      AskUserQuestion as an ordinary tool call and waits for the harness to
- *      send a `tool_result`. THIS renderer owns that path: it shows the same
- *      interactive form as the overlay and ferries the answer back via
- *      `sessionToolResult`, unblocking the turn.
- *
- * Because the answering `tool_result` is written to claude's stdin (not
- * re-emitted on its output stream), `pair.result` stays null after we
- * answer — so we track submission in local state to flip to the read-only
- * summary and prevent a double-submit.
- *
- * Shape captured 2026-05-11 (the tool is invoked as
- * `mcp__anthropic__AskUserQuestion` or the unscoped `AskUserQuestion`):
+ * Shape captured 2026-05-11 (invoked as `mcp__anthropic__AskUserQuestion` or
+ * the unscoped `AskUserQuestion`):
  *
  *   input.questions: Array<{
  *     question: string,
@@ -33,10 +29,9 @@
  */
 
 import { CheckCircle2 } from 'lucide-react';
-import { sessionToolResult } from '@/lib/tauri-cmd';
 import type { PairedToolCall } from '../../store';
-import { AskUserQuestionPrompt, type AskQuestion } from '../ask-user-question-form';
 import { useAskAnswerStore } from '../ask-answer-store';
+import type { AskQuestion } from '../ask-user-question-form';
 
 interface AskUserQuestionInput {
 	questions: AskQuestion[];
@@ -44,23 +39,21 @@ interface AskUserQuestionInput {
 
 interface AskUserQuestionRendererProps {
 	pair: PairedToolCall;
+	/** Kept for the renderer-dispatch signature; AskUserQuestion answers flow
+	 *  through the permission round-trip, not a per-thread tool_result. */
 	threadId: string;
 }
 
-export function AskUserQuestionRenderer({ pair, threadId }: AskUserQuestionRendererProps) {
+export function AskUserQuestionRenderer({ pair }: AskUserQuestionRendererProps) {
 	const input = (pair.use.input ?? {}) as Partial<AskUserQuestionInput>;
 	const questions = input.questions ?? [];
 
-	// Resolution is keyed by tool_use id in a store, not local state: the
-	// answering tool_result is never echoed back (so `pair.result` stays null),
-	// and component state would reset on remount — resurfacing an already-
-	// answered form and letting it submit a second tool_result. See
-	// `ask-answer-store`.
+	// Resolution is keyed by tool_use id in a store (stamped by the
+	// PermissionDialog), not local state: claude never echoes the answer back
+	// on its output stream (so `pair.result` stays null), and component state
+	// would reset on remount. See `ask-answer-store`.
 	const toolUseId = pair.use.id;
 	const resolution = useAskAnswerStore((s) => s.resolved[toolUseId]);
-	const markAnswered = useAskAnswerStore((s) => s.markAnswered);
-	const markCancelled = useAskAnswerStore((s) => s.markCancelled);
-	const clear = useAskAnswerStore((s) => s.clear);
 
 	if (questions.length === 0) {
 		return (
@@ -68,9 +61,8 @@ export function AskUserQuestionRenderer({ pair, threadId }: AskUserQuestionRende
 		);
 	}
 
-	// Already resolved — we answered/cancelled it (persisted in the store), or
-	// defensively a paired tool_result arrived. Show a compact summary instead
-	// of a re-submittable form.
+	// Resolved — answered/cancelled via the dialog (persisted in the store), or
+	// defensively a paired tool_result arrived. Show a compact summary.
 	const isResolved = resolution != null || pair.result != null;
 	if (isResolved) {
 		return (
@@ -82,34 +74,46 @@ export function AskUserQuestionRenderer({ pair, threadId }: AskUserQuestionRende
 		);
 	}
 
-	async function handleSubmit(answers: Record<string, string | string[]>) {
-		// Optimistically flip to the answered state so the form can't be
-		// re-submitted while the round-trip is in flight.
-		markAnswered(toolUseId, answers);
-		try {
-			await sessionToolResult(threadId, toolUseId, { answers: flattenAnswers(answers) });
-		} catch {
-			// Revert on failure so the user can retry.
-			clear(toolUseId);
-		}
-	}
+	// Pending: read-only preview. The answer surface is the PermissionDialog
+	// below; answering here would write the wrong wire channel.
+	return <PendingPreview questions={questions} />;
+}
 
-	async function handleCancel() {
-		markCancelled(toolUseId);
-		try {
-			await sessionToolResult(
-				threadId,
-				toolUseId,
-				'The user cancelled the question without answering.',
-				true
-			);
-		} catch {
-			clear(toolUseId);
-		}
-	}
-
+/** Read-only preview of the questions while the PermissionDialog awaits an
+ *  answer. Mirrors AnsweredSummary's styling; renders options as static
+ *  chips so the card and the dialog stay visually coherent. */
+function PendingPreview({ questions }: { questions: AskQuestion[] }) {
 	return (
-		<AskUserQuestionPrompt questions={questions} onSubmit={handleSubmit} onCancel={handleCancel} />
+		<div className="space-y-2">
+			<div className="font-mono text-[9px] uppercase tracking-[0.22em] text-[var(--chip-carve)]">
+				awaiting your answer below ↓
+			</div>
+			<ul className="space-y-2">
+				{questions.map((q) => (
+					<li
+						key={`${q.header ?? ''}::${q.question}`}
+						className="border border-[var(--rule)] bg-transparent p-3"
+					>
+						<div className="font-mono text-[9px] uppercase tracking-[0.22em] text-[var(--chip-carve)]">
+							{q.header ? `◾ ${q.header}` : (q.question ?? 'question')}
+						</div>
+						<div className="mt-1 text-[13px] text-foreground">{q.question}</div>
+						{q.options?.length ? (
+							<div className="mt-2 flex flex-wrap gap-1.5">
+								{q.options.map((o) => (
+									<span
+										key={o.label}
+										className="border border-[var(--rule)] bg-transparent px-2 py-0.5 font-mono text-[10px] text-[var(--chip-carve)]"
+									>
+										{o.label}
+									</span>
+								))}
+							</div>
+						) : null}
+					</li>
+				))}
+			</ul>
+		</div>
 	);
 }
 

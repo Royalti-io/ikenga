@@ -898,10 +898,13 @@ export interface AcpRequestPermissionResponse {
 
 /** Envelope the Rust side emits on `chat://session/{threadId}/request`.
  *  Carries the `requestId` (so the reply can match it up) plus the full
- *  ACP-shaped request payload. */
+ *  ACP-shaped request payload. `toolUseId` (present on claude 2.1.x
+ *  control_requests) correlates the request to the assistant tool_use block
+ *  so the inline AskUserQuestion card can reflect the answered state. */
 export interface AcpRequestEnvelope {
 	requestId: string;
 	request: AcpRequestPermissionRequest;
+	toolUseId?: string;
 }
 
 /** Subscribe to `session/request_permission` requests for a thread.

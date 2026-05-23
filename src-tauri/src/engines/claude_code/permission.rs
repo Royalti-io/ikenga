@@ -168,7 +168,7 @@ pub fn outcome_to_response_body(
                 .and_then(|m| m.get("answers"))
                 .and_then(Value::as_object)
             {
-                return ask_user_question_allow_body_from_meta(answers);
+                return ask_user_question_allow_body_from_meta(tool_input, answers);
             }
             let id = sel.option_id.0.as_ref();
             match id {
@@ -189,12 +189,15 @@ pub fn outcome_to_response_body(
     }
 }
 
-/// Forward a pre-keyed `{questionText: string | [string,...]}` map straight
-/// into `updatedInput.answers`. The FE's PermissionDialog builds this when
-/// it has full access to the rawInput (multiSelect arrays, "Other" free
-/// text). Arrays are flattened to a comma-joined string per the
-/// AskUserQuestion contract Claude expects.
-fn ask_user_question_allow_body_from_meta(answers_in: &Map<String, Value>) -> Value {
+/// Forward a pre-keyed `{questionText: string | [string,...]}` map into the
+/// AskUserQuestion allow body. The FE's PermissionDialog builds this when it
+/// has full access to the rawInput (multiSelect arrays, "Other" free text).
+/// Arrays are flattened to a comma-joined string per the AskUserQuestion
+/// contract Claude expects.
+fn ask_user_question_allow_body_from_meta(
+    tool_input: Option<&Value>,
+    answers_in: &Map<String, Value>,
+) -> Value {
     let mut answers = Map::new();
     for (question, value) in answers_in {
         let answer = match value {
@@ -211,7 +214,23 @@ fn ask_user_question_allow_body_from_meta(answers_in: &Map<String, Value>) -> Va
         };
         answers.insert(question.clone(), answer);
     }
+    ask_user_question_allow_body_with_answers(tool_input, answers)
+}
+
+/// Build the AskUserQuestion allow body. claude's contract requires
+/// `updatedInput` to round-trip the ORIGINAL `questions` array alongside the
+/// `answers` map (question text → selected label) — `updatedInput` *replaces*
+/// the tool input, so omitting `questions` makes claude run the tool with no
+/// questions, report "no recorded selection", and re-ask. Verified against
+/// claude 2.1.150 (see Agent SDK docs: agent-sdk/user-input "Response format").
+fn ask_user_question_allow_body_with_answers(
+    tool_input: Option<&Value>,
+    answers: Map<String, Value>,
+) -> Value {
     let mut updated = Map::new();
+    if let Some(questions) = tool_input.and_then(|i| i.get("questions")).cloned() {
+        updated.insert("questions".into(), questions);
+    }
     updated.insert("answers".into(), Value::Object(answers));
     let mut body = Map::new();
     body.insert("behavior".into(), Value::String("allow".into()));
@@ -265,14 +284,7 @@ fn ask_user_question_allow_body(
 
     let mut answers = Map::new();
     answers.insert(question_text, Value::String(label.to_string()));
-
-    let mut updated = Map::new();
-    updated.insert("answers".into(), Value::Object(answers));
-
-    let mut body = Map::new();
-    body.insert("behavior".into(), Value::String("allow".into()));
-    body.insert("updatedInput".into(), Value::Object(updated));
-    Value::Object(body)
+    ask_user_question_allow_body_with_answers(tool_input, answers)
 }
 
 /// Cheap lookup helper used by the server's HashMap-of-oneshots in tests.
@@ -388,6 +400,10 @@ mod tests {
         let updated = &body["updatedInput"];
         let answers = &updated["answers"];
         assert_eq!(answers["Which color?"], json!("Red"));
+        // Regression guard: `updatedInput` must round-trip the original
+        // `questions` array. Dropping it makes claude report "no recorded
+        // selection" and re-ask (verified against claude 2.1.150).
+        assert_eq!(updated["questions"], tool_input["questions"]);
     }
 
     #[test]

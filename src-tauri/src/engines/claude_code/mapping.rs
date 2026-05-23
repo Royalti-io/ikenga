@@ -549,6 +549,7 @@ mod tests {
             subtype: "permission".into(),
             tool_name: Some("Bash".into()),
             tool_input: Some(json!({"command": "ls"})),
+            tool_use_id: None,
         };
         assert!(chat_event_to_session_updates(&ev).is_empty());
     }
