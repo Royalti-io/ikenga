@@ -31,7 +31,13 @@ export function ToolCallCard({ pair, threadId, isChild }: ToolCallCardProps) {
 	const isError = pair.result?.isError === true;
 	const isPending = pair.result == null;
 	const title = deriveTitle(pair);
-	const [open, setOpen] = useState(isError);
+	// A pending AskUserQuestion is an interactive form the user must answer —
+	// not heavy output to inspect. Force it open, render it uncapped (the
+	// 320px scroll cap clips the options + submit button), and hide the
+	// "open in viewer" CTA. Once answered it falls back to normal behavior.
+	const isInteractiveAsk =
+		isPending && (pair.use.name === 'AskUserQuestion' || pair.use.name.endsWith('AskUserQuestion'));
+	const [open, setOpen] = useState(isError || isInteractiveAsk);
 	const focusedId = usePaneStore((s) => s.focusedId);
 	const addTab = usePaneStore((s) => s.addTab);
 
@@ -79,20 +85,26 @@ export function ToolCallCard({ pair, threadId, isChild }: ToolCallCardProps) {
 			</button>
 			{open && (
 				<div className="border-l-2 border-[var(--kola-amber)] pl-3">
-					<div className="max-h-[320px] overflow-auto pr-1">
+					{isInteractiveAsk ? (
 						<ToolRendererDispatch pair={pair} threadId={threadId} density="full" />
-					</div>
-					<div className="mt-1 flex justify-end">
-						<button
-							type="button"
-							onClick={handleOpenInViewer}
-							className="inline-flex items-center gap-1 rounded-sm border border-[var(--rule)] bg-transparent px-2 py-0.5 font-mono text-[9px] uppercase tracking-wider text-[var(--chip-carve)] transition-colors hover:border-[var(--kola-amber)] hover:text-[var(--kola-amber)]"
-							title="Open this tool result in the viewer pane (phase 2)"
-						>
-							open in viewer
-							<ExternalLink className="h-3 w-3" />
-						</button>
-					</div>
+					) : (
+						<>
+							<div className="max-h-[320px] overflow-auto pr-1">
+								<ToolRendererDispatch pair={pair} threadId={threadId} density="full" />
+							</div>
+							<div className="mt-1 flex justify-end">
+								<button
+									type="button"
+									onClick={handleOpenInViewer}
+									className="inline-flex items-center gap-1 rounded-sm border border-[var(--rule)] bg-transparent px-2 py-0.5 font-mono text-[9px] uppercase tracking-wider text-[var(--chip-carve)] transition-colors hover:border-[var(--kola-amber)] hover:text-[var(--kola-amber)]"
+									title="Open this tool result in the viewer pane (phase 2)"
+								>
+									open in viewer
+									<ExternalLink className="h-3 w-3" />
+								</button>
+							</div>
+						</>
+					)}
 				</div>
 			)}
 		</div>

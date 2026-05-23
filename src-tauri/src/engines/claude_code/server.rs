@@ -80,6 +80,14 @@ pub struct ClaudeCodeEngine {
     /// Permission round-trip waiters keyed by `request_id`. See
     /// `PermissionWaiters` type alias for the lifecycle.
     permission_waiters: PermissionWaiters,
+    /// Permission modes picked before the session exists, keyed by thread_id.
+    /// The FE creates the session lazily (`attach` → `handle_new_session`)
+    /// while the mode picker is already live, so a fast `set_mode` can land
+    /// before `get_or_create` has run. Stashing here lets `handle_new_session`
+    /// apply the choice on creation instead of dropping it (which would
+    /// silently downgrade e.g. a deliberate Bypass pick to Default on the
+    /// first turn). Consumed exactly once per thread.
+    pending_modes: Arc<TokioMutex<HashMap<String, AcpSessionMode>>>,
 }
 
 impl Default for ClaudeCodeEngine {
@@ -93,6 +101,7 @@ impl ClaudeCodeEngine {
         Self {
             sessions,
             permission_waiters: Arc::new(TokioMutex::new(HashMap::new())),
+            pending_modes: Arc::new(TokioMutex::new(HashMap::new())),
         }
     }
 
@@ -224,8 +233,14 @@ impl ClaudeCodeEngine {
         // via `--mcp-config`. Phase 9 will translate ACP-declared servers
         // into a generated config file.
         let opts = SessionOpts::default();
-        let initial_mode = opts.permission_mode;
+        let mut initial_mode = opts.permission_mode;
         let session = self.sessions.get_or_create(&thread_id, &cwd, opts).await;
+
+        // Apply a permission mode the FE picked before this session existed
+        // (the mode picker can fire before `attach` creates the session).
+        if let Some(applied) = self.apply_pending_mode(&thread_id, &session).await {
+            initial_mode = applied;
+        }
 
         // Phase 5 (projects-first-class): build the per-session overlay
         // dir from the layered 4-tier discovery (personal + workspace pkg
@@ -560,6 +575,25 @@ impl ClaudeCodeEngine {
         send_interrupt(session).await
     }
 
+    /// Drain a permission mode stashed by `handle_set_mode` before this
+    /// session existed and apply it to the session's tracked mode + opts, so
+    /// the first `spawn_streaming` reads it for `--permission-mode`. Returns
+    /// the applied mode, or `None` when nothing was pending for this thread.
+    /// Does NOT push a runtime `set_permission_mode` control_request — callers
+    /// that need the live switch (when a child is already alive) send it
+    /// themselves; on the `handle_new_session` path the child is still lazy so
+    /// updating opts is sufficient.
+    async fn apply_pending_mode(
+        &self,
+        thread_id: &str,
+        session: &crate::claude::session::Session,
+    ) -> Option<AcpSessionMode> {
+        let pending = self.pending_modes.lock().await.remove(thread_id)?;
+        *session.current_mode.lock().await = pending;
+        session.opts.lock().await.permission_mode = pending;
+        Some(pending)
+    }
+
     /// Handle ACP `session/set_mode`. Updates the tracked current mode for
     /// the session and, if a streaming child is alive, writes a
     /// `set_permission_mode` control_request to its stdin so the change
@@ -573,11 +607,32 @@ impl ClaudeCodeEngine {
     pub async fn handle_set_mode(&self, thread_id: String, mode_id: String) -> Result<(), String> {
         let mode = AcpSessionMode::from_acp_id(&mode_id)
             .ok_or_else(|| format!("unknown mode id: {mode_id}"))?;
-        let session = self
-            .sessions
-            .get(&thread_id)
-            .await
-            .ok_or_else(|| format!("no session for thread {thread_id}"))?;
+        let session = match self.sessions.get(&thread_id).await {
+            Some(s) => s,
+            None => {
+                // Session not created yet — the FE creates it lazily via
+                // `attach` → `handle_new_session`, and the mode picker can
+                // fire first. Stash the choice so `handle_new_session` applies
+                // it on creation rather than dropping it (which would silently
+                // downgrade e.g. a deliberate Bypass pick to Default on the
+                // first turn). Return Ok so the picker doesn't surface a
+                // spurious "mode change failed".
+                self.pending_modes.lock().await.insert(thread_id.clone(), mode);
+                // Close the race where `handle_new_session` created the
+                // session between our `get` miss and the insert above: if it
+                // exists now, drain+apply via the same helper so the choice
+                // can't be orphaned (and push the runtime switch if a child is
+                // already alive).
+                if let Some(s) = self.sessions.get(&thread_id).await {
+                    if let Some(applied) = self.apply_pending_mode(&thread_id, &s).await {
+                        if s.streaming.lock().await.is_some() {
+                            send_set_mode(s.clone(), applied).await?;
+                        }
+                    }
+                }
+                return Ok(());
+            }
+        };
         // Update tracked mode + opts so the next (re-)spawn picks it up
         // via `--permission-mode`. Holding both locks separately is fine —
         // there's no ordering invariant between them; we just want the
@@ -922,6 +977,84 @@ mod tests {
             .expect("unknown id should be Ok");
     }
 
+    #[tokio::test]
+    async fn set_mode_with_session_applies_directly_and_leaves_no_pending() {
+        // Normal ordering (session already created): the mode lands on the
+        // session opts immediately and nothing is stashed.
+        let server = ClaudeCodeEngine::default();
+        let session = server
+            .sessions
+            .get_or_create("ui-thread", "/tmp", SessionOpts::default())
+            .await;
+        server
+            .handle_set_mode("ui-thread".into(), "bypassPermissions".into())
+            .await
+            .expect("set_mode with session should be Ok");
+        assert_eq!(
+            session.opts.lock().await.permission_mode,
+            AcpSessionMode::BypassPermissions,
+        );
+        assert!(server.pending_modes.lock().await.get("ui-thread").is_none());
+    }
+
+    #[tokio::test]
+    async fn apply_pending_mode_drains_and_applies_to_session() {
+        // The consume side of the stash: `handle_new_session` calls this after
+        // `get_or_create`. A stashed mode lands on the session opts (read by
+        // the first spawn's `--permission-mode`) and is removed from pending.
+        let server = ClaudeCodeEngine::default();
+        server
+            .pending_modes
+            .lock()
+            .await
+            .insert("t".into(), AcpSessionMode::BypassPermissions);
+        let session = server
+            .sessions
+            .get_or_create("t", "/tmp", SessionOpts::default())
+            .await;
+        let applied = server.apply_pending_mode("t", &session).await;
+        assert_eq!(applied, Some(AcpSessionMode::BypassPermissions));
+        assert_eq!(
+            session.opts.lock().await.permission_mode,
+            AcpSessionMode::BypassPermissions,
+        );
+        assert_eq!(
+            *session.current_mode.lock().await,
+            AcpSessionMode::BypassPermissions,
+        );
+        assert!(server.pending_modes.lock().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn apply_pending_mode_is_noop_when_nothing_pending() {
+        // The common case (no race): nothing stashed, session keeps its
+        // default mode and the helper signals "nothing applied".
+        let server = ClaudeCodeEngine::default();
+        let session = server
+            .sessions
+            .get_or_create("t", "/tmp", SessionOpts::default())
+            .await;
+        let applied = server.apply_pending_mode("t", &session).await;
+        assert_eq!(applied, None);
+        assert_eq!(
+            session.opts.lock().await.permission_mode,
+            SessionOpts::default().permission_mode,
+        );
+    }
+
+    #[tokio::test]
+    async fn unknown_mode_id_still_errors() {
+        // A typo / stale FE must not be silently stashed — the caller should
+        // see the error rather than have a bogus mode applied on spawn.
+        let server = ClaudeCodeEngine::default();
+        let err = server
+            .handle_set_mode("ui-thread".into(), "acceptEdits".into())
+            .await
+            .expect_err("unknown mode id should error");
+        assert!(err.contains("unknown mode id"));
+        assert!(server.pending_modes.lock().await.is_empty());
+    }
+
     #[test]
     fn initialize_clamps_protocol_version_downward() {
         // Client claims V1 (the only version today). Once V2 ships, this
@@ -986,13 +1119,26 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn set_mode_rejects_unknown_thread_id() {
+    async fn set_mode_before_session_exists_is_stashed_not_errored() {
+        // The FE mode picker can fire before `attach` lazily creates the
+        // session. Pre-fix this returned "no session for thread …" and the
+        // composer reverted to Default, silently downgrading a deliberate
+        // Bypass pick on the first turn. Now it returns Ok and stashes the
+        // choice so `handle_new_session` applies it on creation.
         let server = ClaudeCodeEngine::default();
-        let err = server
+        server
             .handle_set_mode("never_registered".into(), "auto".into())
             .await
-            .expect_err("unknown thread should error");
-        assert!(err.contains("no session for thread"));
+            .expect("set_mode before session should be Ok (stashed)");
+        assert_eq!(
+            server
+                .pending_modes
+                .lock()
+                .await
+                .get("never_registered")
+                .copied(),
+            Some(AcpSessionMode::Auto),
+        );
     }
 
     #[tokio::test]
