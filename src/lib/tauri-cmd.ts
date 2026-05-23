@@ -146,6 +146,11 @@ export async function fsWrite(path: string, bytes: Uint8Array): Promise<void> {
 	return invoke('fs_write', { path, bytes: Array.from(bytes) });
 }
 
+/** UTF-8 encode + write. Mirror of the TextDecoder read path in renderers. */
+export async function fsWriteText(path: string, text: string): Promise<void> {
+	return fsWrite(path, new TextEncoder().encode(text));
+}
+
 /** Recursive mkdir. Idempotent — succeeds if the directory already exists. */
 export async function fsMkdir(path: string): Promise<void> {
 	return invoke('fs_mkdir', { path });

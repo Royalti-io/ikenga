@@ -29,6 +29,9 @@ interface ViewerRouterProps {
 	chromeless?: boolean;
 	/** Forwarded to renderers that opt into iyke iframe bridging (HtmlFrame). */
 	paneId?: string;
+	/** Enable in-place editing for renderers that support it (MarkdownView).
+	 *  Defaults false so thumbnails/embeds stay read-only. */
+	editable?: boolean;
 }
 
 type Renderer = React.ComponentType<{ path: string }>;
@@ -60,7 +63,13 @@ function pickRenderer(mime: string, path: string): Renderer {
 /** Auto-router that dispatches to the right renderer for `path`. Hybrid MIME
  * detection (sync extension lookup → fs_mime fallback) keeps the first paint
  * cheap for known types. */
-export function ViewerRouter({ path, source = 'pane', chromeless, paneId }: ViewerRouterProps) {
+export function ViewerRouter({
+	path,
+	source = 'pane',
+	chromeless,
+	paneId,
+	editable,
+}: ViewerRouterProps) {
 	// Synchronous first-pass — known extensions render immediately.
 	const initialMime = useMemo(() => mimeFromExt(path), [path]);
 	const [mime, setMime] = useState<string | null>(initialMime ?? null);
@@ -107,6 +116,8 @@ export function ViewerRouter({ path, source = 'pane', chromeless, paneId }: View
 		<Suspense fallback={<RendererLoading />}>
 			{Renderer === HtmlFrame ? (
 				<HtmlFrame path={path} paneId={paneId} />
+			) : Renderer === MarkdownView ? (
+				<MarkdownView path={path} editable={editable} />
 			) : (
 				<Renderer path={path} />
 			)}

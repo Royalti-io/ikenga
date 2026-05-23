@@ -10,5 +10,5 @@ interface ArtifactViewProps {
 // this module exists so the pane store's `kind: 'artifact'` view continues to
 // resolve to a stable export.
 export function ArtifactView({ path, paneId }: ArtifactViewProps) {
-	return <ViewerRouter path={path} source="pane" paneId={paneId} />;
+	return <ViewerRouter path={path} source="pane" paneId={paneId} editable />;
 }
