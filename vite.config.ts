@@ -35,6 +35,18 @@ export default defineConfig({
 			'react-dom': path.resolve(__dirname, './node_modules/react-dom'),
 			'react/jsx-runtime': path.resolve(__dirname, './node_modules/react/jsx-runtime.js'),
 			'react/jsx-dev-runtime': path.resolve(__dirname, './node_modules/react/jsx-dev-runtime.js'),
+			// langium (pulled transitively by mermaid → streamdown / @lobehub/ui)
+			// imports two vscode-jsonrpc deep subpaths that Node resolves fine but
+			// Rollup's resolver can't follow through pnpm's nested layout, breaking
+			// the production build. Pin both to the hoisted vscode-jsonrpc@8.2.0.
+			'vscode-jsonrpc/lib/common/events.js': path.resolve(
+				__dirname,
+				'../node_modules/vscode-jsonrpc/lib/common/events.js'
+			),
+			'vscode-jsonrpc/lib/common/cancellation.js': path.resolve(
+				__dirname,
+				'../node_modules/vscode-jsonrpc/lib/common/cancellation.js'
+			),
 		},
 		dedupe: ['react', 'react-dom'],
 	},
