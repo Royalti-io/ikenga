@@ -42,6 +42,37 @@ interface MarkdownProps {
 	 * `compact` — chat replies: smaller headings, no underlines, tight margins.
 	 */
 	density?: 'comfortable' | 'compact';
+	/**
+	 * Stamp `data-source-line="N"` (the 1-based markdown source line) onto every
+	 * rendered block element. Powers editor↔preview scroll sync in the markdown
+	 * editor. Off by default — chat and other consumers don't pay for it.
+	 */
+	sourceLines?: boolean;
+}
+
+/** Minimal hast shape — nodes carry `position` from remark-rehype, but
+ *  react-markdown's re-exported types don't surface it. */
+interface HastNode {
+	type: string;
+	properties?: Record<string, unknown>;
+	position?: { start?: { line?: number } };
+	children?: HastNode[];
+}
+
+// Walk the hast tree and stamp the source line onto every element that still
+// carries position info (raw-HTML nodes reparsed by rehypeRaw may not — those
+// are skipped, and the sync falls back to the nearest anchored block).
+function rehypeSourceLines() {
+	return (tree: HastNode) => {
+		const walk = (node: HastNode) => {
+			if (node.type === 'element' && node.position?.start?.line != null) {
+				node.properties = node.properties ?? {};
+				node.properties['data-source-line'] = node.position.start.line;
+			}
+			node.children?.forEach(walk);
+		};
+		walk(tree);
+	};
 }
 
 export function Markdown({
@@ -50,6 +81,7 @@ export function Markdown({
 	cwd,
 	allowHtml = false,
 	density = 'comfortable',
+	sourceLines = false,
 }: MarkdownProps) {
 	const isCompact = density === 'compact';
 	const components = useMemo(() => buildComponents(cwd), [cwd]);
@@ -58,9 +90,13 @@ export function Markdown({
 		properties: { className: 'heading-anchor', ariaHidden: 'true', tabIndex: -1 },
 		content: { type: 'text', value: '' },
 	};
-	const rehypePlugins: PluggableList = allowHtml
-		? [rehypeRaw, rehypeSlug, [rehypeAutolinkHeadings, autolinkOpts]]
-		: [rehypeSlug, [rehypeAutolinkHeadings, autolinkOpts]];
+	const rehypePlugins: PluggableList = [
+		...(allowHtml ? [rehypeRaw] : []),
+		rehypeSlug,
+		[rehypeAutolinkHeadings, autolinkOpts],
+		// Runs last so positions survive the earlier passes.
+		...(sourceLines ? [rehypeSourceLines] : []),
+	];
 	return (
 		<article
 			className={cn(
