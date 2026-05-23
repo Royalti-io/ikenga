@@ -74,45 +74,20 @@ export function AskUserQuestionRenderer({ pair }: AskUserQuestionRendererProps) 
 		);
 	}
 
-	// Pending: read-only preview. The answer surface is the PermissionDialog
-	// below; answering here would write the wrong wire channel.
-	return <PendingPreview questions={questions} />;
+	// Pending: just a breadcrumb. The PermissionDialog (rendered directly below
+	// the thread) is the answer surface and already shows the full question +
+	// options — repeating them here renders the question twice. Answering in
+	// this card would also write the wrong wire channel.
+	return <PendingPreview />;
 }
 
-/** Read-only preview of the questions while the PermissionDialog awaits an
- *  answer. Mirrors AnsweredSummary's styling; renders options as static
- *  chips so the card and the dialog stay visually coherent. */
-function PendingPreview({ questions }: { questions: AskQuestion[] }) {
+/** Compact breadcrumb while the PermissionDialog awaits an answer. Deliberately
+ *  does NOT repeat the question/options — the dialog below owns that, and
+ *  duplicating it reads as a double render. */
+function PendingPreview() {
 	return (
-		<div className="space-y-2">
-			<div className="font-mono text-[9px] uppercase tracking-[0.22em] text-[var(--chip-carve)]">
-				awaiting your answer below ↓
-			</div>
-			<ul className="space-y-2">
-				{questions.map((q) => (
-					<li
-						key={`${q.header ?? ''}::${q.question}`}
-						className="border border-[var(--rule)] bg-transparent p-3"
-					>
-						<div className="font-mono text-[9px] uppercase tracking-[0.22em] text-[var(--chip-carve)]">
-							{q.header ? `◾ ${q.header}` : (q.question ?? 'question')}
-						</div>
-						<div className="mt-1 text-[13px] text-foreground">{q.question}</div>
-						{q.options?.length ? (
-							<div className="mt-2 flex flex-wrap gap-1.5">
-								{q.options.map((o) => (
-									<span
-										key={o.label}
-										className="border border-[var(--rule)] bg-transparent px-2 py-0.5 font-mono text-[10px] text-[var(--chip-carve)]"
-									>
-										{o.label}
-									</span>
-								))}
-							</div>
-						) : null}
-					</li>
-				))}
-			</ul>
+		<div className="font-mono text-[9px] uppercase tracking-[0.22em] text-[var(--chip-carve)]">
+			awaiting your answer below ↓
 		</div>
 	);
 }
