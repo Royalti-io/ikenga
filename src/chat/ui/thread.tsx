@@ -353,6 +353,20 @@ function RenderRow({
 			);
 		}
 		case 'thinking':
+			// Some claude accounts/models return thinking signature-only: the
+			// `thinking` block ships a cryptographic signature but no plaintext
+			// (no `thinking_delta` is ever emitted, so the delta is empty).
+			// Render a compact "encrypted" note rather than a misleading empty
+			// "(0 chars)" disclosure that expands to nothing.
+			if (event.delta.length === 0) {
+				return (
+					<Row icon={Brain} tone="muted" label="thinking">
+						<span className="text-xs italic text-muted-foreground">
+							thinking · encrypted (no transcript returned)
+						</span>
+					</Row>
+				);
+			}
 			return (
 				<Row icon={Brain} tone="muted" label="thinking">
 					<details>

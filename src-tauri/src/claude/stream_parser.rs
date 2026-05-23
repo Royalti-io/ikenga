@@ -134,6 +134,32 @@ pub(crate) fn dispatch_envelope(value: &Value, out: &mut Vec<ChatEvent>) {
                 tool_input: req.get("tool_input").cloned(),
             });
         }
+        // Partial-message streaming (`--include-partial-messages`). We do NOT
+        // pass that flag today: it double-emits text (once as `text_delta`
+        // here, once in the assembled `assistant` envelope dispatch_assistant
+        // reads). This arm is defensive — if the flag is ever enabled, or a
+        // future claude build emits these unprompted, we (a) never spam the
+        // chat feed with `Unknown` rows, and (b) still capture `thinking_delta`
+        // text, which the assembled block never carries (it ships
+        // signature-only — see the empty-`thinking` case in dispatch_assistant
+        // and the encrypted-thinking note in thread.tsx). Text deltas are
+        // intentionally ignored: the assembled path owns text. Everything else
+        // (signature_delta, message_start/stop, content_block_start/stop) is
+        // bookkeeping and dropped silently.
+        "stream_event" => {
+            if let Some(delta) = value.get("event").and_then(|e| e.get("delta")) {
+                if delta.get("type").and_then(Value::as_str) == Some("thinking_delta") {
+                    if let Some(t) = delta.get("thinking").and_then(Value::as_str) {
+                        if !t.is_empty() {
+                            out.push(ChatEvent::Thinking {
+                                delta: t.to_string(),
+                                message_id: None,
+                            });
+                        }
+                    }
+                }
+            }
+        }
         // Internal/control envelopes — JSONL bookkeeping that's not part of
         // the conversation. Drop silently; they're noise to the chat feed.
         "attachment"
@@ -380,6 +406,32 @@ mod tests {
             ChatEvent::Text { delta, .. } => assert_eq!(delta, "hello"),
             _ => unreachable!(),
         }
+    }
+
+    #[test]
+    fn stream_event_thinking_delta_emits_thinking_text() {
+        let mut p = StreamParser::new();
+        let line = br#"{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"step one"}}}
+"#;
+        let events = p.feed(line);
+        assert_eq!(events.len(), 1);
+        match &events[0] {
+            ChatEvent::Thinking { delta, .. } => assert_eq!(delta, "step one"),
+            _ => unreachable!(),
+        }
+    }
+
+    #[test]
+    fn stream_event_text_and_signature_deltas_are_dropped() {
+        // text is owned by the assembled `assistant` envelope; signature_delta
+        // is bookkeeping. Neither should surface as an event here (no dupes).
+        let mut p = StreamParser::new();
+        let text = br#"{"type":"stream_event","event":{"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"hi"}}}
+"#;
+        let sig = br#"{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"abc"}}}
+"#;
+        assert!(p.feed(text).is_empty());
+        assert!(p.feed(sig).is_empty());
     }
 
     #[test]
