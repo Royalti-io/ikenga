@@ -163,6 +163,16 @@ pub struct Session {
     /// because the renderer's own state can't always know what was already
     /// sent.
     answered_tool_uses: Mutex<HashSet<String>>,
+
+    /// Which control-protocol wire shape to speak when WE initiate an
+    /// outbound control_request (set_permission_mode / interrupt). Detected
+    /// from the `claude_code_version` in the session-init envelope (set in
+    /// `engines::claude_code::server::handle_prompt`). Defaults to `Modern`
+    /// (current claude); downgraded to `Legacy` only for pre-2.1 builds.
+    /// claude 2.1.x silently ignores the legacy `sdk_control_request` shape
+    /// for these subtypes, so getting this right is what makes mid-session
+    /// mode switches actually take effect.
+    pub control_wire: Mutex<ControlWire>,
 }
 
 impl Session {
@@ -184,6 +194,7 @@ impl Session {
             claude_config_dir: Mutex::new(None),
             claude_project_dir: Mutex::new(None),
             answered_tool_uses: Mutex::new(HashSet::new()),
+            control_wire: Mutex::new(ControlWire::Modern),
         }
     }
 
@@ -727,6 +738,24 @@ pub enum ControlWire {
     Modern,
 }
 
+impl ControlWire {
+    /// Pick the wire shape from claude's `claude_code_version` (session-init).
+    /// claude 2.1.0+ speaks the `control_request`/`control_response` protocol
+    /// (request_id top-level); older builds use `sdk_control_request`. Anything
+    /// unparseable defaults to `Modern` — the current and forward shape.
+    /// Verified: 2.1.150 ignores legacy `set_permission_mode`/`interrupt`.
+    pub fn from_version(version: &str) -> ControlWire {
+        let mut parts = version.trim().split('.');
+        let major: u32 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(u32::MAX);
+        let minor: u32 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(u32::MAX);
+        if major < 2 || (major == 2 && minor < 1) {
+            ControlWire::Legacy
+        } else {
+            ControlWire::Modern
+        }
+    }
+}
+
 /// Build the control-response envelope claude expects in reply to a
 /// control_request. `response_body` is the inner decision object
 /// (`{"behavior":"allow","updatedInput":{...}}` or
@@ -829,7 +858,8 @@ pub async fn send_set_mode(session: Arc<Session>, mode: AcpSessionMode) -> Resul
         return Ok(());
     };
     let request_id = format!("{}", uuid::Uuid::new_v4());
-    let envelope = crate::engines::claude_code::mode::set_mode_envelope(mode, &request_id);
+    let wire = *session.control_wire.lock().await;
+    let envelope = crate::engines::claude_code::mode::set_mode_envelope(mode, &request_id, wire);
     let mut stdin = streaming.stdin.lock().await;
     stdin
         .write_all(envelope.as_bytes())
@@ -865,7 +895,8 @@ pub async fn send_interrupt(session: Arc<Session>) -> Result<(), String> {
         }
     };
     let request_id = format!("{}", uuid::Uuid::new_v4());
-    let envelope = crate::engines::claude_code::interrupt::interrupt_envelope(&request_id);
+    let wire = *session.control_wire.lock().await;
+    let envelope = crate::engines::claude_code::interrupt::interrupt_envelope(&request_id, wire);
     let mut stdin = streaming.stdin.lock().await;
     stdin
         .write_all(envelope.as_bytes())
@@ -932,6 +963,17 @@ mod tests {
         assert_eq!(parsed["response"]["behavior"], json!("deny"));
         assert_eq!(parsed["response"]["message"], json!("User declined"));
         assert_eq!(parsed["response"]["request_id"], json!("req_99"));
+    }
+
+    #[test]
+    fn control_wire_from_version() {
+        assert_eq!(ControlWire::from_version("2.1.150"), ControlWire::Modern);
+        assert_eq!(ControlWire::from_version("2.1.0"), ControlWire::Modern);
+        assert_eq!(ControlWire::from_version("3.0.0"), ControlWire::Modern);
+        assert_eq!(ControlWire::from_version("2.0.99"), ControlWire::Legacy);
+        assert_eq!(ControlWire::from_version("1.9.0"), ControlWire::Legacy);
+        // Unparseable → Modern (current + forward shape).
+        assert_eq!(ControlWire::from_version("weird"), ControlWire::Modern);
     }
 
     #[test]

@@ -205,6 +205,10 @@ fn dispatch_system(value: &Value, out: &mut Vec<ChatEvent>) {
                 .get("permissionMode")
                 .and_then(Value::as_str)
                 .map(str::to_string),
+            claude_code_version: value
+                .get("claude_code_version")
+                .and_then(Value::as_str)
+                .map(str::to_string),
         }),
         "hook_started" | "hook_response" => out.push(ChatEvent::SystemHook {
             hook_event: subtype.to_string(),

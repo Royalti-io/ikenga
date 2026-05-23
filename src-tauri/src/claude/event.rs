@@ -20,6 +20,10 @@ pub enum ChatEvent {
         cwd: Option<String>,
         #[serde(rename = "permissionMode")]
         permission_mode: Option<String>,
+        /// `claude_code_version` from the init envelope. Used to pick the
+        /// outbound control_request wire shape (see `ControlWire::from_version`).
+        #[serde(rename = "claudeCodeVersion", skip_serializing_if = "Option::is_none")]
+        claude_code_version: Option<String>,
     },
 
     /// Streaming text chunk from an assistant content block. `message_id`

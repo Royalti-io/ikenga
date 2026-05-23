@@ -21,6 +21,8 @@
 use agent_client_protocol::schema::{SessionMode, SessionModeId, SessionModeState};
 use serde::{Deserialize, Serialize};
 
+use crate::claude::session::ControlWire;
+
 pub const MODE_PLAN: &str = "plan";
 pub const MODE_DEFAULT: &str = "default";
 pub const MODE_AUTO: &str = "auto";
@@ -108,23 +110,40 @@ pub fn mode_state(current: AcpSessionMode) -> SessionModeState {
 
 /// Build the stdin envelope claude expects for a runtime mode switch:
 ///
+/// Modern (claude 2.1.x):
+/// ```json
+/// {"type":"control_request","request_id":"...","request":{"subtype":"set_permission_mode","mode":"acceptEdits"}}
+/// ```
+/// Legacy (pre-2.1):
 /// ```json
 /// {"type":"sdk_control_request","request":{"subtype":"set_permission_mode","mode":"acceptEdits","request_id":"..."}}
 /// ```
 ///
-/// Trailing `\n` is part of the contract — claude reads stdin line-by-line.
-/// We include `request_id` so claude's internal correlator doesn't choke on
-/// a missing field; claude doesn't reply to this kind of control_request,
-/// so we never park a waiter for it.
-pub fn set_mode_envelope(mode: AcpSessionMode, request_id: &str) -> String {
-    let value = serde_json::json!({
-        "type": "sdk_control_request",
-        "request": {
-            "subtype": "set_permission_mode",
-            "mode": mode.as_claude_flag(),
+/// `wire` is pinned from the session-init `claude_code_version` (see
+/// `ControlWire::from_version`). claude 2.1.150 **silently ignores** the legacy
+/// shape for this subtype — sending the wrong one makes mid-session mode
+/// switches no-op (verified empirically). Trailing `\n` is part of the
+/// contract — claude reads stdin line-by-line. claude doesn't reply to this
+/// kind of control_request, so we never park a waiter for it.
+pub fn set_mode_envelope(mode: AcpSessionMode, request_id: &str, wire: ControlWire) -> String {
+    let value = match wire {
+        ControlWire::Modern => serde_json::json!({
+            "type": "control_request",
             "request_id": request_id,
-        },
-    });
+            "request": {
+                "subtype": "set_permission_mode",
+                "mode": mode.as_claude_flag(),
+            },
+        }),
+        ControlWire::Legacy => serde_json::json!({
+            "type": "sdk_control_request",
+            "request": {
+                "subtype": "set_permission_mode",
+                "mode": mode.as_claude_flag(),
+                "request_id": request_id,
+            },
+        }),
+    };
     let mut s = serde_json::to_string(&value).unwrap_or_else(|_| String::from("{}"));
     s.push('\n');
     s
@@ -162,31 +181,43 @@ mod tests {
     }
 
     #[test]
-    fn set_mode_envelope_has_correct_shape() {
-        let env = set_mode_envelope(AcpSessionMode::Auto, "req_42");
+    fn set_mode_envelope_modern_shape() {
+        // claude 2.1.x: control_request, request_id top-level, no nested id.
+        // Verified to actually switch the mode on 2.1.150.
+        let env = set_mode_envelope(AcpSessionMode::Auto, "req_42", ControlWire::Modern);
         assert!(env.ends_with('\n'));
         let parsed: serde_json::Value =
             serde_json::from_str(env.trim_end()).expect("envelope is JSON");
-        assert_eq!(parsed["type"], serde_json::json!("sdk_control_request"));
+        assert_eq!(parsed["type"], serde_json::json!("control_request"));
+        assert_eq!(parsed["request_id"], serde_json::json!("req_42"));
         assert_eq!(
             parsed["request"]["subtype"],
             serde_json::json!("set_permission_mode"),
         );
         // Auto translates to claude's `acceptEdits` on the wire.
         assert_eq!(parsed["request"]["mode"], serde_json::json!("acceptEdits"));
+    }
+
+    #[test]
+    fn set_mode_envelope_legacy_shape() {
+        let env = set_mode_envelope(AcpSessionMode::Auto, "req_42", ControlWire::Legacy);
+        let parsed: serde_json::Value =
+            serde_json::from_str(env.trim_end()).expect("envelope is JSON");
+        assert_eq!(parsed["type"], serde_json::json!("sdk_control_request"));
+        assert_eq!(parsed["request"]["mode"], serde_json::json!("acceptEdits"));
         assert_eq!(parsed["request"]["request_id"], serde_json::json!("req_42"));
     }
 
     #[test]
-    fn set_mode_envelope_plan_uses_plan_flag() {
-        // Sanity-check the non-renamed cases too — `plan` and
-        // `bypassPermissions` pass through verbatim.
-        let env = set_mode_envelope(AcpSessionMode::Plan, "req_plan");
+    fn set_mode_envelope_passes_mode_flags_through() {
+        // `plan` and `bypassPermissions` pass through verbatim (both wires).
+        let env = set_mode_envelope(AcpSessionMode::Plan, "req_plan", ControlWire::Modern);
         let parsed: serde_json::Value =
             serde_json::from_str(env.trim_end()).expect("envelope is JSON");
         assert_eq!(parsed["request"]["mode"], serde_json::json!("plan"));
 
-        let env = set_mode_envelope(AcpSessionMode::BypassPermissions, "req_bypass");
+        let env =
+            set_mode_envelope(AcpSessionMode::BypassPermissions, "req_bypass", ControlWire::Modern);
         let parsed: serde_json::Value =
             serde_json::from_str(env.trim_end()).expect("envelope is JSON");
         assert_eq!(

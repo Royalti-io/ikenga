@@ -535,6 +535,7 @@ mod tests {
             model: Some("claude-opus".into()),
             cwd: Some("/tmp".into()),
             permission_mode: Some("default".into()),
+            claude_code_version: None,
         };
         assert!(chat_event_to_session_updates(&ev).is_empty());
     }

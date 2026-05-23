@@ -350,9 +350,22 @@ impl ClaudeCodeEngine {
                     if let ChatEvent::Done { stop_reason, .. } = &ev {
                         break map_stop_reason(stop_reason.as_deref());
                     }
-                    if let ChatEvent::SessionInit { session_id, .. } = &ev {
+                    if let ChatEvent::SessionInit {
+                        session_id,
+                        claude_code_version,
+                        ..
+                    } = &ev
+                    {
                         if !session_id.is_empty() {
                             claude_sid = Some(session_id.clone());
+                        }
+                        // Pin the outbound control_request wire shape from the
+                        // reported claude version so mid-session set_mode /
+                        // interrupt use the shape this build accepts (2.1.x
+                        // ignores the legacy `sdk_control_request`).
+                        if let Some(ver) = claude_code_version {
+                            *session.control_wire.lock().await =
+                                crate::claude::session::ControlWire::from_version(ver);
                         }
                     }
                     // Phase 9: surface Notification / PermissionRequest

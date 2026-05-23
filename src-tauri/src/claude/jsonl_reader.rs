@@ -114,6 +114,9 @@ pub fn read_jsonl(path: &Path) -> Result<Vec<ChatEvent>> {
             model,
             cwd,
             permission_mode,
+            // No system:init envelope on disk; version is irrelevant for replay
+            // (we never send outbound control_requests to a transcript).
+            claude_code_version: None,
         });
     }
 

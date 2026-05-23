@@ -12,29 +12,39 @@
 //! Like `mode.rs` and `permission.rs`, this module is pure-function only.
 //! The I/O for writing the interrupt envelope to claude's stdin lives in
 //! `claude::session::send_interrupt`.
+//!
+//! NB: interrupt appears to be a no-op in non-interactive `--print` streaming
+//! mode on claude 2.1.150 regardless of wire shape (it finishes the turn
+//! anyway). The ACP `session/cancel` path falls back to `cancel_streaming`
+//! (kill the child) for a hard guarantee. We still emit the version-matched
+//! shape so the request is at least well-formed if a future build honors it.
 
-/// Build the line-delimited `sdk_control_request` envelope claude expects
-/// to interrupt the current turn. Trailing `\n` is part of the contract —
-/// claude reads stdin line-by-line.
+use crate::claude::session::ControlWire;
+
+/// Build the line-delimited interrupt control_request claude expects.
+/// Trailing `\n` is part of the contract — claude reads stdin line-by-line.
 ///
-/// Shape:
+/// Modern (2.1.x): `{"type":"control_request","request_id":"...","request":{"subtype":"interrupt"}}`
+/// Legacy (pre-2.1): `{"type":"sdk_control_request","request":{"subtype":"interrupt","request_id":"..."}}`
 ///
-/// ```json
-/// {"type":"sdk_control_request","request":{"subtype":"interrupt","request_id":"..."}}
-/// ```
-///
-/// We include `request_id` so claude's internal correlator doesn't choke
-/// on a missing field; claude doesn't reply to this kind of
-/// control_request (the `Done` event is the implicit response), so we
-/// never park a waiter for it.
-pub fn interrupt_envelope(request_id: &str) -> String {
-    let value = serde_json::json!({
-        "type": "sdk_control_request",
-        "request": {
-            "subtype": "interrupt",
+/// `wire` is pinned from the session-init `claude_code_version`. claude doesn't
+/// reply to this control_request (the `Done` event is the implicit response),
+/// so we never park a waiter for it.
+pub fn interrupt_envelope(request_id: &str, wire: ControlWire) -> String {
+    let value = match wire {
+        ControlWire::Modern => serde_json::json!({
+            "type": "control_request",
             "request_id": request_id,
-        },
-    });
+            "request": { "subtype": "interrupt" },
+        }),
+        ControlWire::Legacy => serde_json::json!({
+            "type": "sdk_control_request",
+            "request": {
+                "subtype": "interrupt",
+                "request_id": request_id,
+            },
+        }),
+    };
     let mut s = serde_json::to_string(&value).unwrap_or_else(|_| String::from("{}"));
     s.push('\n');
     s
@@ -45,15 +55,24 @@ mod tests {
     use super::*;
 
     #[test]
-    fn interrupt_envelope_has_correct_shape() {
-        // Sanity-check the exact wire shape claude expects to interrupt
-        // the current turn. Trailing newline is part of the contract.
-        let env = interrupt_envelope("req_int_42");
+    fn interrupt_envelope_modern_shape() {
+        // claude 2.1.x: control_request with request_id top-level.
+        let env = interrupt_envelope("req_int_42", ControlWire::Modern);
         assert!(env.ends_with('\n'));
         let parsed: serde_json::Value =
             serde_json::from_str(env.trim_end()).expect("envelope is JSON");
+        assert_eq!(parsed["type"], serde_json::json!("control_request"));
+        assert_eq!(parsed["request_id"], serde_json::json!("req_int_42"));
+        assert_eq!(parsed["request"]["subtype"], serde_json::json!("interrupt"));
+    }
+
+    #[test]
+    fn interrupt_envelope_legacy_shape() {
+        let env = interrupt_envelope("req_int_42", ControlWire::Legacy);
+        let parsed: serde_json::Value =
+            serde_json::from_str(env.trim_end()).expect("envelope is JSON");
         assert_eq!(parsed["type"], serde_json::json!("sdk_control_request"));
-        assert_eq!(parsed["request"]["subtype"], serde_json::json!("interrupt"),);
+        assert_eq!(parsed["request"]["subtype"], serde_json::json!("interrupt"));
         assert_eq!(
             parsed["request"]["request_id"],
             serde_json::json!("req_int_42"),
@@ -65,7 +84,7 @@ mod tests {
         // Claude reads stdin line-by-line — there must be exactly one
         // newline (the trailing one), no embedded newlines from a
         // pretty-printed serializer.
-        let env = interrupt_envelope("req_x");
+        let env = interrupt_envelope("req_x", ControlWire::Modern);
         let newline_count = env.matches('\n').count();
         assert_eq!(
             newline_count, 1,
