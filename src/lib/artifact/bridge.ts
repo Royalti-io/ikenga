@@ -21,6 +21,12 @@
 // supabase/sql/mcp/file sources resolve directly to mock; notes/pin are
 // console stubs. Phase 2 replaces the non-fetch resolvers with host RPC.
 //
+// Theme: `setupTheme()` mirrors the shell's `data-mode`/`data-theme`/
+// `data-density` (+ a `.dark` class) onto the artifact's own `<html>` and
+// re-applies live on every toggle; standalone it follows `prefers-color-
+// scheme`. Exposed to artifact code as `art.theme`. The inline polyfill in
+// the skill template carries only the standalone half (OS color scheme).
+//
 // Constraints (do not violate without updating bridge.entry.ts comment):
 //   - Pure browser-side. No Node/Tauri imports. Runs in an iframe.
 //   - No top-level await — must survive Babel-standalone compilation.
@@ -80,6 +86,26 @@ interface NotesHandle {
 	send: (text: string, opts?: Record<string, unknown>) => void;
 }
 
+type ThemeMode = 'light' | 'dark';
+
+interface ThemeSnapshot {
+	mode: ThemeMode;
+	/** Palette variant — 'A' | 'B' | 'C' (or a custom theme id). */
+	theme: string;
+	density: string;
+}
+
+/**
+ * Live view of the host theme. Reads track the current value; `subscribe`
+ * fires on every shell toggle (or OS color-scheme change when standalone).
+ */
+interface ThemeHandle {
+	readonly mode: ThemeMode;
+	readonly theme: string;
+	readonly density: string;
+	subscribe: (fn: (t: ThemeSnapshot) => void) => () => void;
+}
+
 interface Art {
 	manifest: Manifest;
 	host: {
@@ -91,6 +117,7 @@ interface Art {
 	source: (name: string) => SourceHandle;
 	state: StateHandle;
 	notes: NotesHandle;
+	theme: ThemeHandle;
 	pin: () => void;
 }
 
@@ -140,6 +167,122 @@ function parseDuration(s: string | undefined): number | null {
 	}
 }
 
+// ── Theme mirroring ────────────────────────────────────────────────────────
+
+/**
+ * Make the artifact follow the host theme.
+ *
+ * Inside the shell the artifact iframe is same-origin with the shell (the
+ * viewer-server serves it from the shell's own origin), so we read the live
+ * `data-mode` / `data-theme` / `data-density` attributes the shell writes on
+ * its `<html>` (see `lib/ikenga/theme-store.ts`) and mirror them onto the
+ * artifact's own `<html>`. `@ikenga/tokens` is pre-injected by the viewer
+ * server, so its `:root[data-mode=…]` / `[data-theme=…][data-mode=…]`
+ * selectors resolve once the attributes are present. We also toggle a `.dark`
+ * class so Tailwind's class-strategy dark mode tracks the shell.
+ *
+ * A `MutationObserver` on the shell's `<html>` re-applies on every toggle —
+ * the live-switch path. Outside the shell (`window.parent` is self or throws
+ * cross-origin) we fall back to the OS `prefers-color-scheme` and follow it
+ * live; the palette defaults to 'A'.
+ *
+ * Runs synchronously in `<head>` (the bridge is the first, non-deferred
+ * script), so the first paint is already themed — no flash.
+ */
+function setupTheme(): ThemeHandle {
+	const subs: Array<(t: ThemeSnapshot) => void> = [];
+	let current: ThemeSnapshot = { mode: 'dark', theme: 'A', density: 'comfortable' };
+
+	function apply(next: ThemeSnapshot): void {
+		current = next;
+		const html = document.documentElement;
+		html.setAttribute('data-mode', next.mode);
+		html.setAttribute('data-theme', next.theme);
+		html.setAttribute('data-density', next.density);
+		html.classList.toggle('dark', next.mode === 'dark');
+		for (const fn of subs.slice()) {
+			try {
+				fn(next);
+			} catch (err) {
+				console.error('[ikenga.theme] subscriber threw', err);
+			}
+		}
+	}
+
+	/** Read the shell's `<html>`; null if not same-origin-readable. */
+	function readShell(): ThemeSnapshot | null {
+		try {
+			if (window.parent === window) return null;
+			const root = window.parent.document.documentElement;
+			const mode = root.getAttribute('data-mode');
+			if (mode !== 'light' && mode !== 'dark') return null;
+			return {
+				mode,
+				theme: root.getAttribute('data-theme') || 'A',
+				density: root.getAttribute('data-density') || 'comfortable',
+			};
+		} catch {
+			// Cross-origin (standalone embed) — caller falls back to OS.
+			return null;
+		}
+	}
+
+	const fromShell = readShell();
+	if (fromShell) {
+		apply(fromShell);
+		// Live-switch: re-mirror whenever the shell's attributes change.
+		try {
+			const target = window.parent.document.documentElement;
+			const obs = new MutationObserver(() => {
+				const next = readShell();
+				if (next) apply(next);
+			});
+			obs.observe(target, {
+				attributes: true,
+				attributeFilter: ['data-mode', 'data-theme', 'data-density'],
+			});
+		} catch {
+			// best-effort; the static apply above already themed the document.
+		}
+	} else {
+		// Standalone — follow the OS color scheme. Palette has no host source,
+		// so default to 'A'.
+		const mql = window.matchMedia('(prefers-color-scheme: dark)');
+		const fromOs = (): ThemeSnapshot => ({
+			mode: mql.matches ? 'dark' : 'light',
+			theme: 'A',
+			density: 'comfortable',
+		});
+		apply(fromOs());
+		const onChange = () => apply(fromOs());
+		if (typeof mql.addEventListener === 'function') {
+			mql.addEventListener('change', onChange);
+		} else if (typeof mql.addListener === 'function') {
+			// Safari < 14.
+			mql.addListener(onChange);
+		}
+	}
+
+	return {
+		get mode() {
+			return current.mode;
+		},
+		get theme() {
+			return current.theme;
+		},
+		get density() {
+			return current.density;
+		},
+		subscribe: (fn) => {
+			subs.push(fn);
+			return () => {
+				const i = subs.indexOf(fn);
+				if (i >= 0) subs.splice(i, 1);
+			};
+		},
+	};
+}
+
 // ── Mount ────────────────────────────────────────────────────────────────
 
 export function mountArtifactBridge(): void {
@@ -151,6 +294,11 @@ export function mountArtifactBridge(): void {
 		window.__ikenga_host__ = { kind: 'ikenga', user: null };
 	}
 	if (window.__ikenga_bridge_polyfill__) return;
+
+	// Mirror the host theme onto the artifact ASAP — before the manifest-parse
+	// early-returns below, so even a manifest-less HTML preview tracks the
+	// shell's dark/light + palette. The handle is re-exposed on `art.theme`.
+	const themeHandle = setupTheme();
 
 	// Parse manifest. If absent or malformed, leave the host descriptor in
 	// place but skip installing the polyfill — any inline polyfill in the
@@ -333,6 +481,7 @@ export function mountArtifactBridge(): void {
 				source: makeSourceHandle,
 				state: stateHandle,
 				notes: notesHandle,
+				theme: themeHandle,
 				pin: () => {
 					// v0 stub — Phase 2 will postMessage a pin-request to the
 					// shell viewer host, which adds the artifact to the

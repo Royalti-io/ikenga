@@ -1,0 +1,372 @@
+/**
+ * @ikenga/tokens — canonical design tokens for the Ikenga design system.
+ *
+ * Single source of truth for CSS custom properties used across:
+ *   - shell (Tauri desktop app)
+ *   - every UI pkg (Tasks, Studio, Outbound, …)
+ *
+ * Consumers `@import '@ikenga/tokens/tokens.css'` and inherit the full token
+ * surface. Pkgs running inside the shell iframe additionally receive a
+ * curated subset via the AppBridge `host-context` handshake — those override
+ * these defaults at runtime when the user flips theme/mode in the shell.
+ *
+ * Convention:
+ *   :root                       → mode-agnostic (typography, spacing, radii, shadows)
+ *   :root[data-mode="dark"]     → dark-mode color slots (DEFAULT)
+ *   :root[data-mode="light"]    → light-mode color slots (override)
+ *
+ * `data-theme` is reserved for theme variants beyond the default Ikenga palette
+ * (e.g. seasonal, label-branded). Add `:root[data-theme="X"][data-mode="dark"]`
+ * blocks below the defaults — last-match wins.
+ */
+
+/* ─── mode-agnostic ───────────────────────────────────────────────────────── */
+:root {
+  /* Spacing scale (4px base) */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  /* Radii */
+  --radius-xs: 3px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+  --radius-pill: 999px;
+
+  /* Typography */
+  --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  --font-display: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --text-caption: 11.5px;
+  --text-body: 13px;
+  --text-h3: 16px;
+  --text-h2: 20px;
+  --text-h1: 28px;
+
+  /* Layout */
+  --header-height: 44px;
+  --sidebar-width: 240px;
+
+  /* Default mode is dark — ensures correct rendering even without
+     [data-mode] attribute set on <html>. */
+  color-scheme: dark;
+
+  /* Ikenga brand accents (mode-agnostic). Used by ADR-011 chat redesign:
+     ember = active streaming / hot states; kola-amber = ritual pills,
+     tool calls, artifact pills, cost amounts; oxblood = errors;
+     verdigris = info / passive systemic. */
+  --ember: hsl(14, 78%, 52%);
+  --ember-soft: hsl(14, 70%, 60%);
+  --kola-amber: hsl(42, 78%, 50%);
+  --kola-amber-soft: hsl(42, 60%, 64%);
+  --oxblood: hsl(8, 70%, 42%);
+  --verdigris: hsl(170, 30%, 38%);
+}
+
+/* ─── dark mode (DEFAULT) ─────────────────────────────────────────────────── */
+:root,
+:root[data-mode='dark'] {
+  /* Backgrounds */
+  --bg-base: hsl(220, 14%, 8%);
+  --bg-surface: hsl(220, 13%, 11%);
+  --bg-raised: hsl(220, 12%, 14%);
+  --bg-sunken: hsl(220, 14%, 6%);
+
+  /* Foregrounds */
+  --fg: hsl(0, 0%, 96%);
+  --fg-muted: hsl(220, 8%, 58%);
+  --fg-subtle: hsl(220, 8%, 42%);
+
+  /* Borders */
+  --border: hsl(220, 13%, 20%);
+  --border-soft: hsl(220, 13%, 16%);
+  --border-strong: hsl(220, 13%, 28%);
+
+  /* Brand + semantic */
+  --primary: hsl(220, 90%, 60%);
+  --primary-fg: hsl(0, 0%, 100%);
+  --secondary: hsl(220, 12%, 14%);
+  --accent: hsl(280, 70%, 65%);
+  --info: hsl(200, 90%, 60%);
+  --success: hsl(142, 70%, 50%);
+  --warning: hsl(38, 92%, 60%);
+  --danger: hsl(0, 72%, 60%);
+  --agent: hsl(280, 70%, 65%);
+
+  /* Tints (subtle backgrounds for active/hovered states) */
+  --tint-bg-active: hsl(220, 90%, 60%, 0.08);
+  --tint-fg-active: hsl(220, 90%, 70%);
+
+  /* Shadows */
+  --shadow-1: 0 1px 1px hsl(0 0% 0% / 0.3);
+  --shadow-2: 0 1px 2px hsl(0 0% 0% / 0.4);
+  --shadow-3: 0 4px 12px hsl(0 0% 0% / 0.5);
+
+  /* MCP UI Apps schema bridge — these are the names the host pushes via
+     AppBridge `styles.variables`. Map them to Ikenga semantic slots so a pkg
+     that consumes the host context overlay (or one that doesn't) renders the
+     same way. */
+  --color-background-primary: var(--bg-base);
+  --color-background-secondary: var(--bg-surface);
+  --color-background-tertiary: var(--bg-raised);
+  --color-background-inverse: hsl(0, 0%, 96%);
+  --color-background-ghost: transparent;
+  --color-background-info: var(--info);
+  --color-background-danger: var(--danger);
+  --color-background-success: var(--success);
+  --color-background-warning: var(--warning);
+  --color-background-disabled: hsl(220, 13%, 20%);
+
+  --color-text-primary: var(--fg);
+  --color-text-secondary: var(--fg-muted);
+  --color-text-tertiary: var(--fg-subtle);
+  --color-text-inverse: hsl(220, 14%, 8%);
+  --color-text-ghost: var(--fg-muted);
+  --color-text-info: var(--info);
+  --color-text-danger: var(--danger);
+  --color-text-success: var(--success);
+  --color-text-warning: var(--warning);
+  --color-text-disabled: var(--fg-subtle);
+
+  --color-border-primary: var(--border);
+  --color-border-secondary: var(--border-soft);
+  --color-border-tertiary: var(--border-strong);
+  --color-border-inverse: hsl(0, 0%, 96%);
+  --color-border-ghost: transparent;
+  --color-border-info: var(--info);
+  --color-border-danger: var(--danger);
+  --color-border-success: var(--success);
+  --color-border-warning: var(--warning);
+  --color-border-disabled: var(--border-soft);
+
+  --color-ring-primary: var(--primary);
+  --color-ring-secondary: var(--accent);
+  --color-ring-inverse: hsl(0, 0%, 96%);
+  --color-ring-info: var(--info);
+  --color-ring-danger: var(--danger);
+  --color-ring-success: var(--success);
+  --color-ring-warning: var(--warning);
+
+  /* Ikenga hairline + chip-carve (mode-specific). `--rule` is the canonical
+     1px divider between turns in the chat; `--rule-soft` is for grouping
+     within a turn; `--chip-carve` is the dim ink used for the ▽▽▽ motif
+     and uppercase mono labels. */
+  --rule: hsl(28, 14%, 18%);
+  --rule-soft: hsl(28, 12%, 14%);
+  --chip-carve: hsl(28, 14%, 32%);
+
+  /* Code editor syntax palette (dark). Consumed by @ikenga/ui-lib's
+     CodeEditor via CodeMirror 6 highlight tags. Tuned for HTML/TSX/CSS
+     legibility on top of `--bg-surface`. */
+  --syntax-keyword:     hsl(280, 70%, 72%);
+  --syntax-string:      hsl(160, 55%, 60%);
+  --syntax-comment:     hsl(220, 10%, 50%);
+  --syntax-number:      hsl(28, 78%, 64%);
+  --syntax-atom:        hsl(28, 78%, 64%);
+  --syntax-regexp:      hsl(330, 60%, 64%);
+  --syntax-operator:    hsl(0, 0%, 86%);
+  --syntax-punctuation: hsl(220, 8%, 62%);
+  --syntax-variable:    hsl(0, 0%, 92%);
+  --syntax-function:    hsl(200, 80%, 68%);
+  --syntax-type:        hsl(180, 60%, 64%);
+  --syntax-tag:         hsl(0, 70%, 66%);
+  --syntax-attribute:   hsl(42, 80%, 64%);
+  --syntax-heading:     hsl(0, 0%, 96%);
+  --syntax-link:        hsl(200, 90%, 62%);
+}
+
+/* ─── light mode ──────────────────────────────────────────────────────────── */
+:root[data-mode='light'] {
+  color-scheme: light;
+
+  --bg-base: hsl(0, 0%, 98%);
+  --bg-surface: hsl(0, 0%, 100%);
+  --bg-raised: hsl(220, 14%, 96%);
+  --bg-sunken: hsl(220, 14%, 94%);
+
+  --fg: hsl(220, 14%, 12%);
+  --fg-muted: hsl(220, 10%, 45%);
+  --fg-subtle: hsl(220, 8%, 60%);
+
+  --border: hsl(220, 13%, 88%);
+  --border-soft: hsl(220, 13%, 93%);
+  --border-strong: hsl(220, 13%, 78%);
+
+  --primary: hsl(220, 90%, 52%);
+  --primary-fg: hsl(0, 0%, 100%);
+  --secondary: hsl(220, 14%, 96%);
+  --accent: hsl(280, 65%, 50%);
+  --info: hsl(200, 90%, 45%);
+  --success: hsl(142, 65%, 38%);
+  --warning: hsl(38, 88%, 48%);
+  --danger: hsl(0, 65%, 48%);
+  --agent: hsl(280, 65%, 50%);
+
+  --tint-bg-active: hsl(220, 90%, 52%, 0.10);
+  --tint-fg-active: hsl(220, 90%, 42%);
+
+  --shadow-1: 0 1px 1px hsl(220 14% 50% / 0.06);
+  --shadow-2: 0 1px 2px hsl(220 14% 50% / 0.08);
+  --shadow-3: 0 4px 12px hsl(220 14% 50% / 0.10);
+
+  --color-background-primary: var(--bg-base);
+  --color-background-secondary: var(--bg-surface);
+  --color-background-tertiary: var(--bg-raised);
+  --color-background-inverse: hsl(220, 14%, 12%);
+  --color-text-primary: var(--fg);
+  --color-text-secondary: var(--fg-muted);
+  --color-text-tertiary: var(--fg-subtle);
+  --color-text-inverse: hsl(0, 0%, 98%);
+  --color-border-primary: var(--border);
+  --color-border-secondary: var(--border-soft);
+  --color-border-tertiary: var(--border-strong);
+
+  /* Light-mode hairline + chip-carve. See dark-mode block for semantics. */
+  --rule: hsl(36, 14%, 84%);
+  --rule-soft: hsl(36, 14%, 90%);
+  --chip-carve: hsl(28, 14%, 62%);
+
+  /* Code editor syntax palette (light). See dark block for semantics. */
+  --syntax-keyword:     hsl(280, 70%, 38%);
+  --syntax-string:      hsl(160, 55%, 30%);
+  --syntax-comment:     hsl(220, 10%, 48%);
+  --syntax-number:      hsl(28, 78%, 38%);
+  --syntax-atom:        hsl(28, 78%, 38%);
+  --syntax-regexp:      hsl(330, 60%, 40%);
+  --syntax-operator:    hsl(220, 14%, 18%);
+  --syntax-punctuation: hsl(220, 10%, 42%);
+  --syntax-variable:    hsl(220, 14%, 14%);
+  --syntax-function:    hsl(220, 90%, 40%);
+  --syntax-type:        hsl(180, 60%, 30%);
+  --syntax-tag:         hsl(0, 70%, 42%);
+  --syntax-attribute:   hsl(42, 90%, 36%);
+  --syntax-heading:     hsl(220, 14%, 12%);
+  --syntax-link:        hsl(200, 90%, 40%);
+}
+/* === Theme A · Dusk Wood (canonical default) ==================== */
+[data-theme="A"][data-mode="dark"] {
+  --bg-base: hsl(28,18%,4%);    --bg-surface: hsl(28,14%,7%);
+  --bg-raised: hsl(28,11%,11%); --bg-sunken: hsl(28,22%,2.5%);
+  --fg: hsl(36,28%,90%); --fg-muted: hsl(32,11%,56%); --fg-faint: hsl(28,9%,36%);
+  --border: hsl(28,14%,15%); --border-soft: hsl(28,14%,11%);
+  --primary: hsl(20,50%,34%); --primary-fg: hsl(36,30%,92%); --primary-soft: hsl(20,40%,14%);
+  --achievement: hsl(42,78%,54%); --achievement-soft: hsl(42,48%,18%);
+  --danger: hsl(8,68%,46%); --danger-fg: hsl(0,0%,98%); --danger-soft: hsl(8,50%,16%);
+  --systemic: hsl(170,28%,34%); --systemic-soft: hsl(170,22%,16%);
+  --shadow-1: 0 1px 2px rgba(0,0,0,.55), 0 0 0 1px rgba(0,0,0,.25);
+  --shadow-2: 0 4px 12px -2px rgba(0,0,0,.55);
+  --shadow-3: 0 12px 28px -8px rgba(0,0,0,.6);
+  --shadow-4: 0 24px 48px -16px rgba(0,0,0,.65);
+}
+[data-theme="A"][data-mode="light"] {
+  --bg-base: hsl(36,22%,96%);   --bg-surface: hsl(36,18%,93%);
+  --bg-raised: hsl(36,14%,89%); --bg-sunken: hsl(36,26%,98%);
+  --fg: hsl(28,30%,14%); --fg-muted: hsl(28,14%,38%); --fg-faint: hsl(28,12%,56%);
+  --border: hsl(32,16%,78%); --border-soft: hsl(32,16%,84%);
+  --primary: hsl(20,50%,34%); --primary-fg: hsl(36,26%,98%); --primary-soft: hsl(20,50%,90%);
+  --achievement: hsl(42,78%,42%); --achievement-soft: hsl(42,60%,90%);
+  --danger: hsl(8,68%,42%); --danger-fg: hsl(0,0%,98%); --danger-soft: hsl(8,60%,92%);
+  --systemic: hsl(170,36%,32%); --systemic-soft: hsl(170,30%,90%);
+  --shadow-1: 0 1px 2px rgba(28,18,8,.08);
+  --shadow-2: 0 4px 12px -2px rgba(28,18,8,.10);
+  --shadow-3: 0 12px 28px -8px rgba(28,18,8,.14);
+  --shadow-4: 0 24px 48px -16px rgba(28,18,8,.18);
+}
+
+/* === Theme B · Kola Daylight ==================================== */
+[data-theme="B"][data-mode="light"] {
+  --bg-base: hsl(36,28%,96%);   --bg-surface: hsl(36,22%,94%);
+  --bg-raised: hsl(36,18%,90%); --bg-sunken: hsl(36,32%,98%);
+  --fg: hsl(28,30%,12%); --fg-muted: hsl(28,14%,38%); --fg-faint: hsl(28,12%,56%);
+  --border: hsl(32,18%,80%); --border-soft: hsl(32,18%,86%);
+  --primary: hsl(42,82%,46%); --primary-fg: hsl(28,30%,8%); --primary-soft: hsl(42,60%,88%);
+  --achievement: hsl(14,72%,46%); --achievement-soft: hsl(14,60%,90%);
+  --danger: hsl(8,68%,42%); --danger-fg: hsl(0,0%,98%); --danger-soft: hsl(8,60%,92%);
+  --systemic: hsl(170,36%,32%); --systemic-soft: hsl(170,30%,90%);
+  --shadow-1: 0 1px 2px rgba(28,18,8,.08);
+  --shadow-2: 0 4px 12px -2px rgba(28,18,8,.10);
+  --shadow-3: 0 12px 28px -8px rgba(28,18,8,.14);
+  --shadow-4: 0 24px 48px -16px rgba(28,18,8,.18);
+}
+[data-theme="B"][data-mode="dark"] {
+  --bg-base: hsl(36,12%,8%);    --bg-surface: hsl(36,10%,12%);
+  --bg-raised: hsl(36,8%,16%);  --bg-sunken: hsl(36,16%,6%);
+  --fg: hsl(40,28%,92%); --fg-muted: hsl(36,10%,62%); --fg-faint: hsl(36,8%,42%);
+  --border: hsl(36,12%,22%); --border-soft: hsl(36,12%,18%);
+  --primary: hsl(42,84%,60%); --primary-fg: hsl(36,30%,8%); --primary-soft: hsl(42,60%,18%);
+  --achievement: hsl(14,76%,56%); --achievement-soft: hsl(14,50%,18%);
+  --danger: hsl(8,70%,52%); --danger-fg: hsl(0,0%,98%); --danger-soft: hsl(8,50%,18%);
+  --systemic: hsl(170,32%,46%); --systemic-soft: hsl(170,25%,18%);
+  --shadow-1: 0 1px 2px rgba(0,0,0,.55);
+  --shadow-2: 0 4px 12px -2px rgba(0,0,0,.55);
+  --shadow-3: 0 12px 28px -8px rgba(0,0,0,.6);
+  --shadow-4: 0 24px 48px -16px rgba(0,0,0,.65);
+}
+
+/* === Theme C · Bronze Shrine ==================================== */
+[data-theme="C"][data-mode="dark"] {
+  --bg-base: hsl(180,14%,7%);   --bg-surface: hsl(180,12%,11%);
+  --bg-raised: hsl(180,10%,15%);--bg-sunken: hsl(180,18%,5%);
+  --fg: hsl(40,18%,90%); --fg-muted: hsl(180,8%,60%); --fg-faint: hsl(180,8%,42%);
+  --border: hsl(180,12%,22%); --border-soft: hsl(180,12%,18%);
+  --primary: hsl(170,35%,50%); --primary-fg: hsl(180,18%,6%); --primary-soft: hsl(170,30%,18%);
+  --achievement: hsl(40,58%,64%); --achievement-soft: hsl(40,30%,18%);
+  --danger: hsl(8,70%,50%); --danger-fg: hsl(0,0%,98%); --danger-soft: hsl(8,50%,18%);
+  --systemic: hsl(220,22%,56%); --systemic-soft: hsl(220,14%,18%);
+  --shadow-1: 0 1px 2px rgba(0,0,0,.6);
+  --shadow-2: 0 4px 12px -2px rgba(0,0,0,.6);
+  --shadow-3: 0 12px 28px -8px rgba(0,0,0,.65);
+  --shadow-4: 0 24px 48px -16px rgba(0,0,0,.7);
+}
+[data-theme="C"][data-mode="light"] {
+  --bg-base: hsl(180,10%,95%);  --bg-surface: hsl(180,8%,92%);
+  --bg-raised: hsl(180,6%,88%); --bg-sunken: hsl(180,12%,97%);
+  --fg: hsl(200,22%,14%); --fg-muted: hsl(200,10%,38%); --fg-faint: hsl(200,8%,58%);
+  --border: hsl(180,12%,80%); --border-soft: hsl(180,12%,86%);
+  --primary: hsl(170,42%,34%); --primary-fg: hsl(180,12%,97%); --primary-soft: hsl(170,30%,88%);
+  --achievement: hsl(40,64%,38%); --achievement-soft: hsl(40,50%,90%);
+  --danger: hsl(8,70%,42%); --danger-fg: hsl(0,0%,98%); --danger-soft: hsl(8,60%,92%);
+  --systemic: hsl(220,24%,40%); --systemic-soft: hsl(220,22%,90%);
+  --shadow-1: 0 1px 2px rgba(20,28,32,.08);
+  --shadow-2: 0 4px 12px -2px rgba(20,28,32,.10);
+  --shadow-3: 0 12px 28px -8px rgba(20,28,32,.14);
+  --shadow-4: 0 24px 48px -16px rgba(20,28,32,.18);
+}
+
+/* === Workspace tints — constant hues, mode-adaptive ============= */
+[data-mode="dark"] {
+  --tint-app-bg:      hsl(36,14%,11%);   --tint-app-fg:      hsl(36,28%,78%);
+  --tint-mail-bg:     hsl(42,30%,11%);   --tint-mail-fg:     hsl(42,70%,62%);
+  --tint-outbox-bg:   hsl(14,38%,11%);   --tint-outbox-fg:   hsl(14,72%,60%);
+  --tint-studio-bg:   hsl(8,40%,10%);    --tint-studio-fg:   hsl(8,72%,60%);
+  --tint-agents-bg:   hsl(170,26%,10%);  --tint-agents-fg:   hsl(170,40%,58%);
+  --tint-files-bg:    hsl(28,14%,11%);   --tint-files-fg:    hsl(28,30%,60%);
+  --tint-sessions-bg: hsl(28,28%,11%);   --tint-sessions-fg: hsl(28,60%,62%);
+  --tint-settings-bg: hsl(220,14%,11%);  --tint-settings-fg: hsl(220,26%,66%);
+}
+[data-mode="light"] {
+  --tint-app-bg:      hsl(36,22%,92%);   --tint-app-fg:      hsl(28,30%,22%);
+  --tint-mail-bg:     hsl(42,60%,92%);   --tint-mail-fg:     hsl(42,80%,28%);
+  --tint-outbox-bg:   hsl(14,60%,93%);   --tint-outbox-fg:   hsl(14,70%,32%);
+  --tint-studio-bg:   hsl(8,60%,93%);    --tint-studio-fg:   hsl(8,70%,32%);
+  --tint-agents-bg:   hsl(170,36%,92%);  --tint-agents-fg:   hsl(170,50%,24%);
+  --tint-files-bg:    hsl(36,26%,92%);   --tint-files-fg:    hsl(28,30%,22%);
+  --tint-sessions-bg: hsl(28,50%,92%);   --tint-sessions-fg: hsl(14,60%,30%);
+  --tint-settings-bg: hsl(220,22%,93%);  --tint-settings-fg: hsl(220,30%,24%);
+}
+
+/* Active tint vars (resolved per workspace) */
+[data-workspace="app"]      { --tint-bg-active:var(--tint-app-bg);      --tint-fg-active:var(--tint-app-fg); }
+[data-workspace="mail"]     { --tint-bg-active:var(--tint-mail-bg);     --tint-fg-active:var(--tint-mail-fg); }
+[data-workspace="outbox"]   { --tint-bg-active:var(--tint-outbox-bg);   --tint-fg-active:var(--tint-outbox-fg); }
+[data-workspace="studio"]   { --tint-bg-active:var(--tint-studio-bg);   --tint-fg-active:var(--tint-studio-fg); }
+[data-workspace="agents"]   { --tint-bg-active:var(--tint-agents-bg);   --tint-fg-active:var(--tint-agents-fg); }
+[data-workspace="files"]    { --tint-bg-active:var(--tint-files-bg);    --tint-fg-active:var(--tint-files-fg); }
+[data-workspace="sessions"] { --tint-bg-active:var(--tint-sessions-bg); --tint-fg-active:var(--tint-sessions-fg); }
+[data-workspace="settings"] { --tint-bg-active:var(--tint-settings-bg); --tint-fg-active:var(--tint-settings-fg); }
