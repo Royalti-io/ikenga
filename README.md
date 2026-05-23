@@ -37,13 +37,13 @@ Tauri host              — SQLite, FS, native menu, secrets (Stronghold)
 ```
 
 Ikenga is open source under **Apache-2.0** — both the platform and the
-first-party pkgs. See [ADR-009](../docs/adr/009-monorepo-pkgs-all-open.md).
+first-party pkgs. See [`LICENSE`](LICENSE).
 
 ## How pkgs work
 
 Each pkg is a self-contained directory: a `manifest.json` plus whatever it
 contributes. The manifest is validated against the Zod schema in
-[`@ikenga/contract`](../contract); the kernel registers each declared block
+[`@ikenga/contract`](https://github.com/Royalti-io/ikenga-contract); the kernel registers each declared block
 against the matching registry (UI routes, MCP servers, sidecars, cron, …).
 
 UI pkgs mount as one of three kinds:
@@ -53,8 +53,9 @@ UI pkgs mount as one of three kinds:
   via CSP `frame-ancestors`.
 - **component** — host-registered React route (built-ins only).
 
-Authoring guides per archetype live in [`docs/pkg-patterns/`](../docs/pkg-patterns).
-Develop with a live reload loop — no shell restart:
+First-party pkgs live in the [`ikenga-pkgs`](https://github.com/Royalti-io/ikenga-pkgs)
+monorepo — read those for working examples of each archetype. Develop with a
+live reload loop — no shell restart:
 
 ```bash
 ikenga dev /path/to/your/pkg   # symlink-mount + watch; reload on save
@@ -66,8 +67,8 @@ ikenga dev /path/to/your/pkg   # symlink-mount + watch; reload on save
 
 ## Multi-engine chat
 
-The chat layer is multi-engine ([ADR-013](../docs/adr/013-multi-engine-runtime-wire-protocols.md)).
-The frontend sees **one wire** — ACP-shaped session updates — regardless of
+The chat layer is multi-engine. The frontend sees **one wire** — ACP-shaped
+session updates — regardless of
 which CLI backs a thread. Engine and model are selectable per turn via a
 two-level Engine → Model picker. Each engine needs its CLI on `$PATH`.
 
@@ -183,8 +184,7 @@ focus the Ikenga window.
 ## Status
 
 Released builds are on the [Releases page](https://github.com/Royalti-io/ikenga/releases)
-(current: v0.0.7). Active sprint and blockers live in the workspace
-[`STATUS.md`](../STATUS.md).
+(current: v0.0.7).
 
 ## Distribution
 
@@ -277,7 +277,7 @@ scale.
 
 ## Links
 
-- [ADR-009](../docs/adr/009-monorepo-pkgs-all-open.md) — open-platform licensing decision
-- [Pkg authoring guides](../docs/pkg-patterns) — per-archetype patterns + templates
+- [`ikenga-pkgs`](https://github.com/Royalti-io/ikenga-pkgs) — first-party pkg monorepo (working examples per archetype)
+- [`ikenga-contract`](https://github.com/Royalti-io/ikenga-contract) — manifest schema, RPC types, capability scopes
 - [`CLAUDE.md`](CLAUDE.md) — detailed architecture for contributors
-- [`STATUS.md`](../STATUS.md) — current sprint
+- [`LICENSE`](LICENSE) — Apache-2.0
