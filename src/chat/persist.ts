@@ -7,7 +7,7 @@
  * Schema lives in migrations 0001_init.sql + 0003_claude_sessions.sql.
  */
 
-import { dbExec, dbQuery, type ChatEvent } from '@/lib/tauri-cmd';
+import { type ChatEvent, dbExec, dbQuery } from '@/lib/tauri-cmd';
 import type { ChatThread } from './adapter';
 
 interface ChatThreadRow {
@@ -161,6 +161,35 @@ export async function updateThreadMeta(
 
 export type MessageRole = 'user' | 'assistant' | 'system' | 'tool';
 
+/** Max serialized size we'll persist for a single tool_result `output`.
+ *  Tool outputs (file reads, command dumps) are the only unbounded growth
+ *  vector in a persisted turn — assistant prose / thinking is small. The
+ *  full output stays available live; on reload a truncated copy is fine, so
+ *  we cap it rather than let the table grow without bound. ~100 KB. */
+const MAX_TOOL_OUTPUT_CHARS = 100_000;
+
+/** Retention window for persisted message turns. On cold start we prune rows
+ *  older than this; reload of an older thread falls back to the JSONL
+ *  reconstruction (claude) or user-turns-only (engines without a transcript).
+ *  90 days. */
+export const MESSAGE_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
+
+/** Truncate any oversized `tool_result.output` before persisting. Returns a
+ *  shallow copy with the offending event(s) capped; leaves everything else
+ *  (text, thinking, tool_use, done) untouched. */
+function capToolOutputs(events: ChatEvent[]): ChatEvent[] {
+	return events.map((e) => {
+		if (e.kind !== 'tool_result') return e;
+		const serialized = JSON.stringify(e.output ?? null);
+		if (serialized.length <= MAX_TOOL_OUTPUT_CHARS) return e;
+		const head = serialized.slice(0, MAX_TOOL_OUTPUT_CHARS);
+		return {
+			...e,
+			output: `${head}\n…[truncated ${serialized.length - MAX_TOOL_OUTPUT_CHARS} chars on persist]`,
+		};
+	});
+}
+
 export async function appendMessage(
 	threadId: string,
 	role: MessageRole,
@@ -171,8 +200,65 @@ export async function appendMessage(
 	await dbExec(
 		`INSERT INTO chat_messages (id, thread_id, role, content, metadata, created_at)
      VALUES (?, ?, ?, ?, NULL, ?)`,
-		[id, threadId, role, JSON.stringify(events), Date.now()]
+		[id, threadId, role, JSON.stringify(capToolOutputs(events)), Date.now()]
 	);
+}
+
+/** Cold-start retention: drop persisted message turns older than
+ *  `MESSAGE_RETENTION_MS`. Keeps the durable assistant record bounded over
+ *  time without a per-thread cap (which would break reload completeness for
+ *  active threads). User turns (`chat_user_turns`) and session rows are left
+ *  intact — only the assistant-turn snapshots age out. */
+export async function pruneOldMessages(maxAgeMs: number = MESSAGE_RETENTION_MS): Promise<void> {
+	const cutoff = Date.now() - maxAgeMs;
+	await dbExec(`DELETE FROM chat_messages WHERE created_at < ?`, [cutoff]);
+}
+
+interface ChatMessageRow {
+	id: string;
+	role: string;
+	content: string;
+	created_at: number;
+}
+
+/** One persisted message turn: a group of coalesced `ChatEvent`s written in
+ *  a single `appendMessage` call, plus the turn-end timestamp used to
+ *  interleave it with user turns on reload. */
+export interface PersistedMessage {
+	id: string;
+	role: MessageRole;
+	events: ChatEvent[];
+	createdAt: number;
+}
+
+/** Load all persisted message turns for a thread in write order. This is the
+ *  durable assistant-side record introduced to stop reload from depending on
+ *  claude's on-disk JSONL transcript. Rows whose `content` won't parse are
+ *  skipped (defensive — a malformed row shouldn't blank the whole thread).
+ *
+ *  Pre-fix sessions (and any turn that crashed before turn-end) have zero
+ *  rows here; the caller falls back to the JSONL reconstruction path. */
+export async function loadMessages(threadId: string): Promise<PersistedMessage[]> {
+	const rows = await dbQuery<ChatMessageRow>(
+		`SELECT id, role, content, created_at
+       FROM chat_messages
+      WHERE thread_id = ?
+      ORDER BY created_at ASC, id ASC`,
+		[threadId]
+	);
+	const out: PersistedMessage[] = [];
+	for (const r of rows) {
+		let events: ChatEvent[];
+		try {
+			const parsed = JSON.parse(r.content);
+			if (!Array.isArray(parsed)) continue;
+			events = parsed as ChatEvent[];
+		} catch {
+			continue;
+		}
+		out.push({ id: r.id, role: r.role as MessageRole, events, createdAt: r.created_at });
+	}
+	return out;
 }
 
 /** Cold-start hygiene: drop stale pty_id values left over from a previous
