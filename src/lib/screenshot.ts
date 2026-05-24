@@ -17,11 +17,60 @@ export interface CaptureOutput {
 
 // Hard ceiling on how long a single FE capture may take. Picked below
 // the Rust-side 60s timeout so we always return a meaningful error
-// (rather than letting the Rust oneshot expire silently). Cross-origin
-// iframes (storyboard :3105, hyperframes, video-engine) are the usual
-// reason capture hangs — modern-screenshot tries to inline them and
-// blocks on a fetch the browser will never resolve.
+// (rather than letting the Rust oneshot expire silently).
+//
+// NOTE: this is a `setTimeout` race, so it only backstops *async* hangs
+// (a same-origin image/font fetch that never resolves). It cannot rescue
+// a *synchronous* main-thread block — `domToBlob` deep-clones the target
+// and runs `getComputedStyle` per node before yielding, and on the whole
+// `document.documentElement` (the window capture) that walk plus the
+// final canvas encode is what used to freeze the UI past this timeout.
+// Protection against that comes from `isUnwalkableIframe` (prune
+// cross-origin panes from the clone) and `clampScale` (bound the canvas),
+// below — not from this race.
 const FE_CAPTURE_TIMEOUT_MS = 30_000;
+
+// WebKitGTK (our Linux engine) caps usable canvas area well below desktop
+// GPUs; ~16.7M px (4096²-class) is the broadly-safe cross-engine ceiling.
+// Staying under it keeps a 4K/HiDPI full-window capture from allocating a
+// canvas the engine silently fails (blank PNG) or chokes encoding.
+export const MAX_CAPTURE_PIXELS = 16_000_000;
+// Per-dimension belt-and-suspenders: modern-screenshot's maximumCanvasSize
+// clamps canvas.width/height independently. 8192 covers any single edge.
+const MAX_CANVAS_EDGE = 8192;
+
+// Clamp devicePixelRatio so width * height * scale^2 <= MAX_CAPTURE_PIXELS.
+// `Math.max(1, …)` keeps normal-sized windows at native density (the clamp
+// only bites on very large windows) and never downscales below CSS res.
+export function clampScale(cssWidth: number, cssHeight: number): number {
+	const dpr = window.devicePixelRatio || 1;
+	const cssArea = Math.max(1, cssWidth) * Math.max(1, cssHeight);
+	const maxScale = Math.sqrt(MAX_CAPTURE_PIXELS / cssArea);
+	return Math.max(1, Math.min(dpr, maxScale));
+}
+
+// True when modern-screenshot cannot walk into this iframe's document.
+// Accessing contentDocument / contentWindow.location.href on a cross-origin
+// frame throws SecurityError; a null contentDocument means not-yet-loaded —
+// both are unwalkable. Same-origin frames (incl. about:blank, srcdoc, and
+// the same-origin viewer-server frames on our own origin) do not throw and
+// stay walkable, preserving the same-origin iframe rendering added in
+// f144a1d. We DROP only frames we can't walk: their inner content can't
+// reach the PNG either way, but attempting the walk bloats the synchronous
+// clone (and cross-origin panes like storyboard :3105 / video-engine are
+// the heaviest offenders on the window capture).
+export function isUnwalkableIframe(el: Element): boolean {
+	if (el.tagName !== 'IFRAME') return false;
+	const iframe = el as HTMLIFrameElement;
+	try {
+		const doc = iframe.contentDocument;
+		if (!doc) return true;
+		void iframe.contentWindow?.location.href; // throws if cross-origin
+		return false;
+	} catch {
+		return true;
+	}
+}
 
 /**
  * Render the given element (or `document.documentElement` for the whole
@@ -54,8 +103,12 @@ export async function captureToPng(target: HTMLElement): Promise<CaptureOutput> 
 	// there should be no network at all on the steady-state path; this
 	// is defence-in-depth for future iframe content that might inline
 	// remote images.
+	const rect = target.getBoundingClientRect();
+	const scale = clampScale(rect.width, rect.height);
+
 	const blobPromise = domToBlob(target, {
-		scale: window.devicePixelRatio || 1,
+		scale,
+		maximumCanvasSize: MAX_CANVAS_EDGE,
 		type: 'image/png',
 		backgroundColor: null,
 		font: false,
@@ -63,6 +116,7 @@ export async function captureToPng(target: HTMLElement): Promise<CaptureOutput> 
 		filter: (node) => {
 			if (!(node instanceof Element)) return true;
 			if (node.getAttribute('data-screenshot') === 'skip') return false;
+			if (isUnwalkableIframe(node)) return false;
 			return true;
 		},
 		fetch: { requestInit: { cache: 'force-cache' } },
@@ -91,12 +145,12 @@ export async function captureToPng(target: HTMLElement): Promise<CaptureOutput> 
 
 	const buf = new Uint8Array(await blob.arrayBuffer());
 	const base64 = uint8ToBase64(buf);
-	const rect = target.getBoundingClientRect();
-	const dpr = window.devicePixelRatio || 1;
+	// Reuse the clamped `scale` (not a fresh devicePixelRatio) so reported
+	// dimensions match the actual PNG when the budget clamp kicked in.
 	return {
 		base64,
-		width: Math.max(1, Math.round(rect.width * dpr)),
-		height: Math.max(1, Math.round(rect.height * dpr)),
+		width: Math.max(1, Math.round(rect.width * scale)),
+		height: Math.max(1, Math.round(rect.height * scale)),
 	};
 }
 

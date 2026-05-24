@@ -175,7 +175,18 @@ pub async fn capture(
     pane_id: Option<&str>,
     out_path: Option<String>,
 ) -> Result<ScreenshotResult> {
-    if matches!(kind, ScreenshotKind::Pane) && pane_id.is_none() {
+    // Window capture goes through the native compositor path. The FE
+    // (modern-screenshot) path synchronously clones + rasterizes the whole
+    // workspace DOM, which on WebKitGTK freezes the UI for minutes on a
+    // non-trivial workspace (verified 2026-05-24). The native tool grabs the
+    // window pixels without touching the renderer, so it can't hang the app.
+    // Pane capture stays on the FE path below: the OS has no notion of a
+    // single pane, so we must render that bounded subtree ourselves.
+    if matches!(kind, ScreenshotKind::Window) {
+        return capture_window_native(app, out_path).await;
+    }
+
+    if pane_id.is_none() {
         return Err(anyhow!("pane_id required for pane screenshot"));
     }
 
@@ -237,15 +248,14 @@ pub async fn capture(
     })
 }
 
-// ─── Native (OS-level) capture path — kept for future opt-in use ─────────────
+// ─── Native (OS-level) window capture ────────────────────────────────────────
 //
-// Currently unused: the default capture flow is FE-side modern-screenshot so
-// it doesn't require window focus and can capture any mounted pane (even
-// inactive ones). The native path is kept here so a future `--native` flag
-// can use it when the user explicitly wants compositor-level capture (e.g.
-// to grab a multi-window setup or anything outside the webview).
+// This is the live path for *window* screenshots (see `capture` above). It
+// grabs window pixels through the compositor/screenshot tool, so unlike the
+// FE modern-screenshot path it never clones the DOM and can't freeze the
+// renderer. It does require briefly focusing the window (see below). Pane
+// capture still uses the FE path because the OS can't isolate a single pane.
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
 struct ScreenRect {
     x: i32,
@@ -254,7 +264,6 @@ struct ScreenRect {
     h: u32,
 }
 
-#[allow(dead_code)]
 async fn capture_window_native(
     app: &AppHandle,
     out_path: Option<String>,
