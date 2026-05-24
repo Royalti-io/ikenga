@@ -449,18 +449,47 @@ jobs:
             "$(awk 'NR==3' "$BODY_FILE")" \
             "https://github.com/$REPO/releases/tag/$TAG")
 
-          # Note: `mktemp` creates the file as an anti-race measure, but
-          # `gh release download -O` then refuses to overwrite it. Use a
-          # synthesized name (mktemp -u just reserves it) so the download
-          # writes cleanly.
-          TMP_JSON=$(mktemp -u --suffix=.json)
-          gh release download "$TAG" --repo "$REPO" -p latest.json -O "$TMP_JSON"
-          node -e '
-            const fs = require("fs");
-            const obj = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-            obj.notes = process.argv[2];
-            fs.writeFileSync(process.argv[1], JSON.stringify(obj, null, 2));
-          ' "$TMP_JSON" "$SHORT"
-          gh release upload "$TAG" "$TMP_JSON" --repo "$REPO" --clobber
+          # Rebuild latest.json from scratch, here, serially. Each matrix
+          # build job runs tauri-action with includeUpdaterJson, and every
+          # one does a read-modify-write of the SAME latest.json on the
+          # shared draft release. Running concurrently, they clobber each
+          # other (lost updates) and the published manifest ends up missing
+          # whichever platforms lost the race — breaking auto-update for
+          # those users. So we don't trust the survivor: we download every
+          # per-platform .sig attached to the release and reconstruct the
+          # full platform map deterministically from the known bundle names.
+          VERSION="${TAG#v}"
+          BASE="https://github.com/$REPO/releases/download/$TAG"
+          SIGDIR=$(mktemp -d)
+          gh release download "$TAG" --repo "$REPO" -p '*.sig' -D "$SIGDIR"
 
-          echo "✓ Release notes applied to $TAG"
+          # Writes a real file named latest.json (not a mktemp name) so we
+          # never leave a stray tmp.*.json asset on the release.
+          node -e '
+            const fs = require("fs"), path = require("path");
+            const [dir, base, version, notes] = process.argv.slice(1);
+            const has  = f => fs.existsSync(path.join(dir, f));
+            const read = f => fs.readFileSync(path.join(dir, f), "utf8").trim();
+            // [updater platform key, .sig filename, bundle filename]
+            const map = [
+              ["darwin-aarch64",      "Ikenga_aarch64.app.tar.gz.sig",          "Ikenga_aarch64.app.tar.gz"],
+              ["darwin-aarch64-app",  "Ikenga_aarch64.app.tar.gz.sig",          "Ikenga_aarch64.app.tar.gz"],
+              ["darwin-x86_64",       "Ikenga_x64.app.tar.gz.sig",              "Ikenga_x64.app.tar.gz"],
+              ["darwin-x86_64-app",   "Ikenga_x64.app.tar.gz.sig",              "Ikenga_x64.app.tar.gz"],
+              ["windows-x86_64",      "Ikenga_" + version + "_x64-setup.exe.sig",  "Ikenga_" + version + "_x64-setup.exe"],
+              ["windows-x86_64-nsis", "Ikenga_" + version + "_x64-setup.exe.sig",  "Ikenga_" + version + "_x64-setup.exe"],
+              ["linux-x86_64",        "Ikenga_" + version + "_amd64.AppImage.sig", "Ikenga_" + version + "_amd64.AppImage"],
+            ];
+            const platforms = {};
+            for (const [key, sig, bundle] of map) {
+              if (has(sig)) platforms[key] = { signature: read(sig), url: base + "/" + bundle };
+              else console.log("::warning::no .sig for updater platform " + key + " (" + sig + ")");
+            }
+            const out = { version, notes, pub_date: new Date().toISOString(), platforms };
+            fs.writeFileSync("latest.json", JSON.stringify(out, null, 2) + "\n");
+            console.log("latest.json platforms: " + Object.keys(platforms).join(", "));
+          ' "$SIGDIR" "$BASE" "$VERSION" "$SHORT"
+
+          gh release upload "$TAG" latest.json --repo "$REPO" --clobber
+
+          echo "✓ Release notes + complete updater manifest applied to $TAG"
