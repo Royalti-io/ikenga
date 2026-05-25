@@ -1073,7 +1073,7 @@ fn yaml_to_json(v: serde_yaml::Value) -> serde_json::Value {
     }
 }
 
-fn string_field(fm: &serde_json::Value, key: &str) -> Option<String> {
+pub(crate) fn string_field(fm: &serde_json::Value, key: &str) -> Option<String> {
     fm.get(key).and_then(|v| v.as_str()).map(str::to_string)
 }
 
@@ -1124,7 +1124,7 @@ fn mark_overrides_commands(items: &mut [CommandEntry]) {
 
 // ─── Path helpers ───────────────────────────────────────────────────────────
 
-fn expand(input: &str) -> Result<PathBuf> {
+pub(crate) fn expand(input: &str) -> Result<PathBuf> {
     let s = shellexpand::full(input)
         .map(|c| c.into_owned())
         .map_err(|e| anyhow!("shellexpand: {e}"))?;
@@ -1135,7 +1135,7 @@ fn home_dir() -> Option<PathBuf> {
     std::env::var_os("HOME").map(PathBuf::from)
 }
 
-fn mtime_ms(p: &Path) -> i64 {
+pub(crate) fn mtime_ms(p: &Path) -> i64 {
     std::fs::metadata(p)
         .ok()
         .and_then(|m| m.modified().ok())
@@ -1144,12 +1144,29 @@ fn mtime_ms(p: &Path) -> i64 {
         .unwrap_or(0)
 }
 
-fn is_under_claude_dir(p: &Path) -> bool {
+pub(crate) fn is_under_claude_dir(p: &Path) -> bool {
     // Walk components: must contain a `.claude` segment somewhere.
     p.components().any(|c| match c {
         std::path::Component::Normal(s) => s == std::ffi::OsStr::new(".claude"),
         _ => false,
     })
+}
+
+/// Path-confinement guard for the store + symlink-farm mutations (WP-02). A
+/// mutation target is permitted iff it sits under some `.claude/` dir OR under
+/// the Ngwa central store root. This widens `is_under_claude_dir` (which only
+/// permits `.claude/`) so store-side writes (`claude_store_import` copying a
+/// canonical primitive into `<app_data_dir>/store/`) pass the same check that
+/// scope-side symlink creates do. Read-only callers keep using
+/// `is_under_claude_dir` directly so their semantics are unchanged.
+pub(crate) fn is_under_claude_or_store(p: &Path) -> bool {
+    if is_under_claude_dir(p) {
+        return true;
+    }
+    match store_root() {
+        Some(store) => is_in_store(p, &store),
+        None => false,
+    }
 }
 
 // ─── Symlink / central-store metadata ───────────────────────────────────────
@@ -1163,7 +1180,7 @@ fn is_under_claude_dir(p: &Path) -> bool {
 /// WP-02 owns the canonical layout *under* this root (e.g.
 /// `store/{agents,skills,commands}/`); WP-01 only needs the root to decide
 /// `in_store`.
-fn store_root() -> Option<PathBuf> {
+pub(crate) fn store_root() -> Option<PathBuf> {
     const BUNDLE_ID: &str = "app.ikenga";
     let dir: PathBuf = if cfg!(target_os = "macos") {
         let home = std::env::var_os("HOME")?;
@@ -1187,7 +1204,7 @@ fn store_root() -> Option<PathBuf> {
 /// `..`-laden paths still compare correctly; falls back to a lexical
 /// `starts_with` when canonicalization fails (e.g. the store dir doesn't exist
 /// yet on a fresh install).
-fn is_in_store(target: &Path, store: &Path) -> bool {
+pub(crate) fn is_in_store(target: &Path, store: &Path) -> bool {
     let canon_target = target.canonicalize();
     let canon_store = store.canonicalize();
     match (canon_target, canon_store) {
@@ -1244,7 +1261,7 @@ use crate::claude::discovery::{self, AssetPin, AssetTree};
 use crate::commands::db::PaDb;
 use crate::commands::projects::get_active_project_id;
 
-fn validate_pin_scope(scope: &str) -> Result<(), String> {
+pub(crate) fn validate_pin_scope(scope: &str) -> Result<(), String> {
     if scope == "workspace" {
         return Ok(());
     }
