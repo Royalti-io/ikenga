@@ -189,8 +189,7 @@ fn vault_key_exists(app_data_dir: &Path) -> bool {
 }
 
 fn claude_projects_path() -> Option<PathBuf> {
-    let home = std::env::var_os("HOME").map(PathBuf::from)?;
-    Some(home.join(".claude").join("projects"))
+    Some(crate::platform::home_dir()?.join(".claude").join("projects"))
 }
 
 fn disk_free_gb_for(target: &Path) -> u64 {
@@ -201,11 +200,15 @@ fn disk_free_gb_for(target: &Path) -> u64 {
     let canonical = target
         .canonicalize()
         .unwrap_or_else(|_| target.to_path_buf());
+    // Windows `canonicalize` always yields the verbatim form `\\?\C:\…`,
+    // which never `starts_with("C:\")` returned by `sysinfo`. Strip the
+    // prefix before prefix-matching so disk_free isn't always 0 GB.
+    let normalized = strip_windows_verbatim(&canonical);
 
     let mut best: Option<(usize, u64)> = None;
     for disk in disks.list() {
         let mount = disk.mount_point();
-        if canonical.starts_with(mount) {
+        if normalized.starts_with(mount) {
             let len = mount.as_os_str().len();
             let bytes = disk.available_space();
             match best {
@@ -215,6 +218,23 @@ fn disk_free_gb_for(target: &Path) -> u64 {
         }
     }
     best.map(|(_, bytes)| bytes / 1_073_741_824).unwrap_or(0)
+}
+
+#[cfg(windows)]
+fn strip_windows_verbatim(p: &Path) -> PathBuf {
+    let s = p.to_string_lossy();
+    if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {
+        return PathBuf::from(format!(r"\\{rest}"));
+    }
+    if let Some(rest) = s.strip_prefix(r"\\?\") {
+        return PathBuf::from(rest);
+    }
+    p.to_path_buf()
+}
+
+#[cfg(not(windows))]
+fn strip_windows_verbatim(p: &Path) -> PathBuf {
+    p.to_path_buf()
 }
 
 #[cfg(test)]

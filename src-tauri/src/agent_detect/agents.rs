@@ -107,7 +107,8 @@ fn lookup_spec(spec: &ExecutableSpec) -> Option<PathBuf> {
             return Some(found);
         }
     }
-    // Fallback: scan extra_dirs in order. Tilde-expand against $HOME.
+    // Fallback: scan extra_dirs in order. Tilde-expand against the user's
+    // home dir (HOME on Unix, USERPROFILE on Windows).
     for dir in spec.extra_dirs {
         let expanded = expand_tilde(dir);
         for name in spec.names {
@@ -117,17 +118,53 @@ fn lookup_spec(spec: &ExecutableSpec) -> Option<PathBuf> {
             }
         }
     }
+    // Platform-specific install hints that don't fit the static table.
+    // npm-global on Windows lives in %APPDATA%\npm; Claude / Gemini / Codex
+    // CLIs land here when installed via `npm install -g`, and that dir is
+    // routinely missing from a GUI-launched process's PATH.
+    #[cfg(windows)]
+    {
+        for dir in windows_npm_global_dirs() {
+            for name in spec.names {
+                let candidate = dir.join(name);
+                if is_executable(&candidate) {
+                    return Some(candidate);
+                }
+            }
+        }
+    }
     None
+}
+
+#[cfg(windows)]
+fn windows_npm_global_dirs() -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    if let Some(appdata) = std::env::var_os("APPDATA") {
+        dirs.push(PathBuf::from(appdata).join("npm"));
+    }
+    if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+        dirs.push(PathBuf::from(local).join("npm"));
+        dirs.push(
+            PathBuf::from(&local)
+                .join("Programs")
+                .join("npm"),
+        );
+    }
+    if let Some(home) = crate::platform::home_dir() {
+        dirs.push(home.join("AppData").join("Roaming").join("npm"));
+        dirs.push(home.join(".bun").join("bin"));
+    }
+    dirs
 }
 
 fn expand_tilde(p: &str) -> PathBuf {
     if let Some(rest) = p.strip_prefix("~/") {
-        if let Some(home) = std::env::var_os("HOME") {
-            return PathBuf::from(home).join(rest);
+        if let Some(home) = crate::platform::home_dir() {
+            return home.join(rest);
         }
     } else if p == "~" {
-        if let Some(home) = std::env::var_os("HOME") {
-            return PathBuf::from(home);
+        if let Some(home) = crate::platform::home_dir() {
+            return home;
         }
     }
     PathBuf::from(p)
@@ -417,16 +454,21 @@ mod tests {
 
     #[test]
     fn expand_tilde_handles_home() {
-        // Set HOME to a known value for the duration of this test.
-        let prev = std::env::var_os("HOME");
-        std::env::set_var("HOME", "/tmp/fakehome");
+        // Set the platform-appropriate home env var to a known value for the
+        // duration of this test. Windows reads USERPROFILE; Unix reads HOME.
+        #[cfg(windows)]
+        let var = "USERPROFILE";
+        #[cfg(not(windows))]
+        let var = "HOME";
+        let prev = std::env::var_os(var);
+        std::env::set_var(var, "/tmp/fakehome");
         assert_eq!(expand_tilde("~/foo"), PathBuf::from("/tmp/fakehome/foo"));
         assert_eq!(expand_tilde("~"), PathBuf::from("/tmp/fakehome"));
         assert_eq!(expand_tilde("/abs"), PathBuf::from("/abs"));
         if let Some(p) = prev {
-            std::env::set_var("HOME", p);
+            std::env::set_var(var, p);
         } else {
-            std::env::remove_var("HOME");
+            std::env::remove_var(var);
         }
     }
 

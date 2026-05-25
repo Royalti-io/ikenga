@@ -60,8 +60,9 @@ impl ClaudeCodeAdapter {
     }
 
     fn claude_home() -> Result<PathBuf> {
-        let home = std::env::var_os("HOME").ok_or_else(|| anyhow!("HOME not set"))?;
-        Ok(PathBuf::from(home).join(".claude"))
+        let home = crate::platform::home_dir()
+            .ok_or_else(|| anyhow!("could not resolve home directory (HOME / USERPROFILE unset)"))?;
+        Ok(home.join(".claude"))
     }
 
     fn settings_path() -> Result<PathBuf> {

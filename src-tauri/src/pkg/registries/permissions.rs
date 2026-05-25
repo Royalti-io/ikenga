@@ -78,7 +78,9 @@ impl PermissionsRegistry {
     /// Returns Err on unrecognised placeholders so silent typos don't grant
     /// nothing-and-look-fine.
     fn resolve_path(&self, pkg: &Package, raw: &str) -> Result<PathBuf> {
-        let home = std::env::var("HOME").unwrap_or_default();
+        let home = crate::platform::home_dir()
+            .map(|p| p.display().to_string())
+            .unwrap_or_default();
         let app_data = self
             .app
             .path()

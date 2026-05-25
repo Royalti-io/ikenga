@@ -139,7 +139,7 @@ fn count_projects() -> u32 {
 }
 
 fn home_join(rel: &str) -> Option<PathBuf> {
-    std::env::var_os("HOME").map(|h| PathBuf::from(h).join(rel))
+    crate::platform::home_dir().map(|h| h.join(rel))
 }
 
 #[cfg(test)]
