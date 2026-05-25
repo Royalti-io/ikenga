@@ -23,6 +23,7 @@ import { useQuery } from '@tanstack/react-query';
 import { LayoutGrid, List as ListIcon } from 'lucide-react';
 
 import { cn } from '@/components/ui/utils';
+import { Markdown } from '@/components/markdown';
 import { shortPath } from '@/lib/home';
 import {
 	claudeConfigReadFile,
@@ -50,7 +51,10 @@ import { Chips, FrontmatterGrid } from './list-detail';
 
 // ─── URL-param vocabularies (must match WP-06's ngwa-mode.tsx) ──────────────
 export type NgwaSurfaceId = 'browse' | 'registry' | 'graph' | 'map' | 'life' | 'health' | 'flow';
-export type NgwaScopeId = 'all' | 'personal' | 'project';
+// `project:<id>` selects one specific project; `all`/`personal` are the
+// cross-cutting defaults. The sidebar enumerates one `project:<id>` per
+// scanned project root (WP-06 ↔ WP-07 seam).
+export type NgwaScopeId = 'all' | 'personal' | `project:${string}`;
 export type NgwaKindId = 'skills' | 'agents' | 'commands' | 'hooks' | 'mcps' | 'store';
 
 const ANALYZE: ReadonlySet<NgwaSurfaceId> = new Set<NgwaSurfaceId>([
@@ -154,6 +158,10 @@ function buildItems(config: ClaudeConfig, store: ClaudeStoreEntry[]): NgwaItem[]
 	const out: NgwaItem[] = [];
 	const storeByKey = new Map<string, ClaudeStoreEntry>();
 	for (const e of store) storeByKey.set(`${e.kind}:${e.name}`, e);
+	// Disambiguate ids that would otherwise collide — e.g. one hook command
+	// bound to several events shares kind:name:scope:root. Keeps React keys +
+	// selection identity unique without changing the id for unique items.
+	const seen = new Map<string, number>();
 
 	const push = (
 		storeKind: ClaudeStoreKind,
@@ -169,8 +177,12 @@ function buildItems(config: ClaudeConfig, store: ClaudeStoreEntry[]): NgwaItem[]
 	) => {
 		const scopeKey = scopeKeyOf(scope, projectRoot);
 		const storeEntry = storeByKey.get(`${storeKind}:${name}`) ?? null;
+		let id = `${storeKind}:${name}:${scope}:${projectRoot ?? ''}`;
+		const dup = seen.get(id) ?? 0;
+		seen.set(id, dup + 1);
+		if (dup > 0) id = `${id}#${dup}`;
 		out.push({
-			id: `${storeKind}:${name}:${scope}:${projectRoot ?? ''}`,
+			id,
 			storeKind,
 			uiKind: UI_KIND_OF[storeKind],
 			name,
@@ -308,7 +320,7 @@ export function NgwaSurface({
 	const isAnalyze = ANALYZE.has(surface);
 
 	return (
-		<div className="ccfg" style={{ gridTemplateRows: 'auto 1fr auto' }}>
+		<div className="ccfg ngwa-fill" style={{ gridTemplateRows: 'auto 1fr auto' }}>
 			<div className="ngwa-hd">
 				<div className="ttl">
 					<h1>
@@ -438,7 +450,9 @@ function Legend() {
 // ─── Scope filtering shared by both surfaces ────────────────────────────────
 function passScope(it: NgwaItem, scope: NgwaScopeId): boolean {
 	if (scope === 'all') return true;
-	return it.scope === scope;
+	if (scope === 'personal') return it.scope === 'personal';
+	// `project:<id>` — narrow to the one project this item belongs to.
+	return it.scopeKey === scope;
 }
 
 // ─── BROWSE surface (2-pane: list │ resizable divider │ detail) ─────────────
@@ -588,8 +602,8 @@ function BrowseSurface({
 				<div className="ccfg-list-meta">
 					<span>{isStoreKind ? 'STORE / CATALOG' : KIND_LABEL[kind].toUpperCase()}</span>
 					<span>
-						{scope === 'all' ? 'all scopes' : scope} ·{' '}
-						{isStoreKind ? `${storeList.length} canonical` : list.length}
+						{scope === 'all' ? 'all scopes' : scope.startsWith('project:') ? scope.slice(8) : scope}{' '}
+						· {isStoreKind ? `${storeList.length} canonical` : list.length}
 					</span>
 				</div>
 				<div className="ccfg-list-rows">
@@ -646,7 +660,7 @@ function BrowseSurface({
 				</div>
 			</div>
 			<div className="ccfg-divider" ref={dividerRef} />
-			<div className="ccfg-detail">
+			<div className="ccfg-detail ngwa-detail">
 				{isStoreKind ? (
 					selectedStore ? (
 						<StoreDetail entry={selectedStore} projectScopes={projectScopes} onEdit={onEdit} />
@@ -1274,78 +1288,74 @@ function ItemDetail({
 						label={k === 'agent' ? 'System prompt · body' : 'Body'}
 						count={`${body.split('\n').length} lines`}
 					>
-						<pre className="ccfg-body-preview">{body}</pre>
+						<div className="ccfg-body-md">
+							<Markdown content={body} density="compact" />
+						</div>
 					</Section>
 				)}
 
 				{/* G-03 supporting-files tree (skills) */}
 				{tree}
+			</div>
 
-				{/* write actions (G-10) */}
-				<Section label="Actions">
-					<div className="ngwa-acts">
-						{(item.state === 'enabled' || item.state === 'disabled') && (
-							<label className="ngwa-toggle">
-								<span
-									className={cn('ngwa-sw', on && 'on')}
-									role="button"
-									tabIndex={0}
-									onClick={() =>
-										on
-											? disable.mutate({ kind: k, name: item.name, scope: item.scopeKey })
-											: enable.mutate({ kind: k, name: item.name, scope: item.scopeKey })
-									}
-								/>
-								{item.mech === 'merge'
-									? on
-										? 'Merged in'
-										: 'Removed'
-									: on
-										? 'Enabled'
-										: 'Disabled'}
-							</label>
-						)}
-						{item.state === 'local' && (
-							<button
-								type="button"
-								className="ngwa-btn primary"
-								disabled={importToStore.isPending}
+			{/* write actions (G-10) — pinned footer */}
+			<div className="ngwa-actions">
+				<div className="ngwa-acts">
+					{(item.state === 'enabled' || item.state === 'disabled') && (
+						<label className="ngwa-toggle">
+							<span
+								className={cn('ngwa-sw', on && 'on')}
+								role="button"
+								tabIndex={0}
 								onClick={() =>
-									importToStore.mutate({ kind: k, name: item.name, sourcePath: item.path })
+									on
+										? disable.mutate({ kind: k, name: item.name, scope: item.scopeKey })
+										: enable.mutate({ kind: k, name: item.name, scope: item.scopeKey })
 								}
-							>
-								Import to store
-							</button>
-						)}
-						{item.state === 'orphaned' && (
-							<button
-								type="button"
-								className="ngwa-btn warn"
-								onClick={() => remove.mutate({ kind: k, name: item.name, scope: item.scopeKey })}
-							>
-								Remove dangling link
-							</button>
-						)}
-						<button type="button" className="ngwa-btn" onClick={() => setPicker('move')}>
-							Move to…
+							/>
+							{item.mech === 'merge' ? (on ? 'Merged in' : 'Removed') : on ? 'Enabled' : 'Disabled'}
+						</label>
+					)}
+					{item.state === 'local' && (
+						<button
+							type="button"
+							className="ngwa-btn primary"
+							disabled={importToStore.isPending}
+							onClick={() =>
+								importToStore.mutate({ kind: k, name: item.name, sourcePath: item.path })
+							}
+						>
+							Import to store
 						</button>
-						<button type="button" className="ngwa-btn" onClick={() => setPicker('copy')}>
-							Copy to…
+					)}
+					{item.state === 'orphaned' && (
+						<button
+							type="button"
+							className="ngwa-btn warn"
+							onClick={() => remove.mutate({ kind: k, name: item.name, scope: item.scopeKey })}
+						>
+							Remove dangling link
 						</button>
-						{item.state !== 'orphaned' && (
-							<button
-								type="button"
-								className="ngwa-btn warn"
-								onClick={() => remove.mutate({ kind: k, name: item.name, scope: item.scopeKey })}
-							>
-								{item.storeEntry ? 'Remove from scope' : 'Delete from store'}
-							</button>
-						)}
-						<button type="button" className="ngwa-btn" onClick={() => onEdit(item.path)}>
-							{item.mech === 'merge' ? 'Open settings' : 'Reveal'}
+					)}
+					<button type="button" className="ngwa-btn" onClick={() => setPicker('move')}>
+						Move to…
+					</button>
+					<button type="button" className="ngwa-btn" onClick={() => setPicker('copy')}>
+						Copy to…
+					</button>
+					{item.state !== 'orphaned' && (
+						<button
+							type="button"
+							className="ngwa-btn warn"
+							onClick={() => remove.mutate({ kind: k, name: item.name, scope: item.scopeKey })}
+						>
+							{item.storeEntry ? 'Remove from scope' : 'Delete from store'}
 						</button>
-					</div>
-				</Section>
+					)}
+					<button type="button" className="ngwa-btn" onClick={() => onEdit(item.path)}>
+						{item.mech === 'merge' ? 'Open settings' : 'Reveal'}
+					</button>
+				</div>
 			</div>
 
 			{picker && (

@@ -57,7 +57,8 @@ const TABS = [
 // scope=all, kind=skills).
 const ngwaSearchSchema = z.object({
 	surface: z.enum(['browse', 'registry', 'graph', 'map', 'life', 'health', 'flow']).optional(),
-	scope: z.enum(['all', 'personal', 'project']).optional(),
+	// 'all' | 'personal' | `project:<id>` (one per scanned project root).
+	scope: z.string().optional(),
 	kind: z.enum(['skills', 'agents', 'commands', 'hooks', 'mcps', 'store']).optional(),
 });
 
@@ -135,7 +136,7 @@ function ClaudeLayout() {
 	const search = Route.useSearch();
 	const isNgwaIndex = path === '/claude';
 	const ngwaSurface: NgwaSurfaceId = search.surface ?? 'browse';
-	const ngwaScope: NgwaScopeId = search.scope ?? 'all';
+	const ngwaScope: NgwaScopeId = (search.scope as NgwaScopeId) ?? 'all';
 	const ngwaKind: NgwaKindId = search.kind ?? 'skills';
 
 	// Derive the move/copy/install destination scopes from the user's project
@@ -151,7 +152,7 @@ function ClaudeLayout() {
 
 	if (isNgwaIndex) {
 		return (
-			<div className="flex h-full flex-col p-3">
+			<div className="flex h-full flex-col">
 				<div className="flex-1 min-h-0">
 					<NgwaSurface
 						config={query.data ?? null}

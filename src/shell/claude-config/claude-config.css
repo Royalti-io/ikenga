@@ -477,6 +477,29 @@ button.ccfg-tree-row.dir:hover {
 	font-size: 11.5px;
 }
 
+/* Rendered-markdown body well (agents/skills/commands). The raw monospace
+   .ccfg-body-preview above is kept for any literal-source use; the prompt
+   body now renders as markdown via the shared <Markdown> component. */
+.ccfg-body-md {
+	background: var(--bg-base);
+	border: 1px solid var(--border-soft);
+	border-radius: var(--radius-md);
+	padding: var(--space-3) var(--space-4);
+	color: var(--fg);
+	font-size: 12.5px;
+	line-height: 1.6;
+}
+/* Tame heading scale so a `##` doesn't blow up inside the narrow pane. */
+.ccfg-body-md :is(h1, h2, h3, h4) {
+	font-size: 13px;
+	font-weight: 600;
+	margin: 0.9em 0 0.35em;
+	color: var(--fg);
+}
+.ccfg-body-md :first-child {
+	margin-top: 0;
+}
+
 .ccfg-script {
 	font-family: var(--font-mono);
 	font-size: 12px;
@@ -1035,7 +1058,31 @@ button.ccfg-tree-row.dir:hover {
 	flex-wrap: wrap;
 	gap: 7px;
 	align-items: center;
-	padding-top: 2px;
+}
+
+/* Ngwa detail: everything (header + body) scrolls as one; only the action
+   footer is pinned via sticky-bottom. Scoped to .ngwa-detail so the shared
+   .ccfg-detail (legacy read-only /claude browser) keeps its own layout. */
+/* Ngwa is a primary full-pane surface — drop the card border/radius so it
+   fills the pane edge-to-edge (the legacy .ccfg browser keeps its card). */
+.ccfg.ngwa-fill {
+	border: 0;
+	border-radius: 0;
+}
+.ngwa-detail {
+	display: flex;
+	flex-direction: column;
+	overflow-y: auto;
+	min-height: 0;
+}
+.ngwa-actions {
+	position: sticky;
+	bottom: 0;
+	z-index: 1;
+	margin-top: auto;
+	border-top: 1px solid var(--border);
+	background: var(--bg-surface);
+	padding: var(--space-3) var(--space-5);
 }
 .ngwa-toggle {
 	display: inline-flex;
@@ -1244,4 +1291,35 @@ button.ccfg-tree-row.dir:hover {
 	border: 1px solid color-mix(in srgb, var(--tint-fg-active, var(--primary)) 35%, var(--border));
 	border-radius: var(--radius-pill);
 	padding: 3px 12px;
+}
+
+/* ============================================================
+   Light-mode polish (Ngwa surface). Scoped to [data-mode="light"]
+   so the dark palette (the design baseline) is untouched. On the
+   warm light palette --bg-surface≈--bg-base and --border-soft (~84%
+   L) nearly vanishes, so token-default containers read as flat,
+   borderless washes. These overrides restore visible structure:
+   accent-tinted callouts + crisper content-well borders.
+   ============================================================ */
+:root[data-mode="light"] .ngwa-mech {
+	background: color-mix(in srgb, var(--primary) 9%, var(--bg-surface));
+	border-color: color-mix(in srgb, var(--primary) 28%, var(--border));
+	color: var(--fg);
+}
+:root[data-mode="light"] .ngwa-mech.merge {
+	background: color-mix(in srgb, var(--achievement) 9%, var(--bg-surface));
+	border-color: color-mix(in srgb, var(--achievement) 28%, var(--border));
+}
+:root[data-mode="light"] .ngwa-mech.warn {
+	background: color-mix(in srgb, var(--danger) 9%, var(--bg-surface));
+	border-color: color-mix(in srgb, var(--danger) 28%, var(--border));
+}
+/* Content wells (body / hook script / files tree): give them a crisp
+   border and a faintly recessed fill so they read as panels, not page. */
+:root[data-mode="light"] .ccfg-body-preview,
+:root[data-mode="light"] .ccfg-body-md,
+:root[data-mode="light"] .ccfg-script,
+:root[data-mode="light"] .ccfg-tree {
+	background: var(--bg-raised);
+	border-color: var(--border);
 }

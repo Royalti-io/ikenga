@@ -35,6 +35,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { cn } from '@/components/ui/utils';
 import { findLeaf } from '@/lib/panes/pane-reducer';
 import { usePaneStore } from '@/lib/panes/pane-store';
+import { useShellStore } from '@/lib/shell/shell-store';
 
 // ─── Surfaces (the route the content side renders) ────────────────────────
 // MANAGE surfaces support the KIND filter; ANALYZE surfaces do not (KIND
@@ -68,10 +69,11 @@ const ANALYZE_SURFACES: ReadonlySet<SurfaceId> = new Set<SurfaceId>(
 const DEFAULT_SURFACE: SurfaceId = 'browse';
 
 // ─── Scope (which config layer is in view) ────────────────────────────────
-// `all` is the default (matches a bare URL). The non-`all` scopes are seeded
-// from the user's project roots by WP-07; the shell ships the cross-cutting
-// trio so the selector is meaningful before any project is configured.
-type ScopeId = 'all' | 'personal' | 'project';
+// `all` is the default (matches a bare URL). `personal` is the cross-cutting
+// user layer; each scanned project root gets its own `project:<id>` row so you
+// can narrow to one project. The id is the project-root basename, matching the
+// scope key the content side derives in `scopeKeyOf`.
+type ScopeId = 'all' | 'personal' | `project:${string}`;
 
 interface ScopeItem {
 	id: ScopeId;
@@ -79,10 +81,10 @@ interface ScopeItem {
 	Icon: LucideIcon;
 }
 
-const SCOPES: ScopeItem[] = [
+// Cross-cutting scopes always present; project rows are appended per render.
+const SCOPE_BASE: ScopeItem[] = [
 	{ id: 'all', label: 'All scopes', Icon: Layers },
 	{ id: 'personal', label: 'Personal', Icon: Sparkles },
-	{ id: 'project', label: 'Project', Icon: Cog },
 ];
 
 const DEFAULT_SCOPE: ScopeId = 'all';
@@ -111,6 +113,16 @@ const NGWA_ROUTE = '/claude';
 
 export function NgwaMode() {
 	const navigateFocused = usePaneStore((s) => s.navigateFocused);
+	// One scope row per scanned project root (the source the content side keys
+	// items to), appended after the cross-cutting all/personal scopes.
+	const projectRoots = useShellStore((s) => s.claudeProjectRoots);
+	const scopes: ScopeItem[] = [
+		...SCOPE_BASE,
+		...projectRoots.map((root) => {
+			const id = root.split('/').filter(Boolean).pop() ?? 'project';
+			return { id: `project:${id}` as ScopeId, label: id, Icon: Cog };
+		}),
+	];
 
 	// Read the active surface / scope / kind off the focused pane's URL so the
 	// highlight stays in sync with whatever the content side is rendering —
@@ -227,7 +239,7 @@ export function NgwaMode() {
 					Scope
 				</div>
 				<ul className="flex flex-col">
-					{SCOPES.map(({ id, label, Icon }) => {
+					{scopes.map(({ id, label, Icon }) => {
 						const isActive = activeScope === id;
 						return (
 							<li key={id}>
