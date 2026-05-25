@@ -8,6 +8,7 @@ import {
 // useNavigate is still used by the inner TabBar component (further down).
 import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState, createContext, useContext } from 'react';
+import { z } from 'zod';
 import { open as shellOpen } from '@tauri-apps/plugin-shell';
 import {
 	Activity,
@@ -32,7 +33,13 @@ import { usePaneStore } from '@/lib/panes/pane-store';
 import { NewSessionDialog } from '@/shell/sessions/new-session-dialog';
 import { cn } from '@/components/ui/utils';
 import { LayeredView } from '@/shell/claude-config/layered-view';
-import type { ClaudeCommand } from '@/lib/tauri-cmd';
+import {
+	NgwaSurface,
+	type NgwaKindId,
+	type NgwaScopeId,
+	type NgwaSurfaceId,
+} from '@/shell/claude-config/ngwa-surface';
+import type { ClaudeCommand, ClaudeStoreScope } from '@/lib/tauri-cmd';
 
 import '@/shell/claude-config/claude-config.css';
 
@@ -45,8 +52,18 @@ const TABS = [
 	{ to: '/claude/runtime-mcps', label: 'Runtime', icon: Activity, key: 'runtime' as const },
 ];
 
+// Ngwa deep-link params (threaded by WP-06's ngwa-mode.tsx sidebar). All
+// optional — a bare `/claude` is the Ngwa Browse landing (surface=browse,
+// scope=all, kind=skills).
+const ngwaSearchSchema = z.object({
+	surface: z.enum(['browse', 'registry', 'graph', 'map', 'life', 'health', 'flow']).optional(),
+	scope: z.enum(['all', 'personal', 'project']).optional(),
+	kind: z.enum(['skills', 'agents', 'commands', 'hooks', 'mcps', 'store']).optional(),
+});
+
 export const Route = createFileRoute('/claude')({
 	component: ClaudeLayout,
+	validateSearch: ngwaSearchSchema,
 });
 
 function ClaudeLayout() {
@@ -111,6 +128,51 @@ function ClaudeLayout() {
 
 	const path = useLocation({ select: (l) => l.pathname });
 	const isRuntimeRoute = path === '/claude/runtime-mcps';
+
+	// Ngwa surface params (WP-07). The bare `/claude` path is the Ngwa Manage
+	// surface (Browse/Registry + write actions). Child paths (`/claude/skills`
+	// …) remain the legacy read-only browser chrome.
+	const search = Route.useSearch();
+	const isNgwaIndex = path === '/claude';
+	const ngwaSurface: NgwaSurfaceId = search.surface ?? 'browse';
+	const ngwaScope: NgwaScopeId = search.scope ?? 'all';
+	const ngwaKind: NgwaKindId = search.kind ?? 'skills';
+
+	// Derive the move/copy/install destination scopes from the user's project
+	// roots, mapping each root onto the store-scope grammar (`project:<id>`).
+	const projectScopes = useMemo(
+		() =>
+			projectRoots.map((root) => {
+				const id = root.split('/').filter(Boolean).pop() ?? 'project';
+				return { key: `project:${id}` as ClaudeStoreScope, label: id };
+			}),
+		[projectRoots]
+	);
+
+	if (isNgwaIndex) {
+		return (
+			<div className="flex h-full flex-col p-3">
+				<div className="flex-1 min-h-0">
+					<NgwaSurface
+						config={query.data ?? null}
+						isLoading={query.isLoading}
+						error={query.error ? String(query.error) : null}
+						surface={ngwaSurface}
+						scope={ngwaScope}
+						kind={ngwaKind}
+						onEdit={handleOpenInEditor}
+						projectScopes={projectScopes}
+					/>
+				</div>
+				<NewSessionDialog
+					open={dialogOpen}
+					onOpenChange={setDialogOpen}
+					defaultProjects={projectRoots}
+					presetPrompt={presetPrompt}
+				/>
+			</div>
+		);
+	}
 
 	return (
 		<div className="flex h-full flex-col p-3">
