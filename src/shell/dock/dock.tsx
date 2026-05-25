@@ -13,6 +13,7 @@ import { useDockStore, DOCK_MIN_WIDTH, DOCK_MAX_WIDTH } from './dock-store';
 import { useDragState } from '@/lib/panes/drag-state';
 import { usePaneStore } from '@/lib/panes/pane-store';
 import { PaneBody, viewLabel } from '@/shell/panes/pane-views';
+import { viewKey } from '@/shell/panes/view-key';
 import { viewWorkspace } from '@/shell/panes/tab-workspace';
 import { createTerminalSession } from '@/terminal/single-terminal';
 import { mintThreadId } from '@/chat';
@@ -281,7 +282,7 @@ export function Dock() {
 			</div>
 			<div className="relative flex-1 overflow-hidden" style={{ background: 'var(--bg-base)' }}>
 				{activeTab ? (
-					<PaneBody paneId="__dock__" view={activeTab} />
+					<PaneBody key={viewKey(activeTab)} paneId="__dock__" view={activeTab} />
 				) : (
 					<DockEmpty
 						onSeedChat={() => {

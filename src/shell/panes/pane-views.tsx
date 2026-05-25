@@ -39,6 +39,8 @@ export function PaneBody({ paneId, view }: PaneBodyProps) {
 	}
 }
 
+export { viewKey } from './view-key';
+
 export function viewLabel(view: PaneView): string {
 	switch (view.kind) {
 		case 'route': {
