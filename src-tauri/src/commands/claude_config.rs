@@ -41,6 +41,27 @@ pub enum Scope {
     Personal,
 }
 
+/// Symlink / central-store metadata for an on-disk primitive (file or dir).
+///
+/// Additive, back-compatible scanner enrichment for the Ngwa store layer
+/// (WP-02/03). For file-based primitives (agents, commands → `.md`; skills →
+/// skill dir) these are computed from an `lstat` on the primitive path. For
+/// JSON-fragment primitives that have no standalone symlinkable file (hooks,
+/// MCP servers — they live as keys inside a settings JSON) the fields default
+/// to `is_symlink = false`, `link_target = None`, `in_store = false`.
+///
+/// `in_store` is true when the *resolved* target (the symlink destination, or
+/// the path itself when not a link) lives under the Ngwa central store root
+/// (`<app_data_dir>/store/`). The store root is resolved with the same
+/// platform conventions Tauri uses for `app_data_dir` (mirrors
+/// `vault_key.rs`); WP-02 owns the canonical store layout under it.
+#[derive(Debug, Clone, Default)]
+pub struct LinkMeta {
+    pub is_symlink: bool,
+    pub link_target: Option<String>,
+    pub in_store: bool,
+}
+
 #[derive(Debug, Serialize)]
 pub struct AgentEntry {
     pub name: String,
@@ -61,6 +82,15 @@ pub struct AgentEntry {
     /// True if a project entry of the same name overrides this personal one.
     #[serde(rename = "overriddenBy")]
     pub overridden_by: Option<String>,
+    /// Whether the on-disk primitive file is a symlink.
+    #[serde(rename = "isSymlink")]
+    pub is_symlink: bool,
+    /// Resolved symlink target path (`null` when not a symlink).
+    #[serde(rename = "linkTarget")]
+    pub link_target: Option<String>,
+    /// Whether the resolved target lives inside the Ngwa central store.
+    #[serde(rename = "inStore")]
+    pub in_store: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -83,6 +113,15 @@ pub struct SkillEntry {
     pub supporting_files: Vec<SupportingFile>,
     #[serde(rename = "overriddenBy")]
     pub overridden_by: Option<String>,
+    /// Whether the skill dir is a symlink (skills are symlinked dir-wise).
+    #[serde(rename = "isSymlink")]
+    pub is_symlink: bool,
+    /// Resolved symlink target dir (`null` when not a symlink).
+    #[serde(rename = "linkTarget")]
+    pub link_target: Option<String>,
+    /// Whether the resolved target dir lives inside the Ngwa central store.
+    #[serde(rename = "inStore")]
+    pub in_store: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -109,6 +148,15 @@ pub struct CommandEntry {
     pub body: String,
     #[serde(rename = "overriddenBy")]
     pub overridden_by: Option<String>,
+    /// Whether the on-disk command file is a symlink.
+    #[serde(rename = "isSymlink")]
+    pub is_symlink: bool,
+    /// Resolved symlink target path (`null` when not a symlink).
+    #[serde(rename = "linkTarget")]
+    pub link_target: Option<String>,
+    /// Whether the resolved target lives inside the Ngwa central store.
+    #[serde(rename = "inStore")]
+    pub in_store: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -136,6 +184,17 @@ pub struct McpEntry {
     pub header_keys: Vec<String>,
     /// Raw entry JSON for the detail preview.
     pub raw: serde_json::Value,
+    /// Always `false` — MCP servers are JSON keys, not symlinkable files.
+    /// Present for a uniform entry contract; the store layer toggles MCP
+    /// servers via JSON merge/unmerge, not the symlink farm.
+    #[serde(rename = "isSymlink")]
+    pub is_symlink: bool,
+    /// Always `null` for MCP servers (no standalone file).
+    #[serde(rename = "linkTarget")]
+    pub link_target: Option<String>,
+    /// Always `false` for MCP servers.
+    #[serde(rename = "inStore")]
+    pub in_store: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -161,6 +220,17 @@ pub struct HookEntry {
     pub command_raw: Option<String>,
     /// Raw entry as JSON for the JSON config preview.
     pub raw: serde_json::Value,
+    /// Always `false` — hooks are JSON entries in settings, not symlinkable
+    /// files. Present for a uniform entry contract; the store layer toggles
+    /// hooks via JSON merge/unmerge, not the symlink farm.
+    #[serde(rename = "isSymlink")]
+    pub is_symlink: bool,
+    /// Always `null` for hooks (no standalone primitive file).
+    #[serde(rename = "linkTarget")]
+    pub link_target: Option<String>,
+    /// Always `false` for hooks.
+    #[serde(rename = "inStore")]
+    pub in_store: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -267,6 +337,11 @@ fn scan_all(project_roots: Vec<String>) -> Result<ClaudeConfig> {
     let mut mcps: Vec<McpEntry> = Vec::new();
     let mut errors: Vec<ScanError> = Vec::new();
 
+    // Resolve the Ngwa central store root once for the whole scan; threaded
+    // into the file-based scanners so each primitive can report `in_store`.
+    let store = store_root();
+    let store_ref = store.as_deref();
+
     // Project scope.
     for raw in &project_roots {
         let root = match expand(raw) {
@@ -287,6 +362,7 @@ fn scan_all(project_roots: Vec<String>) -> Result<ClaudeConfig> {
         scan_project(
             &root,
             &claude,
+            store_ref,
             &mut agents,
             &mut skills,
             &mut commands,
@@ -302,6 +378,7 @@ fn scan_all(project_roots: Vec<String>) -> Result<ClaudeConfig> {
         if personal.is_dir() {
             scan_personal(
                 &personal,
+                store_ref,
                 &mut agents,
                 &mut skills,
                 &mut commands,
@@ -338,6 +415,7 @@ fn scan_all(project_roots: Vec<String>) -> Result<ClaudeConfig> {
 fn scan_project(
     root: &Path,
     claude: &Path,
+    store: Option<&Path>,
     agents: &mut Vec<AgentEntry>,
     skills: &mut Vec<SkillEntry>,
     commands: &mut Vec<CommandEntry>,
@@ -350,6 +428,7 @@ fn scan_project(
         &claude.join("agents"),
         Scope::Project,
         Some(&root_str),
+        store,
         |entry| agents.push(agent_from_md(entry)),
         errors,
     );
@@ -357,6 +436,7 @@ fn scan_project(
         &claude.join("skills"),
         Scope::Project,
         Some(&root_str),
+        store,
         skills,
         errors,
     );
@@ -364,6 +444,7 @@ fn scan_project(
         &claude.join("commands"),
         Scope::Project,
         Some(&root_str),
+        store,
         |entry| commands.push(command_from_md(entry)),
         errors,
     );
@@ -404,6 +485,7 @@ fn scan_project(
 
 fn scan_personal(
     personal: &Path,
+    store: Option<&Path>,
     agents: &mut Vec<AgentEntry>,
     skills: &mut Vec<SkillEntry>,
     commands: &mut Vec<CommandEntry>,
@@ -415,6 +497,7 @@ fn scan_personal(
         &personal.join("agents"),
         Scope::Personal,
         None,
+        store,
         |entry| agents.push(agent_from_md(entry)),
         errors,
     );
@@ -422,6 +505,7 @@ fn scan_personal(
         &personal.join("skills"),
         Scope::Personal,
         None,
+        store,
         skills,
         errors,
     );
@@ -429,6 +513,7 @@ fn scan_personal(
         &personal.join("commands"),
         Scope::Personal,
         None,
+        store,
         |entry| commands.push(command_from_md(entry)),
         errors,
     );
@@ -487,12 +572,14 @@ struct MdEntry {
     modified_ms: i64,
     frontmatter: serde_json::Value,
     body: String,
+    link_meta: LinkMeta,
 }
 
 fn scan_md_dir<F: FnMut(MdEntry)>(
     dir: &Path,
     scope: Scope,
     project_root: Option<&str>,
+    store: Option<&Path>,
     mut push: F,
     errors: &mut Vec<ScanError>,
 ) {
@@ -530,8 +617,9 @@ fn scan_md_dir<F: FnMut(MdEntry)>(
                 name,
                 scope,
                 project_root: project_root.map(|s| s.to_string()),
-                path: p.clone(),
                 modified_ms: mtime_ms(&p),
+                link_meta: link_meta(&p, store),
+                path: p.clone(),
                 frontmatter: fm,
                 body,
             }),
@@ -547,6 +635,7 @@ fn scan_skills_dir(
     dir: &Path,
     scope: Scope,
     project_root: Option<&str>,
+    store: Option<&Path>,
     skills: &mut Vec<SkillEntry>,
     errors: &mut Vec<ScanError>,
 ) {
@@ -583,6 +672,10 @@ fn scan_skills_dir(
             Ok((fm, body)) => {
                 let description = string_field(&fm, "description");
                 let supporting_files = list_supporting_files(&skill_dir);
+                // Skills are symlinked dir-wise: inspect the skill dir, not
+                // SKILL.md (the file inside a symlinked dir is not itself a
+                // link).
+                let meta = link_meta(&skill_dir, store);
                 skills.push(SkillEntry {
                     name,
                     scope,
@@ -595,6 +688,9 @@ fn scan_skills_dir(
                     body,
                     supporting_files,
                     overridden_by: None,
+                    is_symlink: meta.is_symlink,
+                    link_target: meta.link_target,
+                    in_store: meta.in_store,
                 });
             }
             Err(e) => errors.push(ScanError {
@@ -645,6 +741,9 @@ fn agent_from_md(e: MdEntry) -> AgentEntry {
         frontmatter: e.frontmatter,
         body: e.body,
         overridden_by: None,
+        is_symlink: e.link_meta.is_symlink,
+        link_target: e.link_meta.link_target,
+        in_store: e.link_meta.in_store,
     }
 }
 
@@ -661,6 +760,9 @@ fn command_from_md(e: MdEntry) -> CommandEntry {
         frontmatter: e.frontmatter,
         body: e.body,
         overridden_by: None,
+        is_symlink: e.link_meta.is_symlink,
+        link_target: e.link_meta.link_target,
+        in_store: e.link_meta.in_store,
     }
 }
 
@@ -715,6 +817,10 @@ pub(crate) fn parse_hooks_file(
                     command_path,
                     command_raw,
                     raw: h.clone(),
+                    // Hooks are JSON entries in settings, not symlinkable files.
+                    is_symlink: false,
+                    link_target: None,
+                    in_store: false,
                 });
             }
         }
@@ -850,6 +956,10 @@ fn extract_mcp_servers(
             url,
             header_keys,
             raw: raw.clone(),
+            // MCP servers are JSON keys, not symlinkable files.
+            is_symlink: false,
+            link_target: None,
+            in_store: false,
         });
     }
     out
@@ -1040,6 +1150,88 @@ fn is_under_claude_dir(p: &Path) -> bool {
         std::path::Component::Normal(s) => s == std::ffi::OsStr::new(".claude"),
         _ => false,
     })
+}
+
+// ─── Symlink / central-store metadata ───────────────────────────────────────
+
+/// Resolve the Ngwa central store root (`<app_data_dir>/store/`) using the same
+/// platform conventions Tauri uses for `app_data_dir`. Mirrors the resolver in
+/// `vault_key.rs` so it works without an `AppHandle` (the scanner runs on a
+/// blocking thread with no handle). Returns `None` if the platform's data dir
+/// can't be resolved.
+///
+/// WP-02 owns the canonical layout *under* this root (e.g.
+/// `store/{agents,skills,commands}/`); WP-01 only needs the root to decide
+/// `in_store`.
+fn store_root() -> Option<PathBuf> {
+    const BUNDLE_ID: &str = "app.ikenga";
+    let dir: PathBuf = if cfg!(target_os = "macos") {
+        let home = std::env::var_os("HOME")?;
+        PathBuf::from(home)
+            .join("Library/Application Support")
+            .join(BUNDLE_ID)
+    } else if cfg!(target_os = "windows") {
+        let appdata = std::env::var_os("APPDATA")?;
+        PathBuf::from(appdata).join(BUNDLE_ID)
+    } else if let Some(xdg) = std::env::var_os("XDG_DATA_HOME") {
+        PathBuf::from(xdg).join(BUNDLE_ID)
+    } else {
+        let home = std::env::var_os("HOME")?;
+        PathBuf::from(home).join(".local/share").join(BUNDLE_ID)
+    };
+    Some(dir.join("store"))
+}
+
+/// True when `target` is the store root itself or sits underneath it.
+/// Both sides are normalized via `canonicalize` when possible so symlinked or
+/// `..`-laden paths still compare correctly; falls back to a lexical
+/// `starts_with` when canonicalization fails (e.g. the store dir doesn't exist
+/// yet on a fresh install).
+fn is_in_store(target: &Path, store: &Path) -> bool {
+    let canon_target = target.canonicalize();
+    let canon_store = store.canonicalize();
+    match (canon_target, canon_store) {
+        (Ok(t), Ok(s)) => t.starts_with(&s),
+        _ => target.starts_with(store),
+    }
+}
+
+/// Compute symlink + store metadata for a file-based primitive path (an agent
+/// or command `.md`, or a skill dir). Uses `symlink_metadata` (lstat) so the
+/// link itself is inspected, not its target. `store` is the memoized store
+/// root for this scan (computed once in `scan_all`).
+fn link_meta(path: &Path, store: Option<&Path>) -> LinkMeta {
+    let is_symlink = std::fs::symlink_metadata(path)
+        .map(|m| m.file_type().is_symlink())
+        .unwrap_or(false);
+
+    // The path used for the `in_store` check: the resolved target when the
+    // primitive is a symlink, else the path itself (a primitive can live
+    // directly inside the store without being a link — e.g. a store-owned
+    // entry surfaced in its own catalog scope).
+    let (link_target, resolved) = if is_symlink {
+        match std::fs::canonicalize(path) {
+            Ok(t) => (Some(t.to_string_lossy().to_string()), t),
+            // Dangling symlink: report the raw read_link target, treat the
+            // link's own location for the store check.
+            Err(_) => {
+                let raw = std::fs::read_link(path)
+                    .ok()
+                    .map(|t| t.to_string_lossy().to_string());
+                (raw, path.to_path_buf())
+            }
+        }
+    } else {
+        (None, path.to_path_buf())
+    };
+
+    let in_store = store.map(|s| is_in_store(&resolved, s)).unwrap_or(false);
+
+    LinkMeta {
+        is_symlink,
+        link_target,
+        in_store,
+    }
 }
 
 // ─── Phase 4 — 4-tier discovery + pin CRUD (new surface) ────────────────────
@@ -1290,5 +1482,84 @@ mod tests {
         }
         assert!(validate_pin_kind("Skill").is_err());
         assert!(validate_pin_kind("hooks").is_err());
+    }
+
+    // ── Symlink / store metadata ──────────────────────────────────────────
+
+    fn unique_tmp(tag: &str) -> PathBuf {
+        let mut p = std::env::temp_dir();
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        p.push(format!("ngwa_wp01_{tag}_{nonce}"));
+        p
+    }
+
+    #[test]
+    fn link_meta_plain_file_is_not_symlink() {
+        let base = unique_tmp("plain");
+        std::fs::create_dir_all(&base).unwrap();
+        let f = base.join("agent.md");
+        std::fs::write(&f, "---\nname: a\n---\nbody").unwrap();
+
+        let meta = link_meta(&f, None);
+        assert!(!meta.is_symlink);
+        assert!(meta.link_target.is_none());
+        assert!(!meta.in_store);
+
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn link_meta_symlink_reports_target_and_in_store() {
+        // Lay out a fake store + a project .claude/agents symlink pointing in.
+        let root = unique_tmp("store");
+        let store = root.join("store");
+        let store_agents = store.join("agents");
+        std::fs::create_dir_all(&store_agents).unwrap();
+        let target = store_agents.join("shared.md");
+        std::fs::write(&target, "---\nname: shared\n---\nbody").unwrap();
+
+        let proj_agents = root.join("proj/.claude/agents");
+        std::fs::create_dir_all(&proj_agents).unwrap();
+        let link = proj_agents.join("shared.md");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+
+        let meta = link_meta(&link, Some(&store));
+        assert!(meta.is_symlink, "the .claude entry is a symlink");
+        let lt = meta.link_target.expect("link target present");
+        assert!(lt.ends_with("shared.md"), "target resolves: {lt}");
+        assert!(meta.in_store, "resolved target lives under the store root");
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn link_meta_symlink_outside_store_is_not_in_store() {
+        let root = unique_tmp("outside");
+        let store = root.join("store");
+        std::fs::create_dir_all(&store).unwrap();
+        let elsewhere = root.join("elsewhere");
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        let target = elsewhere.join("local.md");
+        std::fs::write(&target, "x").unwrap();
+        let link = root.join("link.md");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+
+        let meta = link_meta(&link, Some(&store));
+        assert!(meta.is_symlink);
+        assert!(meta.link_target.is_some());
+        assert!(!meta.in_store, "target is outside the store root");
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn store_root_resolves_to_store_subdir() {
+        // Whatever the platform resolves to, the leaf must be `store`.
+        if let Some(s) = store_root() {
+            assert_eq!(s.file_name().and_then(|n| n.to_str()), Some("store"));
+        }
     }
 }

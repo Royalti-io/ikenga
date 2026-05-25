@@ -1072,7 +1072,24 @@ export interface ClaudeFrontmatter {
 	[key: string]: unknown;
 }
 
-export interface ClaudeAgent {
+/** Symlink / central-store metadata shared by every scanned primitive.
+ *  Mirrors the Rust `LinkMeta` enrichment (`commands/claude_config.rs`).
+ *  Additive + back-compatible: file-based primitives (agents, commands,
+ *  skills) populate these from an lstat; JSON-fragment primitives (hooks,
+ *  MCP servers) always report `isSymlink: false`, `linkTarget: null`,
+ *  `inStore: false` because they're toggled by JSON merge, not the symlink
+ *  farm. WP-02/03 consume these to drive enable/disable + store-catalog UI. */
+export interface ClaudeLinkMeta {
+	/** Whether the on-disk primitive (file or dir) is a symlink. */
+	isSymlink: boolean;
+	/** Resolved symlink target path, or `null` when not a symlink. */
+	linkTarget: string | null;
+	/** Whether the resolved target lives inside the Ngwa central store
+	 *  (`<app_data_dir>/store/`). */
+	inStore: boolean;
+}
+
+export interface ClaudeAgent extends ClaudeLinkMeta {
 	name: string;
 	scope: ClaudeConfigScope;
 	projectRoot: string | null;
@@ -1091,7 +1108,7 @@ export interface ClaudeSupportingFile {
 	size: number;
 }
 
-export interface ClaudeSkill {
+export interface ClaudeSkill extends ClaudeLinkMeta {
 	name: string;
 	scope: ClaudeConfigScope;
 	projectRoot: string | null;
@@ -1105,7 +1122,7 @@ export interface ClaudeSkill {
 	overriddenBy: string | null;
 }
 
-export interface ClaudeCommand {
+export interface ClaudeCommand extends ClaudeLinkMeta {
 	name: string;
 	scope: ClaudeConfigScope;
 	projectRoot: string | null;
@@ -1119,7 +1136,7 @@ export interface ClaudeCommand {
 	overriddenBy: string | null;
 }
 
-export interface ClaudeMcp {
+export interface ClaudeMcp extends ClaudeLinkMeta {
 	name: string;
 	scope: ClaudeConfigScope;
 	projectRoot: string | null;
@@ -1133,7 +1150,7 @@ export interface ClaudeMcp {
 	raw: unknown;
 }
 
-export interface ClaudeHook {
+export interface ClaudeHook extends ClaudeLinkMeta {
 	event: string;
 	type: string;
 	name: string;
@@ -1265,6 +1282,188 @@ export async function claudeAssetUnpin(
 
 export async function claudeAssetListPins(scope: string): Promise<ClaudeAssetPin[]> {
 	return invoke<ClaudeAssetPin[]>('claude_asset_list_pins', { scope });
+}
+
+// ─── Ngwa store layer — G-CONTRACT (frozen signatures) ────────────────────────
+//
+// FROZEN INTERFACE CONTRACT for the Ngwa (Claude config manager) Phase-1 build.
+// Published by WP-01 (scanner metadata); implemented by:
+//   • WP-02 — Rust store + symlink farm (claude_store_list / import / enable /
+//             disable, the file-based mutations), lib.rs registration.
+//   • WP-03 — Rust JSON merge engine (powers enable/disable for hooks + MCPs,
+//             and the copy/move/remove paths for JSON-fragment primitives).
+//   • WP-05 — fills the FE wrapper bodies below + the TanStack mutation hooks
+//             (mirrors the secrets.ts invalidate pattern: invalidate
+//             `['claude-config']` / `['claude-store']` on success).
+//
+// The `invoke()` bodies here are the canonical wire shape. They are written out
+// (not stubbed) so the contract is unambiguous — but the matching Rust commands
+// land in WP-02/03, so calling these before then rejects at the Tauri boundary
+// ("command not found"). WP-05 owns wiring them into hooks + UI.
+//
+// Conventions matched: snake_case command names + camelCase invoke args (as in
+// the scanner + secrets surfaces); the kind/scope/tier vocabularies reuse the
+// pin-layer types above so the whole Claude surface speaks one dialect.
+
+/** Which primitive kind a store operation targets. Same vocabulary as the pin
+ *  layer (`ClaudeAssetKind`). File-based kinds (`skill | agent | command`) flow
+ *  through the symlink farm; JSON-fragment kinds (`hook | mcp`) flow through the
+ *  merge engine — but every command below accepts the full set so callers don't
+ *  branch on kind. */
+export type ClaudeStoreKind = ClaudeAssetKind;
+
+/** Target location for an enable/copy/move. `workspace` writes into the
+ *  workspace-level `.claude/`; `project:<id>` into that project's `.claude/`.
+ *  Mirrors the pin-layer scope grammar validated by `validate_pin_scope`. */
+export type ClaudeStoreScope = 'workspace' | `project:${string}`;
+
+/** A single catalog entry in the Ngwa central store (Ọba). One row per
+ *  canonical primitive the store owns; `enabledIn` lists the scopes that
+ *  currently symlink/merge it so the UI can render per-scope state badges. */
+export interface ClaudeStoreEntry {
+	kind: ClaudeStoreKind;
+	/** Catalog name (the primitive's name, e.g. skill/agent/command name). */
+	name: string;
+	/** Absolute path of the canonical copy inside the store. For file-based
+	 *  kinds this is the symlink target; for JSON kinds it's the stored
+	 *  fragment file. */
+	storePath: string;
+	/** Optional human description lifted from frontmatter / the fragment. */
+	description: string | null;
+	/** mtime of the stored canonical copy (epoch ms). */
+	modifiedMs: number;
+	/** Scopes this entry is currently enabled in (symlinked or merged). */
+	enabledIn: ClaudeStoreScope[];
+}
+
+/** Result of a symlink-farm or merge mutation. `path` is the on-disk location
+ *  the mutation produced (the new symlink, the merged settings file, or the
+ *  removed path); `linkTarget` is populated for symlink creates. */
+export interface ClaudeStoreMutation {
+	kind: ClaudeStoreKind;
+	name: string;
+	scope: ClaudeStoreScope;
+	path: string;
+	linkTarget: string | null;
+}
+
+/**
+ * List the catalog of canonical primitives in the central store (Ọba).
+ * Optionally filter by kind. WP-02 owns the Rust body.
+ *
+ * G-CONTRACT: implemented by WP-05 (FE wrapper) against WP-02 (Rust).
+ */
+export async function claudeStoreList(kind?: ClaudeStoreKind | null): Promise<ClaudeStoreEntry[]> {
+	return invoke<ClaudeStoreEntry[]>('claude_store_list', { kind: kind ?? null });
+}
+
+/**
+ * Import an existing on-disk primitive into the central store, taking a copy
+ * as the new canonical source. `sourcePath` is the current primitive path (the
+ * `path` of a scanned entry — for skills pass the skill `dirPath`). Returns the
+ * resulting catalog entry. Does not change the original in place; pair with
+ * `claudePrimitiveEnable` to swap the original for a store-backed symlink.
+ *
+ * G-CONTRACT: implemented by WP-05 (FE wrapper) against WP-02 (Rust).
+ */
+export async function claudeStoreImport(
+	kind: ClaudeStoreKind,
+	name: string,
+	sourcePath: string
+): Promise<ClaudeStoreEntry> {
+	return invoke<ClaudeStoreEntry>('claude_store_import', { kind, name, sourcePath });
+}
+
+/**
+ * Enable a store catalog entry in a target scope. File-based kinds create a
+ * symlink in `<scope>/.claude/<kind>s/`; JSON kinds (hook/mcp) merge the stored
+ * fragment into that scope's settings JSON. Idempotent — re-enabling an already
+ * enabled entry is a no-op that returns the existing mutation.
+ *
+ * G-CONTRACT: implemented by WP-05 (FE wrapper) against WP-02/03 (Rust).
+ */
+export async function claudePrimitiveEnable(
+	kind: ClaudeStoreKind,
+	name: string,
+	scope: ClaudeStoreScope
+): Promise<ClaudeStoreMutation> {
+	return invoke<ClaudeStoreMutation>('claude_primitive_enable', { kind, name, scope });
+}
+
+/**
+ * Disable a store catalog entry in a target scope — the inverse of
+ * `claudePrimitiveEnable`. Drops the symlink (file-based) or unmerges the
+ * fragment from the scope's settings JSON (hook/mcp). The canonical store copy
+ * is untouched. Idempotent.
+ *
+ * G-CONTRACT: implemented by WP-05 (FE wrapper) against WP-02/03 (Rust).
+ */
+export async function claudePrimitiveDisable(
+	kind: ClaudeStoreKind,
+	name: string,
+	scope: ClaudeStoreScope
+): Promise<void> {
+	return invoke('claude_primitive_disable', { kind, name, scope });
+}
+
+/**
+ * Copy a primitive from one scope to another, leaving the source in place.
+ * File-based kinds copy the resolved file/dir into `<toScope>/.claude/`; JSON
+ * kinds merge the source fragment into the destination settings JSON. Use
+ * `claudePrimitiveMove` to relocate instead of duplicate.
+ *
+ * G-CONTRACT: implemented by WP-05 (FE wrapper) against WP-02/03 (Rust).
+ */
+export async function claudePrimitiveCopy(
+	kind: ClaudeStoreKind,
+	name: string,
+	fromScope: ClaudeStoreScope,
+	toScope: ClaudeStoreScope
+): Promise<ClaudeStoreMutation> {
+	return invoke<ClaudeStoreMutation>('claude_primitive_copy', {
+		kind,
+		name,
+		fromScope,
+		toScope,
+	});
+}
+
+/**
+ * Move a primitive from one scope to another (copy-then-remove-source, atomic
+ * where the platform allows). Same scope semantics as `claudePrimitiveCopy`.
+ *
+ * G-CONTRACT: implemented by WP-05 (FE wrapper) against WP-02/03 (Rust).
+ */
+export async function claudePrimitiveMove(
+	kind: ClaudeStoreKind,
+	name: string,
+	fromScope: ClaudeStoreScope,
+	toScope: ClaudeStoreScope
+): Promise<ClaudeStoreMutation> {
+	return invoke<ClaudeStoreMutation>('claude_primitive_move', {
+		kind,
+		name,
+		fromScope,
+		toScope,
+	});
+}
+
+/**
+ * Remove a primitive from a single scope's `.claude/` (delete the file/dir or
+ * symlink for file-based kinds; unmerge the fragment for hook/mcp). This is a
+ * scope-local delete — it does NOT remove the canonical copy from the store
+ * (use a future store-delete for that). On a store-backed symlink this only
+ * drops the link, identical to `claudePrimitiveDisable`; on a real (non-link)
+ * primitive it deletes the actual file.
+ *
+ * G-CONTRACT: implemented by WP-05 (FE wrapper) against WP-02/03 (Rust).
+ */
+export async function claudePrimitiveRemove(
+	kind: ClaudeStoreKind,
+	name: string,
+	scope: ClaudeStoreScope
+): Promise<void> {
+	return invoke('claude_primitive_remove', { kind, name, scope });
 }
 
 // ─── Iyke (phase 11 — Day 1: read-side state + shell mirror push) ─────────────
