@@ -35,6 +35,8 @@ use commands::{
     backup_export, backup_import, backup_list, chat_thread_move, chat_threads_list_by_project,
     claude_asset_list_pins, claude_asset_pin, claude_asset_unpin, claude_assets_discover,
     claude_config_load, claude_config_read_file, claude_config_unwatch, claude_config_watch,
+    claude_primitive_copy, claude_primitive_disable, claude_primitive_enable,
+    claude_primitive_move, claude_primitive_remove, claude_store_import, claude_store_list,
     claude_list_sessions, claude_read_jsonl, comment_create, comment_delete, comment_get,
     comment_list, comment_record_routing, comment_route, comment_set_status, db_exec, db_query,
     dev_bind_port, dev_release_port,
@@ -738,6 +740,14 @@ pub fn run() {
             claude_asset_pin,
             claude_asset_unpin,
             claude_asset_list_pins,
+            // Ngwa store layer — WP-02 (central store + symlink farm)
+            claude_store_list,
+            claude_store_import,
+            claude_primitive_enable,
+            claude_primitive_disable,
+            claude_primitive_copy,
+            claude_primitive_move,
+            claude_primitive_remove,
             // viewer
             viewer_serve,
             viewer_stop,

@@ -28,7 +28,7 @@ beforeEach(() => {
 		showHidden: false,
 		showIgnored: false,
 		queries: {},
-		rootsCollapsed: new Set<string>(),
+		expandedRoot: null,
 		hydrated: false,
 	});
 });

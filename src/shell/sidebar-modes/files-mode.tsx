@@ -138,6 +138,15 @@ function TreeNode({ entry, depth, filter }: TreeNodeProps) {
 	const [renameValue, setRenameValue] = useState(entry.name);
 	const [actionError, setActionError] = useState<string | null>(null);
 	const renameInputRef = useRef<HTMLInputElement | null>(null);
+	const rowRef = useRef<HTMLDivElement | null>(null);
+
+	// When this row becomes the selected one (e.g. a file was revealed after
+	// being opened in a pane), scroll it into view within the open section's
+	// scroller. Runs on the mount where `isSelected` is first true — which, for
+	// a lazily-rendered deep node, is exactly when its ancestors finish loading.
+	useEffect(() => {
+		if (isSelected) rowRef.current?.scrollIntoView({ block: 'nearest' });
+	}, [isSelected]);
 
 	// Re-create the select fn when flags change so the visible list updates
 	// immediately. TanStack Query memoizes by reference, so we need a new fn
@@ -247,6 +256,7 @@ function TreeNode({ entry, depth, filter }: TreeNodeProps) {
 			<ContextMenu>
 				<ContextMenuTrigger asChild>
 					<div
+						ref={rowRef}
 						className={cn(
 							'group/row relative flex w-max min-w-full items-center text-xs transition-colors',
 							'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
@@ -432,16 +442,22 @@ function TreeNode({ entry, depth, filter }: TreeNodeProps) {
 
 interface RootSectionProps {
 	rootPath: string;
+	/** This is the single expanded section in the accordion. */
+	isOpen: boolean;
+	/** Which edge of the shared scroller this header sticks to. Headers at/above
+	 *  the open section stick to the top; headers below it stick to the bottom.
+	 *  Because same-edge sticky siblings push each other out, only one stays
+	 *  visibly stuck per edge — the rest scroll. */
+	stickyEdge: 'top' | 'bottom';
 }
 
-function RootSection({ rootPath }: RootSectionProps) {
+function RootSection({ rootPath, isOpen, stickyEdge }: RootSectionProps) {
 	const qc = useQueryClient();
 	const showHidden = useFilesStore((s) => s.showHidden);
 	const showIgnored = useFilesStore((s) => s.showIgnored);
 	const storedQuery = useFilesStore((s) => s.queries[rootPath] ?? '');
 	const setQuery = useFilesStore((s) => s.setQuery);
-	const collapsed = useFilesStore((s) => s.rootsCollapsed.has(rootPath));
-	const toggleRootCollapsed = useFilesStore((s) => s.toggleRootCollapsed);
+	const toggleRoot = useFilesStore((s) => s.toggleRoot);
 
 	// Local input value tracks every keystroke; the store (and therefore the
 	// search query key) is updated on a 200ms debounce so we don't fire one
@@ -465,7 +481,7 @@ function RootSection({ rootPath }: RootSectionProps) {
 	const rootQuery = useQuery({
 		queryKey: queryKeys.fs.list(rootPath),
 		queryFn: () => fsList(rootPath),
-		enabled: !collapsed,
+		enabled: isOpen,
 		staleTime: 30_000,
 		select: selectSorted,
 	});
@@ -474,7 +490,7 @@ function RootSection({ rootPath }: RootSectionProps) {
 	const searchQuery = useQuery({
 		queryKey: queryKeys.fs.search(rootPath, storedQuery, showHidden, showIgnored),
 		queryFn: () => fsSearch(rootPath, storedQuery, showHidden, showIgnored),
-		enabled: searchActive && !collapsed,
+		enabled: searchActive && isOpen,
 		staleTime: 30_000,
 	});
 
@@ -518,29 +534,32 @@ function RootSection({ rootPath }: RootSectionProps) {
 		: null;
 
 	return (
-		<div className="border-b border-border last:border-b-0">
+		<>
+			{/* Header is a DIRECT child of the shared scroller so same-edge sticky
+			    headers push each other out — only one stays stuck per edge. */}
 			<div
 				className={cn(
-					'sticky top-0 z-10 flex items-center justify-between bg-background px-2 py-1.5',
-					!collapsed && 'border-b border-border'
+					'flex shrink-0 items-center justify-between border-b border-border bg-background px-2 py-1.5',
+					'sticky z-10',
+					stickyEdge === 'top' ? 'top-0' : 'bottom-0'
 				)}
 			>
 				<button
 					type="button"
-					onClick={() => toggleRootCollapsed(rootPath)}
+					onClick={() => toggleRoot(rootPath)}
 					className="flex min-w-0 flex-1 items-center gap-1 rounded px-1 py-0.5 text-left text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-					aria-expanded={!collapsed}
-					title={collapsed ? `Expand ${rootPath}` : `Collapse ${rootPath}`}
+					aria-expanded={isOpen}
+					title={isOpen ? `Collapse ${rootPath}` : `Expand ${rootPath}`}
 				>
-					{collapsed ? (
-						<ChevronRight className="h-3 w-3 shrink-0" />
-					) : (
+					{isOpen ? (
 						<ChevronDown className="h-3 w-3 shrink-0" />
+					) : (
+						<ChevronRight className="h-3 w-3 shrink-0" />
 					)}
 					<span className="truncate text-[10px] font-semibold uppercase tracking-wider">
 						{displayName}
 					</span>
-					{collapsed && searchActive && (
+					{!isOpen && searchActive && (
 						<span
 							className="ml-1 rounded bg-accent px-1 text-[9px] font-medium normal-case tracking-normal text-accent-foreground"
 							title={`Search active: "${storedQuery}"`}
@@ -549,7 +568,7 @@ function RootSection({ rootPath }: RootSectionProps) {
 						</span>
 					)}
 				</button>
-				{!collapsed && (
+				{isOpen && (
 					<button
 						type="button"
 						onClick={reload}
@@ -561,8 +580,8 @@ function RootSection({ rootPath }: RootSectionProps) {
 					</button>
 				)}
 			</div>
-			{collapsed ? null : (
-				<>
+			{isOpen && (
+				<div className="border-b border-border">
 					<div className="relative border-b border-border bg-background px-2 py-1">
 						<Search className="pointer-events-none absolute left-3.5 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" />
 						<input
@@ -624,9 +643,9 @@ function RootSection({ rootPath }: RootSectionProps) {
 					{visibleEntries?.map((entry) => (
 						<TreeNode key={entry.path} entry={entry} depth={0} filter={matchSet ?? undefined} />
 					))}
-				</>
+				</div>
 			)}
-		</div>
+		</>
 	);
 }
 
@@ -634,6 +653,9 @@ export function FilesMode() {
 	const fileRoots = useShellStore((s) => s.fileRoots);
 	const hydrated = useFilesStore((s) => s.hydrated);
 	const hydrate = useFilesStore((s) => s.hydrate);
+	const expandedRoot = useFilesStore((s) => s.expandedRoot);
+	const setExpandedRoot = useFilesStore((s) => s.setExpandedRoot);
+	const reveal = useFilesStore((s) => s.reveal);
 	const storedScrollTop = useFilesStore((s) => s.scrollTop);
 	const setScrollTop = useFilesStore((s) => s.setScrollTop);
 	const showHidden = useFilesStore((s) => s.showHidden);
@@ -643,9 +665,51 @@ export function FilesMode() {
 	const toggleShowHidden = useFilesStore((s) => s.toggleShowHidden);
 	const scrollerRef = useRef<HTMLDivElement | null>(null);
 
+	// Index of the open root; headers at/above it stick to the top, those below
+	// stick to the bottom. `-1` (none open) → everything sticks to the top.
+	const openIndex = expandedRoot ? fileRoots.indexOf(expandedRoot) : -1;
+
 	useEffect(() => {
 		void hydrate();
 	}, [hydrate]);
+
+	// First launch: open the first root so the accordion always starts with one
+	// section expanded. Runs once, only after roots exist and hydration loaded
+	// any persisted `expandedRoot` — so it never fights a manual collapse-to-none
+	// or a persisted choice from a previous session.
+	const didInitOpen = useRef(false);
+	useEffect(() => {
+		if (!hydrated || didInitOpen.current || fileRoots.length === 0) return;
+		didInitOpen.current = true;
+		if (expandedRoot === null) setExpandedRoot(fileRoots[0]);
+	}, [hydrated, expandedRoot, fileRoots, setExpandedRoot]);
+
+	// Reveal-on-open: when a file is opened into a pane, open its root, expand
+	// the ancestor dirs leading to it, and select it (TreeNode scrolls itself
+	// into view). This effect lives in FilesMode, so it only runs while the
+	// Files sidebar is mounted (i.e. "if the Files pane is open"). We seed the
+	// last-handled nonce with whatever exists at mount so opening the pane does
+	// not retroactively jump to an already-open file — only genuine opens after
+	// mount trigger a reveal.
+	const revealRequest = usePaneStore((s) => s.revealRequest);
+	const lastRevealNonce = useRef<number | null>(usePaneStore.getState().revealRequest?.nonce ?? null);
+	useEffect(() => {
+		if (!revealRequest || lastRevealNonce.current === revealRequest.nonce) return;
+		lastRevealNonce.current = revealRequest.nonce;
+		const { path } = revealRequest;
+		const root = fileRoots.find((r) => path === r || path.startsWith(r.endsWith('/') ? r : `${r}/`));
+		if (!root) return;
+		// Ancestor dirs strictly between the root and the file. The root section's
+		// expansion is governed by `expandedRoot`, and its direct children render
+		// whenever it's open — so we only need the intermediate dirs in `expanded`.
+		const ancestors: string[] = [];
+		let cur = parentOf(path);
+		while (cur.length > root.length && cur.startsWith(root)) {
+			ancestors.push(cur);
+			cur = parentOf(cur);
+		}
+		reveal(root, ancestors, path);
+	}, [revealRequest, fileRoots, reveal]);
 
 	// Cmd+. (Mac) / Ctrl+. (Linux/Windows) → toggle hidden files. Matches the
 	// Finder convention. Bare `.` (no modifier) is left alone so users can
@@ -665,9 +729,9 @@ export function FilesMode() {
 		return () => window.removeEventListener('keydown', onKey);
 	}, [toggleShowHidden]);
 
-	// Restore scroll once on hydrate. Re-apply after a beat so late-resolving
-	// queries that grow the tree don't clobber it. Intentionally only run on the
-	// hydrate transition — not on every scroll.
+	// Restore the tree scroll once on hydrate. Re-apply after a beat so
+	// late-resolving queries that grow the tree don't clobber it. Reveal-on-open
+	// scroll-into-view (TreeNode) fires later as a passive effect, so it wins.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: storedScrollTop is read fresh from the closure but we deliberately don't re-run on every scroll-save.
 	useLayoutEffect(() => {
 		if (!hydrated || !scrollerRef.current) return;
@@ -684,9 +748,7 @@ export function FilesMode() {
 		if (!scrollerRef.current) return;
 		const top = scrollerRef.current.scrollTop;
 		if (scrollSaveRef.current !== null) window.clearTimeout(scrollSaveRef.current);
-		scrollSaveRef.current = window.setTimeout(() => {
-			setScrollTop(top);
-		}, 150);
+		scrollSaveRef.current = window.setTimeout(() => setScrollTop(top), 150);
 	}, [setScrollTop]);
 
 	return (
@@ -723,15 +785,20 @@ export function FilesMode() {
 					</DropdownMenuContent>
 				</DropdownMenu>
 			</div>
-			<div ref={scrollerRef} onScroll={onScroll} className="flex-1 overflow-auto">
+			<div ref={scrollerRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-auto">
 				{fileRoots.length === 0 && (
 					<div className="p-4 text-xs text-muted-foreground">
 						No file roots configured. Add one from{' '}
 						<span className="font-medium text-foreground">Settings</span>.
 					</div>
 				)}
-				{fileRoots.map((root) => (
-					<RootSection key={root} rootPath={root} />
+				{fileRoots.map((root, i) => (
+					<RootSection
+						key={root}
+						rootPath={root}
+						isOpen={expandedRoot === root}
+						stickyEdge={openIndex === -1 || i <= openIndex ? 'top' : 'bottom'}
+					/>
 				))}
 			</div>
 		</div>

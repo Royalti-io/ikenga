@@ -2,6 +2,7 @@ import { useShellStore } from '@/lib/shell/shell-store';
 import { AppMode } from './sidebar-modes/app-mode';
 import { ArtifactGridMode } from './sidebar-modes/artifact-grid-mode';
 import { FilesMode } from './sidebar-modes/files-mode';
+import { NgwaMode } from './sidebar-modes/ngwa-mode';
 import { PkgsMode } from './sidebar-modes/pkgs-mode';
 import { SessionsMode } from './sidebar-modes/sessions-mode';
 import { SettingsMode } from './sidebar-modes/settings-mode';
@@ -11,6 +12,7 @@ const CORE_TITLES = {
 	files: 'Files',
 	sessions: 'Sessions',
 	'artifact-grid': 'Artifact grid',
+	ngwa: 'Ngwa',
 	pkgs: 'Packages',
 	settings: 'Settings',
 } as const;
@@ -37,6 +39,10 @@ export function Sidebar() {
 		case 'artifact-grid':
 			title = CORE_TITLES['artifact-grid'];
 			body = <ArtifactGridMode />;
+			break;
+		case 'ngwa':
+			title = CORE_TITLES.ngwa;
+			body = <NgwaMode />;
 			break;
 		case 'pkgs':
 			title = CORE_TITLES.pkgs;

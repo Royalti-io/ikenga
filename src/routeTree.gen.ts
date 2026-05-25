@@ -32,7 +32,6 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as SettingsIndexRouteImport } from './routes/settings/index'
 import { Route as SessionsIndexRouteImport } from './routes/sessions/index'
 import { Route as OnboardingIndexRouteImport } from './routes/onboarding/index'
-import { Route as ClaudeIndexRouteImport } from './routes/claude/index'
 import { Route as SettingsTelemetryRouteImport } from './routes/settings/telemetry'
 import { Route as SettingsStorageRouteImport } from './routes/settings/storage'
 import { Route as SettingsSecretsRouteImport } from './routes/settings/secrets'
@@ -57,11 +56,7 @@ import { Route as OnboardingPackagesRouteImport } from './routes/onboarding/pack
 import { Route as OnboardingConnectorsRouteImport } from './routes/onboarding/connectors'
 import { Route as OnboardingAppearanceRouteImport } from './routes/onboarding/appearance'
 import { Route as OnboardingAgentRouteImport } from './routes/onboarding/agent'
-import { Route as ClaudeSkillsRouteImport } from './routes/claude/skills'
 import { Route as ClaudeRuntimeMcpsRouteImport } from './routes/claude/runtime-mcps'
-import { Route as ClaudeMcpsRouteImport } from './routes/claude/mcps'
-import { Route as ClaudeHooksRouteImport } from './routes/claude/hooks'
-import { Route as ClaudeCommandsRouteImport } from './routes/claude/commands'
 import { Route as ArtifactsHomeRouteImport } from './routes/artifacts/home'
 import { Route as PkgPkgIdRouteRouteImport } from './routes/pkg/$pkgId/route'
 import { Route as SessionsByAgentIndexRouteImport } from './routes/sessions/by-agent/index'
@@ -187,11 +182,6 @@ const OnboardingIndexRoute = OnboardingIndexRouteImport.update({
   path: '/',
   getParentRoute: () => OnboardingRouteRoute,
 } as any)
-const ClaudeIndexRoute = ClaudeIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => ClaudeRouteRoute,
-} as any)
 const SettingsTelemetryRoute = SettingsTelemetryRouteImport.update({
   id: '/telemetry',
   path: '/telemetry',
@@ -312,29 +302,9 @@ const OnboardingAgentRoute = OnboardingAgentRouteImport.update({
   path: '/agent',
   getParentRoute: () => OnboardingRouteRoute,
 } as any)
-const ClaudeSkillsRoute = ClaudeSkillsRouteImport.update({
-  id: '/skills',
-  path: '/skills',
-  getParentRoute: () => ClaudeRouteRoute,
-} as any)
 const ClaudeRuntimeMcpsRoute = ClaudeRuntimeMcpsRouteImport.update({
   id: '/runtime-mcps',
   path: '/runtime-mcps',
-  getParentRoute: () => ClaudeRouteRoute,
-} as any)
-const ClaudeMcpsRoute = ClaudeMcpsRouteImport.update({
-  id: '/mcps',
-  path: '/mcps',
-  getParentRoute: () => ClaudeRouteRoute,
-} as any)
-const ClaudeHooksRoute = ClaudeHooksRouteImport.update({
-  id: '/hooks',
-  path: '/hooks',
-  getParentRoute: () => ClaudeRouteRoute,
-} as any)
-const ClaudeCommandsRoute = ClaudeCommandsRouteImport.update({
-  id: '/commands',
-  path: '/commands',
   getParentRoute: () => ClaudeRouteRoute,
 } as any)
 const ArtifactsHomeRoute = ArtifactsHomeRouteImport.update({
@@ -406,11 +376,7 @@ export interface FileRoutesByFullPath {
   '/uiroutes-smoke': typeof UiroutesSmokeRoute
   '/pkg/$pkgId': typeof PkgPkgIdRouteRouteWithChildren
   '/artifacts/home': typeof ArtifactsHomeRoute
-  '/claude/commands': typeof ClaudeCommandsRoute
-  '/claude/hooks': typeof ClaudeHooksRoute
-  '/claude/mcps': typeof ClaudeMcpsRoute
   '/claude/runtime-mcps': typeof ClaudeRuntimeMcpsRoute
-  '/claude/skills': typeof ClaudeSkillsRoute
   '/onboarding/agent': typeof OnboardingAgentRoute
   '/onboarding/appearance': typeof OnboardingAppearanceRoute
   '/onboarding/connectors': typeof OnboardingConnectorsRoute
@@ -435,7 +401,6 @@ export interface FileRoutesByFullPath {
   '/settings/secrets': typeof SettingsSecretsRoute
   '/settings/storage': typeof SettingsStorageRoute
   '/settings/telemetry': typeof SettingsTelemetryRoute
-  '/claude/': typeof ClaudeIndexRoute
   '/onboarding/': typeof OnboardingIndexRoute
   '/sessions/': typeof SessionsIndexRoute
   '/settings/': typeof SettingsIndexRoute
@@ -449,6 +414,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/claude': typeof ClaudeRouteRouteWithChildren
   '/claude-assets-smoke': typeof ClaudeAssetsSmokeRoute
   '/cron-smoke': typeof CronSmokeRoute
   '/iframe-mount-smoke': typeof IframeMountSmokeRoute
@@ -465,11 +431,7 @@ export interface FileRoutesByTo {
   '/todos': typeof TodosRoute
   '/uiroutes-smoke': typeof UiroutesSmokeRoute
   '/artifacts/home': typeof ArtifactsHomeRoute
-  '/claude/commands': typeof ClaudeCommandsRoute
-  '/claude/hooks': typeof ClaudeHooksRoute
-  '/claude/mcps': typeof ClaudeMcpsRoute
   '/claude/runtime-mcps': typeof ClaudeRuntimeMcpsRoute
-  '/claude/skills': typeof ClaudeSkillsRoute
   '/onboarding/agent': typeof OnboardingAgentRoute
   '/onboarding/appearance': typeof OnboardingAppearanceRoute
   '/onboarding/connectors': typeof OnboardingConnectorsRoute
@@ -494,7 +456,6 @@ export interface FileRoutesByTo {
   '/settings/secrets': typeof SettingsSecretsRoute
   '/settings/storage': typeof SettingsStorageRoute
   '/settings/telemetry': typeof SettingsTelemetryRoute
-  '/claude': typeof ClaudeIndexRoute
   '/onboarding': typeof OnboardingIndexRoute
   '/sessions': typeof SessionsIndexRoute
   '/settings': typeof SettingsIndexRoute
@@ -530,11 +491,7 @@ export interface FileRoutesById {
   '/uiroutes-smoke': typeof UiroutesSmokeRoute
   '/pkg/$pkgId': typeof PkgPkgIdRouteRouteWithChildren
   '/artifacts/home': typeof ArtifactsHomeRoute
-  '/claude/commands': typeof ClaudeCommandsRoute
-  '/claude/hooks': typeof ClaudeHooksRoute
-  '/claude/mcps': typeof ClaudeMcpsRoute
   '/claude/runtime-mcps': typeof ClaudeRuntimeMcpsRoute
-  '/claude/skills': typeof ClaudeSkillsRoute
   '/onboarding/agent': typeof OnboardingAgentRoute
   '/onboarding/appearance': typeof OnboardingAppearanceRoute
   '/onboarding/connectors': typeof OnboardingConnectorsRoute
@@ -559,7 +516,6 @@ export interface FileRoutesById {
   '/settings/secrets': typeof SettingsSecretsRoute
   '/settings/storage': typeof SettingsStorageRoute
   '/settings/telemetry': typeof SettingsTelemetryRoute
-  '/claude/': typeof ClaudeIndexRoute
   '/onboarding/': typeof OnboardingIndexRoute
   '/sessions/': typeof SessionsIndexRoute
   '/settings/': typeof SettingsIndexRoute
@@ -596,11 +552,7 @@ export interface FileRouteTypes {
     | '/uiroutes-smoke'
     | '/pkg/$pkgId'
     | '/artifacts/home'
-    | '/claude/commands'
-    | '/claude/hooks'
-    | '/claude/mcps'
     | '/claude/runtime-mcps'
-    | '/claude/skills'
     | '/onboarding/agent'
     | '/onboarding/appearance'
     | '/onboarding/connectors'
@@ -625,7 +577,6 @@ export interface FileRouteTypes {
     | '/settings/secrets'
     | '/settings/storage'
     | '/settings/telemetry'
-    | '/claude/'
     | '/onboarding/'
     | '/sessions/'
     | '/settings/'
@@ -639,6 +590,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/claude'
     | '/claude-assets-smoke'
     | '/cron-smoke'
     | '/iframe-mount-smoke'
@@ -655,11 +607,7 @@ export interface FileRouteTypes {
     | '/todos'
     | '/uiroutes-smoke'
     | '/artifacts/home'
-    | '/claude/commands'
-    | '/claude/hooks'
-    | '/claude/mcps'
     | '/claude/runtime-mcps'
-    | '/claude/skills'
     | '/onboarding/agent'
     | '/onboarding/appearance'
     | '/onboarding/connectors'
@@ -684,7 +632,6 @@ export interface FileRouteTypes {
     | '/settings/secrets'
     | '/settings/storage'
     | '/settings/telemetry'
-    | '/claude'
     | '/onboarding'
     | '/sessions'
     | '/settings'
@@ -719,11 +666,7 @@ export interface FileRouteTypes {
     | '/uiroutes-smoke'
     | '/pkg/$pkgId'
     | '/artifacts/home'
-    | '/claude/commands'
-    | '/claude/hooks'
-    | '/claude/mcps'
     | '/claude/runtime-mcps'
-    | '/claude/skills'
     | '/onboarding/agent'
     | '/onboarding/appearance'
     | '/onboarding/connectors'
@@ -748,7 +691,6 @@ export interface FileRouteTypes {
     | '/settings/secrets'
     | '/settings/storage'
     | '/settings/telemetry'
-    | '/claude/'
     | '/onboarding/'
     | '/sessions/'
     | '/settings/'
@@ -952,13 +894,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OnboardingIndexRouteImport
       parentRoute: typeof OnboardingRouteRoute
     }
-    '/claude/': {
-      id: '/claude/'
-      path: '/'
-      fullPath: '/claude/'
-      preLoaderRoute: typeof ClaudeIndexRouteImport
-      parentRoute: typeof ClaudeRouteRoute
-    }
     '/settings/telemetry': {
       id: '/settings/telemetry'
       path: '/telemetry'
@@ -1127,39 +1062,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OnboardingAgentRouteImport
       parentRoute: typeof OnboardingRouteRoute
     }
-    '/claude/skills': {
-      id: '/claude/skills'
-      path: '/skills'
-      fullPath: '/claude/skills'
-      preLoaderRoute: typeof ClaudeSkillsRouteImport
-      parentRoute: typeof ClaudeRouteRoute
-    }
     '/claude/runtime-mcps': {
       id: '/claude/runtime-mcps'
       path: '/runtime-mcps'
       fullPath: '/claude/runtime-mcps'
       preLoaderRoute: typeof ClaudeRuntimeMcpsRouteImport
-      parentRoute: typeof ClaudeRouteRoute
-    }
-    '/claude/mcps': {
-      id: '/claude/mcps'
-      path: '/mcps'
-      fullPath: '/claude/mcps'
-      preLoaderRoute: typeof ClaudeMcpsRouteImport
-      parentRoute: typeof ClaudeRouteRoute
-    }
-    '/claude/hooks': {
-      id: '/claude/hooks'
-      path: '/hooks'
-      fullPath: '/claude/hooks'
-      preLoaderRoute: typeof ClaudeHooksRouteImport
-      parentRoute: typeof ClaudeRouteRoute
-    }
-    '/claude/commands': {
-      id: '/claude/commands'
-      path: '/commands'
-      fullPath: '/claude/commands'
-      preLoaderRoute: typeof ClaudeCommandsRouteImport
       parentRoute: typeof ClaudeRouteRoute
     }
     '/artifacts/home': {
@@ -1229,21 +1136,11 @@ declare module '@tanstack/react-router' {
 }
 
 interface ClaudeRouteRouteChildren {
-  ClaudeCommandsRoute: typeof ClaudeCommandsRoute
-  ClaudeHooksRoute: typeof ClaudeHooksRoute
-  ClaudeMcpsRoute: typeof ClaudeMcpsRoute
   ClaudeRuntimeMcpsRoute: typeof ClaudeRuntimeMcpsRoute
-  ClaudeSkillsRoute: typeof ClaudeSkillsRoute
-  ClaudeIndexRoute: typeof ClaudeIndexRoute
 }
 
 const ClaudeRouteRouteChildren: ClaudeRouteRouteChildren = {
-  ClaudeCommandsRoute: ClaudeCommandsRoute,
-  ClaudeHooksRoute: ClaudeHooksRoute,
-  ClaudeMcpsRoute: ClaudeMcpsRoute,
   ClaudeRuntimeMcpsRoute: ClaudeRuntimeMcpsRoute,
-  ClaudeSkillsRoute: ClaudeSkillsRoute,
-  ClaudeIndexRoute: ClaudeIndexRoute,
 }
 
 const ClaudeRouteRouteWithChildren = ClaudeRouteRoute._addFileChildren(

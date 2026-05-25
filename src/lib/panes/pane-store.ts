@@ -40,6 +40,11 @@ interface PaneStoreState {
 	refreshTicks: Record<PaneId, number>;
 	/** Per-pane navigation history (for the URL bar's back/forward). */
 	history: Record<PaneId, PaneHistory>;
+	/** Bumped whenever a file (artifact) view is *opened* into a pane — via
+	 * `addTab`/`placeView`, not tab-switch or focus changes. The Files sidebar
+	 * subscribes to the `nonce` to reveal + scroll-to the file in its tree.
+	 * Not persisted. */
+	revealRequest: { path: string; nonce: number } | null;
 
 	splitFocused: (direction: PaneDirection) => void;
 	splitPane: (id: PaneId, direction: PaneDirection) => void;
@@ -141,6 +146,13 @@ function viewsMatch(a: PaneView, b: PaneView): boolean {
 	}
 }
 
+/** The file path of a view that represents a file on disk, else null. Used to
+ *  fire a reveal request when such a view is opened into a pane. */
+function artifactPath(view: PaneView): string | null {
+	if (view.kind === 'artifact' || view.kind === 'artifact-studio') return view.path;
+	return null;
+}
+
 function findExistingTab(root: PaneNode, leafId: PaneId, view: PaneView): number {
 	const leaf = findLeaf(root, leafId);
 	if (!leaf) return -1;
@@ -195,6 +207,7 @@ export const usePaneStore = create<PaneStoreState>((set, get) => ({
 	closedHistory: [],
 	refreshTicks: {},
 	history: {},
+	revealRequest: null,
 
 	splitFocused: (direction) => {
 		const { root, focusedId } = get();
@@ -249,6 +262,8 @@ export const usePaneStore = create<PaneStoreState>((set, get) => ({
 	},
 
 	addTab: (id, view) => {
+		const ap = artifactPath(view);
+		if (ap) set((s) => ({ revealRequest: { path: ap, nonce: (s.revealRequest?.nonce ?? 0) + 1 } }));
 		const { root, focusedId } = get();
 		// Resolve to a real leaf. Callers occasionally pass a stale id captured
 		// in a closure from before a split/close — without this fallback the
@@ -354,6 +369,8 @@ export const usePaneStore = create<PaneStoreState>((set, get) => ({
 	},
 
 	placeView: (dstLeafId, view, mode) => {
+		const ap = artifactPath(view);
+		if (ap) set((s) => ({ revealRequest: { path: ap, nonce: (s.revealRequest?.nonce ?? 0) + 1 } }));
 		const { root } = get();
 		if (!findLeaf(root, dstLeafId)) return false;
 		if (mode === 'append') {

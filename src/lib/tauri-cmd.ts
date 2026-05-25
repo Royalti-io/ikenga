@@ -1072,7 +1072,24 @@ export interface ClaudeFrontmatter {
 	[key: string]: unknown;
 }
 
-export interface ClaudeAgent {
+/** Symlink / central-store metadata shared by every scanned primitive.
+ *  Mirrors the Rust `LinkMeta` enrichment (`commands/claude_config.rs`).
+ *  Additive + back-compatible: file-based primitives (agents, commands,
+ *  skills) populate these from an lstat; JSON-fragment primitives (hooks,
+ *  MCP servers) always report `isSymlink: false`, `linkTarget: null`,
+ *  `inStore: false` because they're toggled by JSON merge, not the symlink
+ *  farm. WP-02/03 consume these to drive enable/disable + store-catalog UI. */
+export interface ClaudeLinkMeta {
+	/** Whether the on-disk primitive (file or dir) is a symlink. */
+	isSymlink: boolean;
+	/** Resolved symlink target path, or `null` when not a symlink. */
+	linkTarget: string | null;
+	/** Whether the resolved target lives inside the Ngwa central store
+	 *  (`<app_data_dir>/store/`). */
+	inStore: boolean;
+}
+
+export interface ClaudeAgent extends ClaudeLinkMeta {
 	name: string;
 	scope: ClaudeConfigScope;
 	projectRoot: string | null;
@@ -1091,7 +1108,7 @@ export interface ClaudeSupportingFile {
 	size: number;
 }
 
-export interface ClaudeSkill {
+export interface ClaudeSkill extends ClaudeLinkMeta {
 	name: string;
 	scope: ClaudeConfigScope;
 	projectRoot: string | null;
@@ -1105,7 +1122,7 @@ export interface ClaudeSkill {
 	overriddenBy: string | null;
 }
 
-export interface ClaudeCommand {
+export interface ClaudeCommand extends ClaudeLinkMeta {
 	name: string;
 	scope: ClaudeConfigScope;
 	projectRoot: string | null;
@@ -1119,7 +1136,7 @@ export interface ClaudeCommand {
 	overriddenBy: string | null;
 }
 
-export interface ClaudeMcp {
+export interface ClaudeMcp extends ClaudeLinkMeta {
 	name: string;
 	scope: ClaudeConfigScope;
 	projectRoot: string | null;
@@ -1133,7 +1150,7 @@ export interface ClaudeMcp {
 	raw: unknown;
 }
 
-export interface ClaudeHook {
+export interface ClaudeHook extends ClaudeLinkMeta {
 	event: string;
 	type: string;
 	name: string;
@@ -1265,6 +1282,347 @@ export async function claudeAssetUnpin(
 
 export async function claudeAssetListPins(scope: string): Promise<ClaudeAssetPin[]> {
 	return invoke<ClaudeAssetPin[]>('claude_asset_list_pins', { scope });
+}
+
+// ─── Ngwa store layer — G-CONTRACT (frozen signatures) ────────────────────────
+//
+// FROZEN INTERFACE CONTRACT for the Ngwa (Claude config manager) Phase-1 build.
+// Published by WP-01 (scanner metadata); implemented by:
+//   • WP-02 — Rust store + symlink farm (claude_store_list / import / enable /
+//             disable, the file-based mutations), lib.rs registration.
+//   • WP-03 — Rust JSON merge engine (powers enable/disable for hooks + MCPs,
+//             and the copy/move/remove paths for JSON-fragment primitives).
+//   • WP-05 — fills the FE wrapper bodies below + the TanStack mutation hooks
+//             (mirrors the secrets.ts invalidate pattern: invalidate
+//             `['claude-config']` / `['claude-store']` on success).
+//
+// The `invoke()` bodies here are the canonical wire shape. They are written out
+// (not stubbed) so the contract is unambiguous — but the matching Rust commands
+// land in WP-02/03, so calling these before then rejects at the Tauri boundary
+// ("command not found"). WP-05 owns wiring them into hooks + UI.
+//
+// Conventions matched: snake_case command names + camelCase invoke args (as in
+// the scanner + secrets surfaces); the kind/scope/tier vocabularies reuse the
+// pin-layer types above so the whole Claude surface speaks one dialect.
+
+/** Which primitive kind a store operation targets. Same vocabulary as the pin
+ *  layer (`ClaudeAssetKind`). File-based kinds (`skill | agent | command`) flow
+ *  through the symlink farm; JSON-fragment kinds (`hook | mcp`) flow through the
+ *  merge engine — but every command below accepts the full set so callers don't
+ *  branch on kind. */
+export type ClaudeStoreKind = ClaudeAssetKind;
+
+/** Target location for an enable/copy/move. `workspace` writes into the
+ *  workspace-level `.claude/`; `project:<id>` into that project's `.claude/`.
+ *  Mirrors the pin-layer scope grammar validated by `validate_pin_scope`. */
+export type ClaudeStoreScope = 'workspace' | `project:${string}`;
+
+/** A single catalog entry in the Ngwa central store (Ọba). One row per
+ *  canonical primitive the store owns; `enabledIn` lists the scopes that
+ *  currently symlink/merge it so the UI can render per-scope state badges. */
+export interface ClaudeStoreEntry {
+	kind: ClaudeStoreKind;
+	/** Catalog name (the primitive's name, e.g. skill/agent/command name). */
+	name: string;
+	/** Absolute path of the canonical copy inside the store. For file-based
+	 *  kinds this is the symlink target; for JSON kinds it's the stored
+	 *  fragment file. */
+	storePath: string;
+	/** Optional human description lifted from frontmatter / the fragment. */
+	description: string | null;
+	/** mtime of the stored canonical copy (epoch ms). */
+	modifiedMs: number;
+	/** Scopes this entry is currently enabled in (symlinked or merged). */
+	enabledIn: ClaudeStoreScope[];
+}
+
+/** Result of a symlink-farm or merge mutation. `path` is the on-disk location
+ *  the mutation produced (the new symlink, the merged settings file, or the
+ *  removed path); `linkTarget` is populated for symlink creates. */
+export interface ClaudeStoreMutation {
+	kind: ClaudeStoreKind;
+	name: string;
+	scope: ClaudeStoreScope;
+	path: string;
+	linkTarget: string | null;
+}
+
+// ─── Ngwa store mock layer (WP-05) ─────────────────────────────────────────
+//
+// The Rust commands for the frozen `claude_store_*` / `claude_primitive_*`
+// surface land in WP-02/03. Until they merge, calling these wrappers rejects
+// at the Tauri boundary ("command not found"). To let WP-07 build the full
+// Ngwa UI ahead of the backend, the wrappers route through a dev-flag mock
+// that returns typed canned data instead of calling `invoke`.
+//
+// CUTOVER (single line for the orchestrator): set `NGWA_STORE_MOCK = false`
+// below once WP-02/03 have registered the Rust commands. Nothing else changes
+// — every wrapper falls straight through to its frozen `invoke(...)` body.
+//
+// The flag defaults to ON in dev builds and OFF in production builds; the
+// explicit `false` cutover removes the mock in every build.
+// Cut over to live by the orchestrator at Phase-1 backend integration (WP-02/03/04
+// landed + wired). Wrappers now fall through to their frozen `invoke(...)` bodies.
+const NGWA_STORE_MOCK: boolean = false;
+
+/** In-memory catalog the mock resolves against. Mock mutations mutate it so
+ *  the UI sees enable/disable/copy/move/remove reflect immediately during dev.
+ *  Spans every kind + the enabled / disabled / local / orphaned matrix via the
+ *  `enabledIn` scope sets. */
+const ngwaMockStore: ClaudeStoreEntry[] = [
+	{
+		kind: 'skill',
+		name: 'huashu-design',
+		storePath: '/home/dev/.local/share/ikenga/store/skills/huashu-design',
+		description: 'HTML hi-fi prototyping + design advisor + expert review.',
+		modifiedMs: 1_716_500_000_000,
+		// store-backed symlink enabled in two scopes.
+		enabledIn: ['workspace', 'project:ikenga'],
+	},
+	{
+		kind: 'skill',
+		name: 'release-status',
+		storePath: '/home/dev/.local/share/ikenga/store/skills/release-status',
+		description: 'Scan child repos for unreleased commits + registry drift.',
+		modifiedMs: 1_716_400_000_000,
+		// enabled in a single scope.
+		enabledIn: ['workspace'],
+	},
+	{
+		kind: 'agent',
+		name: 'rex',
+		storePath: '/home/dev/.local/share/ikenga/store/agents/rex.md',
+		description: 'Release-engineering agent.',
+		modifiedMs: 1_716_300_000_000,
+		// in the catalog but not enabled anywhere — orphaned / available.
+		enabledIn: [],
+	},
+	{
+		kind: 'command',
+		name: 'blog-pipeline',
+		storePath: '/home/dev/.local/share/ikenga/store/commands/blog-pipeline.md',
+		description: 'Full blog creation workflow.',
+		modifiedMs: 1_716_200_000_000,
+		enabledIn: ['project:website'],
+	},
+	{
+		kind: 'hook',
+		name: 'format-on-save',
+		storePath: '/home/dev/.local/share/ikenga/store/hooks/format-on-save.json',
+		description: 'PostToolUse hook that runs biome on edited files.',
+		modifiedMs: 1_716_100_000_000,
+		// JSON-fragment kind enabled via settings merge in workspace.
+		enabledIn: ['workspace'],
+	},
+	{
+		kind: 'mcp',
+		name: 'royalti-cms',
+		storePath: '/home/dev/.local/share/ikenga/store/mcps/royalti-cms.json',
+		description: 'Royalti CMS MCP server (http transport).',
+		modifiedMs: 1_716_050_000_000,
+		// JSON-fragment kind not enabled anywhere yet.
+		enabledIn: [],
+	},
+];
+
+/** Resolve through a microtask so consumers see real Promise scheduling,
+ *  matching the async shape of a live `invoke`. */
+async function ngwaMockResolve<T>(value: T): Promise<T> {
+	await Promise.resolve();
+	return value;
+}
+
+function ngwaMockFind(kind: ClaudeStoreKind, name: string): ClaudeStoreEntry | undefined {
+	return ngwaMockStore.find((e) => e.kind === kind && e.name === name);
+}
+
+function ngwaMockMutation(
+	kind: ClaudeStoreKind,
+	name: string,
+	scope: ClaudeStoreScope
+): ClaudeStoreMutation {
+	const entry = ngwaMockFind(kind, name);
+	const fileBased = kind === 'skill' || kind === 'agent' || kind === 'command';
+	const store = entry?.storePath ?? `/home/dev/.local/share/ikenga/store/${kind}s/${name}`;
+	const scopeRoot =
+		scope === 'workspace'
+			? '/home/dev/workspace'
+			: `/home/dev/projects/${scope.slice('project:'.length)}`;
+	return {
+		kind,
+		name,
+		scope,
+		path: fileBased ? `${scopeRoot}/.claude/${kind}s/${name}` : `${scopeRoot}/.claude/settings.json`,
+		linkTarget: fileBased ? store : null,
+	};
+}
+
+/**
+ * List the catalog of canonical primitives in the central store (Ọba).
+ * Optionally filter by kind. WP-02 owns the Rust body.
+ *
+ * G-CONTRACT: implemented by WP-05 (FE wrapper) against WP-02 (Rust).
+ */
+export async function claudeStoreList(kind?: ClaudeStoreKind | null): Promise<ClaudeStoreEntry[]> {
+	if (NGWA_STORE_MOCK) {
+		return ngwaMockResolve(
+			kind ? ngwaMockStore.filter((e) => e.kind === kind) : [...ngwaMockStore]
+		);
+	}
+	return invoke<ClaudeStoreEntry[]>('claude_store_list', { kind: kind ?? null });
+}
+
+/**
+ * Import an existing on-disk primitive into the central store, taking a copy
+ * as the new canonical source. `sourcePath` is the current primitive path (the
+ * `path` of a scanned entry — for skills pass the skill `dirPath`). Returns the
+ * resulting catalog entry. Does not change the original in place; pair with
+ * `claudePrimitiveEnable` to swap the original for a store-backed symlink.
+ *
+ * G-CONTRACT: implemented by WP-05 (FE wrapper) against WP-02 (Rust).
+ */
+export async function claudeStoreImport(
+	kind: ClaudeStoreKind,
+	name: string,
+	sourcePath: string
+): Promise<ClaudeStoreEntry> {
+	if (NGWA_STORE_MOCK) {
+		const existing = ngwaMockFind(kind, name);
+		if (existing) return ngwaMockResolve(existing);
+		const entry: ClaudeStoreEntry = {
+			kind,
+			name,
+			storePath: `/home/dev/.local/share/ikenga/store/${kind}s/${name}`,
+			description: `Imported from ${sourcePath}`,
+			modifiedMs: Date.now(),
+			enabledIn: [],
+		};
+		ngwaMockStore.push(entry);
+		return ngwaMockResolve(entry);
+	}
+	return invoke<ClaudeStoreEntry>('claude_store_import', { kind, name, sourcePath });
+}
+
+/**
+ * Enable a store catalog entry in a target scope. File-based kinds create a
+ * symlink in `<scope>/.claude/<kind>s/`; JSON kinds (hook/mcp) merge the stored
+ * fragment into that scope's settings JSON. Idempotent — re-enabling an already
+ * enabled entry is a no-op that returns the existing mutation.
+ *
+ * G-CONTRACT: implemented by WP-05 (FE wrapper) against WP-02/03 (Rust).
+ */
+export async function claudePrimitiveEnable(
+	kind: ClaudeStoreKind,
+	name: string,
+	scope: ClaudeStoreScope
+): Promise<ClaudeStoreMutation> {
+	if (NGWA_STORE_MOCK) {
+		const entry = ngwaMockFind(kind, name);
+		if (entry && !entry.enabledIn.includes(scope)) entry.enabledIn = [...entry.enabledIn, scope];
+		return ngwaMockResolve(ngwaMockMutation(kind, name, scope));
+	}
+	return invoke<ClaudeStoreMutation>('claude_primitive_enable', { kind, name, scope });
+}
+
+/**
+ * Disable a store catalog entry in a target scope — the inverse of
+ * `claudePrimitiveEnable`. Drops the symlink (file-based) or unmerges the
+ * fragment from the scope's settings JSON (hook/mcp). The canonical store copy
+ * is untouched. Idempotent.
+ *
+ * G-CONTRACT: implemented by WP-05 (FE wrapper) against WP-02/03 (Rust).
+ */
+export async function claudePrimitiveDisable(
+	kind: ClaudeStoreKind,
+	name: string,
+	scope: ClaudeStoreScope
+): Promise<void> {
+	if (NGWA_STORE_MOCK) {
+		const entry = ngwaMockFind(kind, name);
+		if (entry) entry.enabledIn = entry.enabledIn.filter((s) => s !== scope);
+		return ngwaMockResolve(undefined);
+	}
+	return invoke('claude_primitive_disable', { kind, name, scope });
+}
+
+/**
+ * Copy a primitive from one scope to another, leaving the source in place.
+ * File-based kinds copy the resolved file/dir into `<toScope>/.claude/`; JSON
+ * kinds merge the source fragment into the destination settings JSON. Use
+ * `claudePrimitiveMove` to relocate instead of duplicate.
+ *
+ * G-CONTRACT: implemented by WP-05 (FE wrapper) against WP-02/03 (Rust).
+ */
+export async function claudePrimitiveCopy(
+	kind: ClaudeStoreKind,
+	name: string,
+	fromScope: ClaudeStoreScope,
+	toScope: ClaudeStoreScope
+): Promise<ClaudeStoreMutation> {
+	if (NGWA_STORE_MOCK) {
+		const entry = ngwaMockFind(kind, name);
+		if (entry && !entry.enabledIn.includes(toScope))
+			entry.enabledIn = [...entry.enabledIn, toScope];
+		return ngwaMockResolve(ngwaMockMutation(kind, name, toScope));
+	}
+	return invoke<ClaudeStoreMutation>('claude_primitive_copy', {
+		kind,
+		name,
+		fromScope,
+		toScope,
+	});
+}
+
+/**
+ * Move a primitive from one scope to another (copy-then-remove-source, atomic
+ * where the platform allows). Same scope semantics as `claudePrimitiveCopy`.
+ *
+ * G-CONTRACT: implemented by WP-05 (FE wrapper) against WP-02/03 (Rust).
+ */
+export async function claudePrimitiveMove(
+	kind: ClaudeStoreKind,
+	name: string,
+	fromScope: ClaudeStoreScope,
+	toScope: ClaudeStoreScope
+): Promise<ClaudeStoreMutation> {
+	if (NGWA_STORE_MOCK) {
+		const entry = ngwaMockFind(kind, name);
+		if (entry) {
+			const next = entry.enabledIn.filter((s) => s !== fromScope);
+			if (!next.includes(toScope)) next.push(toScope);
+			entry.enabledIn = next;
+		}
+		return ngwaMockResolve(ngwaMockMutation(kind, name, toScope));
+	}
+	return invoke<ClaudeStoreMutation>('claude_primitive_move', {
+		kind,
+		name,
+		fromScope,
+		toScope,
+	});
+}
+
+/**
+ * Remove a primitive from a single scope's `.claude/` (delete the file/dir or
+ * symlink for file-based kinds; unmerge the fragment for hook/mcp). This is a
+ * scope-local delete — it does NOT remove the canonical copy from the store
+ * (use a future store-delete for that). On a store-backed symlink this only
+ * drops the link, identical to `claudePrimitiveDisable`; on a real (non-link)
+ * primitive it deletes the actual file.
+ *
+ * G-CONTRACT: implemented by WP-05 (FE wrapper) against WP-02/03 (Rust).
+ */
+export async function claudePrimitiveRemove(
+	kind: ClaudeStoreKind,
+	name: string,
+	scope: ClaudeStoreScope
+): Promise<void> {
+	if (NGWA_STORE_MOCK) {
+		const entry = ngwaMockFind(kind, name);
+		if (entry) entry.enabledIn = entry.enabledIn.filter((s) => s !== scope);
+		return ngwaMockResolve(undefined);
+	}
+	return invoke('claude_primitive_remove', { kind, name, scope });
 }
 
 // ─── Iyke (phase 11 — Day 1: read-side state + shell mirror push) ─────────────

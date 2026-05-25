@@ -349,6 +349,8 @@
   --tint-files-bg:    hsl(28,14%,11%);   --tint-files-fg:    hsl(28,30%,60%);
   --tint-sessions-bg: hsl(28,28%,11%);   --tint-sessions-fg: hsl(28,60%,62%);
   --tint-settings-bg: hsl(220,14%,11%);  --tint-settings-fg: hsl(220,26%,66%);
+  /* Ngwa (Claude-config mode) — warm, distinct from settings' cool blue */
+  --tint-ngwa-bg:     hsl(28,16%,11%);   --tint-ngwa-fg:     hsl(28,40%,68%);
 }
 [data-mode="light"] {
   --tint-app-bg:      hsl(36,22%,92%);   --tint-app-fg:      hsl(28,30%,22%);
@@ -359,6 +361,7 @@
   --tint-files-bg:    hsl(36,26%,92%);   --tint-files-fg:    hsl(28,30%,22%);
   --tint-sessions-bg: hsl(28,50%,92%);   --tint-sessions-fg: hsl(14,60%,30%);
   --tint-settings-bg: hsl(220,22%,93%);  --tint-settings-fg: hsl(220,30%,24%);
+  --tint-ngwa-bg:     hsl(28,40%,93%);   --tint-ngwa-fg:     hsl(28,42%,28%);
 }
 
 /* Active tint vars (resolved per workspace) */
@@ -370,3 +373,4 @@
 [data-workspace="files"]    { --tint-bg-active:var(--tint-files-bg);    --tint-fg-active:var(--tint-files-fg); }
 [data-workspace="sessions"] { --tint-bg-active:var(--tint-sessions-bg); --tint-fg-active:var(--tint-sessions-fg); }
 [data-workspace="settings"] { --tint-bg-active:var(--tint-settings-bg); --tint-fg-active:var(--tint-settings-fg); }
+[data-workspace="ngwa"]     { --tint-bg-active:var(--tint-ngwa-bg);     --tint-fg-active:var(--tint-ngwa-fg); }
