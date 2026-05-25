@@ -1593,4 +1593,78 @@ mod tests {
         assert_eq!(target, proj.join(".claude").join("settings.json"));
         std::fs::remove_dir_all(&base).ok();
     }
+
+    // ── WP-08 end-to-end: project scope resolves by DB id, not basename ──
+    //
+    // Regression guard for the scope-grammar fix. The FE now emits
+    // `project:<id>` (the DB project slug) rather than `project:<basename>`.
+    // This drives the real resolver (`resolve_scope_claude`/`_root`) against a
+    // seeded projects DB whose slug deliberately differs from the root-dir
+    // basename, then a project-scoped `enable` through the resolved path, and
+    // asserts: (a) the slug string resolves into the project's `.claude` and
+    // the symlink lands there resolving into the store; (b) the OLD basename
+    // string errors `no project with id …` — exactly the bug the FE fix
+    // avoids. Backend resolver code is unchanged; this locks the contract the
+    // corrected FE now satisfies so neither side can silently drift again.
+    #[tokio::test]
+    async fn project_scope_resolves_by_db_id_not_basename() {
+        use crate::commands::db::PaDb;
+        use crate::commands::projects::{create_project, CreateArgs};
+
+        let base = unique_tmp("scopeid");
+        let store = base.join("store");
+        std::fs::create_dir_all(&store).unwrap();
+        // Root basename ("ngwa-smoke-proj") deliberately != project slug.
+        let proj_root = base.join("ngwa-smoke-proj");
+        std::fs::create_dir_all(proj_root.join(".claude")).unwrap();
+        seed_skill(&store, "smoke-skill", "store skill for the e2e scope test");
+
+        let db = Arc::new(PaDb::new(base.join("pa.db")));
+        let pool = db.ensure_pool().await.unwrap();
+        create_project(
+            &pool,
+            CreateArgs {
+                id: "smoke-alias".into(),
+                display_name: "Smoke Alias".into(),
+                root_path: Some(proj_root.to_string_lossy().into_owned()),
+                icon: None,
+                color: None,
+                description: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        // (a) the string the fixed FE emits resolves to the project's .claude.
+        let resolved = resolve_scope_claude(&db, "project:smoke-alias").await.unwrap();
+        assert_eq!(resolved, proj_root.join(".claude"));
+        let root = resolve_scope_root(&db, "project:smoke-alias").await.unwrap();
+        assert_eq!(root, Some(proj_root.clone()));
+
+        // (b) the OLD basename string passes scope-format validation but has no
+        // matching project row — the precise failure the bug produced live.
+        let err = resolve_scope_claude(&db, "project:ngwa-smoke-proj")
+            .await
+            .unwrap_err();
+        assert!(err.contains("no project"), "expected no-project error, got: {err}");
+
+        // end-to-end: enable into the resolved project scope; symlink lands
+        // under the project's .claude and resolves into the store.
+        let m = enable_core(&store, &resolved, "project:smoke-alias", Kind::Skill, "smoke-skill")
+            .unwrap();
+        let link = PathBuf::from(&m.path);
+        assert!(link.starts_with(proj_root.join(".claude")), "link outside project: {link:?}");
+        assert!(
+            std::fs::symlink_metadata(&link).unwrap().file_type().is_symlink(),
+            "expected a symlink at {link:?}"
+        );
+        assert!(
+            std::fs::canonicalize(&link)
+                .unwrap()
+                .starts_with(std::fs::canonicalize(&store).unwrap()),
+            "symlink does not resolve into the store"
+        );
+
+        std::fs::remove_dir_all(&base).ok();
+    }
 }
