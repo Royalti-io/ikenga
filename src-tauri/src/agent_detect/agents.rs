@@ -143,7 +143,7 @@ fn windows_npm_global_dirs() -> Vec<PathBuf> {
         dirs.push(PathBuf::from(appdata).join("npm"));
     }
     if let Some(local) = std::env::var_os("LOCALAPPDATA") {
-        dirs.push(PathBuf::from(local).join("npm"));
+        dirs.push(PathBuf::from(&local).join("npm"));
         dirs.push(
             PathBuf::from(&local)
                 .join("Programs")
