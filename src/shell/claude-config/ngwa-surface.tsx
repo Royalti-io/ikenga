@@ -36,6 +36,7 @@ import {
 	type ClaudeStoreEntry,
 	type ClaudeStoreKind,
 	type ClaudeStoreScope,
+	type Project,
 } from '@/lib/tauri-cmd';
 import {
 	claudeStoreQueryOptions,
@@ -131,12 +132,38 @@ const STATE_WORD: Record<ItemState, string> = {
 	orphaned: 'Orphaned',
 };
 
+const normRoot = (p: string) => p.replace(/\/+$/, '');
+const baseOf = (p: string) => normRoot(p).split('/').filter(Boolean).pop() ?? '';
+
+/** Resolve a project root path to the real DB project **id** — the slug the Rust
+ *  store resolves via `get_project(id)` (`commands/claude_store.rs`), which is set
+ *  independently from `root_path` and is NOT generally the directory basename.
+ *  Matches by normalized `root_path` first, then by basename (covers `~` vs
+ *  absolute divergence between `claudeProjectRoots` and `projects.root_path`).
+ *  Returns null when no project row matches, so callers fall back to the basename
+ *  surrogate — preserving prior behavior for unmapped roots. */
+export function projectIdForRoot(projects: Project[], root: string | null): string | null {
+	if (!root) return null;
+	const r = normRoot(root);
+	const exact = projects.find((p) => p.root_path && normRoot(p.root_path) === r);
+	if (exact) return exact.id;
+	const rb = baseOf(root);
+	const byBase = projects.find((p) => p.root_path && baseOf(p.root_path) === rb);
+	return byBase?.id ?? null;
+}
+
 // Map a scanned `ClaudeConfigScope` + projectRoot onto the store-scope grammar.
-function scopeKeyOf(scope: 'personal' | 'project', projectRoot: string | null): ClaudeStoreScope {
+// The project scope key MUST be the DB project id (a slug), not the basename —
+// the backend resolves `project:<id>` via `get_project`, so a basename surrogate
+// errors `no project with id "<basename>"` whenever slug != basename.
+function scopeKeyOf(
+	scope: 'personal' | 'project',
+	projectRoot: string | null,
+	projects: Project[]
+): ClaudeStoreScope {
 	if (scope === 'personal') return 'workspace';
-	// project root → `project:<id>`; use the basename as a stable id surrogate.
-	const id = (projectRoot ?? '').split('/').filter(Boolean).pop() ?? 'project';
-	return `project:${id}`;
+	const id = projectIdForRoot(projects, projectRoot) ?? baseOf(projectRoot ?? '') ?? 'project';
+	return `project:${id || 'project'}`;
 }
 
 function scopeLabelOf(scope: 'personal' | 'project', projectRoot: string | null): string {
@@ -154,7 +181,11 @@ function deriveState(meta: { isSymlink: boolean; inStore: boolean }, mech: ItemM
 	return 'local'; // a real file, not store-backed
 }
 
-function buildItems(config: ClaudeConfig, store: ClaudeStoreEntry[]): NgwaItem[] {
+function buildItems(
+	config: ClaudeConfig,
+	store: ClaudeStoreEntry[],
+	projects: Project[]
+): NgwaItem[] {
 	const out: NgwaItem[] = [];
 	const storeByKey = new Map<string, ClaudeStoreEntry>();
 	for (const e of store) storeByKey.set(`${e.kind}:${e.name}`, e);
@@ -175,7 +206,7 @@ function buildItems(config: ClaudeConfig, store: ClaudeStoreEntry[]): NgwaItem[]
 		overriddenBy: string | null,
 		raw: NgwaItem['raw']
 	) => {
-		const scopeKey = scopeKeyOf(scope, projectRoot);
+		const scopeKey = scopeKeyOf(scope, projectRoot, projects);
 		const storeEntry = storeByKey.get(`${storeKind}:${name}`) ?? null;
 		let id = `${storeKind}:${name}:${scope}:${projectRoot ?? ''}`;
 		const dup = seen.get(id) ?? 0;
@@ -281,6 +312,8 @@ interface NgwaSurfaceProps {
 	onEdit: (path: string) => void;
 	/** Available project scopes to offer in move/copy/install pickers. */
 	projectScopes: Array<{ key: ClaudeStoreScope; label: string }>;
+	/** DB project rows — used to map a scanned project root to its real store id. */
+	projects: Project[];
 }
 
 export function NgwaSurface({
@@ -292,11 +325,15 @@ export function NgwaSurface({
 	kind,
 	onEdit,
 	projectScopes,
+	projects,
 }: NgwaSurfaceProps) {
 	const storeQuery = useQuery(claudeStoreQueryOptions(null));
 	const store = storeQuery.data ?? [];
 
-	const items = useMemo(() => (config ? buildItems(config, store) : []), [config, store]);
+	const items = useMemo(
+		() => (config ? buildItems(config, store, projects) : []),
+		[config, store, projects]
+	);
 
 	const counts = useMemo(() => {
 		const c: Record<string, number> = {};

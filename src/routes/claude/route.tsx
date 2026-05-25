@@ -8,6 +8,7 @@ import { claudeConfigQueryOptions, useClaudeConfigWatch } from '@/lib/queries/cl
 import { useShellStore } from '@/lib/shell/shell-store';
 import {
 	NgwaSurface,
+	projectIdForRoot,
 	type NgwaKindId,
 	type NgwaScopeId,
 	type NgwaSurfaceId,
@@ -33,6 +34,7 @@ export const Route = createFileRoute('/claude')({
 
 function ClaudeLayout() {
 	const projectRoots = useShellStore((s) => s.claudeProjectRoots);
+	const projects = useShellStore((s) => s.projects);
 	const watchEnabled = useShellStore((s) => s.claudeWatchEnabled);
 
 	const query = useQuery(claudeConfigQueryOptions(projectRoots));
@@ -54,14 +56,18 @@ function ClaudeLayout() {
 	const ngwaKind: NgwaKindId = search.kind ?? 'skills';
 
 	// Derive the move/copy/install destination scopes from the user's project
-	// roots, mapping each root onto the store-scope grammar (`project:<id>`).
+	// roots, mapping each root onto the store-scope grammar (`project:<id>`). The
+	// key MUST be the real DB project id (the slug the Rust store resolves via
+	// `get_project`); the basename is only a display label and a last-resort
+	// fallback for roots with no matching project row.
 	const projectScopes = useMemo(
 		() =>
 			projectRoots.map((root) => {
-				const id = root.split('/').filter(Boolean).pop() ?? 'project';
-				return { key: `project:${id}` as ClaudeStoreScope, label: id };
+				const basename = root.split('/').filter(Boolean).pop() ?? 'project';
+				const id = projectIdForRoot(projects, root) ?? basename;
+				return { key: `project:${id}` as ClaudeStoreScope, label: basename };
 			}),
-		[projectRoots]
+		[projectRoots, projects]
 	);
 
 	if (isNgwaIndex) {
@@ -77,6 +83,7 @@ function ClaudeLayout() {
 						kind={ngwaKind}
 						onEdit={handleOpenInEditor}
 						projectScopes={projectScopes}
+						projects={projects}
 					/>
 				</div>
 			</div>
