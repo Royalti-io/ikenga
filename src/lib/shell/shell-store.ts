@@ -631,6 +631,10 @@ export const useShellStore = create<ShellState>()(
 				try {
 					await projectSetActive(id);
 				} catch (err) {
+					// Surface the failure — rolling this back silently strands the
+					// user on the previous project (often the path-less `default`),
+					// which is exactly what makes new terminals/chats open in `~`.
+					console.warn('[shell-store] projectSetActive failed:', err);
 					// Roll back the optimistic flip — but only if nobody
 					// flipped again in the meantime.
 					if (get().activeProjectId === id) {
@@ -643,8 +647,12 @@ export const useShellStore = create<ShellState>()(
 				try {
 					const [list, active] = await Promise.all([projectList(true), projectGetActive()]);
 					set({ projects: list, activeProjectId: active.id });
-				} catch {
-					// Tauri unavailable (test env / pre-setup boot).
+				} catch (err) {
+					// Tauri unavailable (test env / pre-setup boot) — but a real
+					// failure here leaves the store on the seed `default` project
+					// (null root_path → activeProjectCwd() falls back to `~`), so
+					// log it rather than swallowing silently.
+					console.warn('[shell-store] refreshProjects failed:', err);
 				}
 			},
 
@@ -723,6 +731,19 @@ export const useShellStore = create<ShellState>()(
 			name: 'shell-store',
 			version: 12,
 			migrate: (persisted, version) => migrateShellStore(persisted, version) as ShellState,
+			// `projects` + `activeProjectId` are owned by Rust (migration 0015)
+			// and re-pulled every boot via `refreshProjects`. They must NOT be
+			// persisted here — a stale localStorage snapshot (e.g. a path-less
+			// `default` left over from an old session) would rehydrate over the
+			// authoritative Rust copy and make `activeProjectCwd()` fall back to
+			// `~`, so new terminals/chats spawn in $HOME instead of the active
+			// project root. Keep them out of the persisted blob.
+			partialize: (state) =>
+				Object.fromEntries(
+					Object.entries(state).filter(
+						([k]) => k !== 'projects' && k !== 'activeProjectId'
+					)
+				) as Partial<ShellState>,
 		}
 	)
 );

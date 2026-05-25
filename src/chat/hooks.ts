@@ -242,7 +242,7 @@ export function useThread(threadId: string | null): {
 					await createThread({
 						id: threadId,
 						adapterId,
-						cwd: meta.cwd ?? '',
+						cwd: meta.cwd || activeProjectCwd(),
 						claudeSessionId: null,
 						model: meta.model,
 						title,
@@ -253,7 +253,7 @@ export function useThread(threadId: string | null): {
 						adapterId,
 						engineId: adapterId,
 						title,
-						cwd: meta.cwd ?? '',
+						cwd: meta.cwd || activeProjectCwd(),
 						model: meta.model,
 						claudeSessionId: null,
 						ptyId: null,
