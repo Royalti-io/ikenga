@@ -34,8 +34,8 @@ use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use crate::commands::claude_config::{
-    expand, is_in_store, is_under_claude_or_store, mtime_ms, parse_md, store_root, string_field,
-    validate_pin_scope,
+    clear_pin_for, expand, is_in_store, is_under_claude_or_store, mtime_ms, parse_md, repoint_pin,
+    store_root, string_field, validate_pin_scope,
 };
 use crate::commands::db::PaDb;
 use crate::commands::projects::get_project;
@@ -930,10 +930,15 @@ pub async fn claude_primitive_disable(
         let store = store_root().ok_or_else(|| "cannot resolve store root".to_string())?;
         let root = resolve_scope_root(&db, &scope).await?;
         disable_fragment_in_scope(&store, k, &name, &scope, root.as_deref())?;
-        return Ok(());
+    } else {
+        let scope_claude = resolve_scope_claude(&db, &scope).await?;
+        disable_core(&scope_claude, k, &name)?;
     }
-    let scope_claude = resolve_scope_claude(&db, &scope).await?;
-    disable_core(&scope_claude, k, &name)
+    // WP-04: the primitive is no longer resolvable at `scope`; clear any pin
+    // that pointed at it so no dangling pin remains.
+    let pool = db.ensure_pool().await?;
+    clear_pin_for(&pool, &scope, k.as_str(), &name).await?;
+    Ok(())
 }
 
 /// Copy a primitive from one scope to another, leaving the source in place.
@@ -988,6 +993,9 @@ pub async fn claude_primitive_move(
         let src_root = resolve_scope_root(&db, &fromScope).await?;
         let target = enable_fragment_in_scope(&store, k, &name, &toScope, dest_root.as_deref())?;
         disable_fragment_in_scope(&store, k, &name, &fromScope, src_root.as_deref())?;
+        // WP-04: carry any pin from the source scope to the destination.
+        let pool = db.ensure_pool().await?;
+        repoint_pin(&pool, &fromScope, &toScope, k.as_str(), &name).await?;
         return Ok(ClaudeStoreMutation {
             kind: k.as_str().to_string(),
             name,
@@ -998,7 +1006,12 @@ pub async fn claude_primitive_move(
     }
     let from_claude = resolve_scope_claude(&db, &fromScope).await?;
     let to_claude = resolve_scope_claude(&db, &toScope).await?;
-    move_core(&from_claude, &to_claude, &fromScope, &toScope, k, &name)
+    let mutation = move_core(&from_claude, &to_claude, &fromScope, &toScope, k, &name)?;
+    // WP-04: the primitive left `fromScope` and now lives in `toScope`; carry
+    // any pin across rather than orphan it at the now-empty source scope.
+    let pool = db.ensure_pool().await?;
+    repoint_pin(&pool, &fromScope, &toScope, k.as_str(), &name).await?;
+    Ok(mutation)
 }
 
 /// Remove a primitive from a single scope's `.claude/` (does NOT touch the
@@ -1020,10 +1033,14 @@ pub async fn claude_primitive_remove(
         let store = store_root().ok_or_else(|| "cannot resolve store root".to_string())?;
         let root = resolve_scope_root(&db, &scope).await?;
         disable_fragment_in_scope(&store, k, &name, &scope, root.as_deref())?;
-        return Ok(());
+    } else {
+        let scope_claude = resolve_scope_claude(&db, &scope).await?;
+        remove_core(&scope_claude, k, &name)?;
     }
-    let scope_claude = resolve_scope_claude(&db, &scope).await?;
-    remove_core(&scope_claude, k, &name)
+    // WP-04: the scope-local primitive is gone; clear any pin pointing at it.
+    let pool = db.ensure_pool().await?;
+    clear_pin_for(&pool, &scope, k.as_str(), &name).await?;
+    Ok(())
 }
 
 // ─── Tests ─────────────────────────────────────────────────────────────────────

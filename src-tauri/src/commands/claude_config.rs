@@ -1433,6 +1433,100 @@ pub async fn claude_asset_list_pins(
     Ok(out)
 }
 
+// ─── Pin coexistence with the store/symlink layer (WP-04) ───────────────────
+//
+// The store mutations (`claude_store.rs`: disable / move / remove) make a
+// primitive no longer resolvable at a given scope. A `claude_asset_preferences`
+// pin row keys to a primitive by exactly `(scope, asset_kind, asset_name)` — the
+// same triple those mutations receive — so when a mutation strands a primitive
+// these helpers re-point or clear the matching pin so no dangling pin survives.
+//
+// These are pool-level helpers (no `State`/command wrapper) so the store layer,
+// which has already resolved its pool, can call them inline. They are the only
+// *write* surface this file exposes over the pin table beyond the existing
+// `claude_asset_pin` / `_unpin` commands; the read-only config-scanning commands
+// are untouched.
+
+/// Clear the pin for `(scope, kind, name)` if one exists. Idempotent — a missing
+/// row is a no-op. Called when `disable` / `remove` makes the primitive
+/// unresolvable at `scope` (the pin would otherwise point at a gone primitive).
+pub(crate) async fn clear_pin_for(
+    pool: &sqlx::SqlitePool,
+    scope: &str,
+    kind: &str,
+    name: &str,
+) -> Result<(), String> {
+    sqlx::query(
+        "DELETE FROM claude_asset_preferences
+         WHERE scope = ? AND asset_kind = ? AND asset_name = ?",
+    )
+    .bind(scope)
+    .bind(kind)
+    .bind(name)
+    .execute(pool)
+    .await
+    .map_err(|e| format!("clear pin: {e}"))?;
+    Ok(())
+}
+
+/// Re-point a pin from `from_scope` to `to_scope` for `(kind, name)`. Called on
+/// `move`, where the primitive leaves `from_scope` and lands in `to_scope`:
+/// rather than orphan the pin we carry it to the new location.
+///
+/// If no pin exists at `from_scope` this is a no-op. If a pin already exists at
+/// `to_scope` (the destination was independently pinned) we keep the
+/// destination's pin and drop the source pin — re-pointing must never clobber an
+/// existing destination preference, and either way no dangling pin remains.
+pub(crate) async fn repoint_pin(
+    pool: &sqlx::SqlitePool,
+    from_scope: &str,
+    to_scope: &str,
+    kind: &str,
+    name: &str,
+) -> Result<(), String> {
+    use sqlx::Row;
+    // Fetch the source pin (if any).
+    let row = sqlx::query(
+        "SELECT preferred_tier, preferred_source
+         FROM claude_asset_preferences
+         WHERE scope = ? AND asset_kind = ? AND asset_name = ?",
+    )
+    .bind(from_scope)
+    .bind(kind)
+    .bind(name)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| format!("repoint pin (read source): {e}"))?;
+    let Some(row) = row else {
+        // No source pin → nothing to carry.
+        return Ok(());
+    };
+    let preferred_tier: String = row.get("preferred_tier");
+    let preferred_source: Option<String> = row.get("preferred_source");
+
+    // Upsert onto the destination scope unless it already has a pin (in which
+    // case the destination's own preference wins). `INSERT OR IGNORE` leaves an
+    // existing destination row intact; the source row is then deleted regardless.
+    sqlx::query(
+        "INSERT OR IGNORE INTO claude_asset_preferences
+            (scope, asset_kind, asset_name, preferred_tier, preferred_source, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?)",
+    )
+    .bind(to_scope)
+    .bind(kind)
+    .bind(name)
+    .bind(&preferred_tier)
+    .bind(&preferred_source)
+    .bind(now_ms())
+    .execute(pool)
+    .await
+    .map_err(|e| format!("repoint pin (write dest): {e}"))?;
+
+    // Drop the now-stranded source pin.
+    clear_pin_for(pool, from_scope, kind, name).await?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1578,5 +1672,182 @@ mod tests {
         if let Some(s) = store_root() {
             assert_eq!(s.file_name().and_then(|n| n.to_str()), Some("store"));
         }
+    }
+
+    // ── WP-04 pin coexistence with the store mutations ─────────────────────
+
+    /// In-memory pool seeded with the real pin-table migration.
+    async fn pin_pool() -> sqlx::SqlitePool {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("open in-memory db");
+        sqlx::query(include_str!(
+            "../../migrations/0017_claude_asset_preferences.sql"
+        ))
+        .execute(&pool)
+        .await
+        .expect("create pin table");
+        pool
+    }
+
+    /// Insert a pin row directly (mirrors what `claude_asset_pin` would write).
+    async fn seed_pin(pool: &sqlx::SqlitePool, scope: &str, kind: &str, name: &str, tier: &str) {
+        sqlx::query(
+            "INSERT INTO claude_asset_preferences
+                (scope, asset_kind, asset_name, preferred_tier, preferred_source, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?)",
+        )
+        .bind(scope)
+        .bind(kind)
+        .bind(name)
+        .bind(tier)
+        .bind(Option::<String>::None)
+        .bind(now_ms())
+        .execute(pool)
+        .await
+        .expect("seed pin");
+    }
+
+    async fn pin_count(pool: &sqlx::SqlitePool, scope: &str, kind: &str, name: &str) -> i64 {
+        use sqlx::Row;
+        sqlx::query(
+            "SELECT COUNT(*) AS n FROM claude_asset_preferences
+             WHERE scope = ? AND asset_kind = ? AND asset_name = ?",
+        )
+        .bind(scope)
+        .bind(kind)
+        .bind(name)
+        .fetch_one(pool)
+        .await
+        .expect("count")
+        .get::<i64, _>("n")
+    }
+
+    /// disable / remove: a pinned primitive that goes unresolvable at its scope
+    /// must leave NO dangling pin row.
+    #[tokio::test]
+    async fn disable_clears_dangling_pin() {
+        let pool = pin_pool().await;
+        seed_pin(&pool, "project:demo", "agent", "router", "personal").await;
+        assert_eq!(pin_count(&pool, "project:demo", "agent", "router").await, 1);
+
+        // The exact call the disable/remove command makes after the symlink/
+        // merge mutation succeeds.
+        clear_pin_for(&pool, "project:demo", "agent", "router")
+            .await
+            .expect("clear");
+
+        assert_eq!(
+            pin_count(&pool, "project:demo", "agent", "router").await,
+            0,
+            "pin must be gone after the primitive is disabled at that scope"
+        );
+        // Idempotent: a second clear (or a clear with no row) is a no-op.
+        clear_pin_for(&pool, "project:demo", "agent", "router")
+            .await
+            .expect("clear is idempotent");
+    }
+
+    /// disable must only touch the pin for the mutated scope; a pin for the same
+    /// asset in a different scope survives.
+    #[tokio::test]
+    async fn clear_pin_is_scope_local() {
+        let pool = pin_pool().await;
+        seed_pin(&pool, "workspace", "skill", "lint", "personal").await;
+        seed_pin(&pool, "project:demo", "skill", "lint", "personal").await;
+
+        clear_pin_for(&pool, "project:demo", "skill", "lint")
+            .await
+            .expect("clear");
+
+        assert_eq!(pin_count(&pool, "project:demo", "skill", "lint").await, 0);
+        assert_eq!(
+            pin_count(&pool, "workspace", "skill", "lint").await,
+            1,
+            "the workspace pin for the same asset name must be untouched"
+        );
+    }
+
+    /// move: a pinned primitive carried from one scope to another must re-point
+    /// its pin to the destination — gone at the source, present at the dest, no
+    /// dangling pin.
+    #[tokio::test]
+    async fn move_repoints_pin_to_destination() {
+        let pool = pin_pool().await;
+        seed_pin(&pool, "project:from", "command", "deploy", "project").await;
+
+        repoint_pin(&pool, "project:from", "project:to", "command", "deploy")
+            .await
+            .expect("repoint");
+
+        assert_eq!(
+            pin_count(&pool, "project:from", "command", "deploy").await,
+            0,
+            "source pin must be gone after move"
+        );
+        assert_eq!(
+            pin_count(&pool, "project:to", "command", "deploy").await,
+            1,
+            "pin must follow the primitive to the destination scope"
+        );
+        // The carried tier is preserved.
+        use sqlx::Row;
+        let tier: String = sqlx::query(
+            "SELECT preferred_tier FROM claude_asset_preferences
+             WHERE scope = ? AND asset_kind = ? AND asset_name = ?",
+        )
+        .bind("project:to")
+        .bind("command")
+        .bind("deploy")
+        .fetch_one(&pool)
+        .await
+        .expect("read dest")
+        .get("preferred_tier");
+        assert_eq!(tier, "project");
+    }
+
+    /// move into a scope that already has its own pin for the same asset keeps
+    /// the destination's existing preference and still clears the source — never
+    /// a dangling source pin, never a clobbered destination pin.
+    #[tokio::test]
+    async fn move_does_not_clobber_existing_dest_pin() {
+        let pool = pin_pool().await;
+        seed_pin(&pool, "project:from", "command", "deploy", "project").await;
+        seed_pin(&pool, "project:to", "command", "deploy", "personal").await;
+
+        repoint_pin(&pool, "project:from", "project:to", "command", "deploy")
+            .await
+            .expect("repoint");
+
+        assert_eq!(pin_count(&pool, "project:from", "command", "deploy").await, 0);
+        use sqlx::Row;
+        let tier: String = sqlx::query(
+            "SELECT preferred_tier FROM claude_asset_preferences
+             WHERE scope = ? AND asset_kind = ? AND asset_name = ?",
+        )
+        .bind("project:to")
+        .bind("command")
+        .bind("deploy")
+        .fetch_one(&pool)
+        .await
+        .expect("read dest")
+        .get("preferred_tier");
+        assert_eq!(
+            tier, "personal",
+            "destination's own pin wins over the carried source pin"
+        );
+    }
+
+    /// repoint with no source pin is a harmless no-op (covers move of an
+    /// unpinned primitive).
+    #[tokio::test]
+    async fn repoint_no_source_pin_is_noop() {
+        let pool = pin_pool().await;
+        repoint_pin(&pool, "project:from", "project:to", "agent", "ghost")
+            .await
+            .expect("repoint no-op");
+        assert_eq!(pin_count(&pool, "project:to", "agent", "ghost").await, 0);
     }
 }
