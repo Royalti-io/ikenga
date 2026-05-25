@@ -1,5 +1,7 @@
 import { FileText } from 'lucide-react';
 import type { PairedToolCall } from '../../store';
+import { ToolOutputBody } from './tool-output';
+import { extractOutput } from './tool-output-extract';
 
 export function ReadRenderer({
 	pair,
@@ -11,7 +13,10 @@ export function ReadRenderer({
 	const input = pair.use.input as { file_path?: string; offset?: number; limit?: number } | null;
 	const path = input?.file_path ?? '(no path)';
 	const result = pair.result;
-	const text = typeof result?.output === 'string' ? result.output : stringifyOutput(result?.output);
+	// Reading an image returns image content blocks, not text — surface them as
+	// inline images rather than a base64 dump. The collapsed line shows a text
+	// line count when there's text, an image count when there isn't.
+	const { text, images } = extractOutput(result?.output);
 	const isFull = density === 'full';
 
 	return (
@@ -30,35 +35,17 @@ export function ReadRenderer({
 				{!isFull && text && (
 					<span className="text-[var(--chip-carve)]">· {countLines(text)} lines</span>
 				)}
+				{!isFull && !text && images.length > 0 && (
+					<span className="text-[var(--chip-carve)]">
+						· {images.length} image{images.length === 1 ? '' : 's'}
+					</span>
+				)}
 			</div>
-			{isFull && text && (
-				<pre className="whitespace-pre-wrap break-words rounded border border-[var(--rule)] bg-[var(--rule-soft)] p-2 font-mono text-[11px]">
-					{text}
-				</pre>
-			)}
+			{isFull && <ToolOutputBody output={result?.output} imagePath={input?.file_path} />}
 		</div>
 	);
 }
 
 function countLines(s: string): number {
 	return s.split('\n').length;
-}
-
-function stringifyOutput(v: unknown): string {
-	if (v == null) return '';
-	if (typeof v === 'string') return v;
-	if (Array.isArray(v)) {
-		return v
-			.map((b) =>
-				b && typeof b === 'object' && 'text' in b
-					? String((b as { text: unknown }).text ?? '')
-					: JSON.stringify(b)
-			)
-			.join('\n');
-	}
-	try {
-		return JSON.stringify(v, null, 2);
-	} catch {
-		return String(v);
-	}
 }

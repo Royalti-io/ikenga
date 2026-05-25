@@ -10,6 +10,7 @@
  * the view renders a "stale" placeholder rather than crashing.
  */
 
+import { useMemo } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { ExternalLink } from 'lucide-react';
 import { findToolPairById, useChatStore } from '@/chat';
@@ -22,10 +23,14 @@ interface ToolOutputViewProps {
 
 export function ToolOutputView({ threadId, toolUseId }: ToolOutputViewProps) {
 	const navigate = useNavigate();
-	const pair = useChatStore((s) => {
-		const events = s.threads[threadId]?.events ?? [];
-		return findToolPairById(events, toolUseId);
-	});
+	// Select the stable `events` array, then derive the pair in a memo. Calling
+	// `findToolPairById` *inside* the selector returns a fresh `{use,result}`
+	// object every render, which Zustand's getSnapshot compares by reference —
+	// an unstable snapshot drives an infinite update loop ("Maximum update depth
+	// exceeded"). Selecting the array (stable until events actually change) and
+	// memoizing the derivation fixes it.
+	const events = useChatStore((s) => s.threads[threadId]?.events);
+	const pair = useMemo(() => findToolPairById(events ?? [], toolUseId), [events, toolUseId]);
 
 	if (!pair) {
 		return (

@@ -1,28 +1,40 @@
 # Ikenga
 
-> A composable, AI-augmented desktop workspace. The shell ships the window
-> chrome and a pkg kernel — everything else (mini-apps, tool servers, engine
-> adapters) is an independently installable **pkg**. Industry-agnostic by
-> design; the shell carries no vertical assumptions.
-
+[![Build](https://img.shields.io/badge/build-passing-brightgreen.svg)](https://github.com/Royalti-io/ikenga/actions)
+[![Version](https://img.shields.io/badge/version-v0.0.7-blue.svg)](https://github.com/Royalti-io/ikenga/releases)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![Discussions](https://img.shields.io/badge/community-discussions-5865F2.svg)](https://github.com/Royalti-io/ikenga/discussions)
 
-<!-- SCREENSHOT: docs/media/hero.png — full app window: Home canvas with a
-     couple of widgets, a chat pane open on the right -->
+> An open-source desktop workspace for the multi-agent way of working — your agents,
+> skills, commands, scheduled jobs, and memory in one window, all aware of each other.
+
+<!-- SCREENSHOT: docs/media/hero.png — full app window: Home canvas with a couple of widgets, a chat pane open on the right -->
 ![Ikenga desktop](docs/media/hero.png)
+
+## Why Ikenga?
+
+A single chat box can't run a standing workforce. The moment your work outgrows one
+conversation — recurring jobs, a handful of specialized agents, slash commands you reach
+for every day, memory that should survive the session — a chat window starts losing the
+thread. You end up with a drawer of tools that don't know about each other.
+
+Ikenga is the workspace those parts live in. One window: a terminal, a chat, and a file
+viewer side by side; agents, skills, and commands as named files you can read; scheduled
+jobs and a persistent memory layer running underneath. We've run a real operation on this
+setup for over a year — about 95 skills, dozens of agents, scheduled jobs, and persistent
+memory — and pulled the whole thing into one place. Now it's open.
 
 ## What it is
 
-`ikenga-desktop` is a Tauri 2 + Vite + React 19 + TypeScript desktop app — a
-single-window control plane that hosts terminals, AI chat sessions, viewers,
-and pkg-contributed mini-apps. It is **engine-optional**: the default AI engine
-(Claude Code) ships as a pkg, so it updates independently of the shell, and the
-shell runs without any engine at all.
+`ikenga` is a Tauri 2 + Vite + React 19 + TypeScript desktop app — a single-window control
+plane that hosts terminals, AI chat sessions, viewers, and mini-apps. It's **engine-optional**:
+the default AI engine (Claude Code) ships as a package, so it updates independently of the
+shell, and the shell runs without any engine at all. Codex and Gemini are pluggable adapters.
 
-The product is a *platform*, not a fixed feature set. At boot the kernel
-discovers installed pkgs, validates each manifest, and registers what it
-contributes — UI routes, MCP tool servers, sidecars, cron, skills. Build a pkg
-for any workflow and mount it; the shell stays generic.
+Everything beyond the window chrome — mini-apps, tool servers, engine adapters — is an
+independently installable **package (pkg)**. At boot the kernel discovers installed pkgs,
+validates each manifest, and registers what it contributes: UI routes, MCP tool servers,
+sidecars, cron, skills. The shell stays generic; it carries no vertical assumptions.
 
 ```
 Pkgs (independently installable + updatable)
@@ -36,52 +48,20 @@ Shell Core              — chrome, identity, pkg manager UI
 Tauri host              — SQLite, FS, native menu, secrets (Stronghold)
 ```
 
-Ikenga is open source under **Apache-2.0** — both the platform and the
-first-party pkgs. See [`LICENSE`](LICENSE).
+It's **local-first** and open source under **Apache-2.0** — both the platform and the
+first-party pkgs.
 
-## How pkgs work
+## Install
 
-Each pkg is a self-contained directory: a `manifest.json` plus whatever it
-contributes. The manifest is validated against the Zod schema in
-[`@ikenga/contract`](https://github.com/Royalti-io/ikenga-contract); the kernel registers each declared block
-against the matching registry (UI routes, MCP servers, sidecars, cron, …).
-
-UI pkgs mount as one of three kinds:
-
-- **iframe** — served by the in-process content server (the common case).
-- **webview** — a native child webview, for sites that block iframe embedding
-  via CSP `frame-ancestors`.
-- **component** — host-registered React route (built-ins only).
-
-First-party pkgs live in the [`ikenga-pkgs`](https://github.com/Royalti-io/ikenga-pkgs)
-monorepo — read those for working examples of each archetype. Develop with a
-live reload loop — no shell restart:
+<!-- GATED: install one-liner not live until WP-13 — the real one-liner ships with the first verified GitHub Release. -->
 
 ```bash
-ikenga dev /path/to/your/pkg   # symlink-mount + watch; reload on save
+# placeholder — the real one-liner lands with the first verified GitHub Release
+curl -fsSL https://ikenga.dev/install.sh | sh
 ```
 
-<!-- GIF: docs/media/pkg-dev.gif — `ikenga dev` mounting a pkg, then an
-     edit-on-save triggering an in-place reload in the running shell -->
-![Hot-mounting a pkg](docs/media/pkg-dev.gif)
-
-## Multi-engine chat
-
-The chat layer is multi-engine. The frontend sees **one wire** — ACP-shaped
-session updates — regardless of
-which CLI backs a thread. Engine and model are selectable per turn via a
-two-level Engine → Model picker. Each engine needs its CLI on `$PATH`.
-
-<!-- SCREENSHOT: docs/media/chat-engine-picker.png — the two-level
-     Engine→Model popover open in the chat composer -->
-![Engine picker](docs/media/chat-engine-picker.png)
-
-| Engine | Status | Auth |
-|---|---|---|
-| **Claude Code** | default | `claude login` / `ANTHROPIC_API_KEY` |
-| **Gemini** | ACP passthrough | `gemini auth` / `GEMINI_API_KEY` |
-| **Codex** | custom adapter | `codex login` / `OPENAI_API_KEY` |
-| **cursor-agent** | scaffold only (runtime stubbed) | TBD |
+Until the install script is live, build from source (below). Released builds, when
+available, are on the [Releases page](https://github.com/Royalti-io/ikenga/releases).
 
 ## Quickstart
 
@@ -99,9 +79,9 @@ bun run tauri dev
 ```
 
 The window opens to the **Home** canvas — a free-form workspace of built-in and
-pkg-contributed widgets. Navigate via the activity bar, sidebar, and command
-palette (⌘K / Ctrl+K). The first-run **onboarding** flow handles account /
-engine setup; no env file is required to launch.
+pkg-contributed widgets. Navigate via the activity bar, sidebar, and command palette
+(⌘K / Ctrl+K). The first-run onboarding flow handles account / engine setup; no env file is
+required to launch.
 
 ### Optional env vars
 
@@ -115,6 +95,39 @@ through onboarding. For dev convenience you can pre-seed values in `.env.local`
 | `VITE_SUPABASE_ANON_KEY` | Supabase anon key |
 | `VITE_DEV_FORCE_STUB_AUTH` | Dev-only — bypass real auth |
 | `VITE_SUPABASE_USER_JWT` | Dev-only — pre-issued user JWT for impersonation |
+
+## How pkgs work
+
+Each pkg is a self-contained directory: a `manifest.json` plus whatever it contributes. The
+manifest is validated against the Zod schema in
+[`@ikenga/contract`](https://github.com/Royalti-io/ikenga-contract); the kernel registers
+each declared block against the matching registry. UI pkgs mount as **iframe** (the common
+case), **webview** (for sites that block iframe embedding), or **component** (built-ins
+only).
+
+Develop with a live-reload loop — no shell restart:
+
+```bash
+ikenga dev /path/to/your/pkg   # symlink-mount + watch; reload on save
+```
+
+<!-- GIF: docs/media/pkg-dev.gif — `ikenga dev` mounting a pkg, then an edit-on-save triggering an in-place reload in the running shell -->
+
+First-party pkgs live in the [`ikenga-pkgs`](https://github.com/Royalti-io/ikenga-pkgs)
+monorepo — read those for working examples of each archetype.
+
+## Multi-engine chat
+
+The chat layer is multi-engine. The frontend sees one wire — ACP-shaped session updates —
+regardless of which CLI backs a thread. Engine and model are selectable per turn. Each
+engine needs its CLI on `$PATH`.
+
+| Engine | Status | Auth |
+|---|---|---|
+| **Claude Code** | default | `claude login` / `ANTHROPIC_API_KEY` |
+| **Gemini** | ACP passthrough | `gemini auth` / `GEMINI_API_KEY` |
+| **Codex** | custom adapter | `codex login` / `OPENAI_API_KEY` |
+| **cursor-agent** | scaffold only (runtime stubbed) | TBD |
 
 ## Scripts
 
@@ -277,7 +290,18 @@ scale.
 
 ## Links
 
+- [ikenga.dev](https://ikenga.dev) — site + docs
+- [Documentation](https://ikenga.dev/docs)
 - [`ikenga-pkgs`](https://github.com/Royalti-io/ikenga-pkgs) — first-party pkg monorepo (working examples per archetype)
 - [`ikenga-contract`](https://github.com/Royalti-io/ikenga-contract) — manifest schema, RPC types, capability scopes
 - [`CLAUDE.md`](CLAUDE.md) — detailed architecture for contributors
-- [`LICENSE`](LICENSE) — Apache-2.0
+
+## License
+
+Apache-2.0 — both the platform and the first-party pkgs. See [`LICENSE`](LICENSE).
+
+## Contributing & community
+
+Issues and PRs welcome — see [`.github/CONTRIBUTING.md`](.github/CONTRIBUTING.md). Start a
+thread in [Discussions](https://github.com/Royalti-io/ikenga/discussions); report security
+issues per [`.github/SECURITY.md`](.github/SECURITY.md).

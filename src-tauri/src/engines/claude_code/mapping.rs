@@ -48,8 +48,8 @@
 //! | (anything else, incl. MCP tools)            | `Other`    |
 
 use agent_client_protocol::schema::{
-    ContentBlock, ContentChunk, SessionUpdate, TextContent, ToolCall, ToolCallContent, ToolCallId,
-    ToolCallStatus, ToolCallUpdate, ToolCallUpdateFields, ToolKind,
+    ContentBlock, ContentChunk, ImageContent, SessionUpdate, TextContent, ToolCall,
+    ToolCallContent, ToolCallId, ToolCallStatus, ToolCallUpdate, ToolCallUpdateFields, ToolKind,
 };
 use serde_json::{Map, Value};
 
@@ -362,8 +362,9 @@ fn text_tool_content(s: &str) -> ToolCallContent {
 }
 
 /// Best-effort translation of a single Anthropic-style content block
-/// inside a `tool_result`. Currently we only surface `text` — images
-/// will land in Phase 7 when we wire image input both ways.
+/// inside a `tool_result`. Surfaces `text` and `image` (base64-source)
+/// blocks natively; anything else is JSON-stringified so information
+/// isn't silently lost.
 fn anthropic_block_to_content(block: &Value) -> Option<ToolCallContent> {
     let obj = block.as_object()?;
     let block_type = obj.get("type").and_then(Value::as_str)?;
@@ -372,11 +373,30 @@ fn anthropic_block_to_content(block: &Value) -> Option<ToolCallContent> {
             .get("text")
             .and_then(Value::as_str)
             .map(text_tool_content),
-        // TODO(phase-2): image/tool_result content blocks. Phase 7 will
-        // need to round-trip ImageContent here; for now we stringify so
-        // information isn't silently lost.
+        // Anthropic image block:
+        //   { "type": "image",
+        //     "source": { "type": "base64", "media_type": "...", "data": "..." } }
+        // Round-trip the base64 bytes into ACP `ImageContent` (the
+        // `content` channel). URL-sourced images and anything malformed
+        // fall through to the stringify branch.
+        "image" => image_tool_content(obj).or_else(|| Some(text_tool_content(&block.to_string()))),
         _ => Some(text_tool_content(&block.to_string())),
     }
+}
+
+/// Translate an Anthropic `image` block with a base64 source into an ACP
+/// `ImageContent` tool-call content block. Returns `None` for non-base64
+/// sources (e.g. url) so the caller can fall back to stringifying.
+fn image_tool_content(obj: &Map<String, Value>) -> Option<ToolCallContent> {
+    let source = obj.get("source")?.as_object()?;
+    let data = source.get("data").and_then(Value::as_str)?;
+    let mime = source
+        .get("media_type")
+        .and_then(Value::as_str)
+        .unwrap_or("image/png");
+    Some(ToolCallContent::from(ContentBlock::Image(
+        ImageContent::new(data.to_string(), mime.to_string()),
+    )))
 }
 
 #[cfg(test)]
@@ -495,6 +515,40 @@ mod tests {
         match &updates[0] {
             SessionUpdate::ToolCallUpdate(u) => {
                 assert_eq!(u.fields.status, Some(ToolCallStatus::Failed));
+            }
+            other => panic!("expected ToolCallUpdate, got {}", discriminant(other)),
+        }
+    }
+
+    #[test]
+    fn tool_result_image_block_roundtrips_to_image_content() {
+        // Reading an image returns an Anthropic image block with a base64
+        // source. It must surface as ACP ImageContent, not a stringified dump.
+        let ev = ChatEvent::ToolResult {
+            id: "toolu_img".into(),
+            output: json!([{
+                "type": "image",
+                "source": { "type": "base64", "media_type": "image/png", "data": "aGVsbG8=" }
+            }]),
+            is_error: false,
+            parent_tool_use_id: None,
+        };
+        let updates = chat_event_to_session_updates(&ev);
+        assert_eq!(updates.len(), 1);
+        match &updates[0] {
+            SessionUpdate::ToolCallUpdate(u) => {
+                let content = u.fields.content.as_ref().expect("content set");
+                assert_eq!(content.len(), 1);
+                match &content[0] {
+                    ToolCallContent::Content(c) => match &c.content {
+                        ContentBlock::Image(img) => {
+                            assert_eq!(img.data, "aGVsbG8=");
+                            assert_eq!(img.mime_type, "image/png");
+                        }
+                        other => panic!("expected Image block, got {other:?}"),
+                    },
+                    other => panic!("expected Content, got {other:?}"),
+                }
             }
             other => panic!("expected ToolCallUpdate, got {}", discriminant(other)),
         }
