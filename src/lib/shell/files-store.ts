@@ -15,9 +15,9 @@ interface Persisted {
 	scrollTop: number;
 	showHidden: boolean;
 	showIgnored: boolean;
-	/** Root paths whose section is collapsed in the Files pane. Absent or empty
-	 *  means all roots are expanded (the default). */
-	rootsCollapsed?: string[];
+	/** The single root section currently expanded in the Files pane (accordion:
+	 *  one open at a time). `null`/absent means all roots are collapsed. */
+	expandedRoot?: string | null;
 }
 
 interface FilesState {
@@ -33,8 +33,10 @@ interface FilesState {
 	/** Per-root search query. Transient — not persisted. Empty/missing means
 	 *  no filter is active for that root. */
 	queries: Record<string, string>;
-	/** Root sections whose tree+search is collapsed. Persisted. */
-	rootsCollapsed: Set<string>;
+	/** The single root section currently expanded (accordion). `null` = all
+	 *  collapsed. Persisted. Inner-folder state lives in `expanded` (keyed by
+	 *  absolute path), so switching roots preserves each root's prior tree. */
+	expandedRoot: string | null;
 	hydrated: boolean;
 	hydrate: () => Promise<void>;
 	snapshot: () => Persisted;
@@ -48,7 +50,13 @@ interface FilesState {
 	toggleShowHidden: () => void;
 	toggleShowIgnored: () => void;
 	setQuery: (rootPath: string, query: string) => void;
-	toggleRootCollapsed: (rootPath: string) => void;
+	/** Set which root section is expanded (accordion). `null` collapses all. */
+	setExpandedRoot: (rootPath: string | null) => void;
+	/** Toggle a root: open it, or collapse it if it's already the open one. */
+	toggleRoot: (rootPath: string) => void;
+	/** Reveal a file: open its root, expand the ancestor dirs leading to it, and
+	 *  select it — all in one update so the tree doesn't churn. */
+	reveal: (rootPath: string, ancestors: string[], selectedPath: string) => void;
 	/** Drop paths from the expanded set (used after rename/trash/missing). */
 	prune: (paths: string[]) => void;
 }
@@ -66,7 +74,7 @@ function snapshotOf(s: FilesState): Persisted {
 		scrollTop: s.scrollTop,
 		showHidden: s.showHidden,
 		showIgnored: s.showIgnored,
-		rootsCollapsed: [...s.rootsCollapsed],
+		expandedRoot: s.expandedRoot,
 	};
 }
 
@@ -76,13 +84,13 @@ const EMPTY_PERSISTED: Persisted = {
 	scrollTop: 0,
 	showHidden: false,
 	showIgnored: false,
-	rootsCollapsed: [],
+	expandedRoot: null,
 };
 
 function persistedFromState(
 	s: Pick<
 		FilesState,
-		'expanded' | 'selectedPath' | 'scrollTop' | 'showHidden' | 'showIgnored' | 'rootsCollapsed'
+		'expanded' | 'selectedPath' | 'scrollTop' | 'showHidden' | 'showIgnored' | 'expandedRoot'
 	>
 ): Persisted {
 	return snapshotOf(s as FilesState);
@@ -100,7 +108,7 @@ export const useFilesStore = create<FilesState>((set, get) => ({
 	showHidden: false,
 	showIgnored: false,
 	queries: {},
-	rootsCollapsed: new Set<string>(),
+	expandedRoot: null,
 	hydrated: false,
 
 	hydrate: async () => {
@@ -113,7 +121,7 @@ export const useFilesStore = create<FilesState>((set, get) => ({
 			showHidden: data.showHidden ?? false,
 			showIgnored: data.showIgnored ?? false,
 			queries: {},
-			rootsCollapsed: new Set(data.rootsCollapsed ?? []),
+			expandedRoot: data.expandedRoot ?? null,
 			hydrated: true,
 		});
 	},
@@ -185,11 +193,21 @@ export const useFilesStore = create<FilesState>((set, get) => ({
 		set({ queries: next });
 	},
 
-	toggleRootCollapsed: (rootPath) => {
-		const next = new Set(get().rootsCollapsed);
-		if (next.has(rootPath)) next.delete(rootPath);
-		else next.add(rootPath);
-		set({ rootsCollapsed: next });
+	setExpandedRoot: (rootPath) => {
+		if (get().expandedRoot === rootPath) return;
+		set({ expandedRoot: rootPath });
+		persistCurrent(get);
+	},
+
+	toggleRoot: (rootPath) => {
+		set({ expandedRoot: get().expandedRoot === rootPath ? null : rootPath });
+		persistCurrent(get);
+	},
+
+	reveal: (rootPath, ancestors, selectedPath) => {
+		const nextExpanded = new Set(get().expanded);
+		for (const a of ancestors) nextExpanded.add(a);
+		set({ expandedRoot: rootPath, expanded: nextExpanded, selectedPath });
 		persistCurrent(get);
 	},
 
