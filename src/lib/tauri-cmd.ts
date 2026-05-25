@@ -1347,6 +1347,114 @@ export interface ClaudeStoreMutation {
 	linkTarget: string | null;
 }
 
+// ─── Ngwa store mock layer (WP-05) ─────────────────────────────────────────
+//
+// The Rust commands for the frozen `claude_store_*` / `claude_primitive_*`
+// surface land in WP-02/03. Until they merge, calling these wrappers rejects
+// at the Tauri boundary ("command not found"). To let WP-07 build the full
+// Ngwa UI ahead of the backend, the wrappers route through a dev-flag mock
+// that returns typed canned data instead of calling `invoke`.
+//
+// CUTOVER (single line for the orchestrator): set `NGWA_STORE_MOCK = false`
+// below once WP-02/03 have registered the Rust commands. Nothing else changes
+// — every wrapper falls straight through to its frozen `invoke(...)` body.
+//
+// The flag defaults to ON in dev builds and OFF in production builds; the
+// explicit `false` cutover removes the mock in every build.
+const NGWA_STORE_MOCK: boolean = !!import.meta.env.DEV;
+
+/** In-memory catalog the mock resolves against. Mock mutations mutate it so
+ *  the UI sees enable/disable/copy/move/remove reflect immediately during dev.
+ *  Spans every kind + the enabled / disabled / local / orphaned matrix via the
+ *  `enabledIn` scope sets. */
+const ngwaMockStore: ClaudeStoreEntry[] = [
+	{
+		kind: 'skill',
+		name: 'huashu-design',
+		storePath: '/home/dev/.local/share/ikenga/store/skills/huashu-design',
+		description: 'HTML hi-fi prototyping + design advisor + expert review.',
+		modifiedMs: 1_716_500_000_000,
+		// store-backed symlink enabled in two scopes.
+		enabledIn: ['workspace', 'project:ikenga'],
+	},
+	{
+		kind: 'skill',
+		name: 'release-status',
+		storePath: '/home/dev/.local/share/ikenga/store/skills/release-status',
+		description: 'Scan child repos for unreleased commits + registry drift.',
+		modifiedMs: 1_716_400_000_000,
+		// enabled in a single scope.
+		enabledIn: ['workspace'],
+	},
+	{
+		kind: 'agent',
+		name: 'rex',
+		storePath: '/home/dev/.local/share/ikenga/store/agents/rex.md',
+		description: 'Release-engineering agent.',
+		modifiedMs: 1_716_300_000_000,
+		// in the catalog but not enabled anywhere — orphaned / available.
+		enabledIn: [],
+	},
+	{
+		kind: 'command',
+		name: 'blog-pipeline',
+		storePath: '/home/dev/.local/share/ikenga/store/commands/blog-pipeline.md',
+		description: 'Full blog creation workflow.',
+		modifiedMs: 1_716_200_000_000,
+		enabledIn: ['project:website'],
+	},
+	{
+		kind: 'hook',
+		name: 'format-on-save',
+		storePath: '/home/dev/.local/share/ikenga/store/hooks/format-on-save.json',
+		description: 'PostToolUse hook that runs biome on edited files.',
+		modifiedMs: 1_716_100_000_000,
+		// JSON-fragment kind enabled via settings merge in workspace.
+		enabledIn: ['workspace'],
+	},
+	{
+		kind: 'mcp',
+		name: 'royalti-cms',
+		storePath: '/home/dev/.local/share/ikenga/store/mcps/royalti-cms.json',
+		description: 'Royalti CMS MCP server (http transport).',
+		modifiedMs: 1_716_050_000_000,
+		// JSON-fragment kind not enabled anywhere yet.
+		enabledIn: [],
+	},
+];
+
+/** Resolve through a microtask so consumers see real Promise scheduling,
+ *  matching the async shape of a live `invoke`. */
+async function ngwaMockResolve<T>(value: T): Promise<T> {
+	await Promise.resolve();
+	return value;
+}
+
+function ngwaMockFind(kind: ClaudeStoreKind, name: string): ClaudeStoreEntry | undefined {
+	return ngwaMockStore.find((e) => e.kind === kind && e.name === name);
+}
+
+function ngwaMockMutation(
+	kind: ClaudeStoreKind,
+	name: string,
+	scope: ClaudeStoreScope
+): ClaudeStoreMutation {
+	const entry = ngwaMockFind(kind, name);
+	const fileBased = kind === 'skill' || kind === 'agent' || kind === 'command';
+	const store = entry?.storePath ?? `/home/dev/.local/share/ikenga/store/${kind}s/${name}`;
+	const scopeRoot =
+		scope === 'workspace'
+			? '/home/dev/workspace'
+			: `/home/dev/projects/${scope.slice('project:'.length)}`;
+	return {
+		kind,
+		name,
+		scope,
+		path: fileBased ? `${scopeRoot}/.claude/${kind}s/${name}` : `${scopeRoot}/.claude/settings.json`,
+		linkTarget: fileBased ? store : null,
+	};
+}
+
 /**
  * List the catalog of canonical primitives in the central store (Ọba).
  * Optionally filter by kind. WP-02 owns the Rust body.
@@ -1354,6 +1462,11 @@ export interface ClaudeStoreMutation {
  * G-CONTRACT: implemented by WP-05 (FE wrapper) against WP-02 (Rust).
  */
 export async function claudeStoreList(kind?: ClaudeStoreKind | null): Promise<ClaudeStoreEntry[]> {
+	if (NGWA_STORE_MOCK) {
+		return ngwaMockResolve(
+			kind ? ngwaMockStore.filter((e) => e.kind === kind) : [...ngwaMockStore]
+		);
+	}
 	return invoke<ClaudeStoreEntry[]>('claude_store_list', { kind: kind ?? null });
 }
 
@@ -1371,6 +1484,20 @@ export async function claudeStoreImport(
 	name: string,
 	sourcePath: string
 ): Promise<ClaudeStoreEntry> {
+	if (NGWA_STORE_MOCK) {
+		const existing = ngwaMockFind(kind, name);
+		if (existing) return ngwaMockResolve(existing);
+		const entry: ClaudeStoreEntry = {
+			kind,
+			name,
+			storePath: `/home/dev/.local/share/ikenga/store/${kind}s/${name}`,
+			description: `Imported from ${sourcePath}`,
+			modifiedMs: Date.now(),
+			enabledIn: [],
+		};
+		ngwaMockStore.push(entry);
+		return ngwaMockResolve(entry);
+	}
 	return invoke<ClaudeStoreEntry>('claude_store_import', { kind, name, sourcePath });
 }
 
@@ -1387,6 +1514,11 @@ export async function claudePrimitiveEnable(
 	name: string,
 	scope: ClaudeStoreScope
 ): Promise<ClaudeStoreMutation> {
+	if (NGWA_STORE_MOCK) {
+		const entry = ngwaMockFind(kind, name);
+		if (entry && !entry.enabledIn.includes(scope)) entry.enabledIn = [...entry.enabledIn, scope];
+		return ngwaMockResolve(ngwaMockMutation(kind, name, scope));
+	}
 	return invoke<ClaudeStoreMutation>('claude_primitive_enable', { kind, name, scope });
 }
 
@@ -1403,6 +1535,11 @@ export async function claudePrimitiveDisable(
 	name: string,
 	scope: ClaudeStoreScope
 ): Promise<void> {
+	if (NGWA_STORE_MOCK) {
+		const entry = ngwaMockFind(kind, name);
+		if (entry) entry.enabledIn = entry.enabledIn.filter((s) => s !== scope);
+		return ngwaMockResolve(undefined);
+	}
 	return invoke('claude_primitive_disable', { kind, name, scope });
 }
 
@@ -1420,6 +1557,12 @@ export async function claudePrimitiveCopy(
 	fromScope: ClaudeStoreScope,
 	toScope: ClaudeStoreScope
 ): Promise<ClaudeStoreMutation> {
+	if (NGWA_STORE_MOCK) {
+		const entry = ngwaMockFind(kind, name);
+		if (entry && !entry.enabledIn.includes(toScope))
+			entry.enabledIn = [...entry.enabledIn, toScope];
+		return ngwaMockResolve(ngwaMockMutation(kind, name, toScope));
+	}
 	return invoke<ClaudeStoreMutation>('claude_primitive_copy', {
 		kind,
 		name,
@@ -1440,6 +1583,15 @@ export async function claudePrimitiveMove(
 	fromScope: ClaudeStoreScope,
 	toScope: ClaudeStoreScope
 ): Promise<ClaudeStoreMutation> {
+	if (NGWA_STORE_MOCK) {
+		const entry = ngwaMockFind(kind, name);
+		if (entry) {
+			const next = entry.enabledIn.filter((s) => s !== fromScope);
+			if (!next.includes(toScope)) next.push(toScope);
+			entry.enabledIn = next;
+		}
+		return ngwaMockResolve(ngwaMockMutation(kind, name, toScope));
+	}
 	return invoke<ClaudeStoreMutation>('claude_primitive_move', {
 		kind,
 		name,
@@ -1463,6 +1615,11 @@ export async function claudePrimitiveRemove(
 	name: string,
 	scope: ClaudeStoreScope
 ): Promise<void> {
+	if (NGWA_STORE_MOCK) {
+		const entry = ngwaMockFind(kind, name);
+		if (entry) entry.enabledIn = entry.enabledIn.filter((s) => s !== scope);
+		return ngwaMockResolve(undefined);
+	}
 	return invoke('claude_primitive_remove', { kind, name, scope });
 }
 

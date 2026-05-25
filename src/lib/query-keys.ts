@@ -31,4 +31,12 @@ export const queryKeys = {
 		load: (projectRoots: readonly string[]) =>
 			['claude_config', 'load', [...projectRoots].sort().join('|')] as const,
 	},
+	// Ngwa central store (Ọba) catalog. Distinct domain from `claudeConfig`
+	// (the on-disk scan) — store mutations invalidate BOTH: the catalog list
+	// (enabledIn badges) and the scan (the symlink/merge state on disk, which
+	// rides the existing `claude-config:changed` watch).
+	claudeStore: {
+		all: ['claude_store'] as const,
+		list: (kind?: string | null) => ['claude_store', 'list', kind ?? 'all'] as const,
+	},
 } as const;
