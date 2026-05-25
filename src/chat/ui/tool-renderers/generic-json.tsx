@@ -1,5 +1,6 @@
 import { Wrench } from 'lucide-react';
 import type { PairedToolCall } from '../../store';
+import { ToolOutputBody } from './tool-output';
 
 export function GenericJsonRenderer({
 	pair,
@@ -33,15 +34,14 @@ export function GenericJsonRenderer({
 							<p className="mb-1 font-mono text-[10px] uppercase tracking-wider text-[var(--chip-carve)]">
 								output{pair.result.isError ? ' (error)' : ''}
 							</p>
-							<pre
-								className={`whitespace-pre-wrap break-words rounded p-2 font-mono text-[11px] ${
+							<ToolOutputBody
+								output={pair.result.output}
+								preClassName={
 									pair.result.isError
-										? 'border border-[var(--oxblood)]/30 bg-[var(--oxblood)]/10 text-[var(--oxblood)]'
-										: 'bg-[var(--rule-soft)]'
-								}`}
-							>
-								{tryStringify(pair.result.output)}
-							</pre>
+										? 'border-[var(--oxblood)]/30 bg-[var(--oxblood)]/10 text-[var(--oxblood)]'
+										: undefined
+								}
+							/>
 						</div>
 					)}
 				</>
