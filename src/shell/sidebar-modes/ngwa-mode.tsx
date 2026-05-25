@@ -110,6 +110,9 @@ const KINDS: KindItem[] = [
 const DEFAULT_KIND: KindId = 'skills';
 
 const NGWA_ROUTE = '/claude';
+// Runtime MCP status + supervisor lifecycle — a unique surface not covered by
+// the Ngwa Browse/Registry/Analyze surfaces, re-surfaced here as its own item.
+const RUNTIME_MCPS_ROUTE = '/claude/runtime-mcps';
 
 export function NgwaMode() {
 	const navigateFocused = usePaneStore((s) => s.navigateFocused);
@@ -132,18 +135,19 @@ export function NgwaMode() {
 	const active = usePaneStore(
 		useShallow((s) => {
 			const leaf = findLeaf(s.root, s.focusedId);
-			if (!leaf) return { onRoute: false, surface: null, scope: null, kind: null };
+			if (!leaf) return { onRoute: false, path: null, surface: null, scope: null, kind: null };
 			const tab = leaf.tabs[leaf.activeTabIdx];
 			if (!tab || tab.kind !== 'route') {
-				return { onRoute: false, surface: null, scope: null, kind: null };
+				return { onRoute: false, path: null, surface: null, scope: null, kind: null };
 			}
 			const [path, qs] = tab.path.split('?');
-			if (path !== NGWA_ROUTE) {
-				return { onRoute: false, surface: null, scope: null, kind: null };
+			if (path !== NGWA_ROUTE && path !== RUNTIME_MCPS_ROUTE) {
+				return { onRoute: false, path: null, surface: null, scope: null, kind: null };
 			}
 			const q = new URLSearchParams(qs ?? '');
 			return {
 				onRoute: true,
+				path,
 				surface: q.get('surface'),
 				scope: q.get('scope'),
 				kind: q.get('kind'),
@@ -151,6 +155,10 @@ export function NgwaMode() {
 		})
 	);
 
+	// Surface / scope / kind selections only apply on the Ngwa index route; the
+	// runtime-mcps child route is its own thing and must not light up Browse.
+	const onNgwaIndex = active.onRoute && active.path === NGWA_ROUTE;
+	const onRuntimeMcps = active.onRoute && active.path === RUNTIME_MCPS_ROUTE;
 	const activeSurface: SurfaceId = (active.surface as SurfaceId) ?? DEFAULT_SURFACE;
 	const activeScope: ScopeId = (active.scope as ScopeId) ?? DEFAULT_SCOPE;
 	const activeKind: KindId = (active.kind as KindId) ?? DEFAULT_KIND;
@@ -182,7 +190,7 @@ export function NgwaMode() {
 		return (
 			<ul className="flex flex-col">
 				{items.map(({ id, label, Icon }) => {
-					const isActive = active.onRoute && activeSurface === id;
+					const isActive = onNgwaIndex && activeSurface === id;
 					return (
 						<li key={id}>
 							<button
@@ -240,7 +248,7 @@ export function NgwaMode() {
 				</div>
 				<ul className="flex flex-col">
 					{scopes.map(({ id, label, Icon }) => {
-						const isActive = activeScope === id;
+						const isActive = onNgwaIndex && activeScope === id;
 						return (
 							<li key={id}>
 								<button
@@ -289,7 +297,7 @@ export function NgwaMode() {
 				</div>
 				<ul className="flex flex-col">
 					{KINDS.map(({ id, label, Icon }) => {
-						const isActive = !kindDisabled && activeKind === id;
+						const isActive = onNgwaIndex && !kindDisabled && activeKind === id;
 						return (
 							<li key={id}>
 								<button
@@ -318,6 +326,37 @@ export function NgwaMode() {
 							</li>
 						);
 					})}
+				</ul>
+			</div>
+
+			<div className="mx-4 my-2 border-t border-border-soft" />
+
+			{/* ── Runtime MCPs — unique surface (status + supervisor lifecycle) ── */}
+			<div className="mb-2">
+				<ul className="flex flex-col">
+					<li>
+						<button
+							type="button"
+							data-runtime-mcps
+							onClick={() => navigateFocused(RUNTIME_MCPS_ROUTE)}
+							className={cn(
+								'relative flex w-full items-center gap-3 px-4 py-1.5 text-left text-sm transition-colors',
+								'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+								onRuntimeMcps && 'bg-accent font-medium'
+							)}
+							style={onRuntimeMcps ? { color: 'var(--tint-ngwa-fg)' } : undefined}
+						>
+							{onRuntimeMcps && (
+								<span
+									aria-hidden="true"
+									className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-r"
+									style={{ background: 'var(--tint-ngwa-fg)' }}
+								/>
+							)}
+							<Plug className="h-4 w-4 shrink-0" />
+							<span className="truncate">Runtime MCPs</span>
+						</button>
+					</li>
 				</ul>
 			</div>
 		</div>
