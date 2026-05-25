@@ -5,6 +5,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { Pty, type PtySpawnOpts } from './pty-bridge';
+import { registerPathLinks } from './path-links';
 import { createOscObserver, fireOscNotification } from '@/lib/terminal/osc-notify';
 
 export interface TerminalSpec {
@@ -161,6 +162,12 @@ export function XTermHost({ spec, pty, onStatus, onExit, onPtyId }: Props) {
 		term.loadAddon(links);
 		term.loadAddon(unicode11);
 		term.unicode.activeVersion = '11';
+
+		// File-path links (WebLinksAddon only handles URLs). Clicking a path-
+		// shaped token opens it in the artifact viewer. Relative paths resolve
+		// against the spawn cwd; absolute / ~ paths ignore it (works in
+		// attach-mode too, where no cwd is known).
+		const pathLinks = registerPathLinks(term, spec?.cwd);
 
 		// Search addon — lazy import to keep initial bundle slim.
 		let disposeSearch: (() => void) | null = null;
@@ -441,6 +448,7 @@ export function XTermHost({ spec, pty, onStatus, onExit, onPtyId }: Props) {
 			detachData?.();
 			detachExit?.();
 			disposeSearch?.();
+			pathLinks.dispose();
 			// Only kill the PTY if we own it (spawn-mode). In attach-mode the
 			// session-store owns the lifecycle.
 			if (ownedPty) {
