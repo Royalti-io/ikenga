@@ -40,6 +40,12 @@ use crate::commands::claude_config::{
 use crate::commands::db::PaDb;
 use crate::commands::projects::get_project;
 
+/// WP-03 merge engine — JSON-fragment (hook/mcp) splice into Claude Code's
+/// settings files. `claude_store/merge.rs` (file sits in the same-named subdir
+/// next to this file). We call its pure, synchronous API; the async
+/// `project:<id>` → `root_path` resolution stays here (`resolve_scope_root`).
+mod merge;
+
 // ─── Wire types (mirror the frozen G-CONTRACT) ───────────────────────────────
 
 /// A single catalog entry in the central store (Ọba). Mirrors
@@ -440,6 +446,205 @@ async fn resolve_scope_claude(db: &Arc<PaDb>, scope: &str) -> Result<PathBuf, St
     Ok(root.join(".claude"))
 }
 
+/// Resolve a `ClaudeStoreScope` string to the `project_root` the WP-03 merge
+/// engine expects: `None` for `workspace` (merge then targets `~/.claude/...`
+/// and `~/.claude.json`), or `Some(<project.root_path>)` for `project:<id>`.
+///
+/// This is the JSON-fragment sibling of [`resolve_scope_claude`]: same scope
+/// grammar (`validate_pin_scope`), same DB lookup (`get_project`), same
+/// `~`-expansion — it just stops one level up (the project root itself, the
+/// parent of `.claude`) because `merge` owns the `.claude` / `.mcp.json` /
+/// `.claude.json` suffix per scope+kind. We do **not** invent a second
+/// resolver: this funnels through the identical `get_project` path
+/// `resolve_scope_claude` uses, just returning the root instead of `root/.claude`.
+async fn resolve_scope_root(db: &Arc<PaDb>, scope: &str) -> Result<Option<PathBuf>, String> {
+    validate_pin_scope(scope)?;
+    if scope == "workspace" {
+        return Ok(None);
+    }
+    let id = scope
+        .strip_prefix("project:")
+        .ok_or_else(|| format!("unexpected scope {scope:?}"))?;
+    let pool = db.ensure_pool().await?;
+    let project = get_project(&pool, id)
+        .await?
+        .ok_or_else(|| format!("no project with id {id:?}"))?;
+    let root = project
+        .root_path
+        .ok_or_else(|| format!("project {id:?} has no root_path"))?;
+    let root = expand(&root).map_err(|e| e.to_string())?;
+    Ok(Some(root))
+}
+
+// ─── JSON-fragment (hook/mcp) store fragments ─────────────────────────────────
+//
+// The store keeps hook/mcp primitives as JSON fragments alongside the
+// file-based ones, under `<store>/{hooks,mcp}/<name>.json`. "Enabling" a
+// fragment in a scope splices its block into that scope's settings file via
+// the WP-03 merge engine; it never symlinks (JSON primitives aren't files in a
+// farm). The on-disk fragment is the catalog entry — scope toggles read it but
+// never delete it (deleting the catalog entry is a separate store op).
+
+/// Hook fragment schema (`<store>/hooks/<name>.json`). Carries everything
+/// `merge::enable_hook` needs beyond the scope:
+///
+/// ```json
+/// {
+///   "event": "PreToolUse",        // the hooks.<event> key the block lands at
+///   "file": "shared",             // "shared" → settings.json | "local" → settings.local.json
+///   "block": [                    // value placed at hooks.<event> (Claude Code's
+///     { "matcher": "Bash",        //   per-event array of matcher groups)
+///       "hooks": [ { "type": "command", "command": "echo hi" } ] }
+///   ]
+/// }
+/// ```
+///
+/// `event` and `block` are required; `file` defaults to `shared` when absent.
+#[derive(Debug, Clone, Deserialize)]
+struct HookFragment {
+    event: String,
+    #[serde(default)]
+    file: HookFileTag,
+    block: serde_json::Value,
+}
+
+/// Target settings file for a hook fragment. Mirrors `merge::HookFile`;
+/// kept as a local wire enum so the fragment JSON uses lowercase tags.
+#[derive(Debug, Clone, Copy, Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum HookFileTag {
+    #[default]
+    Shared,
+    Local,
+}
+
+impl HookFileTag {
+    fn to_merge(self) -> merge::HookFile {
+        match self {
+            HookFileTag::Shared => merge::HookFile::Shared,
+            HookFileTag::Local => merge::HookFile::Local,
+        }
+    }
+}
+
+/// On-disk path of a hook/mcp fragment in the store: `<store>/<kind-dir>/<name>.json`.
+/// `kind-dir` is `hooks` for [`Kind::Hook`] and `mcp` for [`Kind::Mcp`].
+fn fragment_path(store: &Path, kind: Kind, name: &str) -> Result<PathBuf, String> {
+    let dir = match kind {
+        Kind::Hook => "hooks",
+        Kind::Mcp => "mcp",
+        other => return Err(format!("kind {} has no JSON fragment", other.as_str())),
+    };
+    Ok(store.join(dir).join(format!("{name}.json")))
+}
+
+/// Read + parse a hook fragment from the store.
+fn read_hook_fragment(store: &Path, name: &str) -> Result<HookFragment, String> {
+    let path = fragment_path(store, Kind::Hook, name)?;
+    let raw = std::fs::read_to_string(&path)
+        .map_err(|e| format!("read hook fragment {}: {e}", path.display()))?;
+    serde_json::from_str(&raw).map_err(|e| format!("parse hook fragment {}: {e}", path.display()))
+}
+
+/// Read the MCP `server_def` from the store. For MCP the fragment file content
+/// **is** the `server_def` value (the object placed at `mcpServers.<name>`).
+fn read_mcp_fragment(store: &Path, name: &str) -> Result<serde_json::Value, String> {
+    let path = fragment_path(store, Kind::Mcp, name)?;
+    let raw = std::fs::read_to_string(&path)
+        .map_err(|e| format!("read mcp fragment {}: {e}", path.display()))?;
+    serde_json::from_str(&raw).map_err(|e| format!("parse mcp fragment {}: {e}", path.display()))
+}
+
+/// The settings file a hook/mcp enable/disable actually touches, for the
+/// returned `ClaudeStoreMutation.path`. Mirrors `merge`'s own path resolution
+/// (kept in lockstep): hooks land in `<root|~>/.claude/settings{,.local}.json`;
+/// MCP lands in `<root>/.mcp.json` (project) or `~/.claude.json` (workspace).
+/// `project_root.is_some()` ⇔ a `project:<id>` scope; `None` ⇔ `workspace`.
+fn fragment_target_path(
+    kind: Kind,
+    project_root: Option<&Path>,
+    hook_file: Option<HookFileTag>,
+) -> Result<PathBuf, String> {
+    let home = || {
+        std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .ok_or_else(|| "HOME not set".to_string())
+    };
+    match kind {
+        Kind::Hook => {
+            let leaf = match hook_file.unwrap_or_default() {
+                HookFileTag::Shared => "settings.json",
+                HookFileTag::Local => "settings.local.json",
+            };
+            let claude = match project_root {
+                Some(root) => root.join(".claude"),
+                None => home()?.join(".claude"),
+            };
+            Ok(claude.join(leaf))
+        }
+        Kind::Mcp => match project_root {
+            Some(root) => Ok(root.join(".mcp.json")),
+            None => Ok(home()?.join(".claude.json")),
+        },
+        other => Err(format!("kind {} has no settings target", other.as_str())),
+    }
+}
+
+/// Splice a hook/mcp fragment's block into `scope`'s settings file via the
+/// merge engine (enable-in-scope). Returns the settings file touched (for the
+/// `ClaudeStoreMutation.path`). Shared by enable / copy / move (the dest leg).
+fn enable_fragment_in_scope(
+    store: &Path,
+    kind: Kind,
+    name: &str,
+    scope: &str,
+    project_root: Option<&Path>,
+) -> Result<PathBuf, String> {
+    match kind {
+        Kind::Hook => {
+            let frag = read_hook_fragment(store, name)?;
+            merge::enable_hook(
+                scope,
+                project_root,
+                frag.file.to_merge(),
+                &frag.event,
+                frag.block,
+            )
+            .map_err(|e| e.to_string())?;
+            fragment_target_path(Kind::Hook, project_root, Some(frag.file))
+        }
+        Kind::Mcp => {
+            let server_def = read_mcp_fragment(store, name)?;
+            merge::enable_mcp(scope, project_root, name, server_def).map_err(|e| e.to_string())?;
+            fragment_target_path(Kind::Mcp, project_root, None)
+        }
+        other => Err(format!("kind {} is not a JSON fragment", other.as_str())),
+    }
+}
+
+/// Remove a hook/mcp fragment's spliced block from `scope`'s settings file via
+/// the merge engine (disable-in-scope). For hooks the event/file are read from
+/// the store fragment. Shared by disable / move (the source leg).
+fn disable_fragment_in_scope(
+    store: &Path,
+    kind: Kind,
+    name: &str,
+    scope: &str,
+    project_root: Option<&Path>,
+) -> Result<(), String> {
+    match kind {
+        Kind::Hook => {
+            let frag = read_hook_fragment(store, name)?;
+            merge::disable_hook(scope, project_root, frag.file.to_merge(), &frag.event)
+                .map_err(|e| e.to_string())
+        }
+        Kind::Mcp => {
+            merge::disable_mcp(scope, project_root, name).map_err(|e| e.to_string())
+        }
+        other => Err(format!("kind {} is not a JSON fragment", other.as_str())),
+    }
+}
+
 // ─── Core mutation logic (pure; takes resolved roots) ─────────────────────────
 
 /// `claude_store_import` core: copy an on-disk primitive into the store as the
@@ -690,11 +895,18 @@ pub async fn claude_primitive_enable(
     let k = Kind::parse(&kind)?;
     validate_name(&name)?;
     if !k.is_file_based() {
-        // ORCHESTRATOR-WIRE: delegate to claude_store::merge for hook/mcp (WP-03) at integration
-        return Err(format!(
-            "enable {}: hook/mcp toggling is owned by the WP-03 merge engine (not yet wired)",
-            k.as_str()
-        ));
+        // hook/mcp: read the store fragment and splice it into `scope`'s
+        // settings file via the WP-03 merge engine. No symlink → link_target None.
+        let store = store_root().ok_or_else(|| "cannot resolve store root".to_string())?;
+        let root = resolve_scope_root(&db, &scope).await?;
+        let target = enable_fragment_in_scope(&store, k, &name, &scope, root.as_deref())?;
+        return Ok(ClaudeStoreMutation {
+            kind: k.as_str().to_string(),
+            name,
+            scope,
+            path: target.to_string_lossy().to_string(),
+            link_target: None,
+        });
     }
     let store = store_root().ok_or_else(|| "cannot resolve store root".to_string())?;
     let scope_claude = resolve_scope_claude(&db, &scope).await?;
@@ -713,11 +925,12 @@ pub async fn claude_primitive_disable(
     let k = Kind::parse(&kind)?;
     validate_name(&name)?;
     if !k.is_file_based() {
-        // ORCHESTRATOR-WIRE: delegate to claude_store::merge for hook/mcp (WP-03) at integration
-        return Err(format!(
-            "disable {}: hook/mcp toggling is owned by the WP-03 merge engine (not yet wired)",
-            k.as_str()
-        ));
+        // hook/mcp: remove the spliced block from `scope`'s settings file via
+        // the merge engine. For hooks the event/file come from the fragment.
+        let store = store_root().ok_or_else(|| "cannot resolve store root".to_string())?;
+        let root = resolve_scope_root(&db, &scope).await?;
+        disable_fragment_in_scope(&store, k, &name, &scope, root.as_deref())?;
+        return Ok(());
     }
     let scope_claude = resolve_scope_claude(&db, &scope).await?;
     disable_core(&scope_claude, k, &name)
@@ -736,11 +949,18 @@ pub async fn claude_primitive_copy(
     let k = Kind::parse(&kind)?;
     validate_name(&name)?;
     if !k.is_file_based() {
-        // ORCHESTRATOR-WIRE: delegate to claude_store::merge for hook/mcp (WP-03) at integration
-        return Err(format!(
-            "copy {}: hook/mcp fragments are owned by the WP-03 merge engine (not yet wired)",
-            k.as_str()
-        ));
+        // hook/mcp copy = enable-in-dest; fromScope is left untouched. The store
+        // fragment is the single source of truth for the block we splice.
+        let store = store_root().ok_or_else(|| "cannot resolve store root".to_string())?;
+        let dest_root = resolve_scope_root(&db, &toScope).await?;
+        let target = enable_fragment_in_scope(&store, k, &name, &toScope, dest_root.as_deref())?;
+        return Ok(ClaudeStoreMutation {
+            kind: k.as_str().to_string(),
+            name,
+            scope: toScope,
+            path: target.to_string_lossy().to_string(),
+            link_target: None,
+        });
     }
     let from_claude = resolve_scope_claude(&db, &fromScope).await?;
     let to_claude = resolve_scope_claude(&db, &toScope).await?;
@@ -760,11 +980,21 @@ pub async fn claude_primitive_move(
     let k = Kind::parse(&kind)?;
     validate_name(&name)?;
     if !k.is_file_based() {
-        // ORCHESTRATOR-WIRE: delegate to claude_store::merge for hook/mcp (WP-03) at integration
-        return Err(format!(
-            "move {}: hook/mcp fragments are owned by the WP-03 merge engine (not yet wired)",
-            k.as_str()
-        ));
+        // hook/mcp move = enable-in-dest THEN disable-in-source. Ordered so a
+        // crash between the two legs degrades to "present in both" (a copy),
+        // never to loss — mirrors the file-based move's copy-then-remove safety.
+        let store = store_root().ok_or_else(|| "cannot resolve store root".to_string())?;
+        let dest_root = resolve_scope_root(&db, &toScope).await?;
+        let src_root = resolve_scope_root(&db, &fromScope).await?;
+        let target = enable_fragment_in_scope(&store, k, &name, &toScope, dest_root.as_deref())?;
+        disable_fragment_in_scope(&store, k, &name, &fromScope, src_root.as_deref())?;
+        return Ok(ClaudeStoreMutation {
+            kind: k.as_str().to_string(),
+            name,
+            scope: toScope,
+            path: target.to_string_lossy().to_string(),
+            link_target: None,
+        });
     }
     let from_claude = resolve_scope_claude(&db, &fromScope).await?;
     let to_claude = resolve_scope_claude(&db, &toScope).await?;
@@ -783,11 +1013,14 @@ pub async fn claude_primitive_remove(
     let k = Kind::parse(&kind)?;
     validate_name(&name)?;
     if !k.is_file_based() {
-        // ORCHESTRATOR-WIRE: delegate to claude_store::merge for hook/mcp (WP-03) at integration
-        return Err(format!(
-            "remove {}: hook/mcp fragments are owned by the WP-03 merge engine (not yet wired)",
-            k.as_str()
-        ));
+        // hook/mcp scope-local remove = disable in that scope. Per the contract
+        // `remove(scope)` is scope-local, so we splice the block OUT of `scope`'s
+        // settings but leave the store fragment in the catalog (deleting the
+        // catalog entry is a separate store op).
+        let store = store_root().ok_or_else(|| "cannot resolve store root".to_string())?;
+        let root = resolve_scope_root(&db, &scope).await?;
+        disable_fragment_in_scope(&store, k, &name, &scope, root.as_deref())?;
+        return Ok(());
     }
     let scope_claude = resolve_scope_claude(&db, &scope).await?;
     remove_core(&scope_claude, k, &name)
@@ -1164,6 +1397,183 @@ mod tests {
         assert!(is_enabled_in(&scope, &store, Kind::Agent, "a"));
         disable_core(&scope, Kind::Agent, "a").unwrap();
         assert!(!is_enabled_in(&scope, &store, Kind::Agent, "a"));
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    // ── JSON-fragment (hook/mcp) wiring: store-fragment → merge engine ────
+    //
+    // These exercise the integration seam this WP owns: read a store fragment,
+    // splice/unsplice it via the merge engine, and (for the dest path) report
+    // the right settings file. They use a project scope with an explicit root
+    // so no HOME override is needed for the project legs; the move test threads
+    // both a project src and project dest.
+
+    use serde_json::{json, Value};
+
+    /// Write a hook fragment into the store catalog.
+    fn seed_hook_fragment(store: &Path, name: &str, event: &str, file: &str, block: Value) {
+        let p = fragment_path(store, Kind::Hook, name).unwrap();
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        let frag = json!({ "event": event, "file": file, "block": block });
+        std::fs::write(&p, serde_json::to_string_pretty(&frag).unwrap()).unwrap();
+    }
+
+    /// Write an MCP fragment — its content IS the server_def.
+    fn seed_mcp_fragment(store: &Path, name: &str, server_def: Value) {
+        let p = fragment_path(store, Kind::Mcp, name).unwrap();
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(&p, serde_json::to_string_pretty(&server_def).unwrap()).unwrap();
+    }
+
+    /// MCP enable splices ONLY `mcpServers.<name>` into `<root>/.mcp.json`,
+    /// preserving every unrelated key; disable removes only that block.
+    #[test]
+    fn mcp_fragment_enable_disable_splices_one_key() {
+        let base = unique_tmp("mcp_frag");
+        let store = base.join("store");
+        std::fs::create_dir_all(&store).unwrap();
+        // Project root (parent of .claude) — the merge engine writes .mcp.json here.
+        let proj = base.join("proj");
+        std::fs::create_dir_all(&proj).unwrap();
+
+        // Seed an existing .mcp.json with an unrelated server we must preserve.
+        let mcp_json = proj.join(".mcp.json");
+        std::fs::write(
+            &mcp_json,
+            serde_json::to_string_pretty(&json!({
+                "mcpServers": { "exa": { "type": "stdio", "command": "exa-mcp" } }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let def = json!({ "type": "stdio", "command": "royalti-mcp", "args": ["--stdio"] });
+        seed_mcp_fragment(&store, "royalti", def.clone());
+
+        // enable-in-scope → block spliced, exa preserved, target is .mcp.json.
+        let target =
+            enable_fragment_in_scope(&store, Kind::Mcp, "royalti", "project:p", Some(&proj))
+                .unwrap();
+        assert_eq!(target, mcp_json, "MCP target is <root>/.mcp.json");
+        let after: Value = serde_json::from_slice(&std::fs::read(&mcp_json).unwrap()).unwrap();
+        assert_eq!(after.pointer("/mcpServers/royalti").unwrap(), &def);
+        assert!(
+            after.pointer("/mcpServers/exa").is_some(),
+            "unrelated server preserved"
+        );
+
+        // disable-in-scope → only the royalti block removed; exa survives.
+        disable_fragment_in_scope(&store, Kind::Mcp, "royalti", "project:p", Some(&proj)).unwrap();
+        let after2: Value = serde_json::from_slice(&std::fs::read(&mcp_json).unwrap()).unwrap();
+        assert!(after2.pointer("/mcpServers/royalti").is_none(), "royalti removed");
+        assert!(after2.pointer("/mcpServers/exa").is_some(), "exa untouched");
+
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    /// Hook enable lands the fragment's block at `hooks.<event>` in the right
+    /// settings file (shared vs local driven by the fragment's `file` tag).
+    #[test]
+    fn hook_fragment_enable_lands_block_in_right_file() {
+        let base = unique_tmp("hook_frag");
+        let store = base.join("store");
+        std::fs::create_dir_all(&store).unwrap();
+        let proj = base.join("proj");
+        std::fs::create_dir_all(&proj).unwrap();
+
+        let block = json!([
+            { "matcher": "Bash", "hooks": [ { "type": "command", "command": "echo hi" } ] }
+        ]);
+        // file: "local" → settings.local.json.
+        seed_hook_fragment(&store, "guard", "PreToolUse", "local", block.clone());
+
+        let target =
+            enable_fragment_in_scope(&store, Kind::Hook, "guard", "project:p", Some(&proj))
+                .unwrap();
+        let expected = proj.join(".claude").join("settings.local.json");
+        assert_eq!(target, expected, "hook 'local' → settings.local.json");
+
+        let after: Value = serde_json::from_slice(&std::fs::read(&expected).unwrap()).unwrap();
+        assert_eq!(
+            after.pointer("/hooks/PreToolUse").unwrap(),
+            &block,
+            "block landed at hooks.PreToolUse"
+        );
+        // settings.json (shared) was NOT created — the fragment targeted local.
+        assert!(
+            !proj.join(".claude").join("settings.json").exists(),
+            "shared file untouched"
+        );
+
+        disable_fragment_in_scope(&store, Kind::Hook, "guard", "project:p", Some(&proj)).unwrap();
+        let after2: Value = serde_json::from_slice(&std::fs::read(&expected).unwrap()).unwrap();
+        assert!(after2.pointer("/hooks/PreToolUse").is_none(), "block removed on disable");
+
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    /// move = enable-in-dest + disable-in-source: present in dest, absent in
+    /// source. Both legs use explicit project roots.
+    #[test]
+    fn mcp_fragment_move_present_in_dest_absent_in_source() {
+        let base = unique_tmp("mcp_move");
+        let store = base.join("store");
+        std::fs::create_dir_all(&store).unwrap();
+        let src = base.join("src");
+        let dst = base.join("dst");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::create_dir_all(&dst).unwrap();
+
+        let def = json!({ "type": "stdio", "command": "royalti-mcp" });
+        seed_mcp_fragment(&store, "royalti", def.clone());
+
+        // Pre-enable in source so move has something to disable there.
+        enable_fragment_in_scope(&store, Kind::Mcp, "royalti", "project:s", Some(&src)).unwrap();
+        assert!(src.join(".mcp.json").exists());
+
+        // Now the move legs (mirrors the command arm's ordering).
+        enable_fragment_in_scope(&store, Kind::Mcp, "royalti", "project:d", Some(&dst)).unwrap();
+        disable_fragment_in_scope(&store, Kind::Mcp, "royalti", "project:s", Some(&src)).unwrap();
+
+        let in_dst: Value = serde_json::from_slice(&std::fs::read(dst.join(".mcp.json")).unwrap())
+            .unwrap();
+        assert_eq!(
+            in_dst.pointer("/mcpServers/royalti").unwrap(),
+            &def,
+            "present in dest after move"
+        );
+        let in_src: Value = serde_json::from_slice(&std::fs::read(src.join(".mcp.json")).unwrap())
+            .unwrap();
+        assert!(
+            in_src.pointer("/mcpServers/royalti").is_none(),
+            "absent in source after move"
+        );
+
+        // Store fragment is NOT deleted by scope-local ops.
+        assert!(fragment_path(&store, Kind::Mcp, "royalti").unwrap().exists());
+
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    /// Fragment schema: `file` defaults to `shared` when omitted; `event` +
+    /// `block` are carried through.
+    #[test]
+    fn hook_fragment_file_defaults_to_shared() {
+        let base = unique_tmp("hook_default");
+        let store = base.join("store");
+        std::fs::create_dir_all(&store).unwrap();
+        let p = fragment_path(&store, Kind::Hook, "h").unwrap();
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        // No "file" key.
+        std::fs::write(&p, r#"{ "event": "Stop", "block": [] }"#).unwrap();
+        let frag = read_hook_fragment(&store, "h").unwrap();
+        assert_eq!(frag.event, "Stop");
+        assert!(matches!(frag.file, HookFileTag::Shared));
+        let proj = base.join("proj");
+        std::fs::create_dir_all(&proj).unwrap();
+        let target =
+            enable_fragment_in_scope(&store, Kind::Hook, "h", "project:p", Some(&proj)).unwrap();
+        assert_eq!(target, proj.join(".claude").join("settings.json"));
         std::fs::remove_dir_all(&base).ok();
     }
 }
