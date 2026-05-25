@@ -461,7 +461,13 @@ pub fn run() {
             .title("Ikenga")
             .inner_size(1280.0, 800.0)
             .min_inner_size(960.0, 600.0)
-            .resizable(true);
+            .resizable(true)
+            // Disable Tauri's OS-level drag-drop handler so the webview's own
+            // HTML5 drag-and-drop is authoritative. On macOS WKWebView the
+            // native handler intercepts drag operations before the page sees
+            // them, breaking in-page DnD (pane split/move, composer file-drop).
+            // Nothing in the app consumes Tauri's native drag-drop events.
+            .disable_drag_drop_handler();
             // Overlay title-bar + hidden title are macOS-only; the rest of
             // the window config applies on every platform.
             #[cfg(target_os = "macos")]
