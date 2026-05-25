@@ -1301,6 +1301,14 @@ button.ccfg-tree-row.dir:hover {
    borderless washes. These overrides restore visible structure:
    accent-tinted callouts + crisper content-well borders.
    ============================================================ */
+/* Legibility floor for the faint micro-labels (section headers, list-meta,
+   scope/meta chips, event counts). Every warm light theme ships the same
+   --fg-faint (hsl 28,12%,56%), which is borderline on the ~96% cream bg —
+   so we darken the variable toward --fg-muted *within the surface* rather
+   than per-theme. Stays token-derived + theme-aware; dark mode untouched. */
+:root[data-mode="light"] .ccfg {
+	--fg-faint: color-mix(in srgb, var(--fg-muted) 85%, var(--bg-base));
+}
 :root[data-mode="light"] .ngwa-mech {
 	background: color-mix(in srgb, var(--primary) 9%, var(--bg-surface));
 	border-color: color-mix(in srgb, var(--primary) 28%, var(--border));
