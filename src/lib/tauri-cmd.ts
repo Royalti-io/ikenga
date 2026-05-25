@@ -1361,7 +1361,9 @@ export interface ClaudeStoreMutation {
 //
 // The flag defaults to ON in dev builds and OFF in production builds; the
 // explicit `false` cutover removes the mock in every build.
-const NGWA_STORE_MOCK: boolean = !!import.meta.env.DEV;
+// Cut over to live by the orchestrator at Phase-1 backend integration (WP-02/03/04
+// landed + wired). Wrappers now fall through to their frozen `invoke(...)` bodies.
+const NGWA_STORE_MOCK: boolean = false;
 
 /** In-memory catalog the mock resolves against. Mock mutations mutate it so
  *  the UI sees enable/disable/copy/move/remove reflect immediately during dev.
