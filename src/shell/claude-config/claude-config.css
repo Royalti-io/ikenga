@@ -576,6 +576,13 @@ button.ccfg-tree-row.dir:hover {
 	--st-disabled: var(--fg-faint);
 	--st-local: var(--achievement);
 	--st-orphaned: var(--danger);
+	/* Node-kind identity colours for the Analyze surfaces (Phase 4 · D-06/D-07).
+	 * Warm, in-theme; one hue per primitive kind. */
+	--nk-command: hsl(20, 64%, 54%);
+	--nk-agent: hsl(284, 48%, 64%);
+	--nk-skill: hsl(42, 84%, 60%);
+	--nk-mcp: hsl(170, 44%, 52%);
+	--nk-hook: hsl(8, 74%, 58%);
 }
 
 /* ── header: mode toggle + engine seam (G-02) ── */
@@ -1330,4 +1337,618 @@ button.ccfg-tree-row.dir:hover {
 :root[data-mode="light"] .ccfg-tree {
 	background: var(--bg-raised);
 	border-color: var(--border);
+}
+
+/* ====================================================================== */
+/* === Analyze surfaces (Phase 4 · D-06 capability graph · D-07 map) ==== */
+
+.ngwa-analyze-empty {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	height: 100%;
+	padding: var(--space-6);
+	text-align: center;
+	color: var(--fg-faint);
+	font-size: 12.5px;
+	line-height: 1.6;
+	max-width: 460px;
+	margin: 0 auto;
+}
+
+/* ── Capability graph ── */
+.ngwa-graph {
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+	height: 100%;
+	overflow: hidden;
+}
+.ngwa-graph-toolbar {
+	display: flex;
+	align-items: center;
+	gap: var(--space-3);
+	padding: 8px var(--space-4);
+	border-bottom: 1px solid var(--border-soft);
+	background: var(--bg-base);
+	flex-shrink: 0;
+	flex-wrap: wrap;
+}
+.ngwa-seg {
+	display: flex;
+	background: var(--bg-sunken);
+	border: 1px solid var(--border-soft);
+	border-radius: var(--radius-sm);
+	padding: 2px;
+	gap: 2px;
+}
+.ngwa-seg button {
+	border: 0;
+	background: transparent;
+	border-radius: var(--radius-xs);
+	padding: 4px 12px;
+	font-family: var(--font-mono);
+	font-size: 11px;
+	color: var(--fg-faint);
+	cursor: pointer;
+	transition: background 0.12s, color 0.12s;
+}
+.ngwa-seg button.on {
+	background: var(--bg-raised);
+	color: var(--tint-fg-active, var(--primary));
+}
+.ngwa-graph-meta {
+	font-family: var(--font-mono);
+	font-size: 10px;
+	color: var(--fg-faint);
+	font-variant-numeric: tabular-nums;
+}
+.ngwa-graph-spacer {
+	flex: 1;
+}
+.ngwa-kind-filter {
+	display: flex;
+	gap: 4px;
+}
+.ngwa-kf {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 3px 9px;
+	font-family: var(--font-mono);
+	font-size: 10px;
+	color: var(--fg-muted);
+	background: transparent;
+	border: 1px solid var(--border-soft);
+	border-radius: var(--radius-pill);
+	cursor: pointer;
+	transition: border-color 0.12s, opacity 0.12s;
+}
+.ngwa-kf:hover {
+	border-color: var(--border-strong);
+}
+.ngwa-kf.off {
+	opacity: 0.35;
+}
+.ngwa-kf .kd {
+	width: 7px;
+	height: 7px;
+	border-radius: 50%;
+}
+.ngwa-heur {
+	padding: 3px 9px;
+	font-family: var(--font-mono);
+	font-size: 10px;
+	color: var(--fg-muted);
+	background: transparent;
+	border: 1px solid var(--border-soft);
+	border-radius: var(--radius-pill);
+	cursor: pointer;
+}
+.ngwa-heur.off {
+	color: var(--fg-faint);
+}
+.ngwa-graph-stage {
+	flex: 1;
+	position: relative;
+	overflow: hidden;
+	min-height: 0;
+	background:
+		radial-gradient(ellipse 70% 60% at 50% 45%, color-mix(in srgb, var(--bg-raised) 60%, transparent), transparent 70%),
+		var(--bg-base);
+}
+.ngwa-graph-svg {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+}
+.ngwa-arc-label {
+	font-family: var(--font-mono);
+	font-size: 10px;
+	letter-spacing: 0.12em;
+	font-weight: 500;
+}
+.ngwa-gnode {
+	cursor: pointer;
+}
+.ngwa-gnode-label {
+	font-family: var(--font-sans);
+	font-size: 10.5px;
+	user-select: none;
+}
+
+/* graph detail card (shared by both modes) */
+.ngwa-graph-detail {
+	position: absolute;
+	top: 16px;
+	right: 16px;
+	width: 256px;
+	background: color-mix(in srgb, var(--bg-surface) 86%, transparent);
+	backdrop-filter: blur(14px);
+	-webkit-backdrop-filter: blur(14px);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-lg);
+	box-shadow: var(--shadow-3);
+	padding: 15px;
+	z-index: 5;
+}
+.ngwa-gd-kind {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	font-family: var(--font-mono);
+	font-size: 9.5px;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+	padding: 3px 9px;
+	border-radius: var(--radius-pill);
+	margin-bottom: 9px;
+	color: var(--accent);
+	background: color-mix(in srgb, var(--accent) 16%, var(--bg-raised));
+}
+.ngwa-gd-kind .dd {
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	background: var(--accent);
+}
+.ngwa-gd-name {
+	font-size: 16px;
+	font-weight: 600;
+	letter-spacing: -0.02em;
+	line-height: 1.1;
+	color: var(--fg);
+}
+.ngwa-gd-scope {
+	font-family: var(--font-mono);
+	font-size: 10px;
+	color: var(--fg-faint);
+	margin-top: 4px;
+}
+.ngwa-gd-desc {
+	font-size: 12px;
+	color: var(--fg-muted);
+	line-height: 1.5;
+	margin: 10px 0;
+	padding: 10px 0;
+	border-top: 1px solid var(--border-soft);
+	border-bottom: 1px solid var(--border-soft);
+}
+.ngwa-gd-ch {
+	display: flex;
+	justify-content: space-between;
+	font-family: var(--font-mono);
+	font-size: 9px;
+	letter-spacing: 0.1em;
+	text-transform: uppercase;
+	color: var(--fg-faint);
+	margin: 8px 0 6px;
+}
+.ngwa-gd-conn {
+	display: flex;
+	align-items: center;
+	gap: 9px;
+	padding: 4px 0;
+	font-size: 12px;
+}
+.ngwa-gd-conn .ar {
+	font-family: var(--font-mono);
+	font-size: 11px;
+	width: 14px;
+	text-align: center;
+}
+.ngwa-gd-conn .ar.out {
+	color: var(--tint-fg-active, var(--primary));
+}
+.ngwa-gd-conn .ar.in {
+	color: var(--systemic);
+}
+.ngwa-gd-conn .tg {
+	color: var(--fg-muted);
+}
+.ngwa-gd-conn .rl {
+	margin-left: auto;
+	font-family: var(--font-mono);
+	font-size: 9px;
+	color: var(--fg-faint);
+}
+
+/* ── Swimlane flow ── */
+.ngwa-swim {
+	position: absolute;
+	inset: 0;
+	overflow: auto;
+}
+.ngwa-swim-edges {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	pointer-events: none;
+	z-index: 2;
+}
+.ngwa-swim-cols {
+	display: grid;
+	grid-template-columns: 1fr 1fr 1fr;
+	min-height: 100%;
+	position: relative;
+	z-index: 1;
+}
+.ngwa-swim-col {
+	padding: 12px 20px 24px;
+	border-right: 1px solid var(--border-soft);
+	display: flex;
+	flex-direction: column;
+}
+.ngwa-swim-col:last-child {
+	border-right: none;
+}
+.ngwa-swim-colh {
+	position: sticky;
+	top: 0;
+	background: linear-gradient(180deg, var(--bg-base) 74%, transparent);
+	padding: 6px 0 12px;
+	font-family: var(--font-mono);
+	font-size: 10px;
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+	color: var(--fg-muted);
+	font-weight: 500;
+	z-index: 3;
+}
+.ngwa-swim-subh {
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	font-family: var(--font-mono);
+	font-size: 9px;
+	letter-spacing: 0.1em;
+	text-transform: uppercase;
+	color: var(--fg-faint);
+	margin: 12px 0 7px;
+}
+.ngwa-swim-subh .kd {
+	width: 7px;
+	height: 7px;
+	border-radius: 50%;
+}
+.ngwa-swim-stack {
+	display: flex;
+	flex-direction: column;
+	gap: 9px;
+}
+.ngwa-gcard {
+	position: relative;
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	background: var(--bg-surface);
+	border: 1px solid var(--border-soft);
+	border-radius: var(--radius-md);
+	padding: 9px 12px 9px 13px;
+	cursor: pointer;
+	overflow: hidden;
+	transition: border-color 0.14s, transform 0.14s, background 0.14s;
+}
+.ngwa-gcard::before {
+	content: "";
+	position: absolute;
+	left: 0;
+	top: 0;
+	bottom: 0;
+	width: 3px;
+	background: var(--accent);
+}
+.ngwa-gcard:hover {
+	border-color: var(--border-strong);
+	transform: translateX(1px);
+}
+.ngwa-gcard.sel {
+	border-color: var(--tint-fg-active, var(--primary));
+	background: var(--bg-raised);
+	box-shadow: 0 0 0 1px var(--tint-fg-active, var(--primary));
+}
+.ngwa-gcard.dim {
+	opacity: 0.28;
+}
+.ngwa-gcard-ic {
+	width: 30px;
+	height: 30px;
+	border-radius: var(--radius-sm);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-family: var(--font-mono);
+	font-size: 13px;
+	flex-shrink: 0;
+	color: var(--accent);
+	background: color-mix(in srgb, var(--accent) 16%, var(--bg-raised));
+}
+.ngwa-gcard-tx {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+}
+.ngwa-gcard-nm {
+	font-size: 12.5px;
+	font-weight: 500;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+.ngwa-gcard-sc {
+	font-family: var(--font-mono);
+	font-size: 9px;
+	color: var(--fg-faint);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	margin-top: 2px;
+}
+.ngwa-gcard-deg {
+	flex-shrink: 0;
+	font-family: var(--font-mono);
+	font-size: 10px;
+	color: var(--fg-faint);
+	background: var(--bg-base);
+	border: 1px solid var(--border-soft);
+	border-radius: var(--radius-pill);
+	min-width: 20px;
+	height: 20px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 0 6px;
+}
+.ngwa-gcard.sel .ngwa-gcard-deg {
+	color: var(--tint-fg-active, var(--primary));
+	border-color: color-mix(in srgb, var(--tint-fg-active, var(--primary)) 40%, var(--border));
+}
+
+/* ── Store map · presence matrix ── */
+.ngwa-matrix-wrap {
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+	height: 100%;
+	overflow: hidden;
+}
+.ngwa-matrix {
+	flex: 1;
+	overflow: auto;
+	display: block;
+	border-collapse: separate;
+	border-spacing: 0;
+	padding: 18px 24px;
+	min-width: min-content;
+}
+.ngwa-matrix th,
+.ngwa-matrix td {
+	padding: 0;
+}
+.ngwa-mx-corner {
+	position: sticky;
+	left: 0;
+	top: 0;
+	z-index: 4;
+	background: var(--bg-base);
+	text-align: left;
+	vertical-align: bottom;
+	padding: 0 16px 12px 0;
+	font-family: var(--font-mono);
+	font-size: 9.5px;
+	letter-spacing: 0.1em;
+	text-transform: uppercase;
+	color: var(--fg-faint);
+}
+.ngwa-mx-colh {
+	vertical-align: bottom;
+	padding: 0 4px 12px;
+	text-align: center;
+	position: sticky;
+	top: 0;
+	background: linear-gradient(180deg, var(--bg-base) 72%, transparent);
+	z-index: 2;
+}
+.ngwa-mx-colcard {
+	display: inline-flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 5px;
+	width: 92px;
+}
+.ngwa-mx-colnm {
+	font-size: 11px;
+	font-weight: 600;
+	line-height: 1.2;
+	text-align: center;
+	max-width: 88px;
+	color: var(--fg);
+}
+.ngwa-mx-colh.lit .ngwa-mx-colnm {
+	color: var(--tint-fg-active, var(--primary));
+}
+.ngwa-mx-kindrow td {
+	padding: 14px 0 6px;
+}
+.ngwa-mx-kindlbl {
+	position: sticky;
+	left: 0;
+	background: var(--bg-base);
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	font-family: var(--font-mono);
+	font-size: 9.5px;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+	color: var(--fg-faint);
+}
+.ngwa-mx-kindlbl .kd {
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+}
+.ngwa-mx-kindlbl .ct {
+	color: var(--border-strong);
+	margin-left: 2px;
+}
+.ngwa-mx-rowh {
+	position: sticky;
+	left: 0;
+	z-index: 1;
+	background: var(--bg-base);
+	padding: 0 16px 0 0;
+	white-space: nowrap;
+}
+.ngwa-mx-rowcard {
+	display: flex;
+	align-items: center;
+	gap: 9px;
+	padding: 6px 12px 6px 10px;
+	border-radius: var(--radius-sm);
+	transition: background 0.1s;
+	margin: 1px 0;
+}
+.ngwa-matrix tr.lit .ngwa-mx-rowcard {
+	background: color-mix(in srgb, var(--tint-fg-active, var(--primary)) 12%, transparent);
+}
+.ngwa-mx-ic {
+	width: 26px;
+	height: 26px;
+	border-radius: var(--radius-xs);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-family: var(--font-mono);
+	font-size: 12px;
+	flex-shrink: 0;
+	background: var(--bg-raised);
+}
+.ngwa-mx-nm {
+	font-size: 12.5px;
+	font-weight: 500;
+}
+.ngwa-mx-st {
+	font-family: var(--font-mono);
+	font-size: 8.5px;
+	padding: 1px 6px;
+	border-radius: var(--radius-xs);
+	margin-left: 6px;
+}
+.ngwa-mx-st.enabled {
+	background: color-mix(in srgb, var(--st-enabled) 18%, var(--bg-raised));
+	color: var(--st-enabled);
+}
+.ngwa-mx-st.disabled {
+	background: var(--bg-raised);
+	color: var(--fg-faint);
+}
+.ngwa-mx-st.local {
+	background: color-mix(in srgb, var(--st-local) 18%, var(--bg-raised));
+	color: var(--st-local);
+}
+.ngwa-mx-st.orphaned {
+	background: color-mix(in srgb, var(--st-orphaned) 18%, var(--bg-raised));
+	color: var(--st-orphaned);
+}
+.ngwa-mx-cell {
+	text-align: center;
+	height: 46px;
+	transition: background 0.12s;
+}
+.ngwa-matrix tr.lit .ngwa-mx-cell {
+	background: color-mix(in srgb, var(--bg-raised) 50%, transparent);
+}
+.ngwa-mx-dot {
+	width: 88px;
+	height: 38px;
+	margin: 0 auto;
+	border-radius: var(--radius-md);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border: 1px solid transparent;
+	transition: transform 0.14s, background 0.12s;
+}
+.ngwa-mx-dot .mark {
+	width: 14px;
+	height: 14px;
+	border-radius: 50%;
+}
+.ngwa-mx-dot.on {
+	background: color-mix(in srgb, var(--st-enabled) 16%, transparent);
+	border-color: color-mix(in srgb, var(--st-enabled) 32%, transparent);
+}
+.ngwa-mx-dot.on .mark {
+	background: var(--st-enabled);
+	box-shadow: 0 0 10px color-mix(in srgb, var(--st-enabled) 70%, transparent);
+}
+.ngwa-mx-dot.local {
+	background: color-mix(in srgb, var(--st-local) 16%, transparent);
+	border-color: color-mix(in srgb, var(--st-local) 32%, transparent);
+}
+.ngwa-mx-dot.local .mark {
+	background: var(--st-local);
+	box-shadow: 0 0 10px color-mix(in srgb, var(--st-local) 60%, transparent);
+}
+.ngwa-mx-dot.orphan {
+	background: color-mix(in srgb, var(--st-orphaned) 16%, transparent);
+	border-color: color-mix(in srgb, var(--st-orphaned) 38%, transparent);
+}
+.ngwa-mx-dot.orphan .mark {
+	width: 13px;
+	height: 13px;
+	background: transparent;
+	border: 2px solid var(--st-orphaned);
+}
+.ngwa-mx-dot.off .mark {
+	width: 5px;
+	height: 5px;
+	background: var(--border-strong);
+}
+.ngwa-matrix tr.lit .ngwa-mx-dot.on,
+.ngwa-matrix tr.lit .ngwa-mx-dot.local,
+.ngwa-matrix tr.lit .ngwa-mx-dot.orphan {
+	transform: scale(1.08);
+}
+.ngwa-matrix-foot {
+	display: flex;
+	align-items: center;
+	gap: 14px;
+	padding: 10px 24px;
+	border-top: 1px solid var(--border-soft);
+	background: var(--bg-surface);
+	font-family: var(--font-mono);
+	font-size: 10.5px;
+	color: var(--fg-muted);
+	flex-shrink: 0;
+}
+.ngwa-matrix-foot b {
+	color: var(--fg);
+}
+.ngwa-matrix-foot .sep {
+	color: var(--border-strong);
 }

@@ -49,6 +49,7 @@ import {
 } from '@/lib/queries/claude-config';
 
 import { Chips, FrontmatterGrid } from './list-detail';
+import { AnalyzeSurface } from './analyze';
 
 // ─── URL-param vocabularies (must match WP-06's ngwa-mode.tsx) ──────────────
 export type NgwaSurfaceId = 'browse' | 'registry' | 'graph' | 'map' | 'life' | 'health' | 'flow';
@@ -78,10 +79,10 @@ const ANALYZE_LABEL: Record<string, string> = {
 // Browse + Registry render off one normalized shape derived from the on-disk
 // scan (ClaudeConfig) enriched with store-catalog membership.
 
-type ItemState = 'enabled' | 'disabled' | 'local' | 'orphaned';
+export type ItemState = 'enabled' | 'disabled' | 'local' | 'orphaned';
 type ItemMech = 'link' | 'merge';
 
-interface NgwaItem {
+export interface NgwaItem {
 	id: string;
 	storeKind: ClaudeStoreKind; // skill | agent | command | hook | mcp
 	uiKind: NgwaKindId; // skills | agents | …
@@ -410,7 +411,13 @@ export function NgwaSurface({
 			</div>
 
 			{isAnalyze ? (
-				<AnalyzePlaceholder surface={surface} />
+				<AnalyzeSurface
+					surface={surface}
+					config={config}
+					scope={scope}
+					items={items}
+					store={store}
+				/>
 			) : mode === 'registry' ? (
 				<RegistrySurface
 					items={items}
@@ -436,22 +443,6 @@ export function NgwaSurface({
 			)}
 
 			<Legend />
-		</div>
-	);
-}
-
-function AnalyzePlaceholder({ surface }: { surface: NgwaSurfaceId }) {
-	return (
-		<div className="ngwa-soon">
-			<span className="badge">Coming in Phase 4</span>
-			<div style={{ fontFamily: 'var(--font-display)', fontSize: 18, color: 'var(--fg)' }}>
-				{ANALYZE_LABEL[surface]}
-			</div>
-			<div style={{ maxWidth: 420, lineHeight: 1.6, fontSize: 12 }}>
-				The Analyze surfaces — capability graph, store map, hook lifecycle, inventory &amp; health,
-				and orchestration flow — land in Phase 4. Use the Manage surfaces (Browse / Registry) to
-				inspect and edit your Claude configuration today.
-			</div>
 		</div>
 	);
 }
