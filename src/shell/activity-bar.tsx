@@ -3,6 +3,7 @@ import {
 	Folder,
 	FolderKanban,
 	Grid3x3,
+	Layers,
 	LayoutDashboard,
 	LayoutGrid,
 	ListChecks,
@@ -77,10 +78,14 @@ const CORE_TOP: CoreItem[] = [
 	{ mode: 'artifact-grid', label: 'Artifact grid', Icon: Grid3x3, shortcut: '⌘4' },
 ];
 
-// Packages sits above Settings — it's a system-level surface (registry,
-// updates, install state), not a per-workspace entry like the top rail.
+// Packages + Ngwa sit above Settings — system-level surfaces (registry,
+// Claude-config management), not per-workspace entries like the top rail.
+// Ngwa (⌘6) graduates the Claude-config browser into its own activity-bar
+// mode, replacing the old App-mode /claude NavItem. The Layers glyph reads
+// as the layered config store (Ọba) it manages.
 const CORE_BOTTOM: CoreItem[] = [
 	{ mode: 'pkgs', label: 'Packages', Icon: Package, shortcut: '⌘5' },
+	{ mode: 'ngwa', label: 'Ngwa', Icon: Layers, shortcut: '⌘6' },
 	{ mode: 'settings', label: 'Settings', Icon: Settings, shortcut: '⌘,' },
 ];
 
@@ -90,15 +95,19 @@ const SHORTCUT_MAP: Record<string, ActivityMode> = {
 	'3': 'sessions',
 	'4': 'artifact-grid',
 	'5': 'pkgs',
+	'6': 'ngwa',
 	',': 'settings',
 };
 
 /** Landing route per mode — used by ⌘N shortcut + click. Settings + Packages
- *  navigate the focused pane; App / Files / Sessions reuse whatever the user
- *  last looked at in that mode (handled by tab-workspace state). */
+ *  + Ngwa navigate the focused pane; App / Files / Sessions reuse whatever the
+ *  user last looked at in that mode (handled by tab-workspace state). Ngwa's
+ *  Browse surface (the 2-pane Claude-config list/detail) is owned by WP-07,
+ *  which fills the `/claude` route the sidebar deep-links into. */
 const MODE_LANDING: Partial<Record<ActivityMode, string>> = {
 	settings: '/settings/appearance',
 	pkgs: '/packages/browse',
+	ngwa: '/claude',
 };
 
 // Workspace tint mirrors core mode 1:1 post-strip; no mini-app rollup.

@@ -9,7 +9,7 @@
 // dedicated Packages mode (activity-bar ⌘4 → PkgsMode); it isn't a
 // concern of the main App mode anymore.
 
-import { Bot, CheckSquare, FileText, Home, Terminal as TerminalIcon } from 'lucide-react';
+import { CheckSquare, FileText, Home, Terminal as TerminalIcon } from 'lucide-react';
 
 export interface NavItem {
 	to: string;
@@ -27,7 +27,8 @@ export const NAV_GROUPS: NavGroup[] = [
 		items: [
 			{ to: '/', label: 'Home', Icon: Home },
 			{ to: '/sessions', label: 'Sessions', Icon: TerminalIcon },
-			{ to: '/claude', label: 'Claude', Icon: Bot },
+			// `/claude` moved out of App mode into the dedicated Ngwa
+			// activity-bar mode (⌘6). See `src/shell/sidebar-modes/ngwa-mode.tsx`.
 		],
 	},
 	{

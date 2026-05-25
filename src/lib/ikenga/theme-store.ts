@@ -44,7 +44,14 @@ export type IkengaTintStrength = 'off' | 'subtle' | 'strong';
  *  agents) stay as dormant CSS variables in the design tokens for any
  *  pkg that wants to opt into them, but the type union doesn't carry
  *  them anymore. */
-export type IkengaWorkspace = 'app' | 'files' | 'sessions' | 'artifact-grid' | 'pkgs' | 'settings';
+export type IkengaWorkspace =
+	| 'app'
+	| 'files'
+	| 'sessions'
+	| 'artifact-grid'
+	| 'ngwa'
+	| 'pkgs'
+	| 'settings';
 
 interface IkengaState {
 	theme: IkengaTheme;

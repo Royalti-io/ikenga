@@ -53,7 +53,14 @@ function parseKv<T>(raw: string | undefined): T | undefined {
 // Agents were app-pkg surfaces and got removed with the strip-down.
 // Mini-apps are gone too — they were placeholders for media tooling
 // that lives in app pkgs now.
-export type CoreMode = 'app' | 'files' | 'sessions' | 'artifact-grid' | 'pkgs' | 'settings';
+export type CoreMode =
+	| 'app'
+	| 'files'
+	| 'sessions'
+	| 'artifact-grid'
+	| 'ngwa'
+	| 'pkgs'
+	| 'settings';
 export type ActivityMode = CoreMode;
 
 // Default file roots. Kept in sync with `src-tauri/src/fs_roots.rs::DEFAULT_ROOTS`;
@@ -291,7 +298,17 @@ export function migrateShellStore(persisted: unknown, _version: number): unknown
 	// v7 carry-over: snap stale activeMode → 'app'. v10 widens valid set to
 	// include 'pkgs' (registry browser activity-bar entry). v11 widens
 	// again with 'artifact-grid' (projects-and-artifact-wizard plan §B2).
-	const valid: ActivityMode[] = ['app', 'files', 'sessions', 'artifact-grid', 'pkgs', 'settings'];
+	// v13 widens with 'ngwa' (Ngwa Claude-config mode — replaces App-mode
+	// /claude NavItem; activity-bar ⌘6).
+	const valid: ActivityMode[] = [
+		'app',
+		'files',
+		'sessions',
+		'artifact-grid',
+		'ngwa',
+		'pkgs',
+		'settings',
+	];
 	if (p.activeMode && !valid.includes(p.activeMode as ActivityMode)) {
 		p.activeMode = 'app';
 	}
@@ -727,9 +744,12 @@ export const useShellStore = create<ShellState>()(
 		// v12: lore overlay — OnboardingState gains `loreGlossSeen: string[]`
 		//     to suppress first-contact gloss tooltips after acknowledgement.
 		//     Migrate backfills `[]` for existing installs.
+		// v13: widen CoreMode with 'ngwa' (Ngwa Claude-config activity-bar
+		//     mode, ⌘6). Migrate keeps the same valid-set check, just widened;
+		//     no persisted users could already hold 'ngwa', so it's additive.
 		{
 			name: 'shell-store',
-			version: 12,
+			version: 13,
 			migrate: (persisted, version) => migrateShellStore(persisted, version) as ShellState,
 			// `projects` + `activeProjectId` are owned by Rust (migration 0015)
 			// and re-pulled every boot via `refreshProjects`. They must NOT be
