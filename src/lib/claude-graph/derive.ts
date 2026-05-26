@@ -28,7 +28,7 @@ import type { CapabilityGraph, DeriveOptions, GraphEdge, GraphNode, GraphNodeKin
 // Mirrors the Ngwa sidebar's scope ids (`ngwa-mode.tsx`): personal → 'personal',
 // project → `project:<basename of projectRoot>`. This is a display/grouping key
 // for filtering against the sidebar; it is NOT the DB-id mutation scope.
-function scopeKey(scope: 'project' | 'personal', projectRoot: string | null): string {
+export function scopeKey(scope: 'project' | 'personal', projectRoot: string | null): string {
 	if (scope === 'personal') return 'personal';
 	const base = (projectRoot ?? '').split('/').filter(Boolean).pop() ?? 'project';
 	return `project:${base}`;
@@ -61,7 +61,7 @@ export function mcpServerOf(tool: string): string | null {
 
 // ─── hook classification ─────────────────────────────────────────────────────
 const TOOL_EVENTS = new Set(['PreToolUse', 'PostToolUse']);
-function hookMatcher(h: ClaudeHook): string | null {
+export function hookMatcher(h: ClaudeHook): string | null {
 	const raw = h.raw as { matcher?: unknown } | null | undefined;
 	const m = raw && typeof raw === 'object' ? raw.matcher : undefined;
 	if (typeof m === 'string' && m.trim() && m.trim() !== '*') return m.trim();

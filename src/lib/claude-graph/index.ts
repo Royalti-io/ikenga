@@ -11,4 +11,13 @@ export type {
 	GraphNodeKind,
 } from './types';
 export { GRAPH_KIND_ORDER } from './types';
-export { deriveGraph, mcpServerOf, toolGrants } from './derive';
+export { deriveGraph, hookMatcher, mcpServerOf, scopeKey, toolGrants } from './derive';
+export type {
+	FlowEntry,
+	FlowModel,
+	FlowRef,
+	FlowRefKind,
+	FlowSourceKind,
+	FlowStep,
+} from './flow';
+export { buildFlowable, deriveFlow, extractRefs } from './flow';
