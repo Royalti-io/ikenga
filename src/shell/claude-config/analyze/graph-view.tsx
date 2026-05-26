@@ -61,6 +61,9 @@ export function GraphView({ config, scope }: GraphViewProps) {
 	const [selected, setSelected] = useState<string | null>(null);
 	const [hidden, setHidden] = useState<Set<GraphNodeKind>>(() => new Set());
 	const [includeHeuristic, setIncludeHeuristic] = useState(true);
+	const [query, setQuery] = useState('');
+	const [hideLeaves, setHideLeaves] = useState(false);
+	const [egoIsolate, setEgoIsolate] = useState(false);
 	// Set true while a pan-drag is in flight so the trailing click on the stage
 	// background doesn't clear the selection.
 	const draggedRef = useRef(false);
@@ -73,15 +76,42 @@ export function GraphView({ config, scope }: GraphViewProps) {
 		});
 	}, [config, scope, includeHeuristic]);
 
-	// Apply kind filter to produce the rendered subgraph.
+	// Base subgraph: kind filter + search + hide-leaves. Independent of the
+	// current selection so clicking a node doesn't trigger a relayout.
+	const base = useMemo<CapabilityGraph>(() => {
+		const q = query.trim().toLowerCase();
+		let nodes = graph.nodes;
+		if (hidden.size) nodes = nodes.filter((n) => !hidden.has(n.kind));
+		if (q) nodes = nodes.filter((n) => n.label.toLowerCase().includes(q));
+		let keep = new Set(nodes.map((n) => n.id));
+		let edges = graph.edges.filter((e) => keep.has(e.source) && keep.has(e.target));
+		if (hideLeaves) {
+			const deg = new Map<string, number>();
+			for (const e of edges) {
+				deg.set(e.source, (deg.get(e.source) ?? 0) + 1);
+				deg.set(e.target, (deg.get(e.target) ?? 0) + 1);
+			}
+			nodes = nodes.filter((n) => (deg.get(n.id) ?? 0) > 0);
+			keep = new Set(nodes.map((n) => n.id));
+			edges = edges.filter((e) => keep.has(e.source) && keep.has(e.target));
+		}
+		return { nodes, edges };
+	}, [graph, hidden, query, hideLeaves]);
+
+	// Ego isolate: when a node is selected and isolate is on, restrict to its
+	// closed neighbourhood. Returns `base` unchanged otherwise (stable identity).
 	const view = useMemo<CapabilityGraph>(() => {
-		if (hidden.size === 0) return graph;
-		const keep = new Set(graph.nodes.filter((n) => !hidden.has(n.kind)).map((n) => n.id));
+		if (!egoIsolate || !selected) return base;
+		const nb = new Set<string>([selected]);
+		for (const e of base.edges) {
+			if (e.source === selected) nb.add(e.target);
+			if (e.target === selected) nb.add(e.source);
+		}
 		return {
-			nodes: graph.nodes.filter((n) => keep.has(n.id)),
-			edges: graph.edges.filter((e) => keep.has(e.source) && keep.has(e.target)),
+			nodes: base.nodes.filter((n) => nb.has(n.id)),
+			edges: base.edges.filter((e) => nb.has(e.source) && nb.has(e.target)),
 		};
-	}, [graph, hidden]);
+	}, [base, egoIsolate, selected]);
 
 	const nodeById = useMemo(() => {
 		const m = new Map<string, GraphNode>();
@@ -156,6 +186,30 @@ export function GraphView({ config, scope }: GraphViewProps) {
 				<div className="ngwa-graph-meta">
 					{view.nodes.length} nodes · {view.edges.length} links
 				</div>
+				<input
+					className="ngwa-graph-search"
+					placeholder="filter nodes…"
+					value={query}
+					onChange={(e) => setQuery(e.target.value)}
+				/>
+				{selected && (
+					<button
+						type="button"
+						className={cn('ngwa-graph-pillbtn', egoIsolate && 'on')}
+						onClick={() => setEgoIsolate((v) => !v)}
+						title="Isolate the selected node + its neighbourhood"
+					>
+						⊙ isolate
+					</button>
+				)}
+				<button
+					type="button"
+					className={cn('ngwa-graph-pillbtn', hideLeaves && 'on')}
+					onClick={() => setHideLeaves((v) => !v)}
+					title="Hide unconnected nodes (no links in the current view)"
+				>
+					⤫ hide leaves
+				</button>
 				<div className="ngwa-graph-spacer" />
 				<div className="ngwa-kind-filter">
 					{GRAPH_KIND_ORDER.filter((k) => presentKinds.has(k)).map((k) => (
@@ -191,7 +245,9 @@ export function GraphView({ config, scope }: GraphViewProps) {
 					setSelected(null);
 				}}
 			>
-				{mode === 'bundle' ? (
+				{view.nodes.length === 0 ? (
+					<div className="ngwa-graph-nomatch">No nodes match the current filters.</div>
+				) : mode === 'bundle' ? (
 					<BundleRenderer
 						graph={view}
 						selected={selected}
@@ -207,7 +263,9 @@ export function GraphView({ config, scope }: GraphViewProps) {
 						onSelect={setSelected}
 					/>
 				)}
-				{selNode && <GraphDetailCard node={selNode} graph={view} nodeById={nodeById} />}
+				{selNode && view.nodes.length > 0 && (
+					<GraphDetailCard node={selNode} graph={view} nodeById={nodeById} />
+				)}
 			</div>
 		</div>
 	);

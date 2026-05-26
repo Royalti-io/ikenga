@@ -5,7 +5,7 @@
 import type { ClaudeConfig, ClaudeStoreEntry } from '@/lib/tauri-cmd';
 import type { NgwaItem, NgwaSurfaceId } from '../ngwa-surface';
 import { GraphView } from './graph-view';
-import { StoreMatrix } from './store-matrix';
+import { StoreMap } from './store-map';
 
 const SOON_LABEL: Record<string, string> = {
 	life: 'Hook lifecycle',
@@ -23,7 +23,7 @@ interface AnalyzeSurfaceProps {
 
 export function AnalyzeSurface({ surface, config, scope, items, store }: AnalyzeSurfaceProps) {
 	if (surface === 'graph') return <GraphView config={config} scope={scope} />;
-	if (surface === 'map') return <StoreMatrix items={items} store={store} />;
+	if (surface === 'map') return <StoreMap items={items} store={store} />;
 
 	return (
 		<div className="ngwa-soon">
