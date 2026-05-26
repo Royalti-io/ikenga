@@ -47,7 +47,17 @@ function RootRoute() {
 	}, [paneScope, location.pathname, navigate, onboardingMode, onboardingCompletedAt]);
 
 	if (paneScope !== null) {
-		return <Outlet />;
+		// Rendered inside a pane router. Give the route the same bounded h-full
+		// flex column the main-window branch gets (via content-pane.tsx's
+		// `<main className="flex h-full …">`). Without it, a fill-the-pane route
+		// like a pkg iframe (`height:100%`) has no definite-height ancestor, so
+		// it grows to its full content height and the pane scrolls as one slab
+		// instead of the route scrolling internally.
+		return (
+			<div className="flex h-full min-h-0 flex-col overflow-hidden">
+				<Outlet />
+			</div>
+		);
 	}
 
 	// Onboarding renders edge-to-edge — bypass the Workspace chrome.

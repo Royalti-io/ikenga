@@ -5,6 +5,10 @@
 // its mounted view.
 
 import {
+	Activity,
+	AlertTriangle,
+	CalendarDays,
+	CheckCheck,
 	Folder,
 	FolderKanban,
 	LayoutDashboard,
@@ -13,6 +17,7 @@ import {
 	Package,
 	Pencil,
 	Send,
+	Sun,
 	TrendingUp,
 	type LucideIcon,
 } from 'lucide-react';
@@ -36,6 +41,11 @@ const ICONS: Record<string, LucideIcon> = {
 	'folder-kanban': FolderKanban,
 	pencil: Pencil,
 	package: Package,
+	activity: Activity,
+	'alert-triangle': AlertTriangle,
+	'calendar-days': CalendarDays,
+	'check-check': CheckCheck,
+	sun: Sun,
 };
 
 function iconFor(name: string | null | undefined): LucideIcon {

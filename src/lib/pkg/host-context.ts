@@ -51,7 +51,15 @@ export function buildHostContext(opts: {
 }): McpUiHostContext {
 	const state = useIkengaStore.getState();
 	const ctx: McpUiHostContext = {
-		theme: state.mode === 'light' ? 'light' : 'dark',
+		// Use the RESOLVED mode the shell actually rendered (`<html data-mode>`),
+		// not the raw store value. `mode: 'system'` resolves to light|dark via the
+		// OS `prefers-color-scheme` query (installIkengaDomSync) and only the DOM
+		// attribute reflects it — `state.mode` stays 'system'. The old
+		// `state.mode === 'light' ? 'light' : 'dark'` shipped 'dark' to every pkg
+		// whenever mode was 'system', even under a light OS. This also keeps
+		// `theme` consistent with `cssVariablesSnapshot()`, which reads the
+		// resolved `--color-*` off this same :root.
+		theme: resolvedDomMode() ?? (state.mode === 'light' ? 'light' : 'dark'),
 		styles: {
 			// Spec types `McpUiStyles` as a Record with every key required, but the
 			// schema docs explicitly say hosts may provide any subset. We send only
@@ -71,6 +79,15 @@ export function buildHostContext(opts: {
 		(ctx as McpUiHostContext & { royaltiSuite: RoyaltiSuiteContext }).royaltiSuite = opts.suite;
 	}
 	return ctx;
+}
+
+/** The resolved light/dark mode the shell actually rendered, read from the
+ *  authoritative `<html data-mode>` attribute that `installIkengaDomSync`
+ *  writes (system → light|dark). Returns null off-DOM or if unset. */
+function resolvedDomMode(): 'light' | 'dark' | null {
+	if (typeof document === 'undefined') return null;
+	const m = document.documentElement.getAttribute('data-mode');
+	return m === 'light' || m === 'dark' ? m : null;
 }
 
 /** Read the current Supabase access token without forcing a refresh. The

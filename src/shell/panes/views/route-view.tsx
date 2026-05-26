@@ -81,9 +81,26 @@ export function RouteView({ paneId, path }: RouteViewProps) {
 		}
 	}, [path, router]);
 
+	// Bound the route content to the pane height. The main-window render gets
+	// this via content-pane.tsx's `<main className="flex h-full …">`; pane
+	// routers render the route tree straight into the pane body slot, so
+	// without this wrapper a fill-the-pane route (e.g. a pkg iframe with
+	// `height:100%`) has no definite-height ancestor and grows to its full
+	// content height — the pane then scrolls as one slab instead of the route
+	// scrolling internally. (Lives here, not just in __root, because the
+	// per-pane router is cached by id and won't pick up __root edits on HMR.)
+	// Fill the pane body slot. The slot (pane.tsx) is `relative flex-1 min-h-0`
+	// — bounded, but a `height:100%` child doesn't resolve through the flex
+	// chain on WebKitGTK, so a fill-the-pane route (pkg iframe) grew to its full
+	// content height and the pane scrolled as one slab. `absolute inset-0` fills
+	// the bounded relative ancestor directly, sidestepping percentage-height
+	// resolution. (The main-window render gets bounded height via content-pane's
+	// flex column; pane routers render straight into the slot.)
 	return (
 		<PaneScopeContext.Provider value={paneId}>
-			<RouterProvider router={router} />
+			<div className="absolute inset-0 flex flex-col overflow-hidden">
+				<RouterProvider router={router} />
+			</div>
 		</PaneScopeContext.Provider>
 	);
 }

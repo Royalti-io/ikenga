@@ -39,7 +39,6 @@ import { useEffect, useRef, useState } from 'react';
 import { sendToActiveSession } from '@/components/pkg/send-to-active-session';
 import { mintPkgToken } from '@/lib/pkg/auth-token';
 import { buildHostContext } from '@/lib/pkg/host-context';
-import { useIkengaStore } from '@/lib/ikenga/theme-store';
 import { usePaneStore } from '@/lib/panes/pane-store';
 import { usePkgMenuStore, type PkgMenuItem } from '@/lib/pkg/pkg-menu-store';
 import {
@@ -398,8 +397,12 @@ export function PkgIframeHost({ pkgId, source, onInitialized }: PkgIframeHostPro
 	// forcing the bridge to reconnect.
 	const supabaseConfigRef = useRef<{ url: string; anonKey: string } | null>(null);
 
-	// Subscribe to theme so we can push host-context-changed when it flips.
-	const themeMode = useIkengaStore((s) => s.mode);
+	// Appearance reactivity (theme / mode / tint / workspace) is handled by a
+	// MutationObserver on the <html> data-* attributes in Step 3 below, NOT by
+	// subscribing to store fields. Reason: `mode:'system'` resolves to light|
+	// dark on OS `prefers-color-scheme` flips WITHOUT any store value changing —
+	// only the resolved `<html data-mode>` attribute flips. Observing the DOM
+	// (the same :root `cssVariablesSnapshot()` reads) catches every case.
 
 	// Active suite-feature for this pkg — driven by the shell sidebar via
 	// `usePkgMenuStore.setActiveFeature`. We push it into hostContext so the
@@ -562,27 +565,44 @@ export function PkgIframeHost({ pkgId, source, onInitialized }: PkgIframeHostPro
 		};
 	}, [srcDoc, pkgId]);
 
-	// Step 3: push host-context-changed when theme flips or active feature
-	// changes (driven by the shell-rendered pkg sidebar). The pkg's
-	// onhostcontextchanged handler reads `royaltiSuite.activeFeature` and
-	// swaps its internal view.
+	// Step 3: push host-context-changed when the resolved appearance flips
+	// (theme / mode / tint / workspace) or the active suite-feature changes.
+	// The pkg's onhostcontextchanged handler re-applies the `--color-*` palette
+	// and reads `royaltiSuite.activeFeature` to swap its internal view.
 	useEffect(() => {
-		const bridge = bridgeRef.current;
-		if (!bridge) return;
-		try {
-			bridge.sendHostContextChange({
-				hostContext: buildHostContext({
-					pkgId,
-					authToken: authTokenRef.current,
-					supabase: supabaseConfigRef.current,
-					suite: { activeFeature },
-				}),
-			});
-		} catch {
-			// The bridge may not be initialized yet — the initial hostContext we
-			// passed to the constructor will reflect the current state anyway.
-		}
-	}, [themeMode, pkgId, activeFeature]);
+		const repush = () => {
+			const bridge = bridgeRef.current;
+			if (!bridge) return;
+			try {
+				bridge.sendHostContextChange({
+					hostContext: buildHostContext({
+						pkgId,
+						authToken: authTokenRef.current,
+						supabase: supabaseConfigRef.current,
+						suite: { activeFeature },
+					}),
+				});
+			} catch {
+				// The bridge may not be initialized yet — the initial hostContext we
+				// passed to the constructor will reflect the current state anyway.
+			}
+		};
+
+		// Push immediately for the current activeFeature value.
+		repush();
+
+		// …then re-push on any appearance change. `installIkengaDomSync` writes
+		// the resolved theme/mode/tint/workspace to these <html> attributes —
+		// including OS `prefers-color-scheme` flips under `mode:'system'`, which
+		// change no store value. Observing the DOM is the authoritative trigger
+		// and stays in sync with `cssVariablesSnapshot()`, which reads this :root.
+		const observer = new MutationObserver(repush);
+		observer.observe(document.documentElement, {
+			attributes: true,
+			attributeFilter: ['data-mode', 'data-theme', 'data-tint-strength', 'data-workspace'],
+		});
+		return () => observer.disconnect();
+	}, [pkgId, activeFeature]);
 
 	// Step 4: revoke the content token on full unmount.
 	useEffect(() => {
