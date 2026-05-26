@@ -1575,10 +1575,14 @@ button.ccfg-tree-row.dir:hover {
 }
 
 /* ── Swimlane flow ── */
+/* Kanban-style lanes (mirrors the groundwork board's .kanban-col): each column
+ * is a bordered card with a fixed header + an independently-scrolling body. The
+ * stage itself doesn't scroll; the edges overlay floats above for the selected
+ * node's connectors. */
 .ngwa-swim {
 	position: absolute;
 	inset: 0;
-	overflow: auto;
+	overflow: hidden;
 }
 .ngwa-swim-edges {
 	position: absolute;
@@ -1586,38 +1590,46 @@ button.ccfg-tree-row.dir:hover {
 	width: 100%;
 	height: 100%;
 	pointer-events: none;
-	z-index: 0;
+	z-index: 5;
 }
 .ngwa-swim-cols {
 	display: grid;
 	grid-template-columns: 1fr 1fr 1fr;
-	min-height: 100%;
+	gap: var(--space-3);
+	padding: var(--space-4);
+	height: 100%;
 	position: relative;
 	z-index: 1;
 }
 .ngwa-swim-col {
-	padding: 12px 20px 24px;
-	border-right: 1px solid var(--border-soft);
 	display: flex;
 	flex-direction: column;
-}
-.ngwa-swim-col:last-child {
-	border-right: none;
+	min-height: 0;
+	background: var(--bg-surface);
+	border: 1px solid var(--border-soft);
+	border-radius: var(--radius-md);
+	overflow: hidden;
 }
 .ngwa-swim-colh {
-	position: sticky;
-	top: 0;
-	background: var(--bg-base);
-	padding: 10px 0 10px;
-	margin-bottom: 2px;
+	flex-shrink: 0;
+	background: var(--bg-sunken);
+	border-bottom: 1px solid var(--border-soft);
+	padding: 10px 14px;
 	font-family: var(--font-mono);
 	font-size: 10px;
 	letter-spacing: 0.12em;
 	text-transform: uppercase;
 	color: var(--fg-muted);
 	font-weight: 500;
-	z-index: 4;
-	box-shadow: 0 1px 0 var(--border-soft);
+}
+.ngwa-swim-colbody {
+	flex: 1;
+	min-height: 0;
+	overflow-y: auto;
+	padding: 12px;
+	display: flex;
+	flex-direction: column;
+	gap: 9px;
 }
 .ngwa-swim-subh {
 	display: flex;
@@ -1997,234 +2009,6 @@ button.ccfg-tree-row.dir:hover {
 	border-top: 1px solid var(--border-soft);
 }
 
-/* ── Store map · Flow rail (D-07 alt) ── */
-.ngwa-flow-summary {
-	display: flex;
-	border-bottom: 1px solid var(--border-soft);
-	background: linear-gradient(180deg, color-mix(in srgb, var(--bg-raised) 50%, var(--bg-base)), var(--bg-base));
-	flex-shrink: 0;
-}
-.ngwa-flow-summary .sc {
-	flex: 1;
-	padding: 10px 18px;
-	border-right: 1px solid var(--border-soft);
-	display: flex;
-	flex-direction: column;
-	gap: 3px;
-}
-.ngwa-flow-summary .sc:last-child {
-	border-right: none;
-}
-.ngwa-flow-summary .n {
-	font-size: 21px;
-	font-weight: 600;
-	font-variant-numeric: tabular-nums;
-	line-height: 1;
-	letter-spacing: -0.02em;
-}
-.ngwa-flow-summary .l {
-	font-family: var(--font-mono);
-	font-size: 9px;
-	letter-spacing: 0.07em;
-	text-transform: uppercase;
-	color: var(--fg-faint);
-}
-.ngwa-flow-stage {
-	flex: 1;
-	position: relative;
-	overflow: hidden;
-	min-height: 0;
-}
-.ngwa-flow-arcs {
-	position: absolute;
-	top: 0;
-	left: 0;
-	pointer-events: none;
-	overflow: visible;
-	z-index: 1;
-}
-.ngwa-flow-cols {
-	display: flex;
-	justify-content: space-between;
-	gap: 40px;
-	height: 100%;
-	padding: 0 28px;
-	position: relative;
-	z-index: 2;
-}
-.ngwa-flow-rail {
-	display: flex;
-	flex-direction: column;
-}
-/* entries scroll internally so the scopes rail stays pinned in view */
-.ngwa-flow-rail.entries {
-	width: 320px;
-	gap: 8px;
-	overflow-y: auto;
-	padding: 0 8px 24px 0;
-}
-.ngwa-flow-rail.scopes {
-	width: 240px;
-	justify-content: center;
-}
-.ngwa-flow-railh {
-	font-family: var(--font-mono);
-	font-size: 9.5px;
-	letter-spacing: 0.12em;
-	text-transform: uppercase;
-	color: var(--fg-faint);
-	padding: 12px 0 8px;
-	position: sticky;
-	top: 0;
-	background: var(--bg-base);
-	z-index: 3;
-}
-.ngwa-flow-scopestack {
-	display: flex;
-	flex-direction: column;
-	gap: 12px;
-}
-.ngwa-flow-entry {
-	position: relative;
-	display: flex;
-	align-items: center;
-	gap: 10px;
-	background: var(--bg-surface);
-	border: 1px solid var(--border-soft);
-	border-radius: var(--radius-md);
-	padding: 8px 12px 8px 13px;
-	cursor: pointer;
-	overflow: hidden;
-	transition: border-color 0.14s, transform 0.14s, opacity 0.14s, background 0.14s;
-}
-.ngwa-flow-entry::before {
-	content: "";
-	position: absolute;
-	left: 0;
-	top: 0;
-	bottom: 0;
-	width: 3px;
-	background: var(--accent);
-}
-.ngwa-flow-entry:hover {
-	border-color: var(--border-strong);
-	transform: translateX(2px);
-}
-.ngwa-flow-entry.sel {
-	border-color: var(--tint-fg-active, var(--primary));
-	background: var(--bg-raised);
-	box-shadow: 0 0 0 1px var(--tint-fg-active, var(--primary));
-}
-.ngwa-flow-entry.dim {
-	opacity: 0.32;
-}
-.ngwa-flow-entry-ic {
-	width: 26px;
-	height: 26px;
-	border-radius: var(--radius-xs);
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	font-family: var(--font-mono);
-	font-size: 12px;
-	flex-shrink: 0;
-	color: var(--accent);
-	background: color-mix(in srgb, var(--accent) 16%, var(--bg-raised));
-}
-.ngwa-flow-entry-nm {
-	flex: 1;
-	min-width: 0;
-	font-size: 12.5px;
-	font-weight: 500;
-	white-space: nowrap;
-	overflow: hidden;
-	text-overflow: ellipsis;
-}
-.ngwa-flow-entry-st {
-	width: 8px;
-	height: 8px;
-	border-radius: 50%;
-	flex-shrink: 0;
-}
-.ngwa-flow-entry-st.enabled {
-	background: var(--st-enabled);
-	box-shadow: 0 0 6px var(--st-enabled);
-}
-.ngwa-flow-entry-st.disabled {
-	background: var(--st-disabled);
-}
-.ngwa-flow-entry-st.local {
-	background: var(--st-local);
-	box-shadow: 0 0 6px var(--st-local);
-}
-.ngwa-flow-entry-st.orphaned {
-	background: var(--st-orphaned);
-	box-shadow: 0 0 6px var(--st-orphaned);
-}
-.ngwa-flow-scope {
-	display: flex;
-	align-items: center;
-	gap: 10px;
-	background: var(--bg-raised);
-	border: 1px solid var(--border-soft);
-	border-radius: var(--radius-md);
-	padding: 10px 13px;
-	transition: border-color 0.14s, opacity 0.14s;
-}
-.ngwa-flow-scope.lit {
-	border-color: var(--tint-fg-active, var(--primary));
-}
-.ngwa-flow-scope.dim {
-	opacity: 0.32;
-}
-.ngwa-flow-scope.empty {
-	opacity: 0.45;
-	border-style: dashed;
-}
-.ngwa-flow-scope-ic {
-	width: 30px;
-	height: 30px;
-	border-radius: var(--radius-sm);
-	background: var(--bg-base);
-	border: 1px solid var(--border-soft);
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	font-size: 14px;
-	flex-shrink: 0;
-}
-.ngwa-flow-scope-nm {
-	flex: 1;
-	min-width: 0;
-	font-size: 13px;
-	font-weight: 600;
-	white-space: nowrap;
-	overflow: hidden;
-	text-overflow: ellipsis;
-}
-.ngwa-flow-scope-ct {
-	font-family: var(--font-mono);
-	font-size: 13px;
-	font-weight: 600;
-	color: var(--fg-muted);
-	font-variant-numeric: tabular-nums;
-}
-.ngwa-flow-hint {
-	position: absolute;
-	left: 50%;
-	bottom: 14px;
-	transform: translateX(-50%);
-	font-family: var(--font-mono);
-	font-size: 10px;
-	color: var(--fg-faint);
-	background: color-mix(in srgb, var(--bg-surface) 70%, transparent);
-	backdrop-filter: blur(8px);
-	border: 1px solid var(--border-soft);
-	border-radius: var(--radius-pill);
-	padding: 6px 14px;
-	z-index: 3;
-}
-
 /* graph filter controls */
 .ngwa-graph-search {
 	background: var(--bg-sunken);
@@ -2321,4 +2105,18 @@ button.ccfg-tree-row.dir:hover {
 	left: 16px;
 	top: 16px;
 	z-index: 6;
+}
+
+/* analyze surface inline title (modeless surfaces, e.g. store map) */
+.ngwa-graph-title {
+	font-family: var(--font-display, var(--font-sans));
+	font-size: var(--text-h3);
+	font-weight: 600;
+	color: var(--fg);
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+}
+.ngwa-graph-glyph {
+	color: var(--tint-fg-active, var(--primary));
 }

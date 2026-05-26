@@ -10,7 +10,7 @@
 // isolates its neighbourhood (out = ngwa amber, in = verdigris) + opens the
 // detail card. Derived entirely client-side from the scan — see @/lib/claude-graph.
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { cluster, hierarchy, type HierarchyNode } from 'd3-hierarchy';
 import { curveBundle, lineRadial } from 'd3-shape';
 
@@ -595,7 +595,10 @@ const COLS: { id: string; title: string; kinds: GraphNodeKind[] }[] = [
 function SwimlaneRenderer({ graph, selected, incident, onSelect }: RendererProps) {
 	const stageRef = useRef<HTMLDivElement>(null);
 	const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+	const bodyRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 	const [paths, setPaths] = useState<{ edge: GraphEdge; d: string }[]>([]);
+	const selRef = useRef(selected);
+	selRef.current = selected;
 
 	const colNodes = useMemo(() => {
 		return COLS.map((c) => ({
@@ -606,57 +609,77 @@ function SwimlaneRenderer({ graph, selected, incident, onSelect }: RendererProps
 		}));
 	}, [graph]);
 
-	// Measure card centres → draw edges. Re-run on layout/size change.
+	// Kanban columns scroll independently, so card positions shift per-column.
+	// Edges are drawn ONLY for the selected node (clean lanes by default,
+	// connectors on demand), measured live and clipped to cards in view.
+	const recompute = useCallback(() => {
+		const stage = stageRef.current;
+		if (!stage) return;
+		const sel = selRef.current;
+		if (!sel) {
+			setPaths([]);
+			return;
+		}
+		const box = stage.getBoundingClientRect();
+		const colIndex = new Map<string, number>();
+		COLS.forEach((c, i) => {
+			for (const k of c.kinds) colIndex.set(k, i);
+		});
+		const HEADER = 42; // approx column-header height; cards above it are clipped
+		const next: { edge: GraphEdge; d: string }[] = [];
+		for (const e of graph.edges) {
+			if (e.source !== sel && e.target !== sel) continue;
+			const se = cardRefs.current.get(e.source);
+			const te = cardRefs.current.get(e.target);
+			if (!se || !te) continue;
+			const sr = se.getBoundingClientRect();
+			const tr = te.getBoundingClientRect();
+			const y1 = sr.top + sr.height / 2 - box.top;
+			const y2 = tr.top + tr.height / 2 - box.top;
+			if (y1 < HEADER || y1 > box.height || y2 < HEADER || y2 > box.height) continue;
+			const sNode = graph.nodes.find((n) => n.id === e.source);
+			const tNode = graph.nodes.find((n) => n.id === e.target);
+			const si = sNode ? (colIndex.get(sNode.kind) ?? 0) : 0;
+			const ti = tNode ? (colIndex.get(tNode.kind) ?? 0) : 0;
+			let x1: number;
+			let x2: number;
+			if (si < ti) {
+				x1 = sr.right - box.left;
+				x2 = tr.left - box.left;
+			} else if (si > ti) {
+				x1 = sr.left - box.left;
+				x2 = tr.right - box.left;
+			} else {
+				x1 = sr.right - box.left;
+				x2 = tr.right - box.left;
+			}
+			const d =
+				si === ti
+					? `M${x1},${y1} C${x1 + 46},${y1} ${x2 + 46},${y2} ${x2},${y2}`
+					: `M${x1},${y1} C${(x1 + x2) / 2},${y1} ${(x1 + x2) / 2},${y2} ${x2},${y2}`;
+			next.push({ edge: e, d });
+		}
+		setPaths(next);
+	}, [graph]);
+
 	useLayoutEffect(() => {
 		const stage = stageRef.current;
 		if (!stage) return;
-		function measure() {
-			const box = stage!.getBoundingClientRect();
-			const colIndex = new Map<string, number>();
-			COLS.forEach((c, i) => {
-				for (const k of c.kinds) colIndex.set(k, i);
-			});
-			const next: { edge: GraphEdge; d: string }[] = [];
-			for (const e of graph.edges) {
-				const se = cardRefs.current.get(e.source);
-				const te = cardRefs.current.get(e.target);
-				if (!se || !te) continue;
-				const sr = se.getBoundingClientRect();
-				const tr = te.getBoundingClientRect();
-				const sNode = graph.nodes.find((n) => n.id === e.source);
-				const tNode = graph.nodes.find((n) => n.id === e.target);
-				const si = sNode ? (colIndex.get(sNode.kind) ?? 0) : 0;
-				const ti = tNode ? (colIndex.get(tNode.kind) ?? 0) : 0;
-				let x1: number;
-				let x2: number;
-				const y1 = sr.top + sr.height / 2 - box.top;
-				const y2 = tr.top + tr.height / 2 - box.top;
-				if (si < ti) {
-					x1 = sr.right - box.left;
-					x2 = tr.left - box.left;
-				} else if (si > ti) {
-					x1 = sr.left - box.left;
-					x2 = tr.right - box.left;
-				} else {
-					x1 = sr.right - box.left;
-					x2 = tr.right - box.left;
-				}
-				const d =
-					si === ti
-						? `M${x1},${y1} C${x1 + 46},${y1} ${x2 + 46},${y2} ${x2},${y2}`
-						: `M${x1},${y1} C${(x1 + x2) / 2},${y1} ${(x1 + x2) / 2},${y2} ${x2},${y2}`;
-				next.push({ edge: e, d });
-			}
-			setPaths(next);
-		}
-		measure();
-		const ro = new ResizeObserver(measure);
+		recompute();
+		const ro = new ResizeObserver(recompute);
 		ro.observe(stage);
-		return () => ro.disconnect();
-	}, [graph]);
+		const bodies = [...bodyRefs.current.values()];
+		for (const b of bodies) b.addEventListener('scroll', recompute, { passive: true });
+		return () => {
+			ro.disconnect();
+			for (const b of bodies) b.removeEventListener('scroll', recompute);
+		};
+	}, [recompute]);
+	useEffect(() => {
+		recompute();
+	}, [selected, incident, recompute]);
 
 	const dimNode = (id: string) => incident !== null && !incident.nodes.has(id);
-	const dimEdge = (e: GraphEdge) => incident !== null && !incident.edges.has(e.id);
 
 	return (
 		<div className="ngwa-swim" ref={stageRef}>
@@ -667,8 +690,8 @@ function SwimlaneRenderer({ graph, selected, incident, onSelect }: RendererProps
 						d={d}
 						fill="none"
 						stroke={edgeColor(edge, selected)}
-						strokeWidth={incident?.edges.has(edge.id) ? 2 : 1.3}
-						strokeOpacity={dimEdge(edge) ? 0.05 : selected ? 0.9 : 0.32}
+						strokeWidth={2}
+						strokeOpacity={0.9}
 						strokeDasharray={edge.derivation === 'heuristic' ? '5,4' : undefined}
 					/>
 				))}
@@ -677,31 +700,39 @@ function SwimlaneRenderer({ graph, selected, incident, onSelect }: RendererProps
 				{colNodes.map((col) => (
 					<div className="ngwa-swim-col" key={col.id}>
 						<div className="ngwa-swim-colh">{col.title}</div>
-						{col.groups.map((g) => (
-							<div className="ngwa-swim-group" key={g.kind}>
-								{COLS[0].kinds.length > 1 && col.id === 'inputs' && (
-									<div className="ngwa-swim-subh">
-										<span className="kd" style={{ background: `var(--nk-${g.kind})` }} />
-										{KIND_LABEL[g.kind]}
+						<div
+							className="ngwa-swim-colbody"
+							ref={(el) => {
+								if (el) bodyRefs.current.set(col.id, el);
+								else bodyRefs.current.delete(col.id);
+							}}
+						>
+							{col.groups.map((g) => (
+								<div className="ngwa-swim-group" key={g.kind}>
+									{col.id === 'inputs' && (
+										<div className="ngwa-swim-subh">
+											<span className="kd" style={{ background: `var(--nk-${g.kind})` }} />
+											{KIND_LABEL[g.kind]}
+										</div>
+									)}
+									<div className="ngwa-swim-stack">
+										{g.nodes.map((n) => (
+											<GraphCard
+												key={n.id}
+												node={n}
+												selected={selected === n.id}
+												dimmed={dimNode(n.id)}
+												onSelect={onSelect}
+												cardRef={(el) => {
+													if (el) cardRefs.current.set(n.id, el);
+													else cardRefs.current.delete(n.id);
+												}}
+											/>
+										))}
 									</div>
-								)}
-								<div className="ngwa-swim-stack">
-									{g.nodes.map((n) => (
-										<GraphCard
-											key={n.id}
-											node={n}
-											selected={selected === n.id}
-											dimmed={dimNode(n.id)}
-											onSelect={onSelect}
-											cardRef={(el) => {
-												if (el) cardRefs.current.set(n.id, el);
-												else cardRefs.current.delete(n.id);
-											}}
-										/>
-									))}
 								</div>
-							</div>
-						))}
+							))}
+						</div>
 					</div>
 				))}
 			</div>

@@ -1,17 +1,13 @@
-// Store map (Phase 4 · D-07) — wrapper that owns the model build + filters +
-// a Matrix / Flow mode toggle. Matrix is the default (locked baseline); Flow is
-// the bipartite arc-rail alternate. Filters: free-text name search + a scope
-// narrow (its own columns, reliable regardless of sidebar scope grammar).
+// Store map (Phase 4 · D-07) — Presence matrix with filters (free-text entry
+// search + a scope narrow). The Flow-rail alternate was dropped (the matrix is
+// the scalable workhorse); the bipartite-arc concept survives only as the
+// `designs/analyze-map-flow.html` reference mockup.
 
 import { useMemo, useState } from 'react';
-import { cn } from '@/components/ui/utils';
 import type { ClaudeStoreEntry } from '@/lib/tauri-cmd';
 import type { NgwaItem } from '../ngwa-surface';
-import { StoreFlow } from './store-flow';
 import { StoreMatrix } from './store-matrix';
 import { buildStoreModel, filterStoreModel } from './store-model';
-
-type StoreMode = 'matrix' | 'flow';
 
 interface StoreMapProps {
 	items: NgwaItem[];
@@ -19,7 +15,6 @@ interface StoreMapProps {
 }
 
 export function StoreMap({ items, store }: StoreMapProps) {
-	const [mode, setMode] = useState<StoreMode>('matrix');
 	const [query, setQuery] = useState('');
 	const [scope, setScope] = useState<string>('all');
 
@@ -29,23 +24,8 @@ export function StoreMap({ items, store }: StoreMapProps) {
 	return (
 		<div className="ngwa-graph">
 			<div className="ngwa-graph-toolbar">
-				<div className="ngwa-seg" role="group" aria-label="Store-map layout">
-					<button
-						type="button"
-						className={cn(mode === 'matrix' && 'on')}
-						onClick={() => setMode('matrix')}
-						title="Presence matrix — entries × scopes grid"
-					>
-						▦ Matrix
-					</button>
-					<button
-						type="button"
-						className={cn(mode === 'flow' && 'on')}
-						onClick={() => setMode('flow')}
-						title="Flow rail — bipartite store↔scope arcs"
-					>
-						⤳ Flow
-					</button>
+				<div className="ngwa-graph-title">
+					<span className="ngwa-graph-glyph">▦</span> Store map
 				</div>
 				<div className="ngwa-graph-meta">
 					{model.totals.rows} entries · {model.totals.symlinks} links
@@ -60,7 +40,7 @@ export function StoreMap({ items, store }: StoreMapProps) {
 					className="ngwa-graph-select"
 					value={scope}
 					onChange={(e) => setScope(e.target.value)}
-					title="Narrow to one scope"
+					title="Narrow to one scope / project"
 				>
 					<option value="all">All scopes</option>
 					{full.columns.map((c) => (
@@ -72,7 +52,7 @@ export function StoreMap({ items, store }: StoreMapProps) {
 				<div className="ngwa-graph-spacer" />
 			</div>
 			<div className="ngwa-graph-stage" style={{ background: 'var(--bg-base)' }}>
-				{mode === 'matrix' ? <StoreMatrix model={model} /> : <StoreFlow model={model} />}
+				<StoreMatrix model={model} />
 			</div>
 		</div>
 	);
