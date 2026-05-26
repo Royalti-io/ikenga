@@ -30,6 +30,12 @@ import { clamp, edgeColor, KIND_GLYPH, KIND_LABEL, NGWA, type RendererProps } fr
 
 type GraphMode = 'bundle' | 'force' | 'swimlane' | 'dag';
 
+function scopeLabel(key: string): string {
+	if (key === 'all') return 'All scopes';
+	if (key === 'personal') return 'Personal';
+	return key.startsWith('project:') ? key.slice(8) : key;
+}
+
 interface GraphViewProps {
 	config: ClaudeConfig | null;
 	/** Sidebar scope: 'all' | 'personal' | `project:<basename>`. */
@@ -44,17 +50,41 @@ export function GraphView({ config, scope }: GraphViewProps) {
 	const [query, setQuery] = useState('');
 	const [hideLeaves, setHideLeaves] = useState(false);
 	const [egoIsolate, setEgoIsolate] = useState(false);
+	// In-view scope filter (mirrors the store map's). Seeded from the sidebar
+	// scope and kept in sync with it, but also settable here.
+	const [scopeSel, setScopeSel] = useState(scope);
+	useEffect(() => setScopeSel(scope), [scope]);
 	// Set true while a pan-drag is in flight so the trailing click on the stage
 	// background doesn't clear the selection.
 	const draggedRef = useRef(false);
 
-	const graph = useMemo<CapabilityGraph>(() => {
+	// Derive the whole graph once (all scopes); the scope filter narrows it.
+	const fullGraph = useMemo<CapabilityGraph>(() => {
 		if (!config) return { nodes: [], edges: [] };
-		return deriveGraph(config, {
-			scope: scope === 'all' ? undefined : scope,
-			includeHeuristic,
+		return deriveGraph(config, { includeHeuristic });
+	}, [config, includeHeuristic]);
+
+	// Scope options come from the unfiltered node set ('all' + each scope present).
+	const scopeOptions = useMemo(() => {
+		const s = new Set<string>();
+		for (const n of fullGraph.nodes) for (const sc of n.scopes) s.add(sc);
+		return [...s].sort((a, b) => {
+			if (a === 'personal') return -1;
+			if (b === 'personal') return 1;
+			return a.localeCompare(b);
 		});
-	}, [config, scope, includeHeuristic]);
+	}, [fullGraph]);
+
+	const graph = useMemo<CapabilityGraph>(() => {
+		if (scopeSel === 'all') return fullGraph;
+		const keep = new Set(
+			fullGraph.nodes.filter((n) => n.scopes.includes(scopeSel)).map((n) => n.id)
+		);
+		return {
+			nodes: fullGraph.nodes.filter((n) => keep.has(n.id)),
+			edges: fullGraph.edges.filter((e) => keep.has(e.source) && keep.has(e.target)),
+		};
+	}, [fullGraph, scopeSel]);
 
 	// Base subgraph: kind filter + search + hide-leaves. Independent of the
 	// current selection so clicking a node doesn't trigger a relayout.
@@ -188,6 +218,19 @@ export function GraphView({ config, scope }: GraphViewProps) {
 					value={query}
 					onChange={(e) => setQuery(e.target.value)}
 				/>
+				<select
+					className="ngwa-graph-select"
+					value={scopeSel}
+					onChange={(e) => setScopeSel(e.target.value)}
+					title="Narrow to one scope / project"
+				>
+					<option value="all">All scopes</option>
+					{scopeOptions.map((s) => (
+						<option key={s} value={s}>
+							{scopeLabel(s)}
+						</option>
+					))}
+				</select>
 				{selected && (
 					<button
 						type="button"
