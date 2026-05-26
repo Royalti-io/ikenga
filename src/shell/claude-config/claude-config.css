@@ -2282,3 +2282,35 @@ button.ccfg-tree-row.dir:hover {
 .ngwa-graph-select:focus {
 	border-color: color-mix(in srgb, var(--tint-fg-active, var(--primary)) 40%, var(--border));
 }
+
+/* force constellation labels */
+.ngwa-force-label {
+	font-family: var(--font-sans);
+	font-size: 10px;
+	pointer-events: none;
+	paint-order: stroke;
+	stroke: var(--bg-base);
+	stroke-width: 3px;
+	stroke-linejoin: round;
+}
+/* layered DAG node labels + controls */
+.ngwa-dag-label {
+	font-family: var(--font-sans);
+	font-size: 11px;
+	pointer-events: none;
+}
+.ngwa-dag-label.mono {
+	font-family: var(--font-mono);
+	font-size: 10px;
+}
+.ngwa-dag-glyph {
+	font-family: var(--font-mono);
+	font-size: 11px;
+	pointer-events: none;
+}
+.ngwa-dag-controls {
+	position: absolute;
+	left: 16px;
+	top: 16px;
+	z-index: 6;
+}

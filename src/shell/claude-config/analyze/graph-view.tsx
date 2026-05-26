@@ -1,12 +1,14 @@
 // Capability graph (Phase 4 · D-06) — the Ngwa Analyze "Capability graph"
-// surface. Two layout modes over ONE derived model (`deriveGraph`, gate
-// G-EDGE):
-//   • Radial bundle  — d3 hierarchical edge-bundling; density-first.
-//   • Swimlane flow   — kind-banded columns; legibility-first.
-// Selecting a node isolates its neighbourhood (outgoing = ngwa amber, incoming
-// = verdigris) and opens a detail card. Kind filter dims whole kinds.
-//
-// Derived entirely client-side from the scan — see `@/lib/claude-graph`.
+// surface. FOUR layout modes over ONE derived model (`deriveGraph`, gate
+// G-EDGE), each in its own renderer:
+//   • Bundle   — d3 radial edge-bundling; density-first (BundleRenderer here).
+//   • Force    — d3-force constellation; clusters emerge (./graph-force).
+//   • Flow     — kind-banded columns; legibility-first (SwimlaneRenderer here).
+//   • Layered  — dagre auto-ranked DAG; routed edges (./graph-dag).
+// Filters (search · kind · hide-leaves · ego-isolate · scope) narrow the shared
+// `view` upstream, so all renderers get the filtered graph. Selecting a node
+// isolates its neighbourhood (out = ngwa amber, in = verdigris) + opens the
+// detail card. Derived entirely client-side from the scan — see @/lib/claude-graph.
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { cluster, hierarchy, type HierarchyNode } from 'd3-hierarchy';
@@ -22,33 +24,11 @@ import {
 	type GraphNode,
 	type GraphNodeKind,
 } from '@/lib/claude-graph';
+import { GraphDag } from './graph-dag';
+import { GraphForce } from './graph-force';
+import { clamp, edgeColor, KIND_GLYPH, KIND_LABEL, NGWA, type RendererProps } from './graph-shared';
 
-const KIND_GLYPH: Record<GraphNodeKind, string> = {
-	command: '⌘',
-	agent: '★',
-	skill: '◆',
-	mcp: '⬡',
-	hook: '⚡',
-};
-const KIND_LABEL: Record<GraphNodeKind, string> = {
-	command: 'Commands',
-	agent: 'Agents',
-	skill: 'Skills',
-	mcp: 'MCPs',
-	hook: 'Hooks',
-};
-const REL_COLOR: Record<GraphEdge['rel'], string> = {
-	routes: 'var(--nk-command)',
-	uses: 'var(--tint-fg-active, var(--primary))',
-	delegates: 'var(--nk-agent)',
-	composes: 'var(--nk-skill)',
-	feeds: 'var(--nk-mcp)',
-	gates: 'var(--nk-hook)',
-};
-const NGWA = 'var(--tint-fg-active, var(--primary))';
-const VERDIGRIS = 'var(--systemic)';
-
-type GraphMode = 'bundle' | 'swimlane';
+type GraphMode = 'bundle' | 'force' | 'swimlane' | 'dag';
 
 interface GraphViewProps {
 	config: ClaudeConfig | null;
@@ -176,11 +156,27 @@ export function GraphView({ config, scope }: GraphViewProps) {
 					</button>
 					<button
 						type="button"
+						className={cn(mode === 'force' && 'on')}
+						onClick={() => setMode('force')}
+						title="Force-directed constellation — clusters emerge; drag to reposition"
+					>
+						◍ Force
+					</button>
+					<button
+						type="button"
 						className={cn(mode === 'swimlane' && 'on')}
 						onClick={() => setMode('swimlane')}
 						title="Kind-banded columns — flow-first"
 					>
 						▤ Flow
+					</button>
+					<button
+						type="button"
+						className={cn(mode === 'dag' && 'on')}
+						onClick={() => setMode('dag')}
+						title="Layered DAG — auto-ranked by dependency depth, routed edges"
+					>
+						⇉ Layered
 					</button>
 				</div>
 				<div className="ngwa-graph-meta">
@@ -255,6 +251,22 @@ export function GraphView({ config, scope }: GraphViewProps) {
 						onSelect={setSelected}
 						draggedRef={draggedRef}
 					/>
+				) : mode === 'force' ? (
+					<GraphForce
+						graph={view}
+						selected={selected}
+						incident={incident}
+						onSelect={setSelected}
+						draggedRef={draggedRef}
+					/>
+				) : mode === 'dag' ? (
+					<GraphDag
+						graph={view}
+						selected={selected}
+						incident={incident}
+						onSelect={setSelected}
+						draggedRef={draggedRef}
+					/>
 				) : (
 					<SwimlaneRenderer
 						graph={view}
@@ -269,29 +281,6 @@ export function GraphView({ config, scope }: GraphViewProps) {
 			</div>
 		</div>
 	);
-}
-
-// ─── shared subtypes ─────────────────────────────────────────────────────────
-interface RendererProps {
-	graph: CapabilityGraph;
-	selected: string | null;
-	incident: { nodes: Set<string>; edges: Set<string> } | null;
-	onSelect: (id: string) => void;
-	/** Bundle only — flipped true during a pan-drag so the parent suppresses the
-	 *  background-click deselect. */
-	draggedRef?: React.MutableRefObject<boolean>;
-}
-
-function clamp(v: number, lo: number, hi: number): number {
-	return Math.min(hi, Math.max(lo, v));
-}
-
-function edgeColor(e: GraphEdge, selected: string | null): string {
-	if (selected) {
-		if (e.source === selected) return NGWA;
-		if (e.target === selected) return VERDIGRIS;
-	}
-	return REL_COLOR[e.rel];
 }
 
 // ─── Radial bundle ───────────────────────────────────────────────────────────
