@@ -252,7 +252,7 @@ function BundleRenderer({ graph, selected, incident, onSelect, draggedRef }: Ren
 	const R = SIZE / 2 - 132;
 	const svgRef = useRef<SVGSVGElement>(null);
 	const [t, setT] = useState({ k: 1, x: 0, y: 0 });
-	const dragRef = useRef<{ x: number; y: number } | null>(null);
+	const dragRef = useRef<{ x: number; y: number; moved: boolean; pid: number } | null>(null);
 	const [hover, setHover] = useState<string | null>(null);
 
 	// Reset the view when the graph identity changes (mode/scope/filter swap).
@@ -288,23 +288,42 @@ function BundleRenderer({ graph, selected, incident, onSelect, draggedRef }: Ren
 		return () => svg.removeEventListener('wheel', onWheel);
 	}, []);
 
+	// Pan starts only once the pointer moves past a small threshold — until then
+	// it's a potential click, so we DON'T capture the pointer (capturing on
+	// pointerdown would steal the click from node <g> elements). A plain click
+	// thus falls through to the node's onClick; a drag captures + pans.
+	const DRAG_THRESHOLD = 4; // viewBox units (~3px)
 	function onPointerDown(ev: React.PointerEvent<SVGSVGElement>) {
 		if (ev.button !== 0) return;
-		dragRef.current = toVB(ev.clientX, ev.clientY);
-		ev.currentTarget.setPointerCapture(ev.pointerId);
+		const p = toVB(ev.clientX, ev.clientY);
+		dragRef.current = { x: p.x, y: p.y, moved: false, pid: ev.pointerId };
 	}
 	function onPointerMove(ev: React.PointerEvent<SVGSVGElement>) {
-		if (!dragRef.current) return;
+		const d = dragRef.current;
+		if (!d) return;
 		const p = toVB(ev.clientX, ev.clientY);
-		const dx = p.x - dragRef.current.x;
-		const dy = p.y - dragRef.current.y;
-		if (Math.abs(dx) + Math.abs(dy) > 0.5 && draggedRef) draggedRef.current = true;
+		const dx = p.x - d.x;
+		const dy = p.y - d.y;
+		if (!d.moved) {
+			if (Math.abs(dx) + Math.abs(dy) < DRAG_THRESHOLD) return; // still a click
+			d.moved = true;
+			if (draggedRef) draggedRef.current = true;
+			try {
+				ev.currentTarget.setPointerCapture(d.pid);
+			} catch {}
+		}
 		setT((v) => ({ ...v, x: v.x + dx, y: v.y + dy }));
-		dragRef.current = p;
+		d.x = p.x;
+		d.y = p.y;
 	}
 	function onPointerUp(ev: React.PointerEvent<SVGSVGElement>) {
+		const d = dragRef.current;
 		dragRef.current = null;
-		ev.currentTarget.releasePointerCapture?.(ev.pointerId);
+		if (d?.moved) {
+			try {
+				ev.currentTarget.releasePointerCapture?.(d.pid);
+			} catch {}
+		}
 	}
 
 	const layout = useMemo(() => {
