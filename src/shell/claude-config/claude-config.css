@@ -1952,3 +1952,39 @@ button.ccfg-tree-row.dir:hover {
 .ngwa-matrix-foot .sep {
 	color: var(--border-strong);
 }
+
+/* bundle pan/zoom controls */
+.ngwa-zoom {
+	position: absolute;
+	left: 16px;
+	bottom: 16px;
+	display: flex;
+	flex-direction: column;
+	background: color-mix(in srgb, var(--bg-surface) 80%, transparent);
+	backdrop-filter: blur(8px);
+	-webkit-backdrop-filter: blur(8px);
+	border: 1px solid var(--border-soft);
+	border-radius: var(--radius-sm);
+	overflow: hidden;
+	z-index: 6;
+}
+.ngwa-zoom button {
+	width: 30px;
+	height: 30px;
+	border: 0;
+	background: transparent;
+	color: var(--fg-muted);
+	cursor: pointer;
+	font-size: 15px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	transition: background 0.12s, color 0.12s;
+}
+.ngwa-zoom button:hover {
+	background: var(--bg-raised);
+	color: var(--fg);
+}
+.ngwa-zoom button + button {
+	border-top: 1px solid var(--border-soft);
+}

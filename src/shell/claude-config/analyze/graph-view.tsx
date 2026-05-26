@@ -8,7 +8,7 @@
 //
 // Derived entirely client-side from the scan — see `@/lib/claude-graph`.
 
-import { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { cluster, hierarchy, type HierarchyNode } from 'd3-hierarchy';
 import { curveBundle, lineRadial } from 'd3-shape';
 
@@ -61,6 +61,9 @@ export function GraphView({ config, scope }: GraphViewProps) {
 	const [selected, setSelected] = useState<string | null>(null);
 	const [hidden, setHidden] = useState<Set<GraphNodeKind>>(() => new Set());
 	const [includeHeuristic, setIncludeHeuristic] = useState(true);
+	// Set true while a pan-drag is in flight so the trailing click on the stage
+	// background doesn't clear the selection.
+	const draggedRef = useRef(false);
 
 	const graph = useMemo<CapabilityGraph>(() => {
 		if (!config) return { nodes: [], edges: [] };
@@ -178,13 +181,23 @@ export function GraphView({ config, scope }: GraphViewProps) {
 				</button>
 			</div>
 
-			<div className="ngwa-graph-stage" onClick={() => setSelected(null)}>
+			<div
+				className="ngwa-graph-stage"
+				onClick={() => {
+					if (draggedRef.current) {
+						draggedRef.current = false;
+						return;
+					}
+					setSelected(null);
+				}}
+			>
 				{mode === 'bundle' ? (
 					<BundleRenderer
 						graph={view}
 						selected={selected}
 						incident={incident}
 						onSelect={setSelected}
+						draggedRef={draggedRef}
 					/>
 				) : (
 					<SwimlaneRenderer
@@ -206,6 +219,13 @@ interface RendererProps {
 	selected: string | null;
 	incident: { nodes: Set<string>; edges: Set<string> } | null;
 	onSelect: (id: string) => void;
+	/** Bundle only — flipped true during a pan-drag so the parent suppresses the
+	 *  background-click deselect. */
+	draggedRef?: React.MutableRefObject<boolean>;
+}
+
+function clamp(v: number, lo: number, hi: number): number {
+	return Math.min(hi, Math.max(lo, v));
 }
 
 function edgeColor(e: GraphEdge, selected: string | null): string {
@@ -224,9 +244,68 @@ type BundleDatum = {
 	children?: BundleDatum[];
 };
 
-function BundleRenderer({ graph, selected, incident, onSelect }: RendererProps) {
+const BUNDLE_LABEL_ZOOM = 1.5; // show all labels at/above this zoom
+const BUNDLE_HUB_DEGREE = 6; // hubs at/above this degree stay labelled when zoomed out
+
+function BundleRenderer({ graph, selected, incident, onSelect, draggedRef }: RendererProps) {
 	const SIZE = 820;
 	const R = SIZE / 2 - 132;
+	const svgRef = useRef<SVGSVGElement>(null);
+	const [t, setT] = useState({ k: 1, x: 0, y: 0 });
+	const dragRef = useRef<{ x: number; y: number } | null>(null);
+	const [hover, setHover] = useState<string | null>(null);
+
+	// Reset the view when the graph identity changes (mode/scope/filter swap).
+	useEffect(() => {
+		setT({ k: 1, x: 0, y: 0 });
+	}, [graph]);
+
+	// Map a pointer event to SVG viewBox coords (independent of our pan/zoom <g>).
+	function toVB(clientX: number, clientY: number): { x: number; y: number } {
+		const svg = svgRef.current;
+		const ctm = svg?.getScreenCTM();
+		if (!svg || !ctm) return { x: 0, y: 0 };
+		const p = new DOMPoint(clientX, clientY).matrixTransform(ctm.inverse());
+		return { x: p.x, y: p.y };
+	}
+	function zoomAbout(cx: number, cy: number, factor: number) {
+		setT((v) => {
+			const k = clamp(v.k * factor, 0.4, 8);
+			const ratio = k / v.k;
+			return { k, x: cx - ratio * (cx - v.x), y: cy - ratio * (cy - v.y) };
+		});
+	}
+	// Non-passive wheel listener so we can preventDefault the page scroll.
+	useEffect(() => {
+		const svg = svgRef.current;
+		if (!svg) return;
+		const onWheel = (ev: WheelEvent) => {
+			ev.preventDefault();
+			const c = toVB(ev.clientX, ev.clientY);
+			zoomAbout(c.x, c.y, ev.deltaY < 0 ? 1.15 : 1 / 1.15);
+		};
+		svg.addEventListener('wheel', onWheel, { passive: false });
+		return () => svg.removeEventListener('wheel', onWheel);
+	}, []);
+
+	function onPointerDown(ev: React.PointerEvent<SVGSVGElement>) {
+		if (ev.button !== 0) return;
+		dragRef.current = toVB(ev.clientX, ev.clientY);
+		ev.currentTarget.setPointerCapture(ev.pointerId);
+	}
+	function onPointerMove(ev: React.PointerEvent<SVGSVGElement>) {
+		if (!dragRef.current) return;
+		const p = toVB(ev.clientX, ev.clientY);
+		const dx = p.x - dragRef.current.x;
+		const dy = p.y - dragRef.current.y;
+		if (Math.abs(dx) + Math.abs(dy) > 0.5 && draggedRef) draggedRef.current = true;
+		setT((v) => ({ ...v, x: v.x + dx, y: v.y + dy }));
+		dragRef.current = p;
+	}
+	function onPointerUp(ev: React.PointerEvent<SVGSVGElement>) {
+		dragRef.current = null;
+		ev.currentTarget.releasePointerCapture?.(ev.pointerId);
+	}
 
 	const layout = useMemo(() => {
 		const groups: BundleDatum[] = GRAPH_KIND_ORDER.map((k) => ({
@@ -270,87 +349,130 @@ function BundleRenderer({ graph, selected, incident, onSelect }: RendererProps) 
 
 	const dimNode = (id: string) => incident !== null && !incident.nodes.has(id);
 	const dimEdge = (e: GraphEdge) => incident !== null && !incident.edges.has(e.id);
+	// Label declutter: at this density, show a label only when the view is
+	// zoomed in, the node is a hub, or it's hovered / in the selected
+	// neighbourhood. Keeps the overview readable; zoom reveals the rest.
+	const showLabel = (n: GraphNode): boolean =>
+		t.k >= BUNDLE_LABEL_ZOOM ||
+		hover === n.id ||
+		selected === n.id ||
+		incident?.nodes.has(n.id) === true ||
+		n.degreeOut + n.degreeIn >= BUNDLE_HUB_DEGREE;
 
 	return (
-		<svg
-			className="ngwa-graph-svg"
-			viewBox={`0 0 ${SIZE} ${SIZE}`}
-			preserveAspectRatio="xMidYMid meet"
-		>
-			<g transform={`translate(${SIZE / 2},${SIZE / 2})`}>
-				{/* kind arcs + labels */}
-				{layout.arcs.map((arc) => {
-					const mid = (arc.a0 + arc.a1) / 2;
-					const rad = ((mid - 90) * Math.PI) / 180;
-					const lr = R + 30;
-					return (
-						<text
-							key={arc.kind}
-							x={Math.cos(rad) * lr}
-							y={Math.sin(rad) * lr}
-							textAnchor="middle"
-							dominantBaseline="middle"
-							className="ngwa-arc-label"
-							fill={`var(--nk-${arc.kind})`}
-						>
-							{KIND_LABEL[arc.kind].toUpperCase()}
-						</text>
-					);
-				})}
-				{/* links */}
-				<g fill="none">
-					{layout.links.map(({ edge, d }) => (
-						<path
-							key={edge.id}
-							d={d}
-							stroke={edgeColor(edge, selected)}
-							strokeWidth={incident?.edges.has(edge.id) ? 2 : 1.1}
-							strokeOpacity={dimEdge(edge) ? 0.05 : selected ? 0.85 : 0.24}
-							strokeDasharray={edge.derivation === 'heuristic' ? '4,4' : undefined}
-						/>
-					))}
-				</g>
-				{/* nodes */}
-				{layout.leaves.map((leaf) => {
-					const n = leaf.data.node;
-					if (!n) return null;
-					const angle = leaf.x ?? 0;
-					const flip = angle >= 180;
-					const r = 4 + Math.min(5, (n.degreeOut + n.degreeIn) * 0.6);
-					const isSel = selected === n.id;
-					return (
-						<g
-							key={n.id}
-							transform={`rotate(${angle - 90}) translate(${leaf.y ?? 0},0)`}
-							className="ngwa-gnode"
-							opacity={dimNode(n.id) ? 0.18 : 1}
-							onClick={(ev) => {
-								ev.stopPropagation();
-								onSelect(n.id);
-							}}
-						>
-							<circle
-								r={r}
-								fill={`color-mix(in srgb, var(--nk-${n.kind}) 24%, var(--bg-raised))`}
-								stroke={isSel ? NGWA : `var(--nk-${n.kind})`}
-								strokeWidth={isSel ? 2.5 : 1.5}
-							/>
-							<text
-								className="ngwa-gnode-label"
-								dy="0.31em"
-								x={flip ? -(r + 5) : r + 5}
-								textAnchor={flip ? 'end' : 'start'}
-								transform={flip ? 'rotate(180)' : undefined}
-								fill={isSel ? 'var(--fg)' : 'var(--fg-muted)'}
-								fontWeight={isSel ? 600 : 400}
-							>
-								{n.label}
-							</text>
+		<>
+			<svg
+				ref={svgRef}
+				className="ngwa-graph-svg"
+				viewBox={`0 0 ${SIZE} ${SIZE}`}
+				preserveAspectRatio="xMidYMid meet"
+				style={{ cursor: dragRef.current ? 'grabbing' : 'grab', touchAction: 'none' }}
+				onPointerDown={onPointerDown}
+				onPointerMove={onPointerMove}
+				onPointerUp={onPointerUp}
+				onPointerLeave={onPointerUp}
+			>
+				<g transform={`translate(${t.x},${t.y}) scale(${t.k})`}>
+					<g transform={`translate(${SIZE / 2},${SIZE / 2})`}>
+						{/* kind arcs + labels */}
+						{layout.arcs.map((arc) => {
+							const mid = (arc.a0 + arc.a1) / 2;
+							const rad = ((mid - 90) * Math.PI) / 180;
+							const lr = R + 30;
+							return (
+								<text
+									key={arc.kind}
+									x={Math.cos(rad) * lr}
+									y={Math.sin(rad) * lr}
+									textAnchor="middle"
+									dominantBaseline="middle"
+									className="ngwa-arc-label"
+									fill={`var(--nk-${arc.kind})`}
+								>
+									{KIND_LABEL[arc.kind].toUpperCase()}
+								</text>
+							);
+						})}
+						{/* links */}
+						<g fill="none">
+							{layout.links.map(({ edge, d }) => (
+								<path
+									key={edge.id}
+									d={d}
+									stroke={edgeColor(edge, selected)}
+									strokeWidth={incident?.edges.has(edge.id) ? 2 : 1.1}
+									strokeOpacity={dimEdge(edge) ? 0.05 : selected ? 0.85 : 0.24}
+									strokeDasharray={edge.derivation === 'heuristic' ? '4,4' : undefined}
+								/>
+							))}
 						</g>
-					);
-				})}
-			</g>
-		</svg>
+						{/* nodes */}
+						{layout.leaves.map((leaf) => {
+							const n = leaf.data.node;
+							if (!n) return null;
+							const angle = leaf.x ?? 0;
+							const flip = angle >= 180;
+							const r = 4 + Math.min(5, (n.degreeOut + n.degreeIn) * 0.6);
+							const isSel = selected === n.id;
+							return (
+								<g
+									key={n.id}
+									transform={`rotate(${angle - 90}) translate(${leaf.y ?? 0},0)`}
+									className="ngwa-gnode"
+									opacity={dimNode(n.id) ? 0.18 : 1}
+									onMouseEnter={() => setHover(n.id)}
+									onMouseLeave={() => setHover((h) => (h === n.id ? null : h))}
+									onClick={(ev) => {
+										ev.stopPropagation();
+										onSelect(n.id);
+									}}
+								>
+									<circle
+										r={r}
+										fill={`color-mix(in srgb, var(--nk-${n.kind}) 24%, var(--bg-raised))`}
+										stroke={isSel ? NGWA : `var(--nk-${n.kind})`}
+										strokeWidth={isSel ? 2.5 : 1.5}
+									/>
+									{showLabel(n) && (
+										<text
+											className="ngwa-gnode-label"
+											dy="0.31em"
+											x={flip ? -(r + 5) : r + 5}
+											textAnchor={flip ? 'end' : 'start'}
+											transform={flip ? 'rotate(180)' : undefined}
+											fill={isSel ? 'var(--fg)' : 'var(--fg-muted)'}
+											fontWeight={isSel ? 600 : 400}
+										>
+											{n.label}
+										</text>
+									)}
+								</g>
+							);
+						})}
+					</g>
+				</g>
+			</svg>
+			<div className="ngwa-zoom">
+				<button type="button" title="Zoom in" onClick={() => zoomAbout(SIZE / 2, SIZE / 2, 1.3)}>
+					+
+				</button>
+				<button
+					type="button"
+					title="Zoom out"
+					onClick={() => zoomAbout(SIZE / 2, SIZE / 2, 1 / 1.3)}
+				>
+					−
+				</button>
+				<button
+					type="button"
+					title="Reset view"
+					style={{ fontSize: 12 }}
+					onClick={() => setT({ k: 1, x: 0, y: 0 })}
+				>
+					⊡
+				</button>
+			</div>
+		</>
 	);
 }
 
