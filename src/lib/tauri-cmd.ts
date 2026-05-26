@@ -1203,11 +1203,11 @@ export interface ClaudeConfig {
 // small canned multi-engine dataset so WP-20 can build the engine-grouped facet
 // ahead of the backend.
 //
-// Same shape as the `NGWA_STORE_MOCK` cutover below: the flag defaults ON in dev
-// builds and OFF in production; the live `invoke('claude_config_load', …)` path
-// is the default-on production path. CUTOVER (single line for the orchestrator):
-// set `NGWA_SCAN_MOCK = false` once WP-17/18 emit the three fields from Rust.
-const NGWA_SCAN_MOCK: boolean = import.meta.env.DEV;
+// CUTOVER DONE (Phase 2 v2a, commit 65ed44d): WP-17/18 ship the live multi-engine
+// scan (real Claude + Gemini + Codex), so the mock now defaults OFF — the dev shell
+// shows the real config, not canned data. Flip to `true` to exercise the FE against
+// the canned multi-engine dataset below without a live `.gemini`/`.codex` present.
+const NGWA_SCAN_MOCK = false;
 
 /** Canned multi-engine scan the mock returns. Spans Claude + Gemini + Codex
  *  across kinds, and deliberately exercises the WP-20 facet edge cases:
