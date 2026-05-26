@@ -576,6 +576,13 @@ button.ccfg-tree-row.dir:hover {
 	--st-disabled: var(--fg-faint);
 	--st-local: var(--achievement);
 	--st-orphaned: var(--danger);
+	/* Node-kind identity colours for the Analyze surfaces (Phase 4 · D-06/D-07).
+	 * Warm, in-theme; one hue per primitive kind. */
+	--nk-command: hsl(20, 64%, 54%);
+	--nk-agent: hsl(284, 48%, 64%);
+	--nk-skill: hsl(42, 84%, 60%);
+	--nk-mcp: hsl(170, 44%, 52%);
+	--nk-hook: hsl(8, 74%, 58%);
 }
 
 /* ── header: mode toggle + engine seam (G-02) ── */
@@ -1330,4 +1337,1215 @@ button.ccfg-tree-row.dir:hover {
 :root[data-mode="light"] .ccfg-tree {
 	background: var(--bg-raised);
 	border-color: var(--border);
+}
+
+/* ====================================================================== */
+/* === Analyze surfaces (Phase 4 · D-06 capability graph · D-07 map) ==== */
+
+.ngwa-analyze-empty {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	height: 100%;
+	padding: var(--space-6);
+	text-align: center;
+	color: var(--fg-faint);
+	font-size: 12.5px;
+	line-height: 1.6;
+	max-width: 460px;
+	margin: 0 auto;
+}
+
+/* ── Capability graph ── */
+.ngwa-graph {
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+	height: 100%;
+	overflow: hidden;
+}
+.ngwa-graph-toolbar {
+	display: flex;
+	align-items: center;
+	gap: var(--space-3);
+	padding: 8px var(--space-4);
+	border-bottom: 1px solid var(--border-soft);
+	background: var(--bg-base);
+	flex-shrink: 0;
+	flex-wrap: wrap;
+}
+.ngwa-seg {
+	display: flex;
+	background: var(--bg-sunken);
+	border: 1px solid var(--border-soft);
+	border-radius: var(--radius-sm);
+	padding: 2px;
+	gap: 2px;
+}
+.ngwa-seg button {
+	border: 0;
+	background: transparent;
+	border-radius: var(--radius-xs);
+	padding: 4px 12px;
+	font-family: var(--font-mono);
+	font-size: 11px;
+	color: var(--fg-faint);
+	cursor: pointer;
+	transition:
+		background 0.12s,
+		color 0.12s;
+}
+.ngwa-seg button.on {
+	background: var(--bg-raised);
+	color: var(--tint-fg-active, var(--primary));
+}
+.ngwa-graph-meta {
+	font-family: var(--font-mono);
+	font-size: 10px;
+	color: var(--fg-faint);
+	font-variant-numeric: tabular-nums;
+}
+.ngwa-graph-spacer {
+	flex: 1;
+}
+.ngwa-kind-filter {
+	display: flex;
+	gap: 4px;
+}
+.ngwa-kf {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 3px 9px;
+	font-family: var(--font-mono);
+	font-size: 10px;
+	color: var(--fg-muted);
+	background: transparent;
+	border: 1px solid var(--border-soft);
+	border-radius: var(--radius-pill);
+	cursor: pointer;
+	transition:
+		border-color 0.12s,
+		opacity 0.12s;
+}
+.ngwa-kf:hover {
+	border-color: var(--border-strong);
+}
+.ngwa-kf.off {
+	opacity: 0.35;
+}
+.ngwa-kf .kd {
+	width: 7px;
+	height: 7px;
+	border-radius: 50%;
+}
+.ngwa-heur {
+	padding: 3px 9px;
+	font-family: var(--font-mono);
+	font-size: 10px;
+	color: var(--fg-muted);
+	background: transparent;
+	border: 1px solid var(--border-soft);
+	border-radius: var(--radius-pill);
+	cursor: pointer;
+}
+.ngwa-heur.off {
+	color: var(--fg-faint);
+}
+.ngwa-graph-stage {
+	flex: 1;
+	position: relative;
+	overflow: hidden;
+	min-height: 0;
+	background:
+		radial-gradient(
+			ellipse 70% 60% at 50% 45%,
+			color-mix(in srgb, var(--bg-raised) 60%, transparent),
+			transparent 70%
+		),
+		var(--bg-base);
+}
+.ngwa-graph-svg {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+}
+.ngwa-arc-label {
+	font-family: var(--font-mono);
+	font-size: 10px;
+	letter-spacing: 0.12em;
+	font-weight: 500;
+}
+.ngwa-gnode {
+	cursor: pointer;
+}
+.ngwa-gnode-label {
+	font-family: var(--font-sans);
+	font-size: 10.5px;
+	user-select: none;
+}
+
+/* graph detail card (shared by both modes) */
+.ngwa-graph-detail {
+	position: absolute;
+	top: 16px;
+	right: 16px;
+	width: 256px;
+	background: color-mix(in srgb, var(--bg-surface) 86%, transparent);
+	backdrop-filter: blur(14px);
+	-webkit-backdrop-filter: blur(14px);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-lg);
+	box-shadow: var(--shadow-3);
+	padding: 15px;
+	z-index: 5;
+}
+.ngwa-gd-kind {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	font-family: var(--font-mono);
+	font-size: 9.5px;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+	padding: 3px 9px;
+	border-radius: var(--radius-pill);
+	margin-bottom: 9px;
+	color: var(--accent);
+	background: color-mix(in srgb, var(--accent) 16%, var(--bg-raised));
+}
+.ngwa-gd-kind .dd {
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	background: var(--accent);
+}
+.ngwa-gd-name {
+	font-size: 16px;
+	font-weight: 600;
+	letter-spacing: -0.02em;
+	line-height: 1.1;
+	color: var(--fg);
+}
+.ngwa-gd-scope {
+	font-family: var(--font-mono);
+	font-size: 10px;
+	color: var(--fg-faint);
+	margin-top: 4px;
+}
+.ngwa-gd-desc {
+	font-size: 12px;
+	color: var(--fg-muted);
+	line-height: 1.5;
+	margin: 10px 0;
+	padding: 10px 0;
+	border-top: 1px solid var(--border-soft);
+	border-bottom: 1px solid var(--border-soft);
+}
+.ngwa-gd-ch {
+	display: flex;
+	justify-content: space-between;
+	font-family: var(--font-mono);
+	font-size: 9px;
+	letter-spacing: 0.1em;
+	text-transform: uppercase;
+	color: var(--fg-faint);
+	margin: 8px 0 6px;
+}
+.ngwa-gd-conn {
+	display: flex;
+	align-items: center;
+	gap: 9px;
+	padding: 4px 0;
+	font-size: 12px;
+}
+.ngwa-gd-conn .ar {
+	font-family: var(--font-mono);
+	font-size: 11px;
+	width: 14px;
+	text-align: center;
+}
+.ngwa-gd-conn .ar.out {
+	color: var(--tint-fg-active, var(--primary));
+}
+.ngwa-gd-conn .ar.in {
+	color: var(--systemic);
+}
+.ngwa-gd-conn .tg {
+	color: var(--fg-muted);
+}
+.ngwa-gd-conn .rl {
+	margin-left: auto;
+	font-family: var(--font-mono);
+	font-size: 9px;
+	color: var(--fg-faint);
+}
+
+/* ── Swimlane flow ── */
+/* Kanban-style lanes (mirrors the groundwork board's .kanban-col): each column
+ * is a bordered card with a fixed header + an independently-scrolling body. The
+ * stage itself doesn't scroll; the edges overlay floats above for the selected
+ * node's connectors. */
+.ngwa-swim {
+	position: absolute;
+	inset: 0;
+	overflow: hidden;
+}
+.ngwa-swim-edges {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	pointer-events: none;
+	z-index: 5;
+}
+.ngwa-swim-cols {
+	display: grid;
+	grid-template-columns: 1fr 1fr 1fr;
+	gap: var(--space-3);
+	padding: var(--space-4);
+	height: 100%;
+	position: relative;
+	z-index: 1;
+}
+.ngwa-swim-col {
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+	background: var(--bg-surface);
+	border: 1px solid var(--border-soft);
+	border-radius: var(--radius-md);
+	overflow: hidden;
+}
+.ngwa-swim-colh {
+	flex-shrink: 0;
+	background: var(--bg-sunken);
+	border-bottom: 1px solid var(--border-soft);
+	padding: 10px 14px;
+	font-family: var(--font-mono);
+	font-size: 10px;
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+	color: var(--fg-muted);
+	font-weight: 500;
+}
+.ngwa-swim-colbody {
+	flex: 1;
+	min-height: 0;
+	overflow-y: auto;
+	padding: 12px;
+	display: flex;
+	flex-direction: column;
+	gap: 9px;
+}
+.ngwa-swim-subh {
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	font-family: var(--font-mono);
+	font-size: 9px;
+	letter-spacing: 0.1em;
+	text-transform: uppercase;
+	color: var(--fg-faint);
+	margin: 12px 0 7px;
+}
+.ngwa-swim-subh .kd {
+	width: 7px;
+	height: 7px;
+	border-radius: 50%;
+}
+.ngwa-swim-stack {
+	display: flex;
+	flex-direction: column;
+	gap: 9px;
+}
+.ngwa-gcard {
+	position: relative;
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	background: var(--bg-surface);
+	border: 1px solid var(--border-soft);
+	border-radius: var(--radius-md);
+	padding: 9px 12px 9px 13px;
+	cursor: pointer;
+	overflow: hidden;
+	transition:
+		border-color 0.14s,
+		transform 0.14s,
+		background 0.14s;
+}
+.ngwa-gcard::before {
+	content: "";
+	position: absolute;
+	left: 0;
+	top: 0;
+	bottom: 0;
+	width: 3px;
+	background: var(--accent);
+}
+.ngwa-gcard:hover {
+	border-color: var(--border-strong);
+	transform: translateX(1px);
+}
+.ngwa-gcard.sel {
+	border-color: var(--tint-fg-active, var(--primary));
+	background: var(--bg-raised);
+	box-shadow: 0 0 0 1px var(--tint-fg-active, var(--primary));
+}
+.ngwa-gcard.dim {
+	opacity: 0.28;
+}
+.ngwa-gcard-ic {
+	width: 30px;
+	height: 30px;
+	border-radius: var(--radius-sm);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-family: var(--font-mono);
+	font-size: 13px;
+	flex-shrink: 0;
+	color: var(--accent);
+	background: color-mix(in srgb, var(--accent) 16%, var(--bg-raised));
+}
+.ngwa-gcard-tx {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+}
+.ngwa-gcard-nm {
+	font-size: 12.5px;
+	font-weight: 500;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+.ngwa-gcard-sc {
+	font-family: var(--font-mono);
+	font-size: 9px;
+	color: var(--fg-faint);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	margin-top: 2px;
+}
+.ngwa-gcard-deg {
+	flex-shrink: 0;
+	font-family: var(--font-mono);
+	font-size: 10px;
+	color: var(--fg-faint);
+	background: var(--bg-base);
+	border: 1px solid var(--border-soft);
+	border-radius: var(--radius-pill);
+	min-width: 20px;
+	height: 20px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 0 6px;
+}
+.ngwa-gcard.sel .ngwa-gcard-deg {
+	color: var(--tint-fg-active, var(--primary));
+	border-color: color-mix(in srgb, var(--tint-fg-active, var(--primary)) 40%, var(--border));
+}
+
+/* ── Store map · presence matrix ── */
+.ngwa-matrix-wrap {
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+	height: 100%;
+	overflow: hidden;
+}
+/* Scroll container — owns both-axis overflow so sticky row-headers (left) +
+ * column-headers (top) pin against it. */
+.ngwa-matrix-scroll {
+	flex: 1;
+	min-height: 0;
+	overflow: auto;
+	padding: 18px 24px;
+}
+.ngwa-matrix {
+	border-collapse: separate;
+	border-spacing: 0;
+	min-width: min-content;
+}
+.ngwa-matrix th,
+.ngwa-matrix td {
+	padding: 0;
+}
+.ngwa-mx-corner {
+	position: sticky;
+	left: 0;
+	top: 0;
+	z-index: 5;
+	background: var(--bg-base);
+	text-align: left;
+	vertical-align: bottom;
+	padding: 0 16px 12px 0;
+	font-family: var(--font-mono);
+	font-size: 9.5px;
+	letter-spacing: 0.1em;
+	text-transform: uppercase;
+	color: var(--fg-faint);
+	box-shadow: 1px 0 0 var(--border-soft);
+}
+.ngwa-mx-colh {
+	vertical-align: bottom;
+	padding: 0 4px 12px;
+	text-align: center;
+	position: sticky;
+	top: 0;
+	background: linear-gradient(180deg, var(--bg-base) 72%, transparent);
+	z-index: 2;
+}
+.ngwa-mx-colcard {
+	display: inline-flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 5px;
+	width: 92px;
+}
+.ngwa-mx-colnm {
+	font-size: 11px;
+	font-weight: 600;
+	line-height: 1.2;
+	text-align: center;
+	max-width: 88px;
+	color: var(--fg);
+}
+.ngwa-mx-colh.lit .ngwa-mx-colnm {
+	color: var(--tint-fg-active, var(--primary));
+}
+.ngwa-mx-kindrow td {
+	padding: 14px 0 6px;
+}
+.ngwa-mx-kindlbl {
+	position: sticky;
+	left: 0;
+	background: var(--bg-base);
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	font-family: var(--font-mono);
+	font-size: 9.5px;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+	color: var(--fg-faint);
+}
+.ngwa-mx-kindlbl .kd {
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+}
+.ngwa-mx-kindlbl .ct {
+	color: var(--border-strong);
+	margin-left: 2px;
+}
+.ngwa-mx-rowh {
+	position: sticky;
+	left: 0;
+	z-index: 2;
+	background: var(--bg-base);
+	padding: 0 16px 0 0;
+	white-space: nowrap;
+	box-shadow: 1px 0 0 var(--border-soft);
+}
+.ngwa-mx-rowcard {
+	display: flex;
+	align-items: center;
+	gap: 9px;
+	padding: 6px 12px 6px 10px;
+	border-radius: var(--radius-sm);
+	transition: background 0.1s;
+	margin: 1px 0;
+}
+.ngwa-matrix tr.lit .ngwa-mx-rowcard {
+	background: color-mix(in srgb, var(--tint-fg-active, var(--primary)) 12%, transparent);
+}
+.ngwa-mx-ic {
+	width: 26px;
+	height: 26px;
+	border-radius: var(--radius-xs);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-family: var(--font-mono);
+	font-size: 12px;
+	flex-shrink: 0;
+	background: var(--bg-raised);
+}
+.ngwa-mx-nm {
+	font-size: 12.5px;
+	font-weight: 500;
+}
+.ngwa-mx-st {
+	font-family: var(--font-mono);
+	font-size: 8.5px;
+	padding: 1px 6px;
+	border-radius: var(--radius-xs);
+	margin-left: 6px;
+}
+.ngwa-mx-st.enabled {
+	background: color-mix(in srgb, var(--st-enabled) 18%, var(--bg-raised));
+	color: var(--st-enabled);
+}
+.ngwa-mx-st.disabled {
+	background: var(--bg-raised);
+	color: var(--fg-faint);
+}
+.ngwa-mx-st.local {
+	background: color-mix(in srgb, var(--st-local) 18%, var(--bg-raised));
+	color: var(--st-local);
+}
+.ngwa-mx-st.orphaned {
+	background: color-mix(in srgb, var(--st-orphaned) 18%, var(--bg-raised));
+	color: var(--st-orphaned);
+}
+.ngwa-mx-cell {
+	text-align: center;
+	height: 46px;
+	transition: background 0.12s;
+}
+.ngwa-matrix tr.lit .ngwa-mx-cell {
+	background: color-mix(in srgb, var(--bg-raised) 50%, transparent);
+}
+.ngwa-mx-dot {
+	width: 88px;
+	height: 38px;
+	margin: 0 auto;
+	border-radius: var(--radius-md);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border: 1px solid transparent;
+	transition:
+		transform 0.14s,
+		background 0.12s;
+}
+.ngwa-mx-dot .mark {
+	width: 14px;
+	height: 14px;
+	border-radius: 50%;
+}
+.ngwa-mx-dot.on {
+	background: color-mix(in srgb, var(--st-enabled) 16%, transparent);
+	border-color: color-mix(in srgb, var(--st-enabled) 32%, transparent);
+}
+.ngwa-mx-dot.on .mark {
+	background: var(--st-enabled);
+	box-shadow: 0 0 10px color-mix(in srgb, var(--st-enabled) 70%, transparent);
+}
+.ngwa-mx-dot.local {
+	background: color-mix(in srgb, var(--st-local) 16%, transparent);
+	border-color: color-mix(in srgb, var(--st-local) 32%, transparent);
+}
+.ngwa-mx-dot.local .mark {
+	background: var(--st-local);
+	box-shadow: 0 0 10px color-mix(in srgb, var(--st-local) 60%, transparent);
+}
+.ngwa-mx-dot.orphan {
+	background: color-mix(in srgb, var(--st-orphaned) 16%, transparent);
+	border-color: color-mix(in srgb, var(--st-orphaned) 38%, transparent);
+}
+.ngwa-mx-dot.orphan .mark {
+	width: 13px;
+	height: 13px;
+	background: transparent;
+	border: 2px solid var(--st-orphaned);
+}
+.ngwa-mx-dot.off .mark {
+	width: 5px;
+	height: 5px;
+	background: var(--border-strong);
+}
+.ngwa-matrix tr.lit .ngwa-mx-dot.on,
+.ngwa-matrix tr.lit .ngwa-mx-dot.local,
+.ngwa-matrix tr.lit .ngwa-mx-dot.orphan {
+	transform: scale(1.08);
+}
+.ngwa-matrix-foot {
+	display: flex;
+	align-items: center;
+	gap: 14px;
+	padding: 10px 24px;
+	border-top: 1px solid var(--border-soft);
+	background: var(--bg-surface);
+	font-family: var(--font-mono);
+	font-size: 10.5px;
+	color: var(--fg-muted);
+	flex-shrink: 0;
+}
+.ngwa-matrix-foot b {
+	color: var(--fg);
+}
+.ngwa-matrix-foot .sep {
+	color: var(--border-strong);
+}
+
+/* bundle pan/zoom controls */
+.ngwa-zoom {
+	position: absolute;
+	left: 16px;
+	bottom: 16px;
+	display: flex;
+	flex-direction: column;
+	background: color-mix(in srgb, var(--bg-surface) 80%, transparent);
+	backdrop-filter: blur(8px);
+	-webkit-backdrop-filter: blur(8px);
+	border: 1px solid var(--border-soft);
+	border-radius: var(--radius-sm);
+	overflow: hidden;
+	z-index: 6;
+}
+.ngwa-zoom button {
+	width: 30px;
+	height: 30px;
+	border: 0;
+	background: transparent;
+	color: var(--fg-muted);
+	cursor: pointer;
+	font-size: 15px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	transition:
+		background 0.12s,
+		color 0.12s;
+}
+.ngwa-zoom button:hover {
+	background: var(--bg-raised);
+	color: var(--fg);
+}
+.ngwa-zoom button + button {
+	border-top: 1px solid var(--border-soft);
+}
+
+/* graph filter controls */
+.ngwa-graph-search {
+	background: var(--bg-sunken);
+	border: 1px solid var(--border-soft);
+	border-radius: var(--radius-sm);
+	padding: 4px 10px;
+	font-size: 12px;
+	color: var(--fg);
+	outline: none;
+	width: 140px;
+	font-family: var(--font-sans);
+	transition: border-color 0.12s;
+}
+.ngwa-graph-search:focus {
+	border-color: color-mix(in srgb, var(--tint-fg-active, var(--primary)) 40%, var(--border));
+}
+.ngwa-graph-search::placeholder {
+	color: var(--fg-faint);
+}
+.ngwa-graph-pillbtn {
+	padding: 3px 10px;
+	font-family: var(--font-mono);
+	font-size: 10px;
+	color: var(--fg-muted);
+	background: transparent;
+	border: 1px solid var(--border-soft);
+	border-radius: var(--radius-pill);
+	cursor: pointer;
+	white-space: nowrap;
+	transition:
+		border-color 0.12s,
+		color 0.12s,
+		background 0.12s;
+}
+.ngwa-graph-pillbtn:hover {
+	border-color: var(--border-strong);
+}
+.ngwa-graph-pillbtn.on {
+	color: var(--tint-fg-active, var(--primary));
+	border-color: color-mix(in srgb, var(--tint-fg-active, var(--primary)) 40%, var(--border));
+	background: color-mix(in srgb, var(--tint-fg-active, var(--primary)) 8%, transparent);
+}
+.ngwa-graph-nomatch {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-family: var(--font-mono);
+	font-size: 12px;
+	color: var(--fg-faint);
+	pointer-events: none;
+}
+
+.ngwa-graph-select {
+	background: var(--bg-sunken);
+	border: 1px solid var(--border-soft);
+	border-radius: var(--radius-sm);
+	padding: 4px 8px;
+	font-size: 11px;
+	color: var(--fg-muted);
+	outline: none;
+	font-family: var(--font-mono);
+	cursor: pointer;
+}
+.ngwa-graph-select:focus {
+	border-color: color-mix(in srgb, var(--tint-fg-active, var(--primary)) 40%, var(--border));
+}
+
+/* force constellation labels */
+.ngwa-force-label {
+	font-family: var(--font-sans);
+	font-size: 10px;
+	pointer-events: none;
+	paint-order: stroke;
+	stroke: var(--bg-base);
+	stroke-width: 3px;
+	stroke-linejoin: round;
+}
+/* layered DAG node labels + controls */
+.ngwa-dag-label {
+	font-family: var(--font-sans);
+	font-size: 11px;
+	pointer-events: none;
+}
+.ngwa-dag-label.mono {
+	font-family: var(--font-mono);
+	font-size: 10px;
+}
+.ngwa-dag-glyph {
+	font-family: var(--font-mono);
+	font-size: 11px;
+	pointer-events: none;
+}
+.ngwa-dag-controls {
+	position: absolute;
+	left: 16px;
+	top: 16px;
+	z-index: 6;
+}
+
+/* analyze surface inline title (modeless surfaces, e.g. store map) */
+.ngwa-graph-title {
+	font-family: var(--font-display, var(--font-sans));
+	font-size: var(--text-h3);
+	font-weight: 600;
+	color: var(--fg);
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+}
+.ngwa-graph-glyph {
+	color: var(--tint-fg-active, var(--primary));
+}
+
+/* ── Hook lifecycle (surface=life · D-03) ── */
+.ngwa-life {
+	padding: var(--space-5) var(--space-5) var(--space-6);
+	max-width: 1240px;
+}
+.ngwa-life-lede {
+	font-family: var(--font-mono);
+	font-size: 11px;
+	color: var(--fg-muted);
+	line-height: 1.6;
+	margin: 0 0 var(--space-5);
+}
+.ngwa-life-lede code {
+	color: var(--fg);
+	background: var(--bg-sunken);
+	border: 1px solid var(--border-soft);
+	padding: 1px 5px;
+	border-radius: var(--radius-xs);
+	font-size: 10px;
+}
+.ngwa-life-track {
+	display: grid;
+	grid-auto-flow: column;
+	grid-auto-columns: minmax(150px, 1fr);
+	gap: 0;
+	overflow-x: auto;
+	padding-bottom: var(--space-2);
+}
+.ngwa-life-station {
+	padding: 0 var(--space-3) var(--space-4) 0;
+	min-width: 0;
+}
+.ngwa-life-rail {
+	position: relative;
+	height: 14px;
+	margin-bottom: var(--space-2);
+}
+.ngwa-life-tick {
+	position: absolute;
+	left: 0;
+	top: 3px;
+	width: 9px;
+	height: 9px;
+	border-radius: 50%;
+	background: var(--bg-raised);
+	border: 2px solid var(--border-strong);
+	z-index: 1;
+}
+.ngwa-life-station.active .ngwa-life-tick {
+	background: var(--st-enabled);
+	border-color: var(--st-enabled);
+}
+.ngwa-life-line {
+	position: absolute;
+	left: 9px;
+	right: -1px;
+	top: 7px;
+	height: 2px;
+	background: var(--border-soft);
+}
+.ngwa-life-ev {
+	font-family: var(--font-mono);
+	font-size: 11px;
+	font-weight: 600;
+	color: var(--fg-faint);
+}
+.ngwa-life-station.active .ngwa-life-ev {
+	color: var(--fg);
+}
+.ngwa-life-blurb {
+	font-family: var(--font-mono);
+	font-size: 9px;
+	color: var(--fg-faint);
+	line-height: 1.4;
+	margin: 2px 0 var(--space-3);
+	min-height: 24px;
+}
+.ngwa-life-chips {
+	display: flex;
+	flex-direction: column;
+	gap: 5px;
+}
+.ngwa-life-empty {
+	font-family: var(--font-mono);
+	font-size: 10px;
+	color: var(--fg-faint);
+	opacity: 0.4;
+}
+.ngwa-life-chip {
+	display: flex;
+	align-items: center;
+	gap: 5px;
+	padding: 4px 7px;
+	background: var(--bg-surface);
+	border: 1px solid var(--border-soft);
+	border-left: 2px solid var(--nk-hook);
+	border-radius: var(--radius-xs);
+	font-size: 11px;
+	color: var(--fg);
+	min-width: 0;
+}
+.ngwa-life-chip .g {
+	color: var(--nk-hook);
+	flex-shrink: 0;
+}
+.ngwa-life-chip .nm {
+	font-weight: 500;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.ngwa-life-chip .sc {
+	font-family: var(--font-mono);
+	font-size: 9px;
+	color: var(--fg-faint);
+	background: var(--bg-sunken);
+	padding: 1px 4px;
+	border-radius: var(--radius-xs);
+	flex-shrink: 0;
+}
+.ngwa-life-chip .sc.match {
+	color: var(--nk-hook);
+	background: color-mix(in srgb, var(--nk-hook) 12%, transparent);
+}
+.ngwa-life-insights {
+	margin-top: var(--space-5);
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+.ngwa-life-insight {
+	display: flex;
+	align-items: baseline;
+	gap: 8px;
+	font-family: var(--font-mono);
+	font-size: 10px;
+	color: var(--fg-muted);
+	line-height: 1.6;
+}
+.ngwa-life-insight .dot {
+	flex-shrink: 0;
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	transform: translateY(-1px);
+}
+.ngwa-life-insight.gate .dot {
+	background: var(--st-orphaned);
+}
+.ngwa-life-insight.note .dot {
+	background: var(--border-strong);
+}
+
+/* ── Inventory & health (surface=health · D-03) ── */
+.ngwa-health {
+	padding: var(--space-5);
+	display: grid;
+	gap: var(--space-5);
+	max-width: 1180px;
+}
+.ngwa-health-kpis {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-3);
+}
+.ngwa-health-kpi {
+	flex: 1 1 120px;
+	padding: var(--space-3) var(--space-4);
+	background: var(--bg-surface);
+	border: 1px solid var(--border-soft);
+	border-radius: var(--radius-sm);
+}
+.ngwa-health-kpi .n {
+	font-family: var(--font-display, var(--font-sans));
+	font-size: 26px;
+	font-weight: 600;
+	color: var(--fg);
+	line-height: 1;
+	font-variant-numeric: tabular-nums;
+}
+.ngwa-health-kpi .l {
+	font-family: var(--font-mono);
+	font-size: 9.5px;
+	color: var(--fg-faint);
+	margin-top: 5px;
+}
+.ngwa-health-kpi.warn .n {
+	color: var(--st-local);
+}
+.ngwa-health-kpi.bad .n {
+	color: var(--st-orphaned);
+}
+.ngwa-health-panel {
+	padding: var(--space-4) var(--space-5);
+	background: var(--bg-surface);
+	border: 1px solid var(--border-soft);
+	border-radius: var(--radius-sm);
+}
+.ngwa-health-panel h3 {
+	font-family: var(--font-mono);
+	font-size: 10px;
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+	color: var(--fg-faint);
+	margin: 0 0 var(--space-3);
+	font-weight: 600;
+}
+.ngwa-health-two {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: var(--space-5);
+}
+.ngwa-health-barrow {
+	display: flex;
+	align-items: center;
+	gap: var(--space-3);
+	margin-bottom: 8px;
+}
+.ngwa-health-barrow .bl {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	width: 92px;
+	flex-shrink: 0;
+	font-family: var(--font-mono);
+	font-size: 11px;
+	color: var(--fg-muted);
+}
+.ngwa-health-barrow .bl .kd {
+	width: 8px;
+	height: 8px;
+	border-radius: 2px;
+	flex-shrink: 0;
+}
+.ngwa-health-barrow .bn {
+	width: 28px;
+	text-align: right;
+	flex-shrink: 0;
+	font-family: var(--font-mono);
+	font-size: 11px;
+	color: var(--fg);
+	font-variant-numeric: tabular-nums;
+}
+.ngwa-health-bar {
+	flex: 1;
+	display: flex;
+	overflow: hidden;
+	background: var(--bg-base);
+	border: 1px solid var(--border-soft);
+	border-radius: var(--radius-xs);
+}
+.ngwa-health-bar .seg {
+	height: 100%;
+}
+.ngwa-health-bar .seg + .seg {
+	border-left: 1px solid var(--bg-base);
+}
+.ngwa-health-bar-empty {
+	flex: 1;
+}
+.ngwa-health-legend {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-3);
+	margin-top: var(--space-3);
+}
+.ngwa-health-legend span {
+	display: flex;
+	align-items: center;
+	gap: 5px;
+	font-family: var(--font-mono);
+	font-size: 9.5px;
+	color: var(--fg-muted);
+}
+.ngwa-health-legend i {
+	width: 9px;
+	height: 9px;
+	border-radius: 2px;
+	flex-shrink: 0;
+}
+
+/* ── Orchestration flow (surface=flow · D-03) ── */
+.ngwa-flow {
+	padding: var(--space-5) var(--space-5) var(--space-6);
+	max-width: 760px;
+}
+.ngwa-flow-badge {
+	font-family: var(--font-mono);
+	font-size: 9px;
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+	color: var(--st-local);
+	background: color-mix(in srgb, var(--st-local) 12%, transparent);
+	border: 1px solid color-mix(in srgb, var(--st-local) 35%, transparent);
+	padding: 2px 7px;
+	border-radius: var(--radius-pill);
+	cursor: default;
+}
+.ngwa-flow-note {
+	font-family: var(--font-mono);
+	font-size: 11px;
+	color: var(--fg-muted);
+	line-height: 1.6;
+	margin: 0 0 var(--space-5);
+	padding: var(--space-3) var(--space-4);
+	background: var(--bg-surface);
+	border: 1px solid var(--border-soft);
+	border-left: 2px solid var(--st-local);
+	border-radius: var(--radius-xs);
+}
+.ngwa-flow-note code {
+	color: var(--fg);
+	background: var(--bg-sunken);
+	border: 1px solid var(--border-soft);
+	padding: 1px 5px;
+	border-radius: var(--radius-xs);
+	font-size: 10px;
+}
+.ngwa-flow-source {
+	display: flex;
+	align-items: baseline;
+	gap: var(--space-2);
+	margin-bottom: var(--space-4);
+	font-size: 15px;
+	color: var(--fg);
+}
+.ngwa-flow-source .g {
+	font-size: 14px;
+}
+.ngwa-flow-source .meta {
+	font-family: var(--font-mono);
+	font-size: 10px;
+	color: var(--fg-faint);
+}
+.ngwa-flow-chain {
+	display: flex;
+	flex-direction: column;
+}
+.ngwa-flow-step {
+	display: flex;
+	gap: var(--space-3);
+	align-items: flex-start;
+}
+.ngwa-flow-num {
+	flex-shrink: 0;
+	width: 24px;
+	height: 24px;
+	border-radius: 50%;
+	background: var(--bg-raised);
+	border: 1px solid var(--border-strong);
+	color: var(--fg-muted);
+	font-family: var(--font-mono);
+	font-size: 11px;
+	font-weight: 600;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-variant-numeric: tabular-nums;
+}
+.ngwa-flow-stepbody {
+	flex: 1;
+	min-width: 0;
+	padding-bottom: var(--space-2);
+}
+.ngwa-flow-label {
+	font-size: 13px;
+	color: var(--fg);
+	line-height: 1.45;
+}
+.ngwa-flow-refs {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 5px;
+	margin-top: 6px;
+}
+.ngwa-flow-ref {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	padding: 2px 7px 2px 6px;
+	background: var(--bg-surface);
+	border: 1px solid var(--border-soft);
+	border-left: 2px solid var(--border-strong);
+	border-radius: var(--radius-xs);
+	font-size: 11px;
+	color: var(--fg);
+}
+.ngwa-flow-ref .g {
+	flex-shrink: 0;
+}
+.ngwa-flow-ref .rk {
+	font-family: var(--font-mono);
+	font-size: 8.5px;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+	color: var(--fg-faint);
+}
+.ngwa-flow-conn {
+	width: 2px;
+	height: 14px;
+	margin-left: 11px;
+	background: var(--border-soft);
+}
+.ngwa-flow-loop {
+	margin-top: var(--space-4);
+	font-family: var(--font-mono);
+	font-size: 10px;
+	color: var(--st-local);
+	line-height: 1.6;
 }
