@@ -13,16 +13,48 @@ import {
 	claudePrimitiveRemove,
 	claudeStoreImport,
 	claudeStoreList,
+	type ClaudeAgent,
+	type ClaudeCommand,
 	type ClaudeConfig,
+	type ClaudeHook,
+	type ClaudeMcp,
+	type ClaudeSkill,
 	type ClaudeStoreEntry,
 	type ClaudeStoreKind,
 	type ClaudeStoreMutation,
 	type ClaudeStoreScope,
+	type ConfigFormat,
+	type EngineId,
+	type KindStatus,
 } from '@/lib/tauri-cmd';
 import { queryKeys } from '@/lib/query-keys';
 
-export type { ClaudeConfig, ClaudeStoreEntry, ClaudeStoreKind, ClaudeStoreMutation, ClaudeStoreScope };
+// Re-export the scan-result entry types plus the Ngwa Phase-2 cross-system
+// enums (WP-19) so the engine-grouped facet (WP-20) imports its vocabulary from
+// the query module rather than reaching into tauri-cmd. Every entry now carries
+// optional `system` / `format` / `status` — consumers treat absent `system` as
+// `"claude"` and absent `status` as `"active"`.
+export type {
+	ClaudeAgent,
+	ClaudeCommand,
+	ClaudeConfig,
+	ClaudeHook,
+	ClaudeMcp,
+	ClaudeSkill,
+	ClaudeStoreEntry,
+	ClaudeStoreKind,
+	ClaudeStoreMutation,
+	ClaudeStoreScope,
+	ConfigFormat,
+	EngineId,
+	KindStatus,
+};
 
+// The query layer is engine-agnostic: `claudeConfigLoad` returns the same
+// `ClaudeConfig` shape whether it resolves the live Rust scan or the WP-19
+// multi-engine dev mock (gated by `NGWA_SCAN_MOCK` in tauri-cmd.ts). The new
+// per-entry `system` / `format` / `status` fields flow straight through this
+// query into WP-20's engine-grouped facet — no extra mapping here.
 export function claudeConfigQueryOptions(projectRoots: readonly string[]) {
 	const roots = [...projectRoots];
 	return queryOptions({
@@ -143,14 +175,12 @@ export function useEnablePrimitive() {
 /** Disable a store catalog entry in a target scope (inverse of enable). */
 export function useDisablePrimitive() {
 	const invalidate = useInvalidateClaudeStore();
-	return useMutation<
-		void,
-		Error,
-		{ kind: ClaudeStoreKind; name: string; scope: ClaudeStoreScope }
-	>({
-		mutationFn: ({ kind, name, scope }) => claudePrimitiveDisable(kind, name, scope),
-		onSuccess: invalidate,
-	});
+	return useMutation<void, Error, { kind: ClaudeStoreKind; name: string; scope: ClaudeStoreScope }>(
+		{
+			mutationFn: ({ kind, name, scope }) => claudePrimitiveDisable(kind, name, scope),
+			onSuccess: invalidate,
+		}
+	);
 }
 
 /** Copy a primitive from one scope to another, leaving the source in place. */
@@ -194,12 +224,10 @@ export function useMovePrimitive() {
 /** Remove a primitive from a single scope's `.claude/` (scope-local delete). */
 export function useRemovePrimitive() {
 	const invalidate = useInvalidateClaudeStore();
-	return useMutation<
-		void,
-		Error,
-		{ kind: ClaudeStoreKind; name: string; scope: ClaudeStoreScope }
-	>({
-		mutationFn: ({ kind, name, scope }) => claudePrimitiveRemove(kind, name, scope),
-		onSuccess: invalidate,
-	});
+	return useMutation<void, Error, { kind: ClaudeStoreKind; name: string; scope: ClaudeStoreScope }>(
+		{
+			mutationFn: ({ kind, name, scope }) => claudePrimitiveRemove(kind, name, scope),
+			onSuccess: invalidate,
+		}
+	);
 }

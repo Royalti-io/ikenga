@@ -12,6 +12,7 @@ import {
 	type NgwaKindId,
 	type NgwaScopeId,
 	type NgwaSurfaceId,
+	type NgwaSystemId,
 } from '@/shell/claude-config/ngwa-surface';
 import type { ClaudeStoreScope } from '@/lib/tauri-cmd';
 
@@ -25,7 +26,20 @@ const ngwaSearchSchema = z.object({
 	// 'all' | 'personal' | `project:<id>` (one per scanned project root).
 	scope: z.string().optional(),
 	kind: z.enum(['skills', 'agents', 'commands', 'hooks', 'mcps', 'store']).optional(),
+	// SYSTEM facet (WP-20) — multi-select, comma-separated engine ids
+	// (`claude,gemini,codex`). Absent/empty ⇒ all present engines on.
+	sys: z.string().optional(),
 });
+
+const SYSTEM_IDS: readonly NgwaSystemId[] = ['claude', 'gemini', 'codex'];
+
+function parseSystems(raw: string | undefined): NgwaSystemId[] {
+	if (!raw) return [];
+	return raw
+		.split(',')
+		.map((s) => s.trim())
+		.filter((s): s is NgwaSystemId => (SYSTEM_IDS as readonly string[]).includes(s));
+}
 
 export const Route = createFileRoute('/claude')({
 	component: ClaudeLayout,
@@ -54,6 +68,7 @@ function ClaudeLayout() {
 	const ngwaSurface: NgwaSurfaceId = search.surface ?? 'browse';
 	const ngwaScope: NgwaScopeId = (search.scope as NgwaScopeId) ?? 'all';
 	const ngwaKind: NgwaKindId = search.kind ?? 'skills';
+	const ngwaSystems: NgwaSystemId[] = useMemo(() => parseSystems(search.sys), [search.sys]);
 
 	// Derive the move/copy/install destination scopes from the user's project
 	// roots, mapping each root onto the store-scope grammar (`project:<id>`). The
@@ -81,6 +96,7 @@ function ClaudeLayout() {
 						surface={ngwaSurface}
 						scope={ngwaScope}
 						kind={ngwaKind}
+						systems={ngwaSystems}
 						onEdit={handleOpenInEditor}
 						projectScopes={projectScopes}
 						projects={projects}

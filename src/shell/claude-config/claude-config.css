@@ -2549,3 +2549,204 @@ button.ccfg-tree-row.dir:hover {
 	color: var(--st-local);
 	line-height: 1.6;
 }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   WP-20 — cross-system (engine-grouped) facet · D-08
+   Engine + format tints are kept component-local here (NOT in
+   @ikenga/tokens) to avoid colliding with the in-flight tokens WIP. Values
+   are lifted verbatim from designs/cross-system-facet.html.
+   ───────────────────────────────────────────────────────────────────────── */
+/* Defined on :root (but only in THIS component stylesheet, never in the
+   @ikenga/tokens package) so both the Ngwa surface AND the sidebar SYSTEM facet
+   resolve the same engine/format tints. The sidebar renders outside `.ccfg`. */
+:root {
+	--eng-claude: hsl(20, 52%, 56%);
+	--eng-gemini: hsl(212, 58%, 62%);
+	--eng-codex: hsl(150, 30%, 58%);
+	--fmt-json: hsl(212, 40%, 60%);
+	--fmt-toml: hsl(150, 28%, 56%);
+	--fmt-md: hsl(36, 30%, 68%);
+}
+
+/* Per-engine sub-group header in the Browse list (D-08 point 2). Mirrors the
+   mockup's `.evhead.eng` — a tinted, left-bordered band the rows cluster under. */
+.ccfg-engine-head {
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	padding: 6px var(--space-3);
+	background: var(--bg-sunken);
+	border-top: 1px solid var(--border-soft);
+	border-bottom: 1px solid var(--border-soft);
+	border-left: 2px solid var(--border);
+	font-family: var(--font-mono);
+	font-size: 9.5px;
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+}
+.ccfg-engine-head .eg {
+	width: 16px;
+	height: 16px;
+	border-radius: var(--radius-xs);
+	display: grid;
+	place-items: center;
+	font-size: 8px;
+	font-weight: 600;
+	color: var(--bg-base);
+	flex: none;
+}
+.ccfg-engine-head .hn {
+	flex: 1;
+}
+.ccfg-engine-head .ct {
+	color: var(--fg-faint);
+	text-transform: none;
+	letter-spacing: 0.04em;
+	font-variant-numeric: tabular-nums;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	max-width: 55%;
+}
+.ccfg-engine-head.cl {
+	color: var(--eng-claude);
+	border-left-color: var(--eng-claude);
+}
+.ccfg-engine-head.cl .eg {
+	background: var(--eng-claude);
+}
+.ccfg-engine-head.gm {
+	color: var(--eng-gemini);
+	border-left-color: var(--eng-gemini);
+}
+.ccfg-engine-head.gm .eg {
+	background: var(--eng-gemini);
+}
+.ccfg-engine-head.cx {
+	color: var(--eng-codex);
+	border-left-color: var(--eng-codex);
+}
+.ccfg-engine-head.cx .eg {
+	background: var(--eng-codex);
+}
+
+/* Engine badge — used in the topbar set + the detail header (CL / GM / CX). */
+.ccfg-eb {
+	font-family: var(--font-mono);
+	font-size: 8px;
+	font-weight: 600;
+	color: var(--bg-base);
+	border-radius: var(--radius-xs);
+	padding: 0 4px;
+	flex: none;
+	letter-spacing: 0.06em;
+	display: inline-grid;
+	place-items: center;
+	line-height: 1.5;
+}
+.ccfg-eb.cl {
+	background: var(--eng-claude);
+}
+.ccfg-eb.gm {
+	background: var(--eng-gemini);
+}
+.ccfg-eb.cx {
+	background: var(--eng-codex);
+}
+
+/* Topbar live engine-set indicator (read-only). */
+.ngwa-sysset {
+	display: flex;
+	gap: 5px;
+	align-items: center;
+}
+.ngwa-sysset .ngwa-eb {
+	font-family: var(--font-mono);
+	font-size: 8px;
+	font-weight: 600;
+	color: var(--bg-base);
+	border-radius: var(--radius-xs);
+	padding: 2px 6px;
+	letter-spacing: 0.06em;
+}
+.ngwa-sysset .ngwa-eb.cl {
+	background: var(--eng-claude);
+}
+.ngwa-sysset .ngwa-eb.gm {
+	background: var(--eng-gemini);
+}
+.ngwa-sysset .ngwa-eb.cx {
+	background: var(--eng-codex);
+}
+.ngwa-sysset .ngwa-eb.off {
+	filter: grayscale(0.85);
+	opacity: 0.5;
+}
+
+/* Per-row format chip (D-08 point 3) — md / toml / json. */
+.ccfg-fmt {
+	font-family: var(--font-mono);
+	font-size: 8px;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+	border-radius: var(--radius-xs);
+	padding: 0 4px;
+	flex: none;
+	border: 1px solid;
+}
+.ccfg-fmt.json {
+	color: var(--fmt-json);
+	border-color: color-mix(in srgb, var(--fmt-json) 38%, var(--border));
+}
+.ccfg-fmt.toml {
+	color: var(--fmt-toml);
+	border-color: color-mix(in srgb, var(--fmt-toml) 38%, var(--border));
+}
+.ccfg-fmt.md {
+	color: var(--fmt-md);
+	border-color: color-mix(in srgb, var(--fmt-md) 38%, var(--border));
+}
+
+/* Deprecated status word (inline under an engine group, D-08 point 5). */
+.ngwa-stword.deprecated {
+	color: var(--achievement, hsl(42, 78%, 54%));
+}
+
+/* ── Sidebar SYSTEM facet (ngwa-mode.tsx) ── */
+.ngwa-sysrow .ngwa-eg {
+	width: 16px;
+	height: 16px;
+	border-radius: var(--radius-xs);
+	display: grid;
+	place-items: center;
+	font-family: var(--font-mono);
+	font-size: 8px;
+	font-weight: 600;
+	color: var(--bg-base);
+	flex: none;
+}
+.ngwa-sysrow .ngwa-eg.cl {
+	background: var(--eng-claude);
+}
+.ngwa-sysrow .ngwa-eg.gm {
+	background: var(--eng-gemini);
+}
+.ngwa-sysrow .ngwa-eg.cx {
+	background: var(--eng-codex);
+}
+.ngwa-sysrow .ngwa-sys-chk {
+	width: 13px;
+	height: 13px;
+	border-radius: var(--radius-xs);
+	border: 1px solid var(--border-strong, var(--border));
+	display: grid;
+	place-items: center;
+	font-size: 9px;
+	color: var(--bg-base);
+	flex: none;
+	margin-left: 6px;
+}
+.ngwa-sysrow .ngwa-sys-chk.on {
+	background: var(--tint-ngwa-fg);
+	border-color: var(--tint-ngwa-fg);
+}

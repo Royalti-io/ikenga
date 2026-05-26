@@ -30,6 +30,9 @@ use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, State};
 
+use crate::commands::engine_layout::{
+    engine_layouts, ConfigFormat, EngineId, EngineLayout, KindStatus, PrimitiveKind, ScopeTier,
+};
 use crate::fs_watch::FsWatchManager;
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -39,6 +42,62 @@ use crate::fs_watch::FsWatchManager;
 pub enum Scope {
     Project,
     Personal,
+}
+
+/// Additive cross-system tag carried by every scan entry (WP-17).
+///
+/// Holds the three frozen entry-extension fields (`system` / `format` /
+/// `status`) the Phase-2 cross-system scan adds. It is `#[serde(flatten)]`-ed
+/// into every entry struct and has a **hand-rolled `Serialize`** so that
+/// **Claude entries serialize byte-for-byte unchanged**: when `system ==
+/// Claude` *and* `status == Active` the tag emits **zero** fields (the pre-WP-17
+/// wire), so a Claude-only scan is identical to before. Gemini/Codex entries
+/// emit all three camelCase fields (`system` / `format` / `status`) with
+/// kebab-case enum values, matching the frozen contract WP-19 mirrors in TS.
+///
+/// The fields map 1:1 onto the frozen `EngineLayout` enums (reused, not
+/// re-declared): `EngineId` (wire `"claude"|"gemini"|"codex"`, serde default
+/// claude), `ConfigFormat` (`"md-yaml"|"toml"|"json-embedded"`), `KindStatus`
+/// (`"active"|"deprecated"`, serde default active). Entry structs are
+/// Serialize-only, so no `Deserialize` is needed on the Rust side; the serde
+/// defaults documented here are the contract WP-19's TS deserializer honors.
+#[derive(Debug, Clone, Copy)]
+pub struct SystemTag {
+    pub system: EngineId,
+    pub format: ConfigFormat,
+    pub status: KindStatus,
+}
+
+impl SystemTag {
+    /// The legacy Claude default for a given kind's format — used so the
+    /// shipping single-engine (Claude) scan keeps emitting the same bytes
+    /// (i.e. NO `system`/`format`/`status` keys at all).
+    fn claude(format: ConfigFormat) -> Self {
+        SystemTag {
+            system: EngineId::Claude,
+            format,
+            status: KindStatus::Active,
+        }
+    }
+}
+
+impl Serialize for SystemTag {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeMap;
+        // Byte-compat fast path: a Claude/Active entry is the pre-WP-17 shape —
+        // emit nothing so existing Claude scan output is unchanged.
+        if self.system == EngineId::Claude && self.status == KindStatus::Active {
+            return serializer.serialize_map(Some(0))?.end();
+        }
+        let mut map = serializer.serialize_map(Some(3))?;
+        map.serialize_entry("system", &self.system)?;
+        map.serialize_entry("format", &self.format)?;
+        map.serialize_entry("status", &self.status)?;
+        map.end()
+    }
 }
 
 /// Symlink / central-store metadata for an on-disk primitive (file or dir).
@@ -91,6 +150,9 @@ pub struct AgentEntry {
     /// Whether the resolved target lives inside the Ngwa central store.
     #[serde(rename = "inStore")]
     pub in_store: bool,
+    /// Cross-system tag (`system`/`format`/`status`). Omitted for Claude.
+    #[serde(flatten)]
+    pub tag: SystemTag,
 }
 
 #[derive(Debug, Serialize)]
@@ -122,6 +184,9 @@ pub struct SkillEntry {
     /// Whether the resolved target dir lives inside the Ngwa central store.
     #[serde(rename = "inStore")]
     pub in_store: bool,
+    /// Cross-system tag (`system`/`format`/`status`). Omitted for Claude.
+    #[serde(flatten)]
+    pub tag: SystemTag,
 }
 
 #[derive(Debug, Serialize)]
@@ -157,6 +222,9 @@ pub struct CommandEntry {
     /// Whether the resolved target lives inside the Ngwa central store.
     #[serde(rename = "inStore")]
     pub in_store: bool,
+    /// Cross-system tag (`system`/`format`/`status`). Omitted for Claude.
+    #[serde(flatten)]
+    pub tag: SystemTag,
 }
 
 #[derive(Debug, Serialize)]
@@ -195,6 +263,9 @@ pub struct McpEntry {
     /// Always `false` for MCP servers.
     #[serde(rename = "inStore")]
     pub in_store: bool,
+    /// Cross-system tag (`system`/`format`/`status`). Omitted for Claude.
+    #[serde(flatten)]
+    pub tag: SystemTag,
 }
 
 #[derive(Debug, Serialize)]
@@ -231,6 +302,9 @@ pub struct HookEntry {
     /// Always `false` for hooks.
     #[serde(rename = "inStore")]
     pub in_store: bool,
+    /// Cross-system tag (`system`/`format`/`status`). Omitted for Claude.
+    #[serde(flatten)]
+    pub tag: SystemTag,
 }
 
 #[derive(Debug, Serialize)]
@@ -342,50 +416,31 @@ fn scan_all(project_roots: Vec<String>) -> Result<ClaudeConfig> {
     let store = store_root();
     let store_ref = store.as_deref();
 
-    // Project scope.
-    for raw in &project_roots {
-        let root = match expand(raw) {
-            Ok(p) => p,
-            Err(e) => {
-                errors.push(ScanError {
-                    path: raw.clone(),
-                    message: format!("expand: {e}"),
-                });
-                continue;
-            }
-        };
-        let claude = root.join(".claude");
-        if !claude.is_dir() {
-            // Silent skip — many project roots may not have a .claude/ dir.
-            continue;
-        }
-        scan_project(
-            &root,
-            &claude,
-            store_ref,
-            &mut agents,
-            &mut skills,
-            &mut commands,
-            &mut hooks,
-            &mut mcps,
-            &mut errors,
-        );
-    }
+    let mut acc = ScanAcc {
+        agents: &mut agents,
+        skills: &mut skills,
+        commands: &mut commands,
+        hooks: &mut hooks,
+        mcps: &mut mcps,
+        errors: &mut errors,
+    };
 
-    // Personal scope.
-    if let Some(home) = home_dir() {
-        let personal = home.join(".claude");
-        if personal.is_dir() {
-            scan_personal(
-                &personal,
-                store_ref,
-                &mut agents,
-                &mut skills,
-                &mut commands,
-                &mut hooks,
-                &mut mcps,
-                &mut errors,
-            );
+    // ── Engine-parametric scan loop ──────────────────────────────────────
+    //
+    // Driven by the frozen `EngineLayout` descriptor (G-ADAPTER). Each engine
+    // owns a per-system reader that reads primitives at the engine's declared
+    // location/format and stamps entries with the engine's `SystemTag`
+    // (`system`/`format`/`status`). The Claude reader is the shipping Phase-1
+    // path verbatim — its tag serializes to nothing, so a Claude-only scan is
+    // byte-identical to before. WP-18 fills in the Codex arm below.
+    for layout in engine_layouts() {
+        match layout.engine {
+            EngineId::Claude => scan_claude(&project_roots, store_ref, &mut acc),
+            EngineId::Gemini => scan_gemini(&layout, &project_roots, store_ref, &mut acc),
+            // WP-18: the Codex reader — TOML agents/mcp/(inline)hooks +
+            // JSON hooks.json + cross-tool `.agents/skills/` + deprecated
+            // `prompts/`. Missing files/dirs yield zero entries (NOT an error).
+            EngineId::Codex => scan_codex(&layout, &project_roots, store_ref, &mut acc),
         }
     }
 
@@ -412,6 +467,71 @@ fn scan_all(project_roots: Vec<String>) -> Result<ClaudeConfig> {
     })
 }
 
+/// Mutable accumulator threaded through every per-engine reader. Bundling the
+/// five entry lists + the error list keeps the per-engine reader signatures
+/// flat as more engines land (WP-18 Codex).
+struct ScanAcc<'a> {
+    agents: &'a mut Vec<AgentEntry>,
+    skills: &'a mut Vec<SkillEntry>,
+    commands: &'a mut Vec<CommandEntry>,
+    hooks: &'a mut Vec<HookEntry>,
+    mcps: &'a mut Vec<McpEntry>,
+    errors: &'a mut Vec<ScanError>,
+}
+
+/// Claude reader — the shipping Phase-1 scan, unchanged. Walks the
+/// user-supplied project roots' `.claude/` dirs + the personal `~/.claude/`.
+/// Entries carry the Claude `SystemTag`, which serializes to nothing, so this
+/// path's output is byte-identical to the pre-WP-17 single-engine scan.
+fn scan_claude(project_roots: &[String], store: Option<&Path>, acc: &mut ScanAcc<'_>) {
+    // Project scope.
+    for raw in project_roots {
+        let root = match expand(raw) {
+            Ok(p) => p,
+            Err(e) => {
+                acc.errors.push(ScanError {
+                    path: raw.clone(),
+                    message: format!("expand: {e}"),
+                });
+                continue;
+            }
+        };
+        let claude = root.join(".claude");
+        if !claude.is_dir() {
+            // Silent skip — many project roots may not have a .claude/ dir.
+            continue;
+        }
+        scan_project(
+            &root,
+            &claude,
+            store,
+            acc.agents,
+            acc.skills,
+            acc.commands,
+            acc.hooks,
+            acc.mcps,
+            acc.errors,
+        );
+    }
+
+    // Personal scope.
+    if let Some(home) = home_dir() {
+        let personal = home.join(".claude");
+        if personal.is_dir() {
+            scan_personal(
+                &personal,
+                store,
+                acc.agents,
+                acc.skills,
+                acc.commands,
+                acc.hooks,
+                acc.mcps,
+                acc.errors,
+            );
+        }
+    }
+}
+
 fn scan_project(
     root: &Path,
     claude: &Path,
@@ -424,11 +544,13 @@ fn scan_project(
     errors: &mut Vec<ScanError>,
 ) {
     let root_str = root.to_string_lossy().to_string();
+    let md_tag = SystemTag::claude(ConfigFormat::MdYaml);
     scan_md_dir(
         &claude.join("agents"),
         Scope::Project,
         Some(&root_str),
         store,
+        md_tag,
         |entry| agents.push(agent_from_md(entry)),
         errors,
     );
@@ -437,6 +559,7 @@ fn scan_project(
         Scope::Project,
         Some(&root_str),
         store,
+        md_tag,
         skills,
         errors,
     );
@@ -445,6 +568,7 @@ fn scan_project(
         Scope::Project,
         Some(&root_str),
         store,
+        md_tag,
         |entry| commands.push(command_from_md(entry)),
         errors,
     );
@@ -493,11 +617,13 @@ fn scan_personal(
     mcps: &mut Vec<McpEntry>,
     errors: &mut Vec<ScanError>,
 ) {
+    let md_tag = SystemTag::claude(ConfigFormat::MdYaml);
     scan_md_dir(
         &personal.join("agents"),
         Scope::Personal,
         None,
         store,
+        md_tag,
         |entry| agents.push(agent_from_md(entry)),
         errors,
     );
@@ -506,6 +632,7 @@ fn scan_personal(
         Scope::Personal,
         None,
         store,
+        md_tag,
         skills,
         errors,
     );
@@ -514,6 +641,7 @@ fn scan_personal(
         Scope::Personal,
         None,
         store,
+        md_tag,
         |entry| commands.push(command_from_md(entry)),
         errors,
     );
@@ -562,6 +690,848 @@ fn scan_personal(
     }
 }
 
+// ─── Gemini reader (WP-17) ──────────────────────────────────────────────────
+//
+// Reads `~/.gemini` (user) + each `<root>/.gemini` (project) per the frozen
+// `EngineLayout`. READ-ONLY — never writes. Missing files/dirs yield zero
+// entries (NOT an error). Scope mapping reuses the existing `Scope` enum: the
+// Gemini `ScopeDef` whose tier is `User` maps to `Scope::Personal`, `Project`
+// to `Scope::Project` (the frozen entry-extension contract: "Scope reuses the
+// existing entry scope representation").
+
+/// Map a frozen `EngineLayout` scope tier onto the existing entry `Scope`.
+fn scope_for_tier(tier: ScopeTier) -> Scope {
+    match tier {
+        ScopeTier::User => Scope::Personal,
+        ScopeTier::Project => Scope::Project,
+    }
+}
+
+fn scan_gemini(
+    layout: &EngineLayout,
+    project_roots: &[String],
+    store: Option<&Path>,
+    acc: &mut ScanAcc<'_>,
+) {
+    let Some(home) = home_dir() else {
+        return;
+    };
+    // Per-engine path confinement: every read this reader performs must sit
+    // under one of Gemini's declared roots (see `engine_roots`).
+    let roots = engine_roots(layout, project_roots);
+    let confined = |p: &Path| path_under_any(p, &roots);
+
+    // Scope values derived from the frozen layout's tiers (not hardcoded), so
+    // the entry `Scope` always reflects the descriptor's user/project mapping.
+    let user_scope = layout
+        .scopes
+        .iter()
+        .find(|s| s.tier == ScopeTier::User)
+        .map(|s| scope_for_tier(s.tier))
+        .unwrap_or(Scope::Personal);
+    let project_scope = layout
+        .scopes
+        .iter()
+        .find(|s| s.tier == ScopeTier::Project)
+        .map(|s| scope_for_tier(s.tier))
+        .unwrap_or(Scope::Project);
+
+    // ── User scope (`~/.gemini` + cross-tool `~/.agents`) ────────────────
+    let user = home.join(".gemini");
+    let agents_md = SystemTag {
+        system: EngineId::Gemini,
+        format: ConfigFormat::MdYaml,
+        status: KindStatus::Active,
+    };
+    let cmd_toml = SystemTag {
+        system: EngineId::Gemini,
+        format: ConfigFormat::Toml,
+        status: KindStatus::Active,
+    };
+    let json_embedded = SystemTag {
+        system: EngineId::Gemini,
+        format: ConfigFormat::JsonEmbedded,
+        status: KindStatus::Active,
+    };
+
+    // skills: `~/.gemini/skills/` AND cross-tool `~/.agents/skills/`.
+    for dir in [user.join("skills"), home.join(".agents/skills")] {
+        if confined(&dir) {
+            scan_skills_dir(
+                &dir, user_scope, None, store, agents_md, acc.skills, acc.errors,
+            );
+        }
+    }
+    // agents: `~/.gemini/agents/*.md`.
+    let agents_dir = user.join("agents");
+    if confined(&agents_dir) {
+        scan_md_dir(
+            &agents_dir,
+            user_scope,
+            None,
+            store,
+            agents_md,
+            |e| acc.agents.push(agent_from_md(e)),
+            acc.errors,
+        );
+    }
+    // commands: `~/.gemini/commands/**/*.toml` (subdir-namespaced).
+    let commands_dir = user.join("commands");
+    if confined(&commands_dir) {
+        scan_gemini_commands(&commands_dir, user_scope, None, store, cmd_toml, acc);
+    }
+    // hooks + mcp: keys inside `~/.gemini/settings.json`.
+    let settings = user.join("settings.json");
+    if settings.is_file() && confined(&settings) {
+        gemini_settings(&settings, user_scope, None, json_embedded, acc);
+    }
+
+    // ── Project scope (`<root>/.gemini` + cross-tool `<root>/.agents`) ────
+    for raw in project_roots {
+        let root = match expand(raw) {
+            Ok(p) => p,
+            Err(_) => continue, // Claude reader already surfaced expand errors.
+        };
+        let root_str = root.to_string_lossy().to_string();
+        let gem = root.join(".gemini");
+
+        // skills: project `<root>/.agents/skills/`.
+        let skills_dir = root.join(".agents/skills");
+        if confined(&skills_dir) {
+            scan_skills_dir(
+                &skills_dir,
+                project_scope,
+                Some(&root_str),
+                store,
+                agents_md,
+                acc.skills,
+                acc.errors,
+            );
+        }
+        // agents: `<root>/.gemini/agents/*.md`.
+        let agents_dir = gem.join("agents");
+        if confined(&agents_dir) {
+            scan_md_dir(
+                &agents_dir,
+                project_scope,
+                Some(&root_str),
+                store,
+                agents_md,
+                |e| acc.agents.push(agent_from_md(e)),
+                acc.errors,
+            );
+        }
+        // commands: `<root>/.gemini/commands/**/*.toml`.
+        let commands_dir = gem.join("commands");
+        if confined(&commands_dir) {
+            scan_gemini_commands(
+                &commands_dir,
+                project_scope,
+                Some(&root_str),
+                store,
+                cmd_toml,
+                acc,
+            );
+        }
+        // hooks + mcp: `<root>/.gemini/settings.json`.
+        let settings = gem.join("settings.json");
+        if settings.is_file() && confined(&settings) {
+            gemini_settings(
+                &settings,
+                project_scope,
+                Some(&root_str),
+                json_embedded,
+                acc,
+            );
+        }
+    }
+
+    // Cross-system override resolution within Gemini (same-name project beats
+    // personal) is handled by the shared `mark_overrides_*` pass in `scan_all`,
+    // which keys on name only. v2a does NOT resolve overrides across systems —
+    // a Gemini `planner` and a Claude `planner` stay distinct rows by design
+    // (the `{system,kind,scope,name}` identity D-08 surfaces).
+    let _ = scope_for_tier; // documented mapping; used by the reader inline.
+}
+
+/// Read hooks + mcpServers from a Gemini `settings.json` (both are keys inside
+/// the same JSON file). Reuses the shared JSON parsers, stamping a Gemini tag.
+fn gemini_settings(
+    path: &Path,
+    scope: Scope,
+    project_root: Option<&str>,
+    tag: SystemTag,
+    acc: &mut ScanAcc<'_>,
+) {
+    match parse_hooks_file_tagged(path, scope, project_root, tag) {
+        Ok(mut h) => acc.hooks.append(&mut h),
+        Err(e) => acc.errors.push(ScanError {
+            path: path.to_string_lossy().to_string(),
+            message: format!("gemini hooks parse: {e}"),
+        }),
+    }
+    // `mcpServers` key inside the settings file — same shape as Claude's
+    // settings-embedded MCP; reuse the JSON extractor with a Gemini tag.
+    match read_settings_mcp_tagged(path, scope, project_root, tag) {
+        Ok(mut m) => acc.mcps.append(&mut m),
+        Err(e) => acc.errors.push(ScanError {
+            path: path.to_string_lossy().to_string(),
+            message: format!("gemini mcp(settings) parse: {e}"),
+        }),
+    }
+}
+
+/// Tagged variant of [`parse_mcp_from_settings`] — reads the top-level
+/// `mcpServers` key from any JSON settings file and stamps the supplied tag.
+fn read_settings_mcp_tagged(
+    path: &Path,
+    scope: Scope,
+    project_root: Option<&str>,
+    tag: SystemTag,
+) -> Result<Vec<McpEntry>> {
+    let raw = std::fs::read_to_string(path).context("read settings file")?;
+    let json: serde_json::Value = serde_json::from_str(&raw).context("parse settings json")?;
+    let servers = match json.get("mcpServers").and_then(|v| v.as_object()) {
+        Some(m) => m,
+        None => return Ok(Vec::new()),
+    };
+    Ok(extract_mcp_servers(servers, path, scope, project_root, tag))
+}
+
+/// Walk a Gemini `commands/` tree (`**/*.toml`, subdir-namespaced). A command
+/// in `commands/git/commit.toml` is named `git:commit`. Gemini command TOMLs
+/// carry a `prompt` (the command body) and an optional `description`. The
+/// `toml` crate is not a direct dependency here, and v2a is read-only, so we
+/// extract just those two top-level string keys with a small line scanner —
+/// enough to display the command in Ngwa without a full TOML parser.
+fn scan_gemini_commands(
+    dir: &Path,
+    scope: Scope,
+    project_root: Option<&str>,
+    store: Option<&Path>,
+    tag: SystemTag,
+    acc: &mut ScanAcc<'_>,
+) {
+    if !dir.is_dir() {
+        return;
+    }
+    walk_gemini_commands(dir, dir, scope, project_root, store, tag, acc);
+}
+
+fn walk_gemini_commands(
+    base: &Path,
+    dir: &Path,
+    scope: Scope,
+    project_root: Option<&str>,
+    store: Option<&Path>,
+    tag: SystemTag,
+    acc: &mut ScanAcc<'_>,
+) {
+    let read_dir = match std::fs::read_dir(dir) {
+        Ok(r) => r,
+        Err(e) => {
+            acc.errors.push(ScanError {
+                path: dir.to_string_lossy().to_string(),
+                message: format!("read_dir: {e}"),
+            });
+            return;
+        }
+    };
+    for entry in read_dir.flatten() {
+        let p = entry.path();
+        if p.is_dir() {
+            // Recurse — namespace segments come from subdir names.
+            walk_gemini_commands(base, &p, scope, project_root, store, tag, acc);
+            continue;
+        }
+        if !p.is_file() || p.extension().and_then(|s| s.to_str()) != Some("toml") {
+            continue;
+        }
+        // Namespaced name: relative path from `base`, minus `.toml`, with
+        // path separators → `:` (e.g. `git/commit.toml` → `git:commit`).
+        let rel = p.strip_prefix(base).unwrap_or(&p);
+        let name = rel
+            .with_extension("")
+            .components()
+            .filter_map(|c| match c {
+                std::path::Component::Normal(s) => s.to_str(),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join(":");
+        if name.is_empty() || name.starts_with('_') {
+            continue;
+        }
+        let raw = match std::fs::read_to_string(&p) {
+            Ok(s) => s,
+            Err(e) => {
+                acc.errors.push(ScanError {
+                    path: p.to_string_lossy().to_string(),
+                    message: format!("read toml: {e}"),
+                });
+                continue;
+            }
+        };
+        let (description, body) = parse_gemini_command_toml(&raw);
+        // Gemini commands are standalone files (Mechanism::File) — surface
+        // symlink/store metadata the same way agents/commands do.
+        let meta = link_meta(&p, store);
+        let mut frontmatter = serde_json::Map::new();
+        if let Some(d) = &description {
+            frontmatter.insert("description".into(), serde_json::Value::String(d.clone()));
+        }
+        acc.commands.push(CommandEntry {
+            name,
+            scope,
+            project_root: project_root.map(|s| s.to_string()),
+            path: p.to_string_lossy().to_string(),
+            modified_ms: mtime_ms(&p),
+            description,
+            model: None,
+            argument_hint: None,
+            frontmatter: serde_json::Value::Object(frontmatter),
+            body,
+            overridden_by: None,
+            is_symlink: meta.is_symlink,
+            link_target: meta.link_target,
+            in_store: meta.in_store,
+            tag,
+        });
+    }
+}
+
+/// Extract `description` + `prompt` (the body) from a Gemini command TOML.
+/// Minimal: handles top-level `key = "..."` (single/multi-line basic strings)
+/// and `key = '''...'''` / `"""..."""` triple-quoted blocks. Returns
+/// `(description, prompt_body)`.
+fn parse_gemini_command_toml(raw: &str) -> (Option<String>, String) {
+    let mut description: Option<String> = None;
+    let mut prompt = String::new();
+    let mut lines = raw.lines().peekable();
+    while let Some(line) = lines.next() {
+        let trimmed = line.trim_start();
+        for key in ["description", "prompt"] {
+            let prefix = format!("{key}");
+            if let Some(rest) = trimmed.strip_prefix(&prefix) {
+                let rest = rest.trim_start();
+                if let Some(rest) = rest.strip_prefix('=') {
+                    let val_start = rest.trim_start();
+                    // Triple-quoted block?
+                    let triple = if val_start.starts_with("\"\"\"") {
+                        Some("\"\"\"")
+                    } else if val_start.starts_with("'''") {
+                        Some("'''")
+                    } else {
+                        None
+                    };
+                    let value = if let Some(delim) = triple {
+                        let mut acc = String::new();
+                        let after = &val_start[delim.len()..];
+                        if let Some(end) = after.find(delim) {
+                            acc.push_str(&after[..end]);
+                        } else {
+                            acc.push_str(after);
+                            // consume following lines until the closing delim
+                            for l in lines.by_ref() {
+                                if let Some(end) = l.find(delim) {
+                                    if !acc.is_empty() {
+                                        acc.push('\n');
+                                    }
+                                    acc.push_str(&l[..end]);
+                                    break;
+                                }
+                                if !acc.is_empty() {
+                                    acc.push('\n');
+                                }
+                                acc.push_str(l);
+                            }
+                        }
+                        acc.trim().to_string()
+                    } else {
+                        unquote_toml_basic(val_start)
+                    };
+                    match key {
+                        "description" => description = Some(value),
+                        "prompt" => prompt = value,
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+    (description, prompt)
+}
+
+/// Strip a single-line TOML basic/literal string (`"..."` or `'...'`),
+/// dropping an inline `# comment` tail when unquoted. Best-effort for display.
+fn unquote_toml_basic(s: &str) -> String {
+    let s = s.trim();
+    if (s.starts_with('"') && s.len() >= 2) || (s.starts_with('\'') && s.len() >= 2) {
+        let q = s.as_bytes()[0] as char;
+        if let Some(end) = s[1..].find(q) {
+            return s[1..1 + end].to_string();
+        }
+    }
+    // Unquoted scalar — strip a trailing comment.
+    s.split('#').next().unwrap_or(s).trim().to_string()
+}
+
+// ─── Codex reader (WP-18) ────────────────────────────────────────────────────
+//
+// Reads `~/.codex` (user) + cross-tool `~/.agents` (user) + each
+// `<root>/.codex` / `<root>/.agents` (project) per the frozen `EngineLayout`
+// (G-ADAPTER) Codex cell. READ-ONLY — never writes. Missing files/dirs yield
+// zero entries (NOT an error). Scope mapping reuses `scope_for_tier` exactly
+// like the Gemini reader.
+//
+// Per-kind layout (frozen matrix / Round-9):
+//   - skills:   cross-tool `~/.agents/skills/` (+ project `<root>/.agents/skills/`).
+//               Codex NEVER uses `.codex/skills/`. format md-yaml.
+//               (Reuses `scan_skills_dir`.)
+//   - agents:   `~/.codex/agents/*.toml` — TOML. format toml.
+//   - commands: `~/.codex/prompts/*.md` — DEPRECATED, format md-yaml.
+//               (Reuses the md reader; tagged status=Deprecated.)
+//   - hooks:    `~/.codex/hooks.json` (JSON, reuse `parse_hooks_file_tagged`)
+//               AND inline `[hooks]` tables in `~/.codex/config.toml` (TOML).
+//   - mcp:      `[mcp_servers.*]` tables in `~/.codex/config.toml` — TOML.
+//
+// The project-scope env-plumbing for `.agents/skills/` (`IKENGA_CODEX_PROJECT_ROOT`)
+// is DEFERRED — we read the already-resolved project roots directly, identical
+// to the Gemini reader.
+fn scan_codex(
+    layout: &EngineLayout,
+    project_roots: &[String],
+    store: Option<&Path>,
+    acc: &mut ScanAcc<'_>,
+) {
+    let Some(home) = home_dir() else {
+        return;
+    };
+    // Per-engine path confinement — every read must sit under one of Codex's
+    // declared roots (`engine_roots` confines `.codex` + cross-tool `.agents`).
+    let roots = engine_roots(layout, project_roots);
+    let confined = |p: &Path| path_under_any(p, &roots);
+
+    // Scope values derived from the frozen layout's tiers (not hardcoded).
+    let user_scope = layout
+        .scopes
+        .iter()
+        .find(|s| s.tier == ScopeTier::User)
+        .map(|s| scope_for_tier(s.tier))
+        .unwrap_or(Scope::Personal);
+    let project_scope = layout
+        .scopes
+        .iter()
+        .find(|s| s.tier == ScopeTier::Project)
+        .map(|s| scope_for_tier(s.tier))
+        .unwrap_or(Scope::Project);
+
+    let skill_md = SystemTag {
+        system: EngineId::Codex,
+        format: ConfigFormat::MdYaml,
+        status: KindStatus::Active,
+    };
+    let agent_toml = SystemTag {
+        system: EngineId::Codex,
+        format: ConfigFormat::Toml,
+        status: KindStatus::Active,
+    };
+    // Codex commands live in `prompts/` and are DEPRECATED (superseded by
+    // skills). format md-yaml, status deprecated.
+    let prompt_md_deprecated = SystemTag {
+        system: EngineId::Codex,
+        format: ConfigFormat::MdYaml,
+        status: KindStatus::Deprecated,
+    };
+    let hooks_json = SystemTag {
+        system: EngineId::Codex,
+        format: ConfigFormat::JsonEmbedded,
+        status: KindStatus::Active,
+    };
+    let toml_tag = SystemTag {
+        system: EngineId::Codex,
+        format: ConfigFormat::Toml,
+        status: KindStatus::Active,
+    };
+
+    // ── User scope (`~/.codex` + cross-tool `~/.agents`) ─────────────────
+    let codex = home.join(".codex");
+
+    // skills: cross-tool `~/.agents/skills/` ONLY (never `.codex/skills/`).
+    let user_skills = home.join(".agents/skills");
+    if confined(&user_skills) {
+        scan_skills_dir(
+            &user_skills,
+            user_scope,
+            None,
+            store,
+            skill_md,
+            acc.skills,
+            acc.errors,
+        );
+    }
+    // agents: `~/.codex/agents/*.toml`.
+    let agents_dir = codex.join("agents");
+    if confined(&agents_dir) {
+        scan_codex_agents(&agents_dir, user_scope, None, store, agent_toml, acc);
+    }
+    // commands: `~/.codex/prompts/*.md` (DEPRECATED).
+    let prompts_dir = codex.join("prompts");
+    if confined(&prompts_dir) {
+        scan_md_dir(
+            &prompts_dir,
+            user_scope,
+            None,
+            store,
+            prompt_md_deprecated,
+            |e| acc.commands.push(command_from_md(e)),
+            acc.errors,
+        );
+    }
+    // hooks: `~/.codex/hooks.json` (JSON).
+    let hooks_file = codex.join("hooks.json");
+    if hooks_file.is_file() && confined(&hooks_file) {
+        match parse_hooks_file_tagged(&hooks_file, user_scope, None, hooks_json) {
+            Ok(mut h) => acc.hooks.append(&mut h),
+            Err(e) => acc.errors.push(ScanError {
+                path: hooks_file.to_string_lossy().to_string(),
+                message: format!("codex hooks.json parse: {e}"),
+            }),
+        }
+    }
+    // hooks (inline `[hooks]`) + mcp (`[mcp_servers.*]`): `~/.codex/config.toml`.
+    let config = codex.join("config.toml");
+    if config.is_file() && confined(&config) {
+        codex_config_toml(&config, user_scope, None, toml_tag, acc);
+    }
+
+    // ── Project scope (`<root>/.codex` + cross-tool `<root>/.agents`) ─────
+    // Trusted-repo project roots are read directly (env-plumbing deferred).
+    for raw in project_roots {
+        let root = match expand(raw) {
+            Ok(p) => p,
+            Err(_) => continue, // Claude reader already surfaced expand errors.
+        };
+        let root_str = root.to_string_lossy().to_string();
+        let cx = root.join(".codex");
+
+        // skills: project `<root>/.agents/skills/`.
+        let skills_dir = root.join(".agents/skills");
+        if confined(&skills_dir) {
+            scan_skills_dir(
+                &skills_dir,
+                project_scope,
+                Some(&root_str),
+                store,
+                skill_md,
+                acc.skills,
+                acc.errors,
+            );
+        }
+        // agents: `<root>/.codex/agents/*.toml`.
+        let agents_dir = cx.join("agents");
+        if confined(&agents_dir) {
+            scan_codex_agents(
+                &agents_dir,
+                project_scope,
+                Some(&root_str),
+                store,
+                agent_toml,
+                acc,
+            );
+        }
+        // commands: `<root>/.codex/prompts/*.md` (DEPRECATED).
+        let prompts_dir = cx.join("prompts");
+        if confined(&prompts_dir) {
+            scan_md_dir(
+                &prompts_dir,
+                project_scope,
+                Some(&root_str),
+                store,
+                prompt_md_deprecated,
+                |e| acc.commands.push(command_from_md(e)),
+                acc.errors,
+            );
+        }
+        // hooks: `<root>/.codex/hooks.json`.
+        let hooks_file = cx.join("hooks.json");
+        if hooks_file.is_file() && confined(&hooks_file) {
+            match parse_hooks_file_tagged(&hooks_file, project_scope, Some(&root_str), hooks_json) {
+                Ok(mut h) => acc.hooks.append(&mut h),
+                Err(e) => acc.errors.push(ScanError {
+                    path: hooks_file.to_string_lossy().to_string(),
+                    message: format!("codex hooks.json parse: {e}"),
+                }),
+            }
+        }
+        // hooks (inline) + mcp: `<root>/.codex/config.toml`.
+        let config = cx.join("config.toml");
+        if config.is_file() && confined(&config) {
+            codex_config_toml(&config, project_scope, Some(&root_str), toml_tag, acc);
+        }
+    }
+}
+
+/// Scan a Codex agents dir (`*.toml`). Each file is a standalone TOML agent
+/// (`Mechanism::File`). We parse `name` / `description` for display and treat
+/// `body` / `system_prompt` (if present) as the rendered body. Surfaces
+/// symlink/store metadata the same way the md agents do.
+fn scan_codex_agents(
+    dir: &Path,
+    scope: Scope,
+    project_root: Option<&str>,
+    store: Option<&Path>,
+    tag: SystemTag,
+    acc: &mut ScanAcc<'_>,
+) {
+    if !dir.is_dir() {
+        return;
+    }
+    let read_dir = match std::fs::read_dir(dir) {
+        Ok(r) => r,
+        Err(e) => {
+            acc.errors.push(ScanError {
+                path: dir.to_string_lossy().to_string(),
+                message: format!("read_dir: {e}"),
+            });
+            return;
+        }
+    };
+    for entry in read_dir.flatten() {
+        let p = entry.path();
+        if !p.is_file() || p.extension().and_then(|s| s.to_str()) != Some("toml") {
+            continue;
+        }
+        let file_name = match p.file_stem().and_then(|s| s.to_str()) {
+            Some(s) => s.to_string(),
+            None => continue,
+        };
+        if file_name.starts_with('_') {
+            continue;
+        }
+        let raw = match std::fs::read_to_string(&p) {
+            Ok(s) => s,
+            Err(e) => {
+                acc.errors.push(ScanError {
+                    path: p.to_string_lossy().to_string(),
+                    message: format!("read toml: {e}"),
+                });
+                continue;
+            }
+        };
+        let value: toml::Value = match toml::from_str(&raw) {
+            Ok(v) => v,
+            Err(e) => {
+                acc.errors.push(ScanError {
+                    path: p.to_string_lossy().to_string(),
+                    message: format!("toml parse: {e}"),
+                });
+                continue;
+            }
+        };
+        // Display name: explicit `name` key wins, else the file stem.
+        let name = toml_str(&value, "name").unwrap_or(file_name);
+        let description = toml_str(&value, "description");
+        let model = toml_str(&value, "model");
+        // Body: `system_prompt` (Codex's prompt field) or `body`, if present.
+        let body = toml_str(&value, "system_prompt")
+            .or_else(|| toml_str(&value, "body"))
+            .unwrap_or_default();
+        let frontmatter = toml_value_to_json(&value);
+        let meta = link_meta(&p, store);
+        acc.agents.push(AgentEntry {
+            name,
+            scope,
+            project_root: project_root.map(|s| s.to_string()),
+            path: p.to_string_lossy().to_string(),
+            modified_ms: mtime_ms(&p),
+            description,
+            model,
+            frontmatter,
+            body,
+            overridden_by: None,
+            is_symlink: meta.is_symlink,
+            link_target: meta.link_target,
+            in_store: meta.in_store,
+            tag,
+        });
+    }
+}
+
+/// Read inline `[hooks]` + `[mcp_servers.*]` tables from a Codex `config.toml`.
+/// Both live in the same file (TOML); hooks are tagged `format = toml` (this is
+/// an inline-TOML hook source, distinct from the standalone `hooks.json`),
+/// mcp servers `format = toml`.
+fn codex_config_toml(
+    path: &Path,
+    scope: Scope,
+    project_root: Option<&str>,
+    tag: SystemTag,
+    acc: &mut ScanAcc<'_>,
+) {
+    let raw = match std::fs::read_to_string(path) {
+        Ok(s) => s,
+        Err(e) => {
+            acc.errors.push(ScanError {
+                path: path.to_string_lossy().to_string(),
+                message: format!("read config.toml: {e}"),
+            });
+            return;
+        }
+    };
+    let value: toml::Value = match toml::from_str(&raw) {
+        Ok(v) => v,
+        Err(e) => {
+            acc.errors.push(ScanError {
+                path: path.to_string_lossy().to_string(),
+                message: format!("config.toml parse: {e}"),
+            });
+            return;
+        }
+    };
+
+    // ── mcp servers: `[mcp_servers.<id>]` ────────────────────────────────
+    if let Some(servers) = value.get("mcp_servers").and_then(|v| v.as_table()) {
+        let path_str = path.to_string_lossy().to_string();
+        for (name, server) in servers {
+            let command = toml_str(server, "command");
+            let url = toml_str(server, "url");
+            // Codex stdio servers carry a `command`; the `type` key is rare.
+            let transport = if let Some(t) = toml_str(server, "type") {
+                t
+            } else if url.is_some() {
+                "http".to_string()
+            } else if command.is_some() {
+                "stdio".to_string()
+            } else {
+                "unknown".to_string()
+            };
+            let args = server
+                .get("args")
+                .and_then(|v| v.as_array())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|x| x.as_str().map(str::to_string))
+                        .collect()
+                })
+                .unwrap_or_default();
+            // Codex `env` literal table + `env_vars` forwarded-key list — both
+            // declare env-var *keys* (values stripped, same as the JSON path).
+            let mut env_keys: Vec<String> = server
+                .get("env")
+                .and_then(|v| v.as_table())
+                .map(|t| t.keys().cloned().collect())
+                .unwrap_or_default();
+            if let Some(forwarded) = server.get("env_vars").and_then(|v| v.as_array()) {
+                for k in forwarded.iter().filter_map(|x| x.as_str()) {
+                    if !env_keys.iter().any(|e| e == k) {
+                        env_keys.push(k.to_string());
+                    }
+                }
+            }
+            acc.mcps.push(McpEntry {
+                name: name.clone(),
+                scope,
+                project_root: project_root.map(|s| s.to_string()),
+                path: path_str.clone(),
+                transport,
+                command,
+                args,
+                env_keys,
+                url,
+                header_keys: Vec::new(),
+                raw: toml_value_to_json(server),
+                is_symlink: false,
+                link_target: None,
+                in_store: false,
+                tag,
+            });
+        }
+    }
+
+    // ── hooks: inline `[hooks]` table ────────────────────────────────────
+    // Codex's inline hooks are tagged `format = toml` to distinguish them from
+    // the standalone `hooks.json` source. Shape mirrors the JSON hooks:
+    // `[hooks]` is an event→entries map; each entry carries a `type` + a
+    // `command` (or an inline matcher). We surface one HookEntry per hook,
+    // walking whatever nested array/table shape the event value holds.
+    if let Some(hooks) = value.get("hooks").and_then(|v| v.as_table()) {
+        let settings_path = path.to_string_lossy().to_string();
+        for (event, value) in hooks {
+            // An event maps to either an array of hook entries or a single
+            // inline table — normalize to a slice of entries.
+            let entries: Vec<&toml::Value> = match value {
+                toml::Value::Array(a) => a.iter().collect(),
+                toml::Value::Table(_) => vec![value],
+                _ => continue,
+            };
+            for h in entries {
+                // Mirror the JSON hooks grouping: an entry may itself nest a
+                // `hooks = [...]` array (matcher-group shape) or be a flat
+                // `{ type, command }` table.
+                let inner: Vec<&toml::Value> = match h.get("hooks").and_then(|v| v.as_array()) {
+                    Some(a) => a.iter().collect(),
+                    None => vec![h],
+                };
+                for entry in inner {
+                    let kind = toml_str(entry, "type").unwrap_or_else(|| "command".to_string());
+                    let command_raw = toml_str(entry, "command");
+                    let command_path = command_raw.as_ref().and_then(|c| {
+                        resolve_command_path(c, project_root)
+                            .map(|p| p.to_string_lossy().to_string())
+                    });
+                    let json_raw = toml_value_to_json(entry);
+                    let name = derive_hook_name(&command_raw, &json_raw);
+                    acc.hooks.push(HookEntry {
+                        event: event.clone(),
+                        kind,
+                        name,
+                        scope,
+                        project_root: project_root.map(|s| s.to_string()),
+                        settings_path: settings_path.clone(),
+                        command_path,
+                        command_raw,
+                        raw: json_raw,
+                        is_symlink: false,
+                        link_target: None,
+                        in_store: false,
+                        tag,
+                    });
+                }
+            }
+        }
+    }
+}
+
+/// Read a top-level (or table-relative) string key from a `toml::Value`.
+fn toml_str(v: &toml::Value, key: &str) -> Option<String> {
+    v.get(key).and_then(|x| x.as_str()).map(str::to_string)
+}
+
+/// Convert a `toml::Value` into a `serde_json::Value` for the detail-view grid
+/// and raw previews (mirrors what the md frontmatter / JSON readers store).
+fn toml_value_to_json(v: &toml::Value) -> serde_json::Value {
+    match v {
+        toml::Value::String(s) => serde_json::Value::String(s.clone()),
+        toml::Value::Integer(i) => serde_json::Value::Number((*i).into()),
+        toml::Value::Float(f) => serde_json::Number::from_f64(*f)
+            .map(serde_json::Value::Number)
+            .unwrap_or(serde_json::Value::Null),
+        toml::Value::Boolean(b) => serde_json::Value::Bool(*b),
+        toml::Value::Datetime(d) => serde_json::Value::String(d.to_string()),
+        toml::Value::Array(a) => {
+            serde_json::Value::Array(a.iter().map(toml_value_to_json).collect())
+        }
+        toml::Value::Table(t) => {
+            let mut obj = serde_json::Map::new();
+            for (k, val) in t {
+                obj.insert(k.clone(), toml_value_to_json(val));
+            }
+            serde_json::Value::Object(obj)
+        }
+    }
+}
+
 /// Internal struct passed to the closures so we don't re-stat / re-parse
 /// inside the agent/command builders.
 struct MdEntry {
@@ -573,6 +1543,7 @@ struct MdEntry {
     frontmatter: serde_json::Value,
     body: String,
     link_meta: LinkMeta,
+    tag: SystemTag,
 }
 
 fn scan_md_dir<F: FnMut(MdEntry)>(
@@ -580,6 +1551,7 @@ fn scan_md_dir<F: FnMut(MdEntry)>(
     scope: Scope,
     project_root: Option<&str>,
     store: Option<&Path>,
+    tag: SystemTag,
     mut push: F,
     errors: &mut Vec<ScanError>,
 ) {
@@ -622,6 +1594,7 @@ fn scan_md_dir<F: FnMut(MdEntry)>(
                 path: p.clone(),
                 frontmatter: fm,
                 body,
+                tag,
             }),
             Err(e) => errors.push(ScanError {
                 path: p.to_string_lossy().to_string(),
@@ -636,6 +1609,7 @@ fn scan_skills_dir(
     scope: Scope,
     project_root: Option<&str>,
     store: Option<&Path>,
+    tag: SystemTag,
     skills: &mut Vec<SkillEntry>,
     errors: &mut Vec<ScanError>,
 ) {
@@ -691,6 +1665,7 @@ fn scan_skills_dir(
                     is_symlink: meta.is_symlink,
                     link_target: meta.link_target,
                     in_store: meta.in_store,
+                    tag,
                 });
             }
             Err(e) => errors.push(ScanError {
@@ -744,6 +1719,7 @@ fn agent_from_md(e: MdEntry) -> AgentEntry {
         is_symlink: e.link_meta.is_symlink,
         link_target: e.link_meta.link_target,
         in_store: e.link_meta.in_store,
+        tag: e.tag,
     }
 }
 
@@ -763,6 +1739,7 @@ fn command_from_md(e: MdEntry) -> CommandEntry {
         is_symlink: e.link_meta.is_symlink,
         link_target: e.link_meta.link_target,
         in_store: e.link_meta.in_store,
+        tag: e.tag,
     }
 }
 
@@ -772,6 +1749,27 @@ pub(crate) fn parse_hooks_file(
     path: &Path,
     scope: Scope,
     project_root: Option<&str>,
+) -> Result<Vec<HookEntry>> {
+    // Claude wrapper — preserves the `pub(crate)` signature `discovery.rs`
+    // depends on. Claude hooks carry the Claude tag (which serializes to
+    // nothing, keeping the shipping wire byte-identical).
+    parse_hooks_file_tagged(
+        path,
+        scope,
+        project_root,
+        SystemTag::claude(ConfigFormat::JsonEmbedded),
+    )
+}
+
+/// Engine-parametric core of [`parse_hooks_file`]. The `hooks` key inside a
+/// JSON settings file is laid out identically across Claude & Gemini
+/// (`{ Event: [ { matcher?, hooks: [ {type, command, ...} ] } ] }`), so the
+/// only difference is the `SystemTag` stamped on each emitted entry.
+fn parse_hooks_file_tagged(
+    path: &Path,
+    scope: Scope,
+    project_root: Option<&str>,
+    tag: SystemTag,
 ) -> Result<Vec<HookEntry>> {
     let raw = std::fs::read_to_string(path).context("read settings file")?;
     let json: serde_json::Value = serde_json::from_str(&raw).context("parse settings json")?;
@@ -821,6 +1819,7 @@ pub(crate) fn parse_hooks_file(
                     is_symlink: false,
                     link_target: None,
                     in_store: false,
+                    tag,
                 });
             }
         }
@@ -880,7 +1879,15 @@ pub(crate) fn parse_mcp_file(
     let servers = json.get("mcpServers").or_else(|| json.get("servers"));
     Ok(servers
         .and_then(|v| v.as_object())
-        .map(|m| extract_mcp_servers(m, path, scope, project_root))
+        .map(|m| {
+            extract_mcp_servers(
+                m,
+                path,
+                scope,
+                project_root,
+                SystemTag::claude(ConfigFormat::JsonEmbedded),
+            )
+        })
         .unwrap_or_default())
 }
 
@@ -898,7 +1905,13 @@ pub(crate) fn parse_mcp_from_settings(
         Some(m) => m,
         None => return Ok(Vec::new()),
     };
-    Ok(extract_mcp_servers(servers, path, scope, project_root))
+    Ok(extract_mcp_servers(
+        servers,
+        path,
+        scope,
+        project_root,
+        SystemTag::claude(ConfigFormat::JsonEmbedded),
+    ))
 }
 
 fn extract_mcp_servers(
@@ -906,6 +1919,7 @@ fn extract_mcp_servers(
     path: &Path,
     scope: Scope,
     project_root: Option<&str>,
+    tag: SystemTag,
 ) -> Vec<McpEntry> {
     let path_str = path.to_string_lossy().to_string();
     let mut out = Vec::with_capacity(servers.len());
@@ -960,6 +1974,7 @@ fn extract_mcp_servers(
             is_symlink: false,
             link_target: None,
             in_store: false,
+            tag,
         });
     }
     out
@@ -1150,6 +2165,88 @@ pub(crate) fn is_under_claude_dir(p: &Path) -> bool {
         std::path::Component::Normal(s) => s == std::ffi::OsStr::new(".claude"),
         _ => false,
     })
+}
+
+// ─── Per-engine read confinement (WP-17) ─────────────────────────────────────
+//
+// The shipping `is_under_claude_dir` is the Claude-specific case of a more
+// general invariant: a read path must sit under one of the *active engine's*
+// declared roots. WP-17 generalizes it so the Gemini reader (and WP-18's Codex
+// reader) can only ever read inside the dirs the frozen `EngineLayout` declares
+// for that engine — a path computed outside those roots is rejected/skipped.
+// Claude's behavior is preserved exactly: its roots resolve to `~/.claude` +
+// each `<root>/.claude`, which `is_under_claude_dir` already covers.
+
+/// Resolve the concrete root dirs an engine may read under, from its frozen
+/// `EngineLayout` scopes' `root_source` templates plus the supplied project
+/// roots. User-tier roots resolve against `$HOME` (`~/.claude` → `<home>/
+/// .claude`, `~/.gemini` → `<home>/.gemini`, …); project-tier roots resolve to
+/// `<project_root>/<engine-dotdir>` for every supplied project root. The
+/// cross-tool `.agents/` skills path is added for any engine that declares a
+/// `.agents/skills/` skill location (Gemini, Codex) so that shared-skills reads
+/// stay confined.
+fn engine_roots(layout: &EngineLayout, project_roots: &[String]) -> Vec<PathBuf> {
+    let home = home_dir();
+    let mut roots: Vec<PathBuf> = Vec::new();
+
+    // The engine's dotdir basename, derived from its user scope root_source
+    // (e.g. `~/.gemini` → `.gemini`). Used to build project-scope roots.
+    let dotdir: Option<String> = layout
+        .scopes
+        .iter()
+        .find(|s| s.tier == ScopeTier::User)
+        .and_then(|s| Path::new(s.root_source).file_name())
+        .and_then(|n| n.to_str())
+        .map(|s| s.to_string());
+
+    for sc in &layout.scopes {
+        match sc.tier {
+            ScopeTier::User => {
+                // `~/<dotdir>` → `<home>/<dotdir>`.
+                if let (Some(home), Some(name)) = (&home, Path::new(sc.root_source).file_name()) {
+                    roots.push(home.join(name));
+                }
+            }
+            ScopeTier::Project => {
+                if let Some(dd) = &dotdir {
+                    for raw in project_roots {
+                        if let Ok(root) = expand(raw) {
+                            roots.push(root.join(dd));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Cross-tool `.agents/` skills path (Gemini + Codex): user `~/.agents` and
+    // project `<root>/.agents`. Only added when the engine declares a skill
+    // location under `.agents/`.
+    let uses_agents_skills = layout
+        .kinds
+        .get(&PrimitiveKind::Skill)
+        .map(|k| k.location.contains("/.agents/"))
+        .unwrap_or(false);
+    if uses_agents_skills {
+        if let Some(home) = &home {
+            roots.push(home.join(".agents"));
+        }
+        for raw in project_roots {
+            if let Ok(root) = expand(raw) {
+                roots.push(root.join(".agents"));
+            }
+        }
+    }
+
+    roots
+}
+
+/// True iff `p` sits under (or equals) one of `roots`. Lexical check after
+/// `expand`; both sides are compared on their `components()` so a `..`-free
+/// computed scan path is reliably contained. Used to reject any read the
+/// per-engine reader might compute outside its declared roots.
+fn path_under_any(p: &Path, roots: &[PathBuf]) -> bool {
+    roots.iter().any(|r| p == r || p.starts_with(r))
 }
 
 /// Path-confinement guard for the store + symlink-farm mutations (WP-02). A
@@ -1821,7 +2918,10 @@ mod tests {
             .await
             .expect("repoint");
 
-        assert_eq!(pin_count(&pool, "project:from", "command", "deploy").await, 0);
+        assert_eq!(
+            pin_count(&pool, "project:from", "command", "deploy").await,
+            0
+        );
         use sqlx::Row;
         let tier: String = sqlx::query(
             "SELECT preferred_tier FROM claude_asset_preferences
@@ -1849,5 +2949,575 @@ mod tests {
             .await
             .expect("repoint no-op");
         assert_eq!(pin_count(&pool, "project:to", "agent", "ghost").await, 0);
+    }
+
+    // ── WP-17 cross-system scan (engine-parametric + Gemini reader) ─────────
+    //
+    // These tests mutate the process-global `HOME` to isolate the scan to a
+    // tempdir, so they serialize on a module-local lock (mirrors the
+    // `engine_adapters::test_util::HomeGuard` pattern, which is `pub(super)`
+    // and not reachable from here).
+
+    fn home_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+        LOCK.get_or_init(|| std::sync::Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+    }
+
+    struct HomeGuard {
+        previous: Option<std::ffi::OsString>,
+        _tmp: tempfile::TempDir,
+    }
+    impl HomeGuard {
+        fn new() -> Self {
+            let tmp = tempfile::tempdir().expect("tempdir");
+            let previous = std::env::var_os("HOME");
+            std::env::set_var("HOME", tmp.path());
+            Self {
+                previous,
+                _tmp: tmp,
+            }
+        }
+        fn home(&self) -> PathBuf {
+            self._tmp.path().to_path_buf()
+        }
+    }
+    impl Drop for HomeGuard {
+        fn drop(&mut self) {
+            match self.previous.take() {
+                Some(h) => std::env::set_var("HOME", h),
+                None => std::env::remove_var("HOME"),
+            }
+        }
+    }
+
+    fn write(path: &Path, contents: &str) {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, contents).unwrap();
+    }
+
+    /// Lay out a `~/.gemini/`-style user tree (no project roots) and assert the
+    /// scan emits Gemini-tagged entries with the correct kind / format / scope.
+    #[test]
+    fn gemini_user_scope_scan_yields_tagged_entries() {
+        let _g = home_lock();
+        let home = HomeGuard::new();
+        let h = home.home();
+
+        write(
+            &h.join(".gemini/skills/lint/SKILL.md"),
+            "---\nname: lint\ndescription: Lints things\n---\nbody\n",
+        );
+        write(
+            &h.join(".agents/skills/shared/SKILL.md"),
+            "---\nname: shared\ndescription: Shared skill\n---\nx\n",
+        );
+        write(
+            &h.join(".gemini/agents/router.md"),
+            "---\nname: router\ndescription: Routes\n---\nb\n",
+        );
+        write(
+            &h.join(".gemini/commands/git/commit.toml"),
+            "description = \"Commit helper\"\nprompt = \"Write a commit message\"\n",
+        );
+        write(
+            &h.join(".gemini/settings.json"),
+            r#"{
+                "hooks": {
+                    "PreToolUse": [
+                        { "matcher": "Bash", "hooks": [ { "type": "command", "command": "/bin/echo hi" } ] }
+                    ]
+                },
+                "mcpServers": {
+                    "fs": { "command": "node", "args": ["server.js"], "env": { "TOKEN": "x" } }
+                }
+            }"#,
+        );
+
+        let cfg = scan_all(vec![]).expect("scan");
+
+        let gem_skills: Vec<_> = cfg
+            .skills
+            .iter()
+            .filter(|s| s.tag.system == EngineId::Gemini)
+            .collect();
+        let skill_names: Vec<&str> = gem_skills.iter().map(|s| s.name.as_str()).collect();
+        assert!(
+            skill_names.contains(&"lint") && skill_names.contains(&"shared"),
+            "both ~/.gemini/skills and ~/.agents/skills surface: {skill_names:?}"
+        );
+        for s in &gem_skills {
+            assert_eq!(s.tag.format, ConfigFormat::MdYaml);
+            assert_eq!(s.scope, Scope::Personal);
+            assert_eq!(s.tag.status, KindStatus::Active);
+        }
+
+        let router = cfg
+            .agents
+            .iter()
+            .find(|a| a.name == "router" && a.tag.system == EngineId::Gemini)
+            .expect("gemini agent router");
+        assert_eq!(router.tag.format, ConfigFormat::MdYaml);
+        assert_eq!(router.scope, Scope::Personal);
+
+        let commit = cfg
+            .commands
+            .iter()
+            .find(|c| c.tag.system == EngineId::Gemini)
+            .expect("gemini command");
+        assert_eq!(commit.name, "git:commit", "subdir-namespaced command name");
+        assert_eq!(commit.tag.format, ConfigFormat::Toml);
+        assert_eq!(commit.description.as_deref(), Some("Commit helper"));
+        assert!(commit.body.contains("Write a commit message"));
+
+        let hook = cfg
+            .hooks
+            .iter()
+            .find(|hk| hk.tag.system == EngineId::Gemini)
+            .expect("gemini hook");
+        assert_eq!(hook.event, "PreToolUse");
+        assert_eq!(hook.tag.format, ConfigFormat::JsonEmbedded);
+
+        let mcp = cfg
+            .mcps
+            .iter()
+            .find(|m| m.tag.system == EngineId::Gemini)
+            .expect("gemini mcp");
+        assert_eq!(mcp.name, "fs");
+        assert_eq!(mcp.tag.format, ConfigFormat::JsonEmbedded);
+        assert_eq!(mcp.command.as_deref(), Some("node"));
+        assert_eq!(mcp.env_keys, vec!["TOKEN".to_string()]);
+    }
+
+    /// A Gemini project tree (`<root>/.gemini` + `<root>/.agents/skills`) is
+    /// scoped Project and tagged Gemini.
+    #[test]
+    fn gemini_project_scope_scan() {
+        let _g = home_lock();
+        let home = HomeGuard::new();
+        let proj = tempfile::tempdir().unwrap();
+        let root = proj.path();
+
+        write(
+            &root.join(".gemini/agents/proj-agent.md"),
+            "---\nname: proj-agent\n---\nbody\n",
+        );
+        write(
+            &root.join(".agents/skills/proj-skill/SKILL.md"),
+            "---\nname: proj-skill\n---\nx\n",
+        );
+
+        let cfg = scan_all(vec![root.to_string_lossy().to_string()]).expect("scan");
+        let a = cfg
+            .agents
+            .iter()
+            .find(|a| a.name == "proj-agent")
+            .expect("project agent");
+        assert_eq!(a.tag.system, EngineId::Gemini);
+        assert_eq!(a.scope, Scope::Project);
+        assert_eq!(
+            a.project_root.as_deref(),
+            Some(root.to_string_lossy().as_ref())
+        );
+
+        let s = cfg
+            .skills
+            .iter()
+            .find(|s| s.name == "proj-skill")
+            .expect("project skill");
+        assert_eq!(s.tag.system, EngineId::Gemini);
+        assert_eq!(s.scope, Scope::Project);
+        drop(home);
+    }
+
+    /// The shipping Claude scan output must be **byte-unchanged** by WP-17:
+    /// a Claude-only fixture serializes with NO `system`/`format`/`status`
+    /// keys anywhere (the pre-WP-17 wire).
+    #[test]
+    fn claude_scan_output_is_byte_unchanged() {
+        let _g = home_lock();
+        let home = HomeGuard::new();
+        let h = home.home();
+
+        write(
+            &h.join(".claude/agents/router.md"),
+            "---\nname: router\ndescription: Routes\nmodel: opus\n---\nbody\n",
+        );
+        write(
+            &h.join(".claude/skills/lint/SKILL.md"),
+            "---\nname: lint\ndescription: Lints\n---\nx\n",
+        );
+        write(
+            &h.join(".claude/commands/deploy.md"),
+            "---\ndescription: Deploy\n---\ncmd body\n",
+        );
+        write(
+            &h.join(".claude/settings.json"),
+            r#"{
+                "hooks": { "Stop": [ { "hooks": [ { "type": "command", "command": "/bin/true" } ] } ] },
+                "mcpServers": { "fs": { "command": "node" } }
+            }"#,
+        );
+
+        let cfg = scan_all(vec![]).expect("scan");
+        let json = serde_json::to_value(&cfg).expect("serialize");
+
+        fn assert_no_new_keys(v: &serde_json::Value) {
+            match v {
+                serde_json::Value::Object(m) => {
+                    for k in ["system", "format", "status"] {
+                        assert!(
+                            !m.contains_key(k),
+                            "Claude entry must omit `{k}` to stay byte-unchanged"
+                        );
+                    }
+                    for sub in m.values() {
+                        assert_no_new_keys(sub);
+                    }
+                }
+                serde_json::Value::Array(a) => a.iter().for_each(assert_no_new_keys),
+                _ => {}
+            }
+        }
+        assert_no_new_keys(&json);
+
+        assert!(cfg.agents.iter().any(|a| a.name == "router"));
+        assert!(cfg.skills.iter().any(|s| s.name == "lint"));
+        assert!(cfg.commands.iter().any(|c| c.name == "deploy"));
+        assert!(!cfg.hooks.is_empty());
+        assert!(cfg.mcps.iter().any(|m| m.name == "fs"));
+    }
+
+    /// Per-engine confinement: a path outside the active engine's declared
+    /// roots is rejected by `path_under_any`, and the Gemini reader never
+    /// reads outside `~/.gemini` / `~/.agents` / `<root>/.gemini`.
+    #[test]
+    fn engine_confinement_rejects_outside_paths() {
+        let _g = home_lock();
+        let home = HomeGuard::new();
+        let h = home.home();
+
+        let gemini = crate::commands::engine_layout::engine_layout_by_id(EngineId::Gemini).unwrap();
+        let proj = tempfile::tempdir().unwrap();
+        let roots = engine_roots(&gemini, &[proj.path().to_string_lossy().to_string()]);
+
+        assert!(path_under_any(&h.join(".gemini/agents/x.md"), &roots));
+        assert!(path_under_any(&h.join(".agents/skills/x"), &roots));
+        assert!(path_under_any(
+            &proj.path().join(".gemini/settings.json"),
+            &roots
+        ));
+        assert!(!path_under_any(&h.join(".claude/agents/x.md"), &roots));
+        assert!(!path_under_any(Path::new("/etc/passwd"), &roots));
+        assert!(!path_under_any(&h.join("Documents/secret.md"), &roots));
+
+        // End-to-end: a stray `~/.gemini`-adjacent file outside the scanned
+        // kind dirs is never surfaced.
+        write(
+            &h.join(".gemini/NOT_A_KIND/rogue.md"),
+            "---\nname: rogue\n---\nx\n",
+        );
+        let cfg = scan_all(vec![]).expect("scan");
+        assert!(
+            !cfg.agents.iter().any(|a| a.name == "rogue"),
+            "files outside declared kind dirs are not scanned"
+        );
+    }
+
+    /// `SystemTag` serialization contract: Claude → no fields; Gemini → all
+    /// three camelCase fields with kebab-case enum values.
+    #[test]
+    fn system_tag_serialization_shape() {
+        let claude = SystemTag::claude(ConfigFormat::MdYaml);
+        let j = serde_json::to_value(claude).unwrap();
+        assert_eq!(j, serde_json::json!({}), "Claude tag emits nothing");
+
+        let gem = SystemTag {
+            system: EngineId::Gemini,
+            format: ConfigFormat::Toml,
+            status: KindStatus::Active,
+        };
+        let j = serde_json::to_value(gem).unwrap();
+        assert_eq!(j["system"], "gemini");
+        assert_eq!(j["format"], "toml");
+        assert_eq!(j["status"], "active");
+    }
+
+    // ── WP-18 Codex reader ─────────────────────────────────────────────────
+
+    /// Lay out a `~/.codex/` user tree (+ cross-tool `~/.agents/skills`) and
+    /// assert the scan emits Codex-tagged entries with the right kind / format
+    /// / scope — including a DEPRECATED prompt, a TOML agent, an inline-TOML
+    /// hook, a `hooks.json` hook, and a `config.toml [mcp_servers]` server.
+    #[test]
+    fn codex_user_scope_scan_yields_tagged_entries() {
+        let _g = home_lock();
+        let home = HomeGuard::new();
+        let h = home.home();
+
+        // skills: cross-tool `~/.agents/skills/` only.
+        write(
+            &h.join(".agents/skills/lint/SKILL.md"),
+            "---\nname: lint\ndescription: Lints things\n---\nbody\n",
+        );
+        // agents: `~/.codex/agents/*.toml`.
+        write(
+            &h.join(".codex/agents/router.toml"),
+            "name = \"router\"\ndescription = \"Routes requests\"\nmodel = \"gpt-5\"\nsystem_prompt = \"You route.\"\n",
+        );
+        // commands: `~/.codex/prompts/*.md` (DEPRECATED).
+        write(
+            &h.join(".codex/prompts/deploy.md"),
+            "---\ndescription: Deploy helper\n---\nDeploy the thing\n",
+        );
+        // hooks: `~/.codex/hooks.json` (JSON).
+        write(
+            &h.join(".codex/hooks.json"),
+            r#"{
+                "hooks": {
+                    "Stop": [ { "hooks": [ { "type": "command", "command": "/bin/echo done" } ] } ]
+                }
+            }"#,
+        );
+        // hooks (inline) + mcp: `~/.codex/config.toml`.
+        write(
+            &h.join(".codex/config.toml"),
+            "[mcp_servers.fs]\ncommand = \"node\"\nargs = [\"server.js\"]\nenv = { TOKEN = \"x\" }\nenv_vars = [\"OPENAI_API_KEY\"]\n\n\
+             [[hooks.PreToolUse]]\ntype = \"command\"\ncommand = \"/bin/echo pre\"\n",
+        );
+
+        let cfg = scan_all(vec![]).expect("scan");
+
+        // skill (md-yaml, cross-tool, personal)
+        let skill = cfg
+            .skills
+            .iter()
+            .find(|s| s.name == "lint" && s.tag.system == EngineId::Codex)
+            .expect("codex skill lint");
+        assert_eq!(skill.tag.format, ConfigFormat::MdYaml);
+        assert_eq!(skill.scope, Scope::Personal);
+        assert_eq!(skill.tag.status, KindStatus::Active);
+
+        // (b) TOML agent
+        let agent = cfg
+            .agents
+            .iter()
+            .find(|a| a.name == "router" && a.tag.system == EngineId::Codex)
+            .expect("codex toml agent");
+        assert_eq!(agent.tag.format, ConfigFormat::Toml);
+        assert_eq!(agent.scope, Scope::Personal);
+        assert_eq!(agent.description.as_deref(), Some("Routes requests"));
+        assert_eq!(agent.model.as_deref(), Some("gpt-5"));
+        assert!(agent.body.contains("You route."));
+
+        // (a) DEPRECATED prompt command
+        let cmd = cfg
+            .commands
+            .iter()
+            .find(|c| c.name == "deploy" && c.tag.system == EngineId::Codex)
+            .expect("codex deprecated prompt command");
+        assert_eq!(cmd.tag.format, ConfigFormat::MdYaml);
+        assert_eq!(
+            cmd.tag.status,
+            KindStatus::Deprecated,
+            "Codex prompts are surfaced as deprecated commands"
+        );
+        assert_eq!(cmd.scope, Scope::Personal);
+
+        // (c) MCP server from config.toml [mcp_servers]
+        let mcp = cfg
+            .mcps
+            .iter()
+            .find(|m| m.name == "fs" && m.tag.system == EngineId::Codex)
+            .expect("codex mcp server");
+        assert_eq!(mcp.tag.format, ConfigFormat::Toml);
+        assert_eq!(mcp.command.as_deref(), Some("node"));
+        assert_eq!(mcp.transport, "stdio");
+        assert!(mcp.env_keys.contains(&"TOKEN".to_string()));
+        assert!(
+            mcp.env_keys.contains(&"OPENAI_API_KEY".to_string()),
+            "env_vars forwarded keys are surfaced too: {:?}",
+            mcp.env_keys
+        );
+
+        // hooks: BOTH the JSON `hooks.json` Stop hook AND the inline-TOML
+        // PreToolUse hook are surfaced, tagged Codex.
+        let codex_hooks: Vec<_> = cfg
+            .hooks
+            .iter()
+            .filter(|hk| hk.tag.system == EngineId::Codex)
+            .collect();
+        let stop = codex_hooks
+            .iter()
+            .find(|hk| hk.event == "Stop")
+            .expect("hooks.json Stop hook");
+        assert_eq!(
+            stop.tag.format,
+            ConfigFormat::JsonEmbedded,
+            "hooks.json hooks are json-embedded"
+        );
+        let pre = codex_hooks
+            .iter()
+            .find(|hk| hk.event == "PreToolUse")
+            .expect("inline config.toml PreToolUse hook");
+        assert_eq!(
+            pre.tag.format,
+            ConfigFormat::Toml,
+            "inline config.toml hooks are tagged toml"
+        );
+        assert_eq!(pre.command_raw.as_deref(), Some("/bin/echo pre"));
+    }
+
+    /// A Codex project tree (`<root>/.codex` + `<root>/.agents/skills`) is
+    /// scoped Project and tagged Codex.
+    #[test]
+    fn codex_project_scope_scan() {
+        let _g = home_lock();
+        let home = HomeGuard::new();
+        let proj = tempfile::tempdir().unwrap();
+        let root = proj.path();
+
+        write(
+            &root.join(".codex/agents/proj-agent.toml"),
+            "name = \"proj-agent\"\ndescription = \"Project agent\"\n",
+        );
+        write(
+            &root.join(".agents/skills/proj-skill/SKILL.md"),
+            "---\nname: proj-skill\n---\nx\n",
+        );
+
+        let cfg = scan_all(vec![root.to_string_lossy().to_string()]).expect("scan");
+        let a = cfg
+            .agents
+            .iter()
+            .find(|a| a.name == "proj-agent")
+            .expect("project agent");
+        assert_eq!(a.tag.system, EngineId::Codex);
+        assert_eq!(a.scope, Scope::Project);
+        assert_eq!(a.tag.format, ConfigFormat::Toml);
+        assert_eq!(
+            a.project_root.as_deref(),
+            Some(root.to_string_lossy().as_ref())
+        );
+
+        // The cross-tool `.agents/skills/` path is shared by Gemini AND Codex,
+        // so `proj-skill` surfaces once per engine (distinct rows by D-08) —
+        // filter to the Codex row.
+        let s = cfg
+            .skills
+            .iter()
+            .find(|s| s.name == "proj-skill" && s.tag.system == EngineId::Codex)
+            .expect("codex project skill");
+        assert_eq!(s.scope, Scope::Project);
+        drop(home);
+    }
+
+    /// Codex never reads `.codex/skills/` — a skill placed there must NOT
+    /// surface. Missing `~/.codex` entirely yields zero Codex entries (no
+    /// error).
+    #[test]
+    fn codex_ignores_codex_skills_dir_and_missing_tree() {
+        let _g = home_lock();
+        let home = HomeGuard::new();
+        let h = home.home();
+
+        // A stray skill under `.codex/skills/` — Codex must ignore it.
+        write(
+            &h.join(".codex/skills/rogue/SKILL.md"),
+            "---\nname: rogue\n---\nx\n",
+        );
+
+        let cfg = scan_all(vec![]).expect("scan");
+        assert!(
+            !cfg.skills
+                .iter()
+                .any(|s| s.tag.system == EngineId::Codex && s.name == "rogue"),
+            "Codex never reads `.codex/skills/`"
+        );
+        // No other Codex entries either (the rest of the tree is absent).
+        assert!(!cfg.agents.iter().any(|a| a.tag.system == EngineId::Codex));
+        assert!(!cfg.mcps.iter().any(|m| m.tag.system == EngineId::Codex));
+        assert!(cfg.errors.is_empty(), "missing files are not errors");
+    }
+
+    /// Adding the Codex reader must NOT change Gemini OR Claude scan output for
+    /// a mixed fixture: the Claude entries stay byte-unchanged (no
+    /// system/format/status keys) and the Gemini entries keep their Gemini tag.
+    #[test]
+    fn codex_addition_leaves_gemini_and_claude_unchanged() {
+        let _g = home_lock();
+        let home = HomeGuard::new();
+        let h = home.home();
+
+        // Claude fixture.
+        write(
+            &h.join(".claude/agents/router.md"),
+            "---\nname: router\ndescription: Routes\n---\nbody\n",
+        );
+        write(
+            &h.join(".claude/settings.json"),
+            r#"{ "mcpServers": { "fs": { "command": "node" } } }"#,
+        );
+        // Gemini fixture.
+        write(
+            &h.join(".gemini/agents/gm-agent.md"),
+            "---\nname: gm-agent\n---\nb\n",
+        );
+        // Codex fixture (present so the Codex arm actually runs).
+        write(
+            &h.join(".codex/agents/cx-agent.toml"),
+            "name = \"cx-agent\"\n",
+        );
+
+        let cfg = scan_all(vec![]).expect("scan");
+        let json = serde_json::to_value(&cfg).expect("serialize");
+
+        // Claude entries: no new keys anywhere on the Claude rows.
+        let claude_agent = cfg
+            .agents
+            .iter()
+            .find(|a| a.name == "router" && a.tag.system == EngineId::Claude)
+            .expect("claude agent");
+        let cj = serde_json::to_value(claude_agent).unwrap();
+        for k in ["system", "format", "status"] {
+            assert!(
+                !cj.as_object().unwrap().contains_key(k),
+                "Claude agent must omit `{k}`"
+            );
+        }
+        assert!(cfg
+            .mcps
+            .iter()
+            .any(|m| m.name == "fs" && m.tag.system == EngineId::Claude));
+
+        // Gemini entry: still Gemini-tagged.
+        let gm = cfg
+            .agents
+            .iter()
+            .find(|a| a.name == "gm-agent")
+            .expect("gemini agent");
+        assert_eq!(gm.tag.system, EngineId::Gemini);
+        assert_eq!(gm.tag.format, ConfigFormat::MdYaml);
+
+        // Codex entry present (proves the arm ran without disturbing the others).
+        assert!(cfg
+            .agents
+            .iter()
+            .any(|a| a.name == "cx-agent" && a.tag.system == EngineId::Codex));
+
+        // The serialized JSON contains all three systems' rows.
+        let s = json.to_string();
+        assert!(s.contains("\"system\":\"gemini\""));
+        assert!(s.contains("\"system\":\"codex\""));
+    }
+
+    #[test]
+    fn gemini_command_toml_parse() {
+        let (desc, body) = parse_gemini_command_toml(
+            "description = \"A cmd\"\nprompt = \"\"\"\nLine one\nLine two\n\"\"\"\n",
+        );
+        assert_eq!(desc.as_deref(), Some("A cmd"));
+        assert_eq!(body, "Line one\nLine two");
     }
 }

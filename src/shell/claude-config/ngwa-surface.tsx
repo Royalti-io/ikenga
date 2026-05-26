@@ -46,6 +46,9 @@ import {
 	useImportToStore,
 	useMovePrimitive,
 	useRemovePrimitive,
+	type ConfigFormat,
+	type EngineId,
+	type KindStatus,
 } from '@/lib/queries/claude-config';
 
 import { Chips, FrontmatterGrid } from './list-detail';
@@ -58,6 +61,44 @@ export type NgwaSurfaceId = 'browse' | 'registry' | 'graph' | 'map' | 'life' | '
 // scanned project root (WP-06 ↔ WP-07 seam).
 export type NgwaScopeId = 'all' | 'personal' | `project:${string}`;
 export type NgwaKindId = 'skills' | 'agents' | 'commands' | 'hooks' | 'mcps' | 'store';
+// The SYSTEM facet (WP-20 / D-08) is multi-select — peers with Scope + Kind in
+// the sidebar but, unlike them, can hold several values at once. It threads
+// through the URL as a comma-separated `sys` param; an absent / empty param
+// means "all present systems on".
+export type NgwaSystemId = EngineId; // 'claude' | 'gemini' | 'codex'
+
+// ─── Engine identity (shared with the Ngwa sidebar) ─────────────────────────
+// Display name, the 2-char badge (CL/GM/CX), the `.evhead.eng.*` modifier, and
+// the engine-tint var — mirrors the D-08 mockup. The badge class on a row is
+// the lowercase engine id; the sub-header modifier is the short cl/gm/cx code.
+export const ENGINE_ORDER: readonly NgwaSystemId[] = ['claude', 'gemini', 'codex'];
+
+export const ENGINE_META: Record<
+	NgwaSystemId,
+	{ display: string; badge: string; code: 'cl' | 'gm' | 'cx' }
+> = {
+	claude: { display: 'Claude Code', badge: 'CL', code: 'cl' },
+	gemini: { display: 'Gemini', badge: 'GM', code: 'gm' },
+	codex: { display: 'Codex', badge: 'CX', code: 'cx' },
+};
+
+/** Absent `system` ⇒ `"claude"` (WP-19 contract). */
+const systemOf = (e: { system?: EngineId }): NgwaSystemId => e.system ?? 'claude';
+/** Absent `status` ⇒ `"active"` (WP-19 contract). */
+const statusOf = (e: { status?: KindStatus }): KindStatus => e.status ?? 'active';
+
+// Map a serialization format onto the short row chip + its tint class.
+const FORMAT_CHIP: Record<ConfigFormat, { label: string; cls: 'json' | 'toml' | 'md' }> = {
+	'json-embedded': { label: 'json', cls: 'json' },
+	toml: { label: 'toml', cls: 'toml' },
+	'md-yaml': { label: 'md', cls: 'md' },
+};
+// Longer human label for the detail-pane Identity grid.
+const FORMAT_LABEL: Record<ConfigFormat, string> = {
+	'json-embedded': 'JSON (settings-embedded)',
+	toml: 'TOML',
+	'md-yaml': 'Markdown + YAML frontmatter',
+};
 
 const ANALYZE: ReadonlySet<NgwaSurfaceId> = new Set<NgwaSurfaceId>([
 	'graph',
@@ -96,6 +137,13 @@ export interface NgwaItem {
 	state: ItemState;
 	mech: ItemMech;
 	overriddenBy: string | null;
+	// ── Ngwa Phase-2 cross-system (WP-20) ──
+	/** Owning engine. Absent on the scan ⇒ `"claude"`. */
+	system: NgwaSystemId;
+	/** On-disk serialization format (drives the row format chip). */
+	format: ConfigFormat | null;
+	/** Live vs. deprecated. Absent on the scan ⇒ `"active"`. */
+	status: KindStatus;
 	/** Source object for the detail superset. */
 	raw: ClaudeAgent | ClaudeSkill | ClaudeCommand | ClaudeHook | ClaudeMcp;
 	/** Store catalog row if this primitive is in the store. */
@@ -182,7 +230,7 @@ function deriveState(meta: { isSymlink: boolean; inStore: boolean }, mech: ItemM
 	return 'local'; // a real file, not store-backed
 }
 
-function buildItems(
+export function buildItems(
 	config: ClaudeConfig,
 	store: ClaudeStoreEntry[],
 	projects: Project[]
@@ -209,7 +257,10 @@ function buildItems(
 	) => {
 		const scopeKey = scopeKeyOf(scope, projectRoot, projects);
 		const storeEntry = storeByKey.get(`${storeKind}:${name}`) ?? null;
-		let id = `${storeKind}:${name}:${scope}:${projectRoot ?? ''}`;
+		const system = systemOf(raw);
+		// Identity keys on engine too: the cross-engine `reviewer` (gemini-md +
+		// codex-toml) is two distinct primitives, so `system` must be in the id.
+		let id = `${system}:${storeKind}:${name}:${scope}:${projectRoot ?? ''}`;
 		const dup = seen.get(id) ?? 0;
 		seen.set(id, dup + 1);
 		if (dup > 0) id = `${id}#${dup}`;
@@ -227,6 +278,9 @@ function buildItems(
 			state: deriveState(meta, mech),
 			mech,
 			overriddenBy,
+			system,
+			format: raw.format ?? null,
+			status: statusOf(raw),
 			raw,
 			storeEntry,
 		});
@@ -301,6 +355,71 @@ function buildItems(
 	return out;
 }
 
+// ─── System-facet summary (shared sidebar ↔ surface) ────────────────────────
+// Engines present in the scan (preserving CL→GM→CX order), the per-engine total
+// count, and the per-kind count aggregated across the *active* (toggled-on)
+// systems. The sidebar consumes `present` + `engineCounts` to render the SYSTEM
+// facet, and `kindCounts(active)` to show Kind counts summed over active
+// engines (D-08 point 4).
+
+export interface NgwaSystemSummary {
+	/** Engines present in the scan, in canonical CL→GM→CX order. */
+	present: NgwaSystemId[];
+	/** Total primitive count per present engine. */
+	engineCounts: Record<NgwaSystemId, number>;
+	/** Per-kind counts, summed over a supplied set of active engines. */
+	kindCounts: (active: ReadonlySet<NgwaSystemId>) => Record<NgwaKindId, number>;
+}
+
+export function summarizeSystems(items: NgwaItem[]): NgwaSystemSummary {
+	const engineCounts = { claude: 0, gemini: 0, codex: 0 } as Record<NgwaSystemId, number>;
+	for (const it of items) engineCounts[it.system] = (engineCounts[it.system] ?? 0) + 1;
+	const present = ENGINE_ORDER.filter((e) => engineCounts[e] > 0);
+	const kindCounts = (active: ReadonlySet<NgwaSystemId>): Record<NgwaKindId, number> => {
+		const c: Record<NgwaKindId, number> = {
+			skills: 0,
+			agents: 0,
+			commands: 0,
+			hooks: 0,
+			mcps: 0,
+			store: 0,
+		};
+		for (const it of items) {
+			if (active.has(it.system)) c[it.uiKind] += 1;
+		}
+		return c;
+	};
+	return { present, engineCounts, kindCounts };
+}
+
+/** Other engines (besides the item's own) that carry a primitive of the same
+ *  kind+name — the cross-engine collision the detail pane surfaces. Returns them
+ *  in canonical CL→GM→CX order, de-duplicated. */
+export function siblingSystemsOf(item: NgwaItem | null, items: NgwaItem[]): NgwaSystemId[] {
+	if (!item) return [];
+	const others = new Set<NgwaSystemId>();
+	for (const x of items) {
+		if (x.storeKind === item.storeKind && x.name === item.name && x.system !== item.system) {
+			others.add(x.system);
+		}
+	}
+	return ENGINE_ORDER.filter((e) => others.has(e));
+}
+
+/** Resolve the effective active-system set from the URL `sys` selection and the
+ *  engines actually present. An empty / absent selection ⇒ all present engines
+ *  on (D-08 default). Selections are intersected with `present` so a stale id
+ *  can't leave the list empty. */
+export function resolveActiveSystems(
+	selected: readonly NgwaSystemId[] | null,
+	present: readonly NgwaSystemId[]
+): Set<NgwaSystemId> {
+	const presentSet = new Set(present);
+	if (!selected || selected.length === 0) return new Set(present);
+	const picked = selected.filter((s) => presentSet.has(s));
+	return picked.length > 0 ? new Set(picked) : new Set(present);
+}
+
 // ─── Top-level surface ──────────────────────────────────────────────────────
 
 interface NgwaSurfaceProps {
@@ -310,6 +429,8 @@ interface NgwaSurfaceProps {
 	surface: NgwaSurfaceId;
 	scope: NgwaScopeId;
 	kind: NgwaKindId;
+	/** Selected systems from the URL `sys` param. Empty/absent ⇒ all present. */
+	systems: NgwaSystemId[];
 	onEdit: (path: string) => void;
 	/** Available project scopes to offer in move/copy/install pickers. */
 	projectScopes: Array<{ key: ClaudeStoreScope; label: string }>;
@@ -324,6 +445,7 @@ export function NgwaSurface({
 	surface,
 	scope,
 	kind,
+	systems,
 	onEdit,
 	projectScopes,
 	projects,
@@ -336,14 +458,27 @@ export function NgwaSurface({
 		[config, store, projects]
 	);
 
+	// SYSTEM facet — engines present + the active (toggled-on) subset. The active
+	// set drives both the engine-grouped Browse rows and the aggregated counts.
+	const summary = useMemo(() => summarizeSystems(items), [items]);
+	const activeSystems = useMemo(
+		() => resolveActiveSystems(systems, summary.present),
+		[systems, summary.present]
+	);
+
 	const counts = useMemo(() => {
-		const c: Record<string, number> = {};
-		for (const it of items) c[it.uiKind] = (c[it.uiKind] ?? 0) + 1;
+		const c: Record<string, number> = {
+			...summary.kindCounts(activeSystems),
+		};
 		c.store = store.length;
 		return c;
-	}, [items, store]);
+	}, [summary, activeSystems, store]);
 
-	const total = items.length;
+	// Total reflects the active systems too, so the header count tracks the facet.
+	const total = useMemo(
+		() => items.reduce((n, it) => (activeSystems.has(it.system) ? n + 1 : n), 0),
+		[items, activeSystems]
+	);
 
 	// Mode toggle reflects the URL surface but also lets the user flip in-place
 	// (Browse ⇄ Registry) without a sidebar round-trip — we keep a local mode
@@ -395,18 +530,24 @@ export function NgwaSurface({
 							</button>
 						</div>
 					)}
-					{/* engine seam — v1 manages Claude only */}
-					<div className="ngwa-sys" title="v1 manages Claude Code · Gemini/Codex seam reserved">
-						<button type="button" className="on">
-							<span className="led">●</span> Claude
-						</button>
-						<button type="button" disabled>
-							Gemini
-						</button>
-						<button type="button" disabled>
-							Codex
-						</button>
-					</div>
+					{/* engine seam — live badge set of the active systems (D-08). The
+					    SYSTEM facet in the sidebar is the toggle; this is a read-only
+					    indicator of which engines are currently in view. */}
+					{summary.present.length > 1 && (
+						<div
+							className="ngwa-sysset"
+							title="Systems in view — toggle in the sidebar SYSTEM facet"
+						>
+							{summary.present.map((e) => (
+								<span
+									key={e}
+									className={cn('ngwa-eb', ENGINE_META[e].code, !activeSystems.has(e) && 'off')}
+								>
+									{ENGINE_META[e].badge}
+								</span>
+							))}
+						</div>
+					)}
 				</div>
 			</div>
 
@@ -423,6 +564,8 @@ export function NgwaSurface({
 					items={items}
 					store={store}
 					scope={scope}
+					activeSystems={activeSystems}
+					present={summary.present}
 					isLoading={isLoading || storeQuery.isLoading}
 					error={error}
 					onEdit={onEdit}
@@ -435,6 +578,8 @@ export function NgwaSurface({
 					scope={scope}
 					kind={kind}
 					counts={counts}
+					activeSystems={activeSystems}
+					present={summary.present}
 					isLoading={isLoading || storeQuery.isLoading}
 					error={error}
 					onEdit={onEdit}
@@ -491,6 +636,8 @@ interface BrowseProps {
 	scope: NgwaScopeId;
 	kind: NgwaKindId;
 	counts: Record<string, number>;
+	activeSystems: ReadonlySet<NgwaSystemId>;
+	present: NgwaSystemId[];
 	isLoading: boolean;
 	error: string | null;
 	onEdit: (path: string) => void;
@@ -502,6 +649,8 @@ function BrowseSurface({
 	store,
 	scope,
 	kind,
+	activeSystems,
+	present,
 	isLoading,
 	error,
 	onEdit,
@@ -561,7 +710,9 @@ function BrowseSurface({
 		const storeKind = (Object.keys(UI_KIND_OF) as ClaudeStoreKind[]).find(
 			(k) => UI_KIND_OF[k] === kind
 		);
-		let xs = items.filter((it) => it.uiKind === kind && passScope(it, scope));
+		let xs = items.filter(
+			(it) => it.uiKind === kind && passScope(it, scope) && activeSystems.has(it.system)
+		);
 		if (storeKind) void storeKind; // kind already mapped via uiKind
 		if (filter.trim()) {
 			const f = filter.toLowerCase();
@@ -571,7 +722,7 @@ function BrowseSurface({
 			);
 		}
 		return xs;
-	}, [items, kind, scope, filter, isStoreKind]);
+	}, [items, kind, scope, filter, isStoreKind, activeSystems]);
 
 	const storeList = useMemo(() => {
 		if (!isStoreKind) return [];
@@ -597,18 +748,29 @@ function BrowseSurface({
 		return storeList.find((e) => `store:${e.kind}:${e.name}` === selId) ?? storeList[0];
 	}, [storeList, selId, isStoreKind]);
 
-	// Hooks grouped by event in the list (G-05).
-	const grouped = useMemo(() => {
-		if (kind !== 'hooks') return null;
-		const by = new Map<string, NgwaItem[]>();
+	// Engine-grouped clusters (D-08): rows cluster under a tinted per-engine
+	// sub-header rather than interleaving. Only emitted when more than one engine
+	// is active — a single active engine collapses to the flat list so the
+	// Claude-only view is byte-identical to today (regression guard).
+	const engineGroups = useMemo<Array<{ system: NgwaSystemId; items: NgwaItem[] }> | null>(() => {
+		const activeCount = present.filter((e) => activeSystems.has(e)).length;
+		if (activeCount <= 1) return null;
+		const by = new Map<NgwaSystemId, NgwaItem[]>();
 		for (const it of list) {
-			const h = it.raw as ClaudeHook;
-			const ev = h.event ?? 'other';
-			if (!by.has(ev)) by.set(ev, []);
-			by.get(ev)!.push(it);
+			if (!by.has(it.system)) by.set(it.system, []);
+			by.get(it.system)!.push(it);
 		}
-		return [...by.entries()];
-	}, [kind, list]);
+		// Stable CL→GM→CX order; only engines that actually have rows.
+		return ENGINE_ORDER.filter((e) => by.has(e)).map((e) => ({ system: e, items: by.get(e)! }));
+	}, [list, present, activeSystems]);
+
+	// A short path hint for an engine sub-header, derived from the first row's
+	// on-disk path (e.g. `.gemini/agents`). Falls back to the engine display.
+	function enginePathHint(its: NgwaItem[]): string {
+		const p = its[0]?.path ?? '';
+		const m = p.match(/(\.(?:claude|gemini|codex)\/[a-z]+)/);
+		return m ? m[1] : ENGINE_META[its[0]?.system ?? 'claude'].display;
+	}
 
 	return (
 		<div className="ccfg-split" ref={splitRef} style={{ minHeight: 0 }}>
@@ -632,6 +794,7 @@ function BrowseSurface({
 					<span>
 						{scope === 'all' ? 'all scopes' : scope.startsWith('project:') ? scope.slice(8) : scope}{' '}
 						· {isStoreKind ? `${storeList.length} canonical` : list.length}
+						{!isStoreKind && engineGroups && ` · ${engineGroups.length} systems`}
 					</span>
 				</div>
 				<div className="ccfg-list-rows">
@@ -658,12 +821,15 @@ function BrowseSurface({
 						)
 					) : list.length === 0 ? (
 						<div className="ccfg-empty">No entries match.</div>
-					) : grouped ? (
-						grouped.map(([ev, its]) => (
-							<div key={ev}>
-								<div className="ccfg-event-head">
-									<span>{ev}</span>
-									<span className="ct">{its.length}</span>
+					) : engineGroups ? (
+						engineGroups.map(({ system, items: its }) => (
+							<div key={system}>
+								<div className={cn('ccfg-engine-head', ENGINE_META[system].code)}>
+									<span className="eg">{ENGINE_META[system].badge}</span>
+									<span className="hn">
+										{ENGINE_META[system].display} · {its.length}
+									</span>
+									<span className="ct">{enginePathHint(its)}</span>
 								</div>
 								{its.map((it) => (
 									<BrowseRow
@@ -671,6 +837,7 @@ function BrowseSurface({
 										item={it}
 										active={!!selected && selected.id === it.id}
 										onClick={() => setSelId(it.id)}
+										showEngineMeta
 									/>
 								))}
 							</div>
@@ -696,7 +863,12 @@ function BrowseSurface({
 						<EmptyCarve />
 					)
 				) : selected ? (
-					<ItemDetail item={selected} projectScopes={projectScopes} onEdit={onEdit} />
+					<ItemDetail
+						item={selected}
+						projectScopes={projectScopes}
+						onEdit={onEdit}
+						siblingSystems={siblingSystemsOf(selected, items)}
+					/>
 				) : (
 					<EmptyCarve />
 				)}
@@ -720,14 +892,24 @@ function StateDot({ state }: { state: ItemState }) {
 	return <span className={cn('ngwa-dot', state)} title={STATE_WORD[state]} aria-hidden />;
 }
 
+function FormatChip({ format }: { format: ConfigFormat | null }) {
+	if (!format) return null;
+	const f = FORMAT_CHIP[format];
+	return <span className={cn('ccfg-fmt', f.cls)}>{f.label}</span>;
+}
+
 function BrowseRow({
 	item,
 	active,
 	onClick,
+	showEngineMeta = false,
 }: {
 	item: NgwaItem;
 	active: boolean;
 	onClick: () => void;
+	/** Multi-engine (facet) mode: show the per-row format chip + deprecated chip.
+	 *  Off in the Claude-only view so it renders byte-identical to today. */
+	showEngineMeta?: boolean;
 }) {
 	return (
 		<button
@@ -742,6 +924,7 @@ function BrowseRow({
 			<div className="ccfg-row-name">
 				<StateDot state={item.state} />
 				<span>{item.name}</span>
+				{showEngineMeta && <FormatChip format={item.format} />}
 				<span className={cn('ccfg-scope', item.scope === 'personal' && 'is-personal')}>
 					{item.scope === 'personal' ? 'pers' : item.scopeLabel}
 				</span>
@@ -755,6 +938,12 @@ function BrowseRow({
 			<div className="ccfg-row-meta">
 				{/* G-11: state WORD in every row, not colour-only */}
 				<span className={cn('ngwa-stword', item.state)}>{STATE_WORD[item.state]}</span>
+				{showEngineMeta && item.status === 'deprecated' && (
+					<>
+						<span>·</span>
+						<span className="ngwa-stword deprecated">deprecated</span>
+					</>
+				)}
 				<span>·</span>
 				<span>
 					{item.storeEntry ? 'store ↗' : item.scope === 'personal' ? '~/.claude' : '.claude'}
@@ -804,6 +993,8 @@ interface RegistryProps {
 	items: NgwaItem[];
 	store: ClaudeStoreEntry[];
 	scope: NgwaScopeId;
+	activeSystems: ReadonlySet<NgwaSystemId>;
+	present: NgwaSystemId[];
 	isLoading: boolean;
 	error: string | null;
 	onEdit: (path: string) => void;
@@ -812,7 +1003,15 @@ interface RegistryProps {
 
 const FCHIPS = ['@personal', '@project', '@disabled', '@orphaned', '@local'] as const;
 
-function RegistrySurface({ items, scope, isLoading, error, onEdit, projectScopes }: RegistryProps) {
+function RegistrySurface({
+	items,
+	scope,
+	activeSystems,
+	isLoading,
+	error,
+	onEdit,
+	projectScopes,
+}: RegistryProps) {
 	const [q, setQ] = useState('');
 	const [chips, setChips] = useState<Set<string>>(new Set());
 	const [multi, setMulti] = useState<Set<string>>(new Set());
@@ -825,6 +1024,7 @@ function RegistrySurface({ items, scope, isLoading, error, onEdit, projectScopes
 	// name/description; recognised `@token`s narrow scope/state/kind.
 	function pass(it: NgwaItem): boolean {
 		if (!passScope(it, scope)) return false;
+		if (!activeSystems.has(it.system)) return false;
 		for (const f of chips) {
 			if (!matchToken(it, f.slice(1))) return false;
 		}
@@ -844,7 +1044,7 @@ function RegistrySurface({ items, scope, isLoading, error, onEdit, projectScopes
 	const rows = useMemo(
 		() => items.filter(pass),
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-		[items, scope, chips, q]
+		[items, scope, chips, q, activeSystems]
 	);
 
 	const drawerItem = useMemo(
@@ -1083,7 +1283,12 @@ function RegistrySurface({ items, scope, isLoading, error, onEdit, projectScopes
 						style={{ width: 420, maxHeight: '90vh', overflow: 'auto', padding: 0 }}
 						onClick={(e) => e.stopPropagation()}
 					>
-						<ItemDetail item={drawerItem} projectScopes={projectScopes} onEdit={onEdit} />
+						<ItemDetail
+							item={drawerItem}
+							projectScopes={projectScopes}
+							onEdit={onEdit}
+							siblingSystems={siblingSystemsOf(drawerItem, items)}
+						/>
 						<div style={{ padding: 'var(--space-3)', textAlign: 'right' }}>
 							<button type="button" className="ngwa-btn" onClick={() => setDrawerId(null)}>
 								Close
@@ -1166,10 +1371,14 @@ function ItemDetail({
 	item,
 	projectScopes,
 	onEdit,
+	siblingSystems = [],
 }: {
 	item: NgwaItem;
 	projectScopes: Array<{ key: ClaudeStoreScope; label: string }>;
 	onEdit: (path: string) => void;
+	/** Other engines that have a primitive of the same kind+name (cross-engine
+	 *  collision, e.g. the `reviewer` agent under Gemini + Codex). */
+	siblingSystems?: NgwaSystemId[];
 }) {
 	const enable = useEnablePrimitive();
 	const disable = useDisablePrimitive();
@@ -1242,6 +1451,9 @@ function ItemDetail({
 					</button>
 				</div>
 				<h2>
+					<span className={cn('ccfg-eb', ENGINE_META[item.system].code)}>
+						{ENGINE_META[item.system].badge}
+					</span>
 					{item.name}
 					<StateDot state={item.state} />
 					<span
@@ -1258,12 +1470,33 @@ function ItemDetail({
 						<StateDot state={item.state} /> {STATE_WORD[item.state]}
 					</span>
 					<span className={cn('ngwa-mtag', item.mech)}>{item.mech}</span>
+					{item.format && <FormatChip format={item.format} />}
+					{item.status === 'deprecated' && (
+						<span className="ngwa-stword deprecated">deprecated</span>
+					)}
 				</div>
 				{item.description && <div className="ccfg-detail-desc">{item.description}</div>}
 			</div>
 
 			<div className="ccfg-detail-body">
 				{prec && <div className="ccfg-section">{prec}</div>}
+
+				{siblingSystems.length > 0 && (
+					<Section label="Same name across systems">
+						<div className="ngwa-mech">
+							A <b>{k}</b> named <b>{item.name}</b> also exists under{' '}
+							{siblingSystems.map((s, i) => (
+								<span key={s}>
+									{i > 0 && ', '}
+									<span className={cn('ccfg-eb', ENGINE_META[s].code)}>{ENGINE_META[s].badge}</span>{' '}
+									{ENGINE_META[s].display}
+								</span>
+							))}
+							. Ngwa keys identity on <code>{'{system, kind, scope, name}'}</code>, so these are
+							distinct primitives shown side by side.
+						</div>
+					</Section>
+				)}
 
 				<Section label="Identity">
 					<FrontmatterGrid entries={fmRows} />
@@ -1412,7 +1645,11 @@ function detailParts(item: NgwaItem): {
 	tree: React.ReactNode;
 } {
 	const fmRows: Array<[string, React.ReactNode]> = [
+		['system', ENGINE_META[item.system].display],
 		['kind', item.storeKind],
+		...(item.format
+			? ([['format', FORMAT_LABEL[item.format]]] as Array<[string, React.ReactNode]>)
+			: []),
 		[
 			'scope',
 			<span>

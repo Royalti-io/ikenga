@@ -15,6 +15,7 @@ pub mod comment_route;
 pub mod comments;
 pub mod db;
 pub mod desktop;
+pub mod engine_layout;
 pub mod fs;
 pub mod fs_roots;
 pub mod iyke;
@@ -71,6 +72,7 @@ pub use comments::{
 };
 pub use db::{db_exec, db_query};
 pub use desktop::{iyke_mcp_info, set_dock_badge, IykeMcpInfo};
+pub use engine_layout::engine_layout;
 pub use fs::{
     fs_exists, fs_kind, fs_list, fs_mime, fs_mkdir, fs_read, fs_rename, fs_search, fs_trash,
     fs_unwatch, fs_watch, fs_write,

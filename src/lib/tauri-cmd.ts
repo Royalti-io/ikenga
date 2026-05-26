@@ -1087,6 +1087,25 @@ export interface ClaudeLinkMeta {
 	/** Whether the resolved target lives inside the Ngwa central store
 	 *  (`<app_data_dir>/store/`). */
 	inStore: boolean;
+	// ── Ngwa Phase-2 cross-system entry extension (frozen contract, WP-19) ──
+	//
+	// Three additive fields every scan-result entry gains so the FE can group
+	// primitives by engine. The Rust scanner (WP-17) fills these for the real
+	// scan; the multi-engine dev mock below fills them for canned data. Reuses
+	// the `EngineId` / `ConfigFormat` / `KindStatus` enums mirrored from the
+	// G-ADAPTER descriptor (see `engineLayout()` below). Scope is the existing
+	// `scope` field on each entry — NOT a new field.
+	//
+	// Optional-with-default: WP-17's Rust struct always emits all three, but the
+	// fields are optional here so pre-existing Claude-only literals (graph tests,
+	// ngwa-surface) still type without a backfill. Consumers (WP-20) treat an
+	// absent `system` as `"claude"` and an absent `status` as `"active"`.
+	/** Which AI-coding engine owns this primitive. Absent ⇒ `"claude"`. */
+	system?: EngineId;
+	/** On-disk serialization format of the primitive. */
+	format?: ConfigFormat;
+	/** Live vs. deprecated (e.g. Codex commands → skills). Absent ⇒ `"active"`. */
+	status?: KindStatus;
 }
 
 export interface ClaudeAgent extends ClaudeLinkMeta {
@@ -1176,7 +1195,271 @@ export interface ClaudeConfig {
 	errors: ClaudeConfigScanError[];
 }
 
+// ─── Ngwa Phase-2 multi-engine scan mock (WP-19) ──────────────────────────────
+//
+// WP-17/18 land the real Rust scanner that fills `system` / `format` / `status`
+// on every scan entry across Claude + Gemini + Codex. Until they merge,
+// `claude_config_load` only knows about Claude, so this dev-flag mock returns a
+// small canned multi-engine dataset so WP-20 can build the engine-grouped facet
+// ahead of the backend.
+//
+// Same shape as the `NGWA_STORE_MOCK` cutover below: the flag defaults ON in dev
+// builds and OFF in production; the live `invoke('claude_config_load', …)` path
+// is the default-on production path. CUTOVER (single line for the orchestrator):
+// set `NGWA_SCAN_MOCK = false` once WP-17/18 emit the three fields from Rust.
+const NGWA_SCAN_MOCK: boolean = import.meta.env.DEV;
+
+/** Canned multi-engine scan the mock returns. Spans Claude + Gemini + Codex
+ *  across kinds, and deliberately exercises the WP-20 facet edge cases:
+ *    • one Codex `status: "deprecated"` command (Codex commands → skills),
+ *    • one Gemini `format: "toml"` command,
+ *    • one same-named agent (`reviewer`) under both Gemini (md-yaml) and Codex
+ *      (toml) so the engine-grouped facet shows the cross-engine collision.
+ *  Claude entries keep `system: "claude"` so the default-engine grouping reads
+ *  naturally. */
+const ngwaScanMockConfig: ClaudeConfig = {
+	agents: [
+		{
+			name: 'rex',
+			scope: 'personal',
+			projectRoot: null,
+			path: '/home/dev/.claude/agents/rex.md',
+			modifiedMs: 1_716_500_000_000,
+			description: 'Release-engineering agent.',
+			model: null,
+			frontmatter: {},
+			body: '',
+			overriddenBy: null,
+			isSymlink: false,
+			linkTarget: null,
+			inStore: false,
+			system: 'claude',
+			format: 'md-yaml',
+			status: 'active',
+		},
+		{
+			// same-named agent under Gemini (md-yaml) …
+			name: 'reviewer',
+			scope: 'project',
+			projectRoot: '/home/dev/projects/ikenga',
+			path: '/home/dev/projects/ikenga/.gemini/agents/reviewer.md',
+			modifiedMs: 1_716_480_000_000,
+			description: 'Code-review agent (Gemini).',
+			model: null,
+			frontmatter: {},
+			body: '',
+			overriddenBy: null,
+			isSymlink: false,
+			linkTarget: null,
+			inStore: false,
+			system: 'gemini',
+			format: 'md-yaml',
+			status: 'active',
+		},
+		{
+			// … and the SAME name under Codex (toml) — cross-engine collision.
+			name: 'reviewer',
+			scope: 'project',
+			projectRoot: '/home/dev/projects/ikenga',
+			path: '/home/dev/projects/ikenga/.codex/agents/reviewer.toml',
+			modifiedMs: 1_716_470_000_000,
+			description: 'Code-review agent (Codex).',
+			model: null,
+			frontmatter: {},
+			body: '',
+			overriddenBy: null,
+			isSymlink: false,
+			linkTarget: null,
+			inStore: false,
+			system: 'codex',
+			format: 'toml',
+			status: 'active',
+		},
+	],
+	skills: [
+		{
+			name: 'huashu-design',
+			scope: 'personal',
+			projectRoot: null,
+			path: '/home/dev/.claude/skills/huashu-design/SKILL.md',
+			dirPath: '/home/dev/.claude/skills/huashu-design',
+			modifiedMs: 1_716_460_000_000,
+			description: 'HTML hi-fi prototyping + design advisor.',
+			frontmatter: {},
+			body: '',
+			supportingFiles: [],
+			overriddenBy: null,
+			isSymlink: false,
+			linkTarget: null,
+			inStore: false,
+			system: 'claude',
+			format: 'md-yaml',
+			status: 'active',
+		},
+		{
+			name: 'gemini-extensions',
+			scope: 'project',
+			projectRoot: '/home/dev/projects/ikenga',
+			path: '/home/dev/projects/ikenga/.gemini/skills/gemini-extensions/SKILL.md',
+			dirPath: '/home/dev/projects/ikenga/.gemini/skills/gemini-extensions',
+			modifiedMs: 1_716_450_000_000,
+			description: 'Gemini-side helper skill.',
+			frontmatter: {},
+			body: '',
+			supportingFiles: [],
+			overriddenBy: null,
+			isSymlink: false,
+			linkTarget: null,
+			inStore: false,
+			system: 'gemini',
+			format: 'md-yaml',
+			status: 'active',
+		},
+	],
+	commands: [
+		{
+			name: 'blog-pipeline',
+			scope: 'personal',
+			projectRoot: null,
+			path: '/home/dev/.claude/commands/blog-pipeline.md',
+			modifiedMs: 1_716_440_000_000,
+			description: 'Full blog creation workflow.',
+			model: null,
+			argumentHint: null,
+			frontmatter: {},
+			body: '',
+			overriddenBy: null,
+			isSymlink: false,
+			linkTarget: null,
+			inStore: false,
+			system: 'claude',
+			format: 'md-yaml',
+			status: 'active',
+		},
+		{
+			// Gemini command in TOML format.
+			name: 'deploy',
+			scope: 'project',
+			projectRoot: '/home/dev/projects/ikenga',
+			path: '/home/dev/projects/ikenga/.gemini/commands/deploy.toml',
+			modifiedMs: 1_716_430_000_000,
+			description: 'Deploy pipeline (Gemini, TOML).',
+			model: null,
+			argumentHint: null,
+			frontmatter: {},
+			body: '',
+			overriddenBy: null,
+			isSymlink: false,
+			linkTarget: null,
+			inStore: false,
+			system: 'gemini',
+			format: 'toml',
+			status: 'active',
+		},
+		{
+			// Codex command — deprecated (Codex steers commands → skills).
+			name: 'summarize',
+			scope: 'personal',
+			projectRoot: null,
+			path: '/home/dev/.codex/prompts/summarize.toml',
+			modifiedMs: 1_716_420_000_000,
+			description: 'Legacy Codex prompt; superseded by a skill.',
+			model: null,
+			argumentHint: null,
+			frontmatter: {},
+			body: '',
+			overriddenBy: null,
+			isSymlink: false,
+			linkTarget: null,
+			inStore: false,
+			system: 'codex',
+			format: 'toml',
+			status: 'deprecated',
+		},
+	],
+	hooks: [
+		{
+			event: 'PostToolUse',
+			type: 'command',
+			name: 'format-on-save',
+			scope: 'personal',
+			projectRoot: null,
+			settingsPath: '/home/dev/.claude/settings.json',
+			commandPath: null,
+			commandRaw: 'biome format --write $CLAUDE_FILE',
+			raw: {},
+			isSymlink: false,
+			linkTarget: null,
+			inStore: false,
+			system: 'claude',
+			format: 'json-embedded',
+			status: 'active',
+		},
+	],
+	mcps: [
+		{
+			name: 'royalti-cms',
+			scope: 'personal',
+			projectRoot: null,
+			path: '/home/dev/.claude/settings.json',
+			transport: 'http',
+			command: null,
+			args: [],
+			envKeys: [],
+			url: 'https://cms.royalti.io/mcp',
+			headerKeys: ['Authorization'],
+			raw: {},
+			isSymlink: false,
+			linkTarget: null,
+			inStore: false,
+			system: 'claude',
+			format: 'json-embedded',
+			status: 'active',
+		},
+		{
+			// Codex MCP server declared in TOML config.
+			name: 'codex-fs',
+			scope: 'project',
+			projectRoot: '/home/dev/projects/ikenga',
+			path: '/home/dev/projects/ikenga/.codex/config.toml',
+			transport: 'stdio',
+			command: 'codex-fs-server',
+			args: ['--root', '.'],
+			envKeys: [],
+			url: null,
+			headerKeys: [],
+			raw: {},
+			isSymlink: false,
+			linkTarget: null,
+			inStore: false,
+			system: 'codex',
+			format: 'toml',
+			status: 'active',
+		},
+	],
+	errors: [],
+};
+
+/** Resolve the canned multi-engine config through a microtask so consumers see
+ *  real Promise scheduling, matching the async shape of a live `invoke`. */
+async function ngwaScanMockResolve(): Promise<ClaudeConfig> {
+	await Promise.resolve();
+	// Return a shallow structural clone so a consumer mutating the result can't
+	// poison the canned dataset across calls.
+	return {
+		agents: [...ngwaScanMockConfig.agents],
+		skills: [...ngwaScanMockConfig.skills],
+		commands: [...ngwaScanMockConfig.commands],
+		hooks: [...ngwaScanMockConfig.hooks],
+		mcps: [...ngwaScanMockConfig.mcps],
+		errors: [...ngwaScanMockConfig.errors],
+	};
+}
+
 export async function claudeConfigLoad(projectRoots: string[]): Promise<ClaudeConfig> {
+	if (NGWA_SCAN_MOCK) {
+		return ngwaScanMockResolve();
+	}
 	return invoke<ClaudeConfig>('claude_config_load', { projectRoots });
 }
 
@@ -1207,6 +1490,77 @@ export async function claudeConfigListen(
 	return () => {
 		for (const u of unlisteners) u();
 	};
+}
+
+// ─── Ngwa Phase-2 cross-system — G-ADAPTER engine layout descriptor ──────────
+//
+// Mirrors `src-tauri/src/commands/engine_layout.rs`. A per-engine data
+// descriptor recording, for each AI-coding engine and each primitive kind,
+// WHERE its config lives, in WHAT format, and HOW it is stored. This is the
+// frozen `G-ADAPTER` contract the Phase-2 scanner (WP-17/18) and this bridge
+// (WP-19) consume. v2a is read-only — fetch + display only.
+//
+// Keep these unions in lockstep with the Rust serde enums (kebab-case rename).
+
+export type EngineId = 'claude' | 'gemini' | 'codex';
+
+export type ScopeTier = 'user' | 'project';
+
+export type PrimitiveKind = 'skill' | 'agent' | 'command' | 'hook' | 'mcp';
+
+export type ConfigFormat = 'md-yaml' | 'toml' | 'json-embedded';
+
+export type Mechanism = 'symlink-dir' | 'file' | 'settings-key';
+
+export type KindStatus = 'active' | 'deprecated';
+
+export interface ScopeDef {
+	/** Stable scope id, referenced by `KindLayout.scopes`. */
+	id: string;
+	/** Human label for the sidebar facet. */
+	label: string;
+	/** User-global vs. per-project. */
+	tier: ScopeTier;
+	/** Path template / source note the scope root resolves from. */
+	rootSource: string;
+}
+
+export interface KindLayout {
+	/** `true` if this engine has this primitive kind at all. */
+	exists: boolean;
+	/** Live vs. deprecated (Codex commands → skills). */
+	status: KindStatus;
+	/** Which scope ids (a subset of `EngineLayout.scopes`) this kind supports. */
+	scopes: string[];
+	/** On-disk serialization format. */
+	format: ConfigFormat;
+	/** How it's stored / toggled. */
+	mechanism: Mechanism;
+	/** Path template. `{root}`/`{user_root}` → scope root; `{settings_file}` /
+	 *  `{mcp_file}` → backing file; `{name}` → primitive name. SettingsKey
+	 *  templates carry a `#path.to.key` fragment. */
+	location: string;
+	/** Strict-key validation on the backing settings file (Gemini
+	 *  settings.json = true). v2b write-guard hook; v2a ignores it. */
+	strictKeys: boolean;
+}
+
+export interface EngineLayout {
+	engine: EngineId;
+	/** Display name (e.g. "Claude Code"). */
+	display: string;
+	/** Short badge for interleaved rows (`CL` / `GM` / `CX`). */
+	badge: string;
+	/** Per-engine tint token name (Dusk Wood theme var, no leading `--`). */
+	tint: string;
+	scopes: ScopeDef[];
+	/** Per-kind layout, keyed by `PrimitiveKind`. */
+	kinds: Partial<Record<PrimitiveKind, KindLayout>>;
+}
+
+/** Fetch the frozen G-ADAPTER layout descriptor for all engines (read-only). */
+export async function engineLayout(): Promise<EngineLayout[]> {
+	return invoke<EngineLayout[]>('engine_layout');
 }
 
 // ─── Claude config — 4-tier layered discovery (Phase 4) ──────────────────────
@@ -1452,7 +1806,9 @@ function ngwaMockMutation(
 		kind,
 		name,
 		scope,
-		path: fileBased ? `${scopeRoot}/.claude/${kind}s/${name}` : `${scopeRoot}/.claude/settings.json`,
+		path: fileBased
+			? `${scopeRoot}/.claude/${kind}s/${name}`
+			: `${scopeRoot}/.claude/settings.json`,
 		linkTarget: fileBased ? store : null,
 	};
 }

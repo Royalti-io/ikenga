@@ -39,7 +39,7 @@ use commands::{
     claude_primitive_move, claude_primitive_remove, claude_store_import, claude_store_list,
     claude_list_sessions, claude_read_jsonl, comment_create, comment_delete, comment_get,
     comment_list, comment_record_routing, comment_route, comment_set_status, db_exec, db_query,
-    dev_bind_port, dev_release_port,
+    dev_bind_port, dev_release_port, engine_layout,
     fs_exists, fs_kind, fs_list, fs_mime, fs_mkdir, fs_read, fs_rename, fs_roots_add, fs_roots_list,
     fs_roots_remove, fs_roots_reset, fs_search, fs_trash, fs_unwatch, fs_watch, fs_write,
     iyke_dom_done, iyke_dom_query,
@@ -748,6 +748,8 @@ pub fn run() {
             claude_primitive_copy,
             claude_primitive_move,
             claude_primitive_remove,
+            // Ngwa Phase-2 cross-system — G-ADAPTER engine layout descriptor
+            engine_layout,
             // viewer
             viewer_serve,
             viewer_stop,

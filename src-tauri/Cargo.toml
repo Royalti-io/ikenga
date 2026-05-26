@@ -83,6 +83,13 @@ regex = "1"
 # `.claude/commands/*.md`. Frontmatter has multi-line list values (skills-used,
 # allowed-tools) so a real YAML parser is required.
 serde_yaml = "0.9"
+# Robust nested-table TOML parsing for the Codex config reader (WP-18):
+# `~/.codex/config.toml` `[mcp_servers.<id>]` + inline `[hooks]`, and
+# `~/.codex/agents/*.toml`. The Gemini command reader hand-rolls a flat
+# top-level scanner, but Codex needs real nested tables, so we depend on a
+# proper parser here. Pinned to 0.8 — already present transitively in the
+# lock (`toml v0.8.2`, via `system-deps`), so this adds no new version.
+toml = "0.8"
 # Cron scheduler for the pkg-kernel cron registry. Picked over a hand-rolled
 # tokio-interval loop so we get real cron-expression semantics (6-field with
 # seconds, used by smoke tests for `* * * * * *`).
