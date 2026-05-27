@@ -617,6 +617,9 @@ function Legend() {
 				<i className="ngwa-dot local" /> local · not in store
 			</span>
 			<span>
+				<i className="ngwa-dot linked" /> linked · external master
+			</span>
+			<span>
 				<i className="ngwa-dot orphaned" /> orphaned
 			</span>
 			<span style={{ marginLeft: 'auto' }}>
@@ -1530,9 +1533,16 @@ function ItemDetail({
 				</Section>
 
 				{/* Provenance (Ọba registry · G-SCHEMA) — where this primitive's
-				    canonical master came from. Dependents + the safe-delete guard
-				    are the interactive WP-06 slice. */}
-				{item.storeEntry?.source && (
+				    canonical master came from. Two sources:
+				    (1) the registry record (storeEntry.source) — preferred; carries
+				        version/url/managed/installedAt for git/npx installs;
+				    (2) scanner-derived fallback for a `linked` state — a symlink
+				        resolving to an external master that the registry doesn't
+				        yet index (the common pre-back-fill case, e.g. groundwork
+				        published from ikenga-pkgs into ~/.claude/skills/). The
+				        master path comes from the live link resolution. Dependents
+				        + the safe-delete guard are the interactive WP-06 slice. */}
+				{item.storeEntry?.source ? (
 					<Section label="Provenance">
 						<FrontmatterGrid
 							entries={[
@@ -1553,7 +1563,20 @@ function ItemDetail({
 							]}
 						/>
 					</Section>
-				)}
+				) : item.state === 'linked' ? (
+					<Section label="Provenance">
+						<FrontmatterGrid
+							entries={[
+								['source', 'external symlink'],
+								[
+									'canonical',
+									(item.raw as { linkTarget?: string | null }).linkTarget ?? '(unresolved)',
+								],
+								['master', 'external · kept in place'],
+							]}
+						/>
+					</Section>
+				) : null}
 
 				{chips}
 
