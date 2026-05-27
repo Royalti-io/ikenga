@@ -7,9 +7,9 @@ mod fs_roots;
 mod fs_watch;
 mod iyke;
 pub mod path_fix;
-pub mod platform;
 mod pkg;
 mod pkg_content;
+pub mod platform;
 mod pty;
 mod runtime;
 pub mod vault_key;
@@ -26,47 +26,45 @@ use tokio::sync::Mutex;
 use commands::db::PaDb;
 use commands::screenshot::new_pending as new_screenshot_pending;
 use commands::{
-    chat_cancel, chat_engines_list, chat_fork_session, chat_initialize, chat_load_session,
-    chat_new_session, chat_prompt, chat_respond_permission, chat_set_effort, chat_set_mode,
-    chat_set_model, activity_pins_add,
-    activity_pins_list, activity_pins_remove, activity_pins_reorder, activity_pins_resolve_artifact,
-    activity_pins_touch_open, activity_sections_create, activity_sections_list,
-    activity_sections_remove, activity_sections_update, backup_delete,
-    backup_export, backup_import, backup_list, chat_thread_move, chat_threads_list_by_project,
+    activity_pins_add, activity_pins_list, activity_pins_remove, activity_pins_reorder,
+    activity_pins_resolve_artifact, activity_pins_touch_open, activity_sections_create,
+    activity_sections_list, activity_sections_remove, activity_sections_update, backup_delete,
+    backup_export, backup_import, backup_list, chat_cancel, chat_engines_list, chat_fork_session,
+    chat_initialize, chat_load_session, chat_new_session, chat_prompt, chat_respond_permission,
+    chat_set_effort, chat_set_mode, chat_set_model, chat_thread_move, chat_threads_list_by_project,
     claude_asset_list_pins, claude_asset_pin, claude_asset_unpin, claude_assets_discover,
     claude_config_load, claude_config_read_file, claude_config_unwatch, claude_config_watch,
-    claude_primitive_copy, claude_primitive_copy_batch, claude_primitive_disable,
-    claude_primitive_disable_for, claude_primitive_enable, claude_primitive_enable_for,
-    claude_primitive_move, claude_primitive_remove, claude_primitive_remove_for,
-    claude_store_import, claude_store_list,
-    claude_list_sessions, claude_read_jsonl, comment_create, comment_delete, comment_get,
-    comment_list, comment_record_routing, comment_route, comment_set_status, db_exec, db_query,
-    dev_bind_port, dev_release_port, engine_layout,
-    fs_exists, fs_kind, fs_list, fs_mime, fs_mkdir, fs_read, fs_rename, fs_roots_add, fs_roots_list,
-    fs_roots_remove, fs_roots_reset, fs_search, fs_trash, fs_unwatch, fs_watch, fs_write,
-    iyke_dom_done, iyke_dom_query,
-    iyke_endpoint, iyke_log_push, iyke_mcp_info, iyke_network_push, iyke_query_cache_done,
-    iyke_set_shell, iyke_terminal_read_done,
-    iyke_wait_done, pin_screenshot_write, pkg_content_html, pkg_content_revoke, pkg_content_url, pkg_db_diag,
-    pkg_dev_register, pkg_dev_reload, pkg_dev_unregister,
-    pkg_discover_workspace, pkg_install_from_path, pkg_install_from_registry, pkg_kernel_status,
-    pkg_mcp_call, pkg_preview_manifest, pkg_screenshot, pkg_set_enabled, pkg_set_scope, pkg_settings_get,
-    pkg_settings_set, pkg_sidecar_call, pkg_sidecar_rpc_send, pkg_sidecar_rpc_shutdown,
-    pkg_supervisor_restart, pkg_uninstall, pkg_webview_create,
-    pkg_webview_destroy, pkg_webview_navigate, pkg_webview_set_rect, project_archive,
-    project_artifacts_walk, project_create, project_get_active, project_inventory, project_list,
-    project_scaffold_claude, project_set_active, project_skills_list, project_update,
-    pty_foreground, pty_foreground_snapshot, pty_kill, pty_resize, pty_spawn, pty_write,
-    screenshot_capture_done, screenshot_capture_failed,
-    screenshot_get_config, screenshot_pane, screenshot_set_dir, screenshot_window, secrets_delete,
-    secrets_delete_scoped, secrets_get, secrets_get_scoped, secrets_list_keys,
-    secrets_list_keys_scoped, secrets_set, secrets_set_scoped, secrets_vault_status, set_dock_badge,
-    settings_clear_all, settings_get, settings_get_all, settings_set, spike_grant_fs_read,
-    spike_setup_test_file, studio_message_append, studio_message_list, studio_thread_delete,
-    studio_thread_get, studio_thread_get_or_create, studio_thread_list_recent, KernelState,
-    PkgContentState, PkgSettingsState, SidecarSupervisorState, SidecarsRegistryState,
-    StreamingSidecarManager, StreamingSidecarManagerState,
-    WebviewPanesState,
+    claude_list_sessions, claude_primitive_copy, claude_primitive_copy_batch,
+    claude_primitive_disable, claude_primitive_disable_for, claude_primitive_enable,
+    claude_primitive_enable_for, claude_primitive_move, claude_primitive_remove,
+    claude_primitive_remove_for, claude_read_jsonl, claude_store_import, claude_store_list,
+    comment_create, comment_delete, comment_get, comment_list, comment_record_routing,
+    comment_route, comment_set_status, db_exec, db_export_ndjson, db_import_ndjson, db_query,
+    dev_bind_port, dev_release_port,
+    engine_layout, fs_exists, fs_kind, fs_list, fs_mime, fs_mkdir, fs_read, fs_rename,
+    fs_roots_add, fs_roots_list, fs_roots_remove, fs_roots_reset, fs_search, fs_trash, fs_unwatch,
+    fs_watch, fs_write, iyke_dom_done, iyke_dom_query, iyke_endpoint, iyke_log_push, iyke_mcp_info,
+    iyke_network_push, iyke_query_cache_done, iyke_set_shell, iyke_terminal_read_done,
+    iyke_wait_done, oba_dependents, oba_relink_dependents, oba_safe_delete, pin_screenshot_write,
+    pkg_content_html, pkg_content_revoke, pkg_content_url, pkg_db_diag, pkg_dev_register,
+    pkg_dev_reload, pkg_dev_unregister, pkg_discover_workspace, pkg_install_from_path,
+    pkg_install_from_registry, pkg_kernel_status, pkg_mcp_call, pkg_preview_manifest,
+    pkg_screenshot, pkg_set_enabled, pkg_set_scope, pkg_settings_get, pkg_settings_set,
+    pkg_sidecar_call, pkg_sidecar_rpc_send, pkg_sidecar_rpc_shutdown, pkg_supervisor_restart,
+    pkg_uninstall, pkg_webview_create, pkg_webview_destroy, pkg_webview_navigate,
+    pkg_webview_set_rect, project_archive, project_artifacts_walk, project_create,
+    project_get_active, project_inventory, project_list, project_scaffold_claude,
+    project_set_active, project_skills_list, project_update, pty_foreground,
+    pty_foreground_snapshot, pty_kill, pty_resize, pty_spawn, pty_write, screenshot_capture_done,
+    screenshot_capture_failed, screenshot_get_config, screenshot_pane, screenshot_set_dir,
+    screenshot_window, secrets_delete, secrets_delete_scoped, secrets_get, secrets_get_scoped,
+    secrets_list_keys, secrets_list_keys_scoped, secrets_set, secrets_set_scoped,
+    secrets_vault_status, set_dock_badge, settings_clear_all, settings_get, settings_get_all,
+    settings_set, spike_grant_fs_read, spike_setup_test_file, studio_message_append,
+    studio_message_list, studio_thread_delete, studio_thread_get, studio_thread_get_or_create,
+    studio_thread_list_recent, KernelState, PkgContentState, PkgSettingsState,
+    SidecarSupervisorState, SidecarsRegistryState, StreamingSidecarManager,
+    StreamingSidecarManagerState, WebviewPanesState,
 };
 #[cfg(debug_assertions)]
 use commands::{bg_spike_reply, bg_spike_run, new_bg_spike_state};
@@ -109,8 +107,9 @@ pub fn run() {
     // ACP server shares the same `SessionsManager` so the legacy
     // `session_*` commands and the new ACP path operate on the same in-
     // memory session table. Phase 11 retires the legacy path.
-    let claude_code_engine: engines::claude_code::server::ClaudeCodeEngineState =
-        Arc::new(engines::claude_code::server::ClaudeCodeEngine::new(sessions_manager.clone()));
+    let claude_code_engine: engines::claude_code::server::ClaudeCodeEngineState = Arc::new(
+        engines::claude_code::server::ClaudeCodeEngine::new(sessions_manager.clone()),
+    );
     // Phase 2: Gemini ACP engine. Spawns the `gemini --acp` child
     // lazily on first new_session per thread; one child per threadId,
     // reused across prompts. (ADR-013 §1.)
@@ -139,8 +138,7 @@ pub fn run() {
         let claude_handle = engines::EngineHandle::ClaudeCode(claude_code_engine.clone());
         let gemini_handle = engines::EngineHandle::GeminiAcp(gemini_acp_engine.clone());
         let codex_handle = engines::EngineHandle::CodexPty(codex_pty_engine.clone());
-        let cursor_agent_handle =
-            engines::EngineHandle::CursorAgent(cursor_agent_engine.clone());
+        let cursor_agent_handle = engines::EngineHandle::CursorAgent(cursor_agent_engine.clone());
         tauri::async_runtime::block_on(async move {
             reg.insert("claude-code", claude_handle).await;
             reg.insert("gemini", gemini_handle).await;
@@ -755,6 +753,10 @@ pub fn run() {
             claude_primitive_disable_for,
             claude_primitive_remove_for,
             claude_primitive_copy_batch,
+            // Ngwa Ọba registry — WP-04 dependent-aware safe delete
+            oba_dependents,
+            oba_safe_delete,
+            oba_relink_dependents,
             // Ngwa Phase-2 cross-system — G-ADAPTER engine layout descriptor
             engine_layout,
             // viewer
@@ -823,6 +825,9 @@ pub fn run() {
             backup_import,
             backup_list,
             backup_delete,
+            // NDJSON text export / import (WP-06)
+            db_export_ndjson,
+            db_import_ndjson,
             // desktop
             set_dock_badge,
             iyke_mcp_info,
