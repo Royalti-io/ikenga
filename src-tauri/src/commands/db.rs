@@ -284,6 +284,48 @@ async fn ensure_schema(pool: &sqlx::SqlitePool) -> Result<(), String> {
             "0024_rename_chat_threads_to_chat_sessions",
             include_str!("../../migrations/0024_rename_chat_threads_to_chat_sessions.sql"),
         ),
+        // WP-02 (G-SCHEMA): Atelier/PA domain tables, down-mapped Postgres →
+        // SQLite as STRICT tables. Source of truth is royalti-pa's
+        // supabase/migrations/*.sql (consolidated to one CREATE per table,
+        // folding in subsequent ALTER … ADD COLUMN). Grouped by domain. These
+        // are the local-store target for the Supabase → pa.db migration; the
+        // WP-03 ETL loads rows, WP-05's validator reads the generated
+        // `tables.json` (see `write_tables_manifest`).
+        (
+            25,
+            "0025_tasks_domain",
+            include_str!("../../migrations/0025_tasks_domain.sql"),
+        ),
+        (
+            26,
+            "0026_mail_domain",
+            include_str!("../../migrations/0026_mail_domain.sql"),
+        ),
+        (
+            27,
+            "0027_outbound_domain",
+            include_str!("../../migrations/0027_outbound_domain.sql"),
+        ),
+        (
+            28,
+            "0028_sales_gtm_domain",
+            include_str!("../../migrations/0028_sales_gtm_domain.sql"),
+        ),
+        (
+            29,
+            "0029_finance_domain",
+            include_str!("../../migrations/0029_finance_domain.sql"),
+        ),
+        (
+            30,
+            "0030_content_product_domain",
+            include_str!("../../migrations/0030_content_product_domain.sql"),
+        ),
+        (
+            31,
+            "0031_work_domain",
+            include_str!("../../migrations/0031_work_domain.sql"),
+        ),
     ];
 
     for (id, name, sql) in migrations {
@@ -512,6 +554,94 @@ pub async fn db_exec(
     Ok(())
 }
 
+/// WP-02 (G-05): emit a generated `tables.json` schema manifest next to
+/// `pa.db`. Introspects `sqlite_master` + `PRAGMA table_info(<table>)` and
+/// writes a deterministic (sorted-key) map:
+///
+/// ```json
+/// {
+///   "<table>": {
+///     "strict": true,
+///     "columns": [{ "name": "...", "type": "...", "notnull": <bool>, "pk": <bool> }]
+///   }
+/// }
+/// ```
+///
+/// This is the artifact the WP-05 schema-validator consumes to cross-check pkg
+/// store declarations against the live schema. Internal `sqlite_*` tables and
+/// the `_pa_migrations` bookkeeping table are excluded. `strict` reflects
+/// whether the table was created with the `STRICT` modifier (read back from the
+/// stored `CREATE TABLE` SQL — STRICT is not exposed by PRAGMA).
+///
+/// Determinism: `serde_json::Map` preserves insertion order, so tables are
+/// inserted in `name ASC` order and columns in `cid ASC` (PRAGMA's natural
+/// order). The file is pretty-printed for diffability.
+pub async fn write_tables_manifest(
+    pool: &sqlx::SqlitePool,
+    dir: &std::path::Path,
+) -> Result<PathBuf, String> {
+    use sqlx::Row;
+
+    // (name, sql) for every user table, sorted by name for stable output.
+    let tables: Vec<(String, String)> = sqlx::query(
+        "SELECT name, sql FROM sqlite_master
+         WHERE type = 'table'
+           AND name NOT LIKE 'sqlite_%'
+           AND name <> '_pa_migrations'
+         ORDER BY name ASC",
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|e| format!("list tables: {e}"))?
+    .into_iter()
+    .map(|row| {
+        let name: String = row.get("name");
+        let sql: String = row.try_get("sql").unwrap_or_default();
+        (name, sql)
+    })
+    .collect();
+
+    let mut manifest = Map::new();
+    for (table, create_sql) in &tables {
+        // STRICT is a table-level modifier not surfaced by PRAGMA; detect it
+        // from the stored CREATE TABLE text (case-insensitive trailing modifier).
+        let strict = create_sql.to_uppercase().contains(") STRICT");
+
+        let info = sqlx::query(&format!("PRAGMA table_info(\"{table}\")"))
+            .fetch_all(pool)
+            .await
+            .map_err(|e| format!("table_info({table}): {e}"))?;
+
+        let mut columns = Vec::with_capacity(info.len());
+        for col in info {
+            // PRAGMA table_info columns: cid, name, type, notnull, dflt_value, pk
+            let cname: String = col.get("name");
+            let ctype: String = col.try_get("type").unwrap_or_default();
+            let notnull: i64 = col.try_get("notnull").unwrap_or(0);
+            let pk: i64 = col.try_get("pk").unwrap_or(0);
+            let mut c = Map::new();
+            c.insert("name".into(), Value::String(cname));
+            c.insert("type".into(), Value::String(ctype));
+            c.insert("notnull".into(), Value::Bool(notnull != 0));
+            c.insert("pk".into(), Value::Bool(pk != 0));
+            columns.push(Value::Object(c));
+        }
+
+        let mut entry = Map::new();
+        entry.insert("strict".into(), Value::Bool(strict));
+        entry.insert("columns".into(), Value::Array(columns));
+        manifest.insert(table.clone(), Value::Object(entry));
+    }
+
+    let json = serde_json::to_string_pretty(&Value::Object(manifest))
+        .map_err(|e| format!("serialize tables.json: {e}"))?;
+    std::fs::create_dir_all(dir).map_err(|e| format!("mkdir {}: {e}", dir.display()))?;
+    let path = dir.join("tables.json");
+    std::fs::write(&path, json).map_err(|e| format!("write {}: {e}", path.display()))?;
+    tracing::info!("[wp-02] wrote schema manifest: {}", path.display());
+    Ok(path)
+}
+
 #[allow(dead_code)]
 pub fn default_db_path<R: tauri::Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
     let dir = app
@@ -533,10 +663,14 @@ mod tests {
         (db, tmp)
     }
 
+    /// Total embedded migration count. 24 shipped through WP-01; WP-02 adds 7
+    /// domain-schema migrations (0025–0031). Keep this in lockstep with the
+    /// `migrations` tuple list — it guards against a migration silently being
+    /// dropped from the embedded list (a class of bug we've hit before).
+    const MIGRATION_COUNT: i64 = 31;
+
     /// Schema init applies every embedded migration exactly once. The
-    /// `_pa_migrations` table must end with one row per migration tuple (24 as
-    /// of WP-01). This guards against a migration silently being dropped from
-    /// the embedded list — a class of bug we've hit before.
+    /// `_pa_migrations` table must end with one row per migration tuple.
     #[tokio::test]
     async fn ensure_schema_applies_all_migrations() {
         let (db, _tmp) = fresh_db().await;
@@ -547,8 +681,8 @@ mod tests {
             .await
             .expect("count migrations");
         assert_eq!(
-            count, 24,
-            "expected all 24 embedded migrations to be recorded in _pa_migrations, got {count}"
+            count, MIGRATION_COUNT,
+            "expected all {MIGRATION_COUNT} embedded migrations to be recorded in _pa_migrations, got {count}"
         );
 
         // Idempotency: a second ensure_pool() (cached) must not double-apply.
@@ -557,7 +691,156 @@ mod tests {
             .fetch_one(&writer2)
             .await
             .expect("recount migrations");
-        assert_eq!(count2, 24, "migration count must be stable across calls");
+        assert_eq!(
+            count2, MIGRATION_COUNT,
+            "migration count must be stable across calls"
+        );
+    }
+
+    /// WP-02 (G-SCHEMA): a representative sample of the new domain tables exist
+    /// with their expected key columns. Catches a migration that parsed but
+    /// produced the wrong shape (e.g. a dropped column or a typo'd name).
+    #[tokio::test]
+    async fn wp02_domain_tables_exist_with_key_columns() {
+        let (db, _tmp) = fresh_db().await;
+        let writer = db.ensure_pool().await.expect("ensure_pool");
+
+        // (table, columns that MUST be present)
+        let expectations: &[(&str, &[&str])] = &[
+            (
+                "tasks",
+                &[
+                    "id",
+                    "title",
+                    "status",
+                    "initiative_id",
+                    "claude_session_id",
+                ],
+            ),
+            (
+                "email_drafts",
+                &["id", "subject", "body", "sequence_id", "type", "status"],
+            ),
+            (
+                "sales_deals",
+                &["id", "company", "stage", "value", "segment"],
+            ),
+            (
+                "bank_accounts",
+                &["id", "account_name", "entity", "currency"],
+            ),
+        ];
+
+        for (table, cols) in expectations {
+            let rows = sqlx::query(&format!("PRAGMA table_info(\"{table}\")"))
+                .fetch_all(&writer)
+                .await
+                .unwrap_or_else(|e| panic!("table_info({table}): {e}"));
+            assert!(
+                !rows.is_empty(),
+                "expected WP-02 table `{table}` to exist after init"
+            );
+            let present: std::collections::HashSet<String> = {
+                use sqlx::Row;
+                rows.iter().map(|r| r.get::<String, _>("name")).collect()
+            };
+            for col in *cols {
+                assert!(
+                    present.contains(*col),
+                    "table `{table}` is missing expected column `{col}` (got {present:?})"
+                );
+            }
+        }
+    }
+
+    /// WP-02: STRICT is in force on the new tables. Inserting a value whose
+    /// type can't be coerced to the column's declared type (here: a non-integer
+    /// string into an INTEGER column) must be rejected with a datatype error.
+    /// On a non-STRICT table SQLite would silently store the string.
+    #[tokio::test]
+    async fn wp02_strict_rejects_wrong_typed_value() {
+        let (db, _tmp) = fresh_db().await;
+        let writer = db.ensure_pool().await.expect("ensure_pool");
+
+        // tasks.progress_pct is INTEGER on a STRICT table. A bare non-numeric
+        // string is not coercible to INTEGER → STRICT rejects it.
+        let res = sqlx::query("INSERT INTO tasks (id, title, progress_pct) VALUES (?, ?, ?)")
+            .bind("t-strict-1")
+            .bind("strict probe")
+            .bind("not-a-number")
+            .execute(&writer)
+            .await;
+
+        let err = res.expect_err("STRICT table must reject a non-integer in an INTEGER column");
+        let msg = err.to_string().to_lowercase();
+        // SQLite phrases the STRICT rejection as "cannot store <TYPE> value in
+        // <TYPE> column" (error code 3091, SQLITE_CONSTRAINT_DATATYPE).
+        assert!(
+            msg.contains("cannot store")
+                || msg.contains("datatype")
+                || msg.contains("mismatch")
+                || msg.contains("strict"),
+            "expected a STRICT datatype-mismatch error, got: {err}"
+        );
+
+        // Control: a well-typed insert into the same STRICT table succeeds.
+        sqlx::query("INSERT INTO tasks (id, title, progress_pct) VALUES (?, ?, ?)")
+            .bind("t-strict-2")
+            .bind("strict probe ok")
+            .bind(42i64)
+            .execute(&writer)
+            .await
+            .expect("well-typed insert into STRICT tasks should succeed");
+    }
+
+    /// WP-02 (G-05): the tables.json emitter writes a parseable manifest next
+    /// to pa.db that includes the new domain tables, marks them STRICT, and
+    /// excludes bookkeeping/internal tables.
+    #[tokio::test]
+    async fn wp02_tables_manifest_emits_and_parses() {
+        let (db, tmp) = fresh_db().await;
+        let writer = db.ensure_pool().await.expect("ensure_pool");
+
+        let path = write_tables_manifest(&writer, tmp.path())
+            .await
+            .expect("write_tables_manifest");
+        assert!(path.exists(), "tables.json should be written to disk");
+
+        let raw = std::fs::read_to_string(&path).expect("read tables.json");
+        let parsed: Value = serde_json::from_str(&raw).expect("tables.json must be valid JSON");
+        let obj = parsed.as_object().expect("manifest is a JSON object");
+
+        // New domain tables are present and flagged STRICT.
+        for t in ["tasks", "email_drafts", "sales_deals", "bank_accounts"] {
+            let entry = obj
+                .get(t)
+                .unwrap_or_else(|| panic!("manifest missing table `{t}`"));
+            assert_eq!(
+                entry.get("strict").and_then(Value::as_bool),
+                Some(true),
+                "table `{t}` should be reported as STRICT"
+            );
+            let cols = entry
+                .get("columns")
+                .and_then(Value::as_array)
+                .unwrap_or_else(|| panic!("table `{t}` has no columns array"));
+            assert!(!cols.is_empty(), "table `{t}` should report columns");
+            // Each column carries name/type/notnull/pk.
+            let first = cols[0].as_object().expect("column is an object");
+            for k in ["name", "type", "notnull", "pk"] {
+                assert!(first.contains_key(k), "column entry missing `{k}`");
+            }
+        }
+
+        // Bookkeeping + internal tables are excluded.
+        assert!(
+            !obj.contains_key("_pa_migrations"),
+            "_pa_migrations must be excluded from the manifest"
+        );
+        assert!(
+            !obj.keys().any(|k| k.starts_with("sqlite_")),
+            "internal sqlite_* tables must be excluded"
+        );
     }
 
     /// Verify WAL is actually engaged on the writer connection — this is what
