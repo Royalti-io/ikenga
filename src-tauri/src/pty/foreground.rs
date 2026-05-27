@@ -94,10 +94,10 @@ fn lookup_uncached(shell_pid: i32) -> Option<ForegroundProcess> {
     let close = stat.rfind(')')?;
     let tail = &stat[close + 1..];
     let mut fields = tail.split_whitespace();
-    let _state  = fields.next()?; // 3
-    let _ppid   = fields.next()?; // 4
-    let _pgrp   = fields.next()?; // 5
-    let _sess   = fields.next()?; // 6
+    let _state = fields.next()?; // 3
+    let _ppid = fields.next()?; // 4
+    let _pgrp = fields.next()?; // 5
+    let _sess = fields.next()?; // 6
     let _tty_nr = fields.next()?; // 7
     let tpgid: i32 = fields.next()?.parse().ok()?; // 8
 

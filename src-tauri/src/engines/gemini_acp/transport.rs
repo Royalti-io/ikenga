@@ -215,9 +215,7 @@ impl Transport {
         if !cwd.is_empty() {
             cmd.current_dir(cwd);
         }
-        let mut child = cmd
-            .spawn()
-            .map_err(|e| format!("spawn {command}: {e}"))?;
+        let mut child = cmd.spawn().map_err(|e| format!("spawn {command}: {e}"))?;
 
         let stdin = child
             .stdin
@@ -314,13 +312,16 @@ impl Transport {
             method,
             params,
         };
-        let line = serde_json::to_string(&envelope)
-            .map_err(|e| format!("serialize {method}: {e}"))?;
+        let line =
+            serde_json::to_string(&envelope).map_err(|e| format!("serialize {method}: {e}"))?;
         self.write_line(&line).await?;
 
         match rx.await {
             Ok(Ok(v)) => Ok(v),
-            Ok(Err(e)) => Err(format!("{} returned error {}: {}", method, e.code, e.message)),
+            Ok(Err(e)) => Err(format!(
+                "{} returned error {}: {}",
+                method, e.code, e.message
+            )),
             Err(_) => Err(format!("{} channel closed (child likely exited)", method)),
         }
     }
@@ -353,8 +354,8 @@ impl Transport {
             result: result.as_ref(),
             error: error.as_ref(),
         };
-        let line = serde_json::to_string(&envelope)
-            .map_err(|e| format!("serialize response: {e}"))?;
+        let line =
+            serde_json::to_string(&envelope).map_err(|e| format!("serialize response: {e}"))?;
         self.write_line(&line).await
     }
 
@@ -620,8 +621,7 @@ mod tests {
     /// each of the three shapes Gemini will emit. No child needed.
     #[test]
     fn parse_response_envelope() {
-        let line =
-            r#"{"jsonrpc":"2.0","id":7,"result":{"sessionId":"abc","modes":null}}"#;
+        let line = r#"{"jsonrpc":"2.0","id":7,"result":{"sessionId":"abc","modes":null}}"#;
         let env: InboundEnvelope = serde_json::from_str(line).unwrap();
         match env {
             InboundEnvelope::Response { id, result, error } => {
@@ -662,7 +662,8 @@ mod tests {
 
     #[test]
     fn parse_response_with_error() {
-        let line = r#"{"jsonrpc":"2.0","id":3,"error":{"code":-32601,"message":"method not found"}}"#;
+        let line =
+            r#"{"jsonrpc":"2.0","id":3,"error":{"code":-32601,"message":"method not found"}}"#;
         let env: InboundEnvelope = serde_json::from_str(line).unwrap();
         match env {
             InboundEnvelope::Response { id, result, error } => {

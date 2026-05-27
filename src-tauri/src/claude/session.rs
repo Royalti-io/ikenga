@@ -34,11 +34,11 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::{broadcast, Mutex};
 
-use crate::engines::claude_code::mode::AcpSessionMode;
-use crate::engines::claude_code::prompt::PromptContent;
 use crate::claude::{
     artifact_watcher::ArtifactWatcher, event::ChatEvent, stream_parser::StreamParser,
 };
+use crate::engines::claude_code::mode::AcpSessionMode;
+use crate::engines::claude_code::prompt::PromptContent;
 
 /// Options passed to `session_ensure` / `session_send`. Mirrors the subset of
 /// claude CLI flags we expose; deliberately narrow.
@@ -439,10 +439,7 @@ pub async fn spawn_streaming(
         let app_data = app.path().app_data_dir().ok();
         let ws_env = app_data.as_ref().map(|d| d.join("workspace.env"));
         let project_root = std::path::Path::new(&resolved_cwd);
-        let layered = crate::env_files::build_layered_env(
-            ws_env.as_deref(),
-            Some(project_root),
-        );
+        let layered = crate::env_files::build_layered_env(ws_env.as_deref(), Some(project_root));
         if !layered.is_empty() {
             command.envs(layered);
         }
@@ -746,8 +743,14 @@ impl ControlWire {
     /// Verified: 2.1.150 ignores legacy `set_permission_mode`/`interrupt`.
     pub fn from_version(version: &str) -> ControlWire {
         let mut parts = version.trim().split('.');
-        let major: u32 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(u32::MAX);
-        let minor: u32 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(u32::MAX);
+        let major: u32 = parts
+            .next()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(u32::MAX);
+        let minor: u32 = parts
+            .next()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(u32::MAX);
         if major < 2 || (major == 2 && minor < 1) {
             ControlWire::Legacy
         } else {
@@ -1054,9 +1057,14 @@ mod tests {
             .lock()
             .await
             .insert("tool_1".into());
-        send_tool_result(session.clone(), "tool_1".into(), json!({ "answers": {} }), false)
-            .await
-            .expect("duplicate tool_result is a no-op Ok");
+        send_tool_result(
+            session.clone(),
+            "tool_1".into(),
+            json!({ "answers": {} }),
+            false,
+        )
+        .await
+        .expect("duplicate tool_result is a no-op Ok");
     }
 
     #[tokio::test]

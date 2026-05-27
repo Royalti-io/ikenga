@@ -44,9 +44,6 @@ use super::handlers::{
 };
 use super::layout::{get_layout, post_layout_reset};
 use super::mcp::{get_mcp_list, post_mcp_restart};
-use super::permissions_audit::get_violations_list;
-use super::trust::{get_trust_list, get_trust_preview, post_trust_grant, post_trust_revoke};
-use super::secrets::{get_secret, get_secret_list, post_secret_delete, post_secret_set};
 use super::memory::{
     get_kv_get, get_kv_list, get_lock_status, get_scratchpad_list, get_scratchpad_read,
     get_timer_list, get_todo_list, post_agent_register, post_kv_delete, post_kv_set,
@@ -54,13 +51,16 @@ use super::memory::{
     post_scratchpad_delete, post_scratchpad_write, post_timer_cancel, post_timer_schedule,
     post_todo_complete, post_todo_create, post_todo_update, TimerScheduler,
 };
+use super::permissions_audit::get_violations_list;
 use super::pkg_dispatch::pkg_dispatch;
 use super::projects::{
     get_project_active, get_project_list, post_project_archive, post_project_create,
     post_project_set_active, post_project_update,
 };
+use super::secrets::{get_secret, get_secret_list, post_secret_delete, post_secret_set};
 use super::sessions::{get_session_list, post_session_move, post_session_start};
 use super::state::IykeState;
+use super::trust::{get_trust_list, get_trust_preview, post_trust_grant, post_trust_revoke};
 use super::IykeRpc;
 use crate::commands::db::PaDb;
 use crate::commands::ScreenshotPending;

@@ -81,22 +81,12 @@ pub trait EngineAdapter: Send + Sync {
 
     /// Remove one MCP server from this engine's settings file. Missing
     /// file / missing key are no-ops.
-    fn unregister_mcp_server(
-        &self,
-        server_name: &str,
-        pkg_id: &str,
-        pkg_slug: &str,
-    ) -> Result<()>;
+    fn unregister_mcp_server(&self, server_name: &str, pkg_id: &str, pkg_slug: &str) -> Result<()>;
 
     /// Materialize the pkg's `skills/` folder into this engine's recognized
     /// location. `folder` is the absolute path to the pkg's skills source.
     /// Idempotent — re-call with unchanged source returns `skipped`.
-    fn install_skills(
-        &self,
-        folder: &Path,
-        pkg_id: &str,
-        pkg_slug: &str,
-    ) -> Result<InstallReport>;
+    fn install_skills(&self, folder: &Path, pkg_id: &str, pkg_slug: &str) -> Result<InstallReport>;
 
     /// Materialize the pkg's `commands/` folder. Engines without a native
     /// commands primitive may push warnings and otherwise no-op.
@@ -109,12 +99,7 @@ pub trait EngineAdapter: Send + Sync {
 
     /// Materialize the pkg's `agents/` folder. Some engines transcode the
     /// contents (Codex MD→TOML); others symlink the folder as-is.
-    fn install_agents(
-        &self,
-        folder: &Path,
-        pkg_id: &str,
-        pkg_slug: &str,
-    ) -> Result<InstallReport>;
+    fn install_agents(&self, folder: &Path, pkg_id: &str, pkg_slug: &str) -> Result<InstallReport>;
 
     /// Inverse of `install_skills`. Removes only what this pkg owned.
     /// Missing target → no-op. Non-symlink target → warn + skip.

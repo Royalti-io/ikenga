@@ -78,8 +78,9 @@ impl McpRegistry {
     }
 
     fn config_path() -> Result<PathBuf> {
-        let home = crate::platform::home_dir()
-            .ok_or_else(|| anyhow!("could not resolve home directory (HOME / USERPROFILE unset)"))?;
+        let home = crate::platform::home_dir().ok_or_else(|| {
+            anyhow!("could not resolve home directory (HOME / USERPROFILE unset)")
+        })?;
         Ok(home.join(".claude.json"))
     }
 
@@ -226,9 +227,10 @@ impl Registry for McpRegistry {
                             server.name,
                             pkg.manifest.id
                         );
-                        bucket
-                            .warnings
-                            .push(format!("engine `{engine_id}` register `{}` failed: {e}", server.name));
+                        bucket.warnings.push(format!(
+                            "engine `{engine_id}` register `{}` failed: {e}",
+                            server.name
+                        ));
                     }
                 }
             }

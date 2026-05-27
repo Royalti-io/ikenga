@@ -72,8 +72,7 @@ type ThreadRow = (String, String, i64, i64);
 type MessageRow = (i64, String, String, String, Option<String>, i64);
 
 const THREAD_COLUMNS: &str = "id, folder_path, created_at, last_message_at";
-const MESSAGE_COLUMNS: &str =
-    "id, thread_id, role, content_md, scope_chip_json, created_at";
+const MESSAGE_COLUMNS: &str = "id, thread_id, role, content_md, scope_chip_json, created_at";
 
 fn row_to_thread(row: ThreadRow) -> StudioThread {
     StudioThread {
@@ -272,10 +271,7 @@ pub async fn studio_message_list(
 /// children). The FE is expected to confirm before calling — there is no
 /// undo. Mainly used for cleaning up stale boards from the recent list.
 #[tauri::command]
-pub async fn studio_thread_delete(
-    db: State<'_, Arc<PaDb>>,
-    id: String,
-) -> Result<(), String> {
+pub async fn studio_thread_delete(db: State<'_, Arc<PaDb>>, id: String) -> Result<(), String> {
     let pool = db.ensure_pool().await?;
     sqlx::query("DELETE FROM studio_threads WHERE id = ?")
         .bind(&id)

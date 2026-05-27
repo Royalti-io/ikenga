@@ -186,9 +186,7 @@ impl CodexPtyEngine {
             .env("PATH", crate::runtime::augmented_path())
             .kill_on_drop(true);
 
-        let mut child = cmd
-            .spawn()
-            .map_err(|e| format!("spawn codex exec: {e}"))?;
+        let mut child = cmd.spawn().map_err(|e| format!("spawn codex exec: {e}"))?;
 
         // Write the prompt to stdin and close it so codex knows the user
         // input is complete.
@@ -258,7 +256,9 @@ impl CodexPtyEngine {
                     };
 
                     match &parsed {
-                        ParsedEvent::ThreadStarted { thread_id: codex_tid } => {
+                        ParsedEvent::ThreadStarted {
+                            thread_id: codex_tid,
+                        } => {
                             // Capture the resume id for subsequent turns.
                             // Only update if we don't already have one (defensive —
                             // codex might re-emit it on resume too).

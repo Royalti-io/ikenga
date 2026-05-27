@@ -296,8 +296,7 @@ mod claude_slug_tests {
         // `~/royalti-co/royalti-client-2.5` doesn't exist on this machine,
         // but `~/royalti-co` does. We must preserve the dash boundary that
         // FS proved, instead of collapsing the whole path to slashes.
-        let set: HashSet<&'static str> =
-            ["/home/x", "/home/x/royalti-co"].into_iter().collect();
+        let set: HashSet<&'static str> = ["/home/x", "/home/x/royalti-co"].into_iter().collect();
         let (path, verified) =
             decode_claude_slug_with_probe("-home-x-royalti-co-royalti-client-2-5", probe(&set));
         assert_eq!(path, "/home/x/royalti-co/royalti/client/2/5");
@@ -316,8 +315,7 @@ mod claude_slug_tests {
         ]
         .into_iter()
         .collect();
-        let (path, verified) =
-            decode_claude_slug_with_probe("-Users-alice-work-v2-5", probe(&set));
+        let (path, verified) = decode_claude_slug_with_probe("-Users-alice-work-v2-5", probe(&set));
         assert_eq!(path, "/Users/alice/work/v2.5");
         assert!(verified);
     }
@@ -326,14 +324,10 @@ mod claude_slug_tests {
     fn greedy_decoder_resolves_underscore_separator() {
         // Underscores in original paths get encoded to '-' too. The walk
         // tries '_' once '/' and '-' both fail.
-        let set: HashSet<&'static str> = [
-            "/Users/alice",
-            "/Users/alice/my_proj",
-        ]
-        .into_iter()
-        .collect();
-        let (path, verified) =
-            decode_claude_slug_with_probe("-Users-alice-my-proj", probe(&set));
+        let set: HashSet<&'static str> = ["/Users/alice", "/Users/alice/my_proj"]
+            .into_iter()
+            .collect();
+        let (path, verified) = decode_claude_slug_with_probe("-Users-alice-my-proj", probe(&set));
         assert_eq!(path, "/Users/alice/my_proj");
         assert!(verified);
     }

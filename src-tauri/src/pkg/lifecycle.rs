@@ -651,7 +651,10 @@ impl SupervisedSidecar {
             // operator-restart path (`restart()` sets Spawning explicitly).
             if matches!(
                 self_arc.current_state(),
-                State::Spawning | State::Running { .. } | State::Stopped { .. } | State::Parked { .. }
+                State::Spawning
+                    | State::Running { .. }
+                    | State::Stopped { .. }
+                    | State::Parked { .. }
             ) {
                 self_arc.set_state(State::Spawning);
                 self_arc.clear_blocked_signal();
@@ -899,13 +902,11 @@ impl SupervisedSidecar {
         // surface. On deny, write an audit row (best-effort) and surface
         // a shaped error — the supervisor caller turns it into a Crashed
         // transition, which the 3-strikes circuit breaker will park.
-        if let Err(denial) =
-            crate::pkg::permissions_check::check_shell_execute(
-                &self.pkg_id,
-                &self.shell_execute,
-                &self.server.command,
-            )
-        {
+        if let Err(denial) = crate::pkg::permissions_check::check_shell_execute(
+            &self.pkg_id,
+            &self.shell_execute,
+            &self.server.command,
+        ) {
             log::warn!(
                 "[pkg_lifecycle] pkg `{}` blocked from spawning `{}` — \
                  not in shell.execute allowlist (declared: `{}`)",
@@ -1104,9 +1105,7 @@ impl SupervisedSidecar {
                 self.install_path.clone(),
                 self.server.restart_when_changed.clone(),
                 move || {
-                    log::info!(
-                        "[pkg_lifecycle] `{pkg_id}` restart_when_changed match → restart"
-                    );
+                    log::info!("[pkg_lifecycle] `{pkg_id}` restart_when_changed match → restart");
                     // Lookup the supervised handle via the global supervisor
                     // and invoke its operator-restart entry point. If the
                     // app is gone (shutdown) just no-op.
@@ -1568,7 +1567,10 @@ mod tests {
             msg.contains("shell.execute denied"),
             "expected denial message, got: {msg}"
         );
-        assert!(msg.contains("/bin/true"), "expected command in error: {msg}");
+        assert!(
+            msg.contains("/bin/true"),
+            "expected command in error: {msg}"
+        );
     }
 
     /// Strike counter must survive across loop iterations: pre-2026-05-15
@@ -1610,10 +1612,7 @@ mod tests {
         // is one of the listed variants. Crashed is intentionally absent.
         let should_reset = matches!(
             state,
-            State::Spawning
-                | State::Running { .. }
-                | State::Stopped { .. }
-                | State::Parked { .. }
+            State::Spawning | State::Running { .. } | State::Stopped { .. } | State::Parked { .. }
         );
         assert!(
             !should_reset,

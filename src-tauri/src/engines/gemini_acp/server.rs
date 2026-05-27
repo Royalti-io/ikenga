@@ -106,9 +106,14 @@ impl GeminiAcpEngine {
         }
         // Spawn outside the lock to avoid holding it across an await on
         // the child process startup.
-        let (transport, child_proc) =
-            Transport::spawn(thread_id.to_string(), cwd, app, DEFAULT_GEMINI_CMD, DEFAULT_GEMINI_ARGS)
-                .await?;
+        let (transport, child_proc) = Transport::spawn(
+            thread_id.to_string(),
+            cwd,
+            app,
+            DEFAULT_GEMINI_CMD,
+            DEFAULT_GEMINI_ARGS,
+        )
+        .await?;
         let child = Arc::new(GeminiChild {
             transport,
             child: TokioMutex::new(child_proc),
@@ -190,17 +195,12 @@ impl GeminiAcpEngine {
         child: &GeminiChild,
         thread_id: &str,
     ) -> Result<String, String> {
-        child
-            .gemini_session_id
-            .lock()
-            .await
-            .clone()
-            .ok_or_else(|| {
-                format!(
-                    "no gemini session id for thread {thread_id} — call session/new before \
+        child.gemini_session_id.lock().await.clone().ok_or_else(|| {
+            format!(
+                "no gemini session id for thread {thread_id} — call session/new before \
                      session/prompt (per-turn engine swap?)"
-                )
-            })
+            )
+        })
     }
 
     /// ACP `session/prompt`. Forwards the prompt to Gemini's child and
@@ -331,19 +331,15 @@ impl GeminiAcpEngine {
             .transport
             .request(METHOD_SESSION_LOAD, Some(params))
             .await?;
-        let resp: LoadSessionResponse =
-            serde_json::from_value(result).map_err(|e| format!("parse LoadSessionResponse: {e}"))?;
+        let resp: LoadSessionResponse = serde_json::from_value(result)
+            .map_err(|e| format!("parse LoadSessionResponse: {e}"))?;
         Ok(resp)
     }
 
     /// ACP `session/set_mode`. Gemini's mode surface may differ; we
     /// pass it through unchanged. Errors out cleanly if Gemini doesn't
     /// recognise the mode id.
-    pub async fn handle_set_mode(
-        &self,
-        thread_id: String,
-        mode_id: String,
-    ) -> Result<(), String> {
+    pub async fn handle_set_mode(&self, thread_id: String, mode_id: String) -> Result<(), String> {
         let child = {
             let guard = self.children.lock().await;
             guard
@@ -403,7 +399,10 @@ async fn ensure_initialized(child: &Arc<GeminiChild>) -> Result<(), String> {
     });
     let _result = child
         .transport
-        .request(crate::engines::gemini_acp::transport::METHOD_INITIALIZE, Some(params))
+        .request(
+            crate::engines::gemini_acp::transport::METHOD_INITIALIZE,
+            Some(params),
+        )
         .await
         .map_err(|e| {
             // Wrap so the caller can distinguish initialize failures

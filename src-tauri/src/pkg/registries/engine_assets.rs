@@ -160,9 +160,9 @@ impl Registry for EngineAssetsRegistry {
                         log::warn!(
                             "[pkg.engine_assets] engine `{engine_id}` install `{kind}` for pkg `{pkg_id}` failed: {e:#}"
                         );
-                        bucket.warnings.push(format!(
-                            "engine `{engine_id}` install `{kind}` failed: {e}"
-                        ));
+                        bucket
+                            .warnings
+                            .push(format!("engine `{engine_id}` install `{kind}` failed: {e}"));
                     }
                 }
             }

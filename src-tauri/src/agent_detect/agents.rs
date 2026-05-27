@@ -144,11 +144,7 @@ fn windows_npm_global_dirs() -> Vec<PathBuf> {
     }
     if let Some(local) = std::env::var_os("LOCALAPPDATA") {
         dirs.push(PathBuf::from(&local).join("npm"));
-        dirs.push(
-            PathBuf::from(&local)
-                .join("Programs")
-                .join("npm"),
-        );
+        dirs.push(PathBuf::from(&local).join("Programs").join("npm"));
     }
     if let Some(home) = crate::platform::home_dir() {
         dirs.push(home.join("AppData").join("Roaming").join("npm"));
@@ -297,7 +293,9 @@ async fn probe_auth_acp_handshake(
         Ok(Err(e)) => (None, Some(format!("ACP handshake probe failed: {e}"))),
         Err(_) => (
             None,
-            Some(format!("ACP handshake probe timed out after {timeout_ms}ms")),
+            Some(format!(
+                "ACP handshake probe timed out after {timeout_ms}ms"
+            )),
         ),
     }
 }

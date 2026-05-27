@@ -189,7 +189,11 @@ fn vault_key_exists(app_data_dir: &Path) -> bool {
 }
 
 fn claude_projects_path() -> Option<PathBuf> {
-    Some(crate::platform::home_dir()?.join(".claude").join("projects"))
+    Some(
+        crate::platform::home_dir()?
+            .join(".claude")
+            .join("projects"),
+    )
 }
 
 fn disk_free_gb_for(target: &Path) -> u64 {

@@ -3,11 +3,11 @@
 //! in `src/lib/tauri-cmd.ts` mirror this, so later phases just fill in the
 //! Rust side.
 
-pub mod chat;
 pub mod activity_bar;
 pub mod backup;
 #[cfg(debug_assertions)]
 pub mod bg_spike;
+pub mod chat;
 pub mod claude;
 pub mod claude_config;
 pub mod claude_store;
@@ -19,6 +19,7 @@ pub mod engine_layout;
 pub mod fs;
 pub mod fs_roots;
 pub mod iyke;
+pub mod permissions_audit;
 pub mod pkg;
 pub mod pkg_content;
 pub mod pkg_dev;
@@ -29,7 +30,6 @@ pub mod pkg_trust;
 pub mod pkg_webview;
 pub mod projects;
 pub mod pty;
-pub mod permissions_audit;
 pub mod screenshot;
 pub mod secrets;
 pub mod settings_kv;
@@ -39,11 +39,6 @@ pub mod supabase_config;
 pub mod trust;
 pub mod viewer;
 
-pub use chat::{
-    chat_cancel, chat_engines_list, chat_fork_session, chat_initialize, chat_load_session,
-    chat_new_session, chat_prompt, chat_respond_permission, chat_set_effort, chat_set_mode,
-    chat_set_model,
-};
 pub use activity_bar::{
     activity_pins_add, activity_pins_list, activity_pins_remove, activity_pins_reorder,
     activity_pins_resolve_artifact, activity_pins_touch_open, activity_sections_create,
@@ -54,6 +49,11 @@ pub use backup::{
 };
 #[cfg(debug_assertions)]
 pub use bg_spike::{bg_spike_reply, bg_spike_run, new_state as new_bg_spike_state};
+pub use chat::{
+    chat_cancel, chat_engines_list, chat_fork_session, chat_initialize, chat_load_session,
+    chat_new_session, chat_prompt, chat_respond_permission, chat_set_effort, chat_set_mode,
+    chat_set_model,
+};
 pub use claude::{
     chat_thread_move, chat_threads_list_by_project, claude_list_sessions, claude_read_jsonl,
     session_cancel, session_destroy, session_destroy_all, session_ensure, session_send,
@@ -67,7 +67,7 @@ pub use claude_store::{
     claude_primitive_copy, claude_primitive_copy_batch, claude_primitive_disable,
     claude_primitive_disable_for, claude_primitive_enable, claude_primitive_enable_for,
     claude_primitive_move, claude_primitive_remove, claude_primitive_remove_for,
-    claude_store_import, claude_store_list,
+    claude_store_import, claude_store_list, oba_dependents, oba_relink_dependents, oba_safe_delete,
 };
 pub use comment_route::comment_route;
 pub use comments::{
@@ -87,6 +87,7 @@ pub use iyke::{
     iyke_query_cache_done, iyke_set_shell, iyke_terminal_read_done, iyke_wait_done,
     IykeRuntimeState,
 };
+pub use permissions_audit::{pkg_permission_violations_clear, pkg_permission_violations_list};
 pub use pkg::{
     pkg_db_diag, pkg_discover_workspace, pkg_install_from_path, pkg_install_from_registry,
     pkg_kernel_status, pkg_preview_manifest, pkg_screenshot, pkg_set_enabled, pkg_set_scope,
@@ -130,9 +131,6 @@ pub use studio_threads::{
     studio_thread_get_or_create, studio_thread_list_recent,
 };
 pub use supabase_config::{supabase_config_clear, supabase_config_get, supabase_config_set};
-pub use permissions_audit::{
-    pkg_permission_violations_clear, pkg_permission_violations_list,
-};
 pub use trust::{pkg_trust_grant, pkg_trust_list, pkg_trust_preview, pkg_trust_revoke};
 pub use viewer::{viewer_port, viewer_serve, viewer_stop};
 

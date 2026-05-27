@@ -87,10 +87,7 @@ fn parse_frontmatter(md: &str) -> Result<(OrderedFields, String)> {
     };
     let yaml_block = lines[1..close_idx].join("\n");
     // Body: skip one leading blank line between `---` and body (TS shape).
-    let body_start = if lines
-        .get(close_idx + 1)
-        .is_some_and(|s| s.is_empty())
-    {
+    let body_start = if lines.get(close_idx + 1).is_some_and(|s| s.is_empty()) {
         close_idx + 2
     } else {
         close_idx + 1

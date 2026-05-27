@@ -368,9 +368,7 @@ mod jsonl_locator_tests {
     fn finds_jsonl_in_an_overlay_root_when_legacy_root_is_empty() {
         let tmp = tempfile::tempdir().unwrap();
         let legacy = tmp.path().join("home/.claude/projects");
-        let overlay = tmp
-            .path()
-            .join("cache/sessions/thread-1/.claude/projects");
+        let overlay = tmp.path().join("cache/sessions/thread-1/.claude/projects");
         let slug = overlay.join("-home-me-proj");
         fs::create_dir_all(&legacy).unwrap();
         fs::create_dir_all(&slug).unwrap();

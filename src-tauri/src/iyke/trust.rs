@@ -130,12 +130,15 @@ pub async fn post_trust_grant(
         return Err(err(StatusCode::BAD_REQUEST, "pkg_id is required"));
     }
     let kernel_state = app.state::<KernelState>();
-    let installed = kernel_state.0.installed_summary(&body.pkg_id).ok_or_else(|| {
-        err(
-            StatusCode::NOT_FOUND,
-            format!("pkg `{}` not installed", body.pkg_id),
-        )
-    })?;
+    let installed = kernel_state
+        .0
+        .installed_summary(&body.pkg_id)
+        .ok_or_else(|| {
+            err(
+                StatusCode::NOT_FOUND,
+                format!("pkg `{}` not installed", body.pkg_id),
+            )
+        })?;
     let pkg = Package::load(std::path::Path::new(&installed.install_path)).map_err(|e| {
         err(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -155,12 +158,7 @@ pub async fn post_trust_grant(
     let summary = trust::summarize_sensitive(&pkg.manifest.permissions);
     trust::grant(&pool, &pkg.manifest.id, &pkg.manifest.version, &summary)
         .await
-        .map_err(|e| {
-            err(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("grant: {e:#}"),
-            )
-        })?;
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("grant: {e:#}")))?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -177,12 +175,9 @@ pub async fn post_trust_revoke(
         return Err(err(StatusCode::BAD_REQUEST, "pkg_id is required"));
     }
     let pool = db.ensure_pool().await.map_err(map_err)?;
-    trust::revoke(&pool, &body.pkg_id).await.map_err(|e| {
-        err(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("revoke: {e:#}"),
-        )
-    })?;
+    trust::revoke(&pool, &body.pkg_id)
+        .await
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("revoke: {e:#}")))?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -196,7 +191,10 @@ pub async fn get_trust_preview(
 ) -> Result<Json<Value>, (StatusCode, String)> {
     let kernel_state = app.state::<KernelState>();
     let installed = kernel_state.0.installed_summary(&pkg_id).ok_or_else(|| {
-        err(StatusCode::NOT_FOUND, format!("pkg `{pkg_id}` not installed"))
+        err(
+            StatusCode::NOT_FOUND,
+            format!("pkg `{pkg_id}` not installed"),
+        )
     })?;
     let pkg = Package::load(std::path::Path::new(&installed.install_path)).map_err(|e| {
         err(

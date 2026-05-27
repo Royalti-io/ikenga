@@ -1337,14 +1337,17 @@ mod tests {
 
     #[test]
     fn overlay_user_claude_files_symlinks_present_files() {
-        let tmp =
-            std::env::temp_dir().join(format!("ikenga-overlay-test-{}", std::process::id()));
+        let tmp = std::env::temp_dir().join(format!("ikenga-overlay-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         let user_claude = tmp.join("user").join(".claude");
         let session_claude = tmp.join("session").join(".claude");
         std::fs::create_dir_all(&user_claude).unwrap();
         std::fs::create_dir_all(&session_claude).unwrap();
-        std::fs::write(user_claude.join(".credentials.json"), b"{\"token\":\"abc\"}").unwrap();
+        std::fs::write(
+            user_claude.join(".credentials.json"),
+            b"{\"token\":\"abc\"}",
+        )
+        .unwrap();
         std::fs::write(user_claude.join("settings.json"), b"{\"theme\":\"dark\"}").unwrap();
         // settings.local.json intentionally absent — overlay should skip it.
 
@@ -1375,8 +1378,8 @@ mod tests {
 
     #[test]
     fn overlay_user_claude_files_no_user_dir_is_noop() {
-        let tmp = std::env::temp_dir()
-            .join(format!("ikenga-overlay-empty-test-{}", std::process::id()));
+        let tmp =
+            std::env::temp_dir().join(format!("ikenga-overlay-empty-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         let user_claude = tmp.join("user").join(".claude"); // does not exist
         let session_claude = tmp.join("session").join(".claude");
@@ -1390,14 +1393,19 @@ mod tests {
 
     #[test]
     fn refresh_managed_subdirs_preserves_transcripts_and_clears_managed() {
-        let tmp = std::env::temp_dir()
-            .join(format!("ikenga-overlay-preserve-test-{}", std::process::id()));
+        let tmp = std::env::temp_dir().join(format!(
+            "ikenga-overlay-preserve-test-{}",
+            std::process::id()
+        ));
         let _ = std::fs::remove_dir_all(&tmp);
         let claude_dir = tmp.join(".claude");
 
         // Simulate the state after a turn: claude has written a transcript
         // under projects/, and a previous rebuild left a stale skill dir.
-        let transcript = claude_dir.join("projects").join("-some-slug").join("sess.jsonl");
+        let transcript = claude_dir
+            .join("projects")
+            .join("-some-slug")
+            .join("sess.jsonl");
         std::fs::create_dir_all(transcript.parent().unwrap()).unwrap();
         std::fs::write(&transcript, b"{\"type\":\"text\"}").unwrap();
         let claude_json = claude_dir.join(".claude.json");
@@ -1407,7 +1415,10 @@ mod tests {
         refresh_managed_subdirs(&claude_dir).unwrap();
 
         // Transcript + claude's own state survive the rebuild.
-        assert!(transcript.exists(), "projects/ transcript must survive reopen");
+        assert!(
+            transcript.exists(),
+            "projects/ transcript must survive reopen"
+        );
         assert!(claude_json.exists(), ".claude.json must survive reopen");
         // Managed subdirs exist but were cleared of stale entries.
         for sub in MANAGED_SUBDIRS {

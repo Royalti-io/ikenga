@@ -658,8 +658,7 @@ mod tests {
     async fn resolve_artifact_returns_pin_for_known_id() {
         let (db, _tmp) = fresh_db().await;
         let pool = db.ensure_pool().await.unwrap();
-        let pin =
-            insert_artifact_pin(&pool, "/tmp/cfo.html", "CFO Daily", Some("cfo-daily")).await;
+        let pin = insert_artifact_pin(&pool, "/tmp/cfo.html", "CFO Daily", Some("cfo-daily")).await;
         let resolved = resolve_artifact_inner(&pool, "cfo-daily")
             .await
             .unwrap()
@@ -674,9 +673,7 @@ mod tests {
         let (db, _tmp) = fresh_db().await;
         let pool = db.ensure_pool().await.unwrap();
         insert_artifact_pin(&pool, "/tmp/x.html", "X", Some("known")).await;
-        let resolved = resolve_artifact_inner(&pool, "absent")
-            .await
-            .unwrap();
+        let resolved = resolve_artifact_inner(&pool, "absent").await.unwrap();
         assert!(resolved.is_none());
     }
 

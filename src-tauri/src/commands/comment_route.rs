@@ -158,14 +158,8 @@ pub async fn comment_route(
         (sink, _) => sink.as_str(),
     };
 
-    let updated = comment_record_routing(
-        db,
-        comment.id,
-        recorded_sink.to_string(),
-        None,
-        None,
-    )
-    .await?;
+    let updated =
+        comment_record_routing(db, comment.id, recorded_sink.to_string(), None, None).await?;
 
     Ok(RouteResult {
         sink: Some(recorded_sink.to_string()),

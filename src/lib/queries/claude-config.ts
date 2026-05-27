@@ -16,6 +16,9 @@ import {
 	claudeStoreImport,
 	claudeStoreList,
 	ngwaCrossEngineCopy,
+	obaDependents,
+	obaRelinkDependents,
+	obaSafeDelete,
 	type ClaudeAgent,
 	type ClaudeCommand,
 	type ClaudeConfig,
@@ -34,6 +37,8 @@ import {
 	type NgwaHookFile,
 	type NgwaStoreError,
 	type NgwaTranscodeMode,
+	type ObaRelinkRow,
+	type SafeDeleteOutcome,
 } from '@/lib/tauri-cmd';
 import { queryKeys } from '@/lib/query-keys';
 
@@ -147,6 +152,45 @@ export function claudeStoreQueryOptions(kind?: ClaudeStoreKind | null) {
 		queryKey: queryKeys.claudeStore.list(kind ?? null),
 		queryFn: () => claudeStoreList(kind ?? null),
 		staleTime: 30_000,
+	});
+}
+
+/**
+ * Live dependents of a primitive's canonical master (Ọba registry, WP-04) —
+ * symlinks across scopes/engines that resolve into it. Loaded on demand when
+ * the detail-pane safe-delete guard opens. Short stale time: dependents reflect
+ * live filesystem state and can change out-of-band.
+ */
+export function obaDependentsQueryOptions(kind: ClaudeStoreKind, name: string) {
+	return queryOptions({
+		queryKey: [...queryKeys.claudeStore.all, 'dependents', kind, name] as const,
+		queryFn: () => obaDependents(kind, name),
+		staleTime: 5_000,
+	});
+}
+
+/**
+ * Guarded delete of a primitive's canonical master (WP-04). Returns the
+ * `SafeDeleteOutcome` so the caller can branch on the verdict (a refusal is a
+ * normal outcome, not an error — the UI renders the relink chooser). Invalidates
+ * the store + scan on any outcome that touched disk.
+ */
+export function useSafeDelete() {
+	const invalidate = useInvalidateClaudeStore();
+	return useMutation<SafeDeleteOutcome, Error, { kind: ClaudeStoreKind; name: string }>({
+		mutationFn: ({ kind, name }) => obaSafeDelete(kind, name),
+		onSuccess: (outcome) => {
+			if (outcome.removed) invalidate();
+		},
+	});
+}
+
+/** Relink-all: re-point dependent symlinks at a new master before forgetting it. */
+export function useRelinkDependents() {
+	const invalidate = useInvalidateClaudeStore();
+	return useMutation<ObaRelinkRow[], Error, { dependents: string[]; newMaster: string }>({
+		mutationFn: ({ dependents, newMaster }) => obaRelinkDependents(dependents, newMaster),
+		onSuccess: invalidate,
 	});
 }
 

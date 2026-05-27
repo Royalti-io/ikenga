@@ -589,6 +589,9 @@ button.ccfg-tree-row.dir:hover {
 	--st-disabled: var(--fg-faint);
 	--st-local: var(--achievement);
 	--st-orphaned: var(--danger);
+	/* WP-03 (Ọba registry): a symlink resolving to a valid master OUTSIDE the
+	 * store — distinct from store-backed `enabled`; reads as healthy, not orphaned. */
+	--st-linked: hsl(212, 48%, 60%);
 	/* Node-kind identity colours for the Analyze surfaces (Phase 4 · D-06/D-07).
 	 * Warm, in-theme; one hue per primitive kind. */
 	--nk-command: hsl(20, 64%, 54%);
@@ -721,6 +724,9 @@ button.ccfg-tree-row.dir:hover {
 	background: var(--st-orphaned);
 	box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--danger) 45%, transparent);
 }
+.ngwa-dot.linked {
+	background: var(--st-linked);
+}
 .ngwa-stword {
 	text-transform: uppercase;
 	letter-spacing: 0.08em;
@@ -737,6 +743,169 @@ button.ccfg-tree-row.dir:hover {
 }
 .ngwa-stword.orphaned {
 	color: var(--st-orphaned);
+}
+.ngwa-stword.linked {
+	color: var(--st-linked);
+}
+
+/* ── D-01 inline safe-delete guard (WP-06) ───────────────────────────────── */
+.ngwa-guard {
+	border: 1px solid color-mix(in srgb, var(--danger) 45%, var(--border));
+	border-left: 3px solid var(--danger);
+	border-radius: var(--radius-md);
+	background: linear-gradient(
+		180deg,
+		color-mix(in srgb, var(--danger) 12%, transparent) 0%,
+		var(--bg-base) 60%
+	);
+	overflow: hidden;
+	margin-top: var(--space-3);
+}
+.ngwa-guard-head {
+	display: flex;
+	align-items: center;
+	gap: 9px;
+	padding: 10px 12px;
+	border-bottom: 1px solid color-mix(in srgb, var(--danger) 22%, var(--border-soft));
+}
+.ngwa-guard-icon {
+	width: 20px;
+	height: 20px;
+	border-radius: 50%;
+	display: grid;
+	place-items: center;
+	background: var(--danger);
+	color: var(--danger-fg);
+	font-size: 12px;
+	font-weight: 700;
+	flex: none;
+}
+.ngwa-guard-title {
+	font-size: 13px;
+	color: var(--fg);
+	flex: 1;
+	min-width: 0;
+}
+.ngwa-guard-title b {
+	color: var(--danger);
+}
+.ngwa-guard-x {
+	border: 0;
+	background: transparent;
+	color: var(--fg-faint);
+	font-size: 14px;
+	cursor: pointer;
+	padding: 0 4px;
+}
+.ngwa-guard-x:hover {
+	color: var(--fg);
+}
+.ngwa-guard-body {
+	padding: 11px 12px;
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+}
+.ngwa-guard-line {
+	font-size: 12px;
+	line-height: 1.55;
+	color: var(--fg-muted);
+}
+.ngwa-guard-line b {
+	color: var(--fg);
+}
+.ngwa-guard-line code,
+.ngwa-guard-self code,
+.ngwa-guard-dep code,
+.ngwa-guard-relinkresult code {
+	font-family: var(--font-mono);
+	font-size: 10.5px;
+	background: var(--bg-surface);
+	border: 1px solid var(--border-soft);
+	padding: 1px 5px;
+	border-radius: var(--radius-xs);
+	color: var(--fg);
+}
+.ngwa-guard-err {
+	color: var(--danger);
+}
+.ngwa-guard-self {
+	font-size: 11px;
+	color: var(--fg-muted);
+	display: flex;
+	align-items: center;
+	gap: 7px;
+}
+.ngwa-guard-k {
+	font-family: var(--font-mono);
+	font-size: 9.5px;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+	color: var(--fg-faint);
+}
+.ngwa-guard-deps {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	border: 1px solid var(--border-soft);
+	border-radius: var(--radius-sm);
+	background: var(--bg-base);
+	padding: 6px 8px;
+	max-height: 160px;
+	overflow: auto;
+}
+.ngwa-guard-dep {
+	font-size: 11px;
+	color: var(--fg);
+	display: flex;
+	align-items: center;
+	gap: 7px;
+}
+.ngwa-guard-arrow {
+	color: var(--st-linked);
+	font-family: var(--font-mono);
+}
+.ngwa-guard-choice {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	padding: 9px 10px;
+	border: 1px solid var(--border-soft);
+	border-radius: var(--radius-sm);
+	background: var(--bg-base);
+}
+.ngwa-guard-relink {
+	display: flex;
+	gap: 7px;
+	align-items: center;
+}
+.ngwa-guard-input {
+	flex: 1;
+	min-width: 0;
+	background: var(--bg-surface);
+	border: 1px solid var(--border-soft);
+	color: var(--fg);
+	border-radius: var(--radius-xs);
+	font-family: var(--font-mono);
+	font-size: 11px;
+	padding: 5px 8px;
+	outline: none;
+}
+.ngwa-guard-input:focus {
+	border-color: var(--tint-ngwa-fg);
+}
+.ngwa-guard-relinkresult {
+	font-family: var(--font-mono);
+	font-size: 10.5px;
+	color: var(--fg-muted);
+}
+.ngwa-guard-relinkresult ul {
+	margin: 4px 0 0 0;
+	padding-left: 14px;
+}
+.ngwa-guard-relinkresult li {
+	color: var(--danger);
+	margin: 2px 0;
 }
 
 /* mechanism tag — link / merge */

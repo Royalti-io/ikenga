@@ -119,6 +119,10 @@ pub struct LinkMeta {
     pub is_symlink: bool,
     pub link_target: Option<String>,
     pub in_store: bool,
+    /// WP-03: whether the link resolves to an existing target. `false` only for
+    /// a dangling symlink; `true` for a resolving symlink or a non-symlink
+    /// present path. Drives the linked-vs-orphaned classification downstream.
+    pub target_exists: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -150,6 +154,11 @@ pub struct AgentEntry {
     /// Whether the resolved target lives inside the Ngwa central store.
     #[serde(rename = "inStore")]
     pub in_store: bool,
+    /// WP-03: whether a symlink resolves to an existing target. `false` = a
+    /// dangling link (orphaned); `true` = linked — a valid master, *regardless*
+    /// of `in_store`. Always `true` for a non-symlink present entry.
+    #[serde(rename = "targetExists")]
+    pub target_exists: bool,
     /// Cross-system tag (`system`/`format`/`status`). Omitted for Claude.
     #[serde(flatten)]
     pub tag: SystemTag,
@@ -184,6 +193,11 @@ pub struct SkillEntry {
     /// Whether the resolved target dir lives inside the Ngwa central store.
     #[serde(rename = "inStore")]
     pub in_store: bool,
+    /// WP-03: whether a symlink resolves to an existing target. `false` = a
+    /// dangling link (orphaned); `true` = linked — a valid master, *regardless*
+    /// of `in_store`. Always `true` for a non-symlink present entry.
+    #[serde(rename = "targetExists")]
+    pub target_exists: bool,
     /// Cross-system tag (`system`/`format`/`status`). Omitted for Claude.
     #[serde(flatten)]
     pub tag: SystemTag,
@@ -222,6 +236,11 @@ pub struct CommandEntry {
     /// Whether the resolved target lives inside the Ngwa central store.
     #[serde(rename = "inStore")]
     pub in_store: bool,
+    /// WP-03: whether a symlink resolves to an existing target. `false` = a
+    /// dangling link (orphaned); `true` = linked — a valid master, *regardless*
+    /// of `in_store`. Always `true` for a non-symlink present entry.
+    #[serde(rename = "targetExists")]
+    pub target_exists: bool,
     /// Cross-system tag (`system`/`format`/`status`). Omitted for Claude.
     #[serde(flatten)]
     pub tag: SystemTag,
@@ -263,6 +282,11 @@ pub struct McpEntry {
     /// Always `false` for MCP servers.
     #[serde(rename = "inStore")]
     pub in_store: bool,
+    /// WP-03: whether a symlink resolves to an existing target. `false` = a
+    /// dangling link (orphaned); `true` = linked — a valid master, *regardless*
+    /// of `in_store`. Always `true` for a non-symlink present entry.
+    #[serde(rename = "targetExists")]
+    pub target_exists: bool,
     /// Cross-system tag (`system`/`format`/`status`). Omitted for Claude.
     #[serde(flatten)]
     pub tag: SystemTag,
@@ -302,6 +326,11 @@ pub struct HookEntry {
     /// Always `false` for hooks.
     #[serde(rename = "inStore")]
     pub in_store: bool,
+    /// WP-03: whether a symlink resolves to an existing target. `false` = a
+    /// dangling link (orphaned); `true` = linked — a valid master, *regardless*
+    /// of `in_store`. Always `true` for a non-symlink present entry.
+    #[serde(rename = "targetExists")]
+    pub target_exists: bool,
     /// Cross-system tag (`system`/`format`/`status`). Omitted for Claude.
     #[serde(flatten)]
     pub tag: SystemTag,
@@ -995,6 +1024,7 @@ fn walk_gemini_commands(
             is_symlink: meta.is_symlink,
             link_target: meta.link_target,
             in_store: meta.in_store,
+            target_exists: meta.target_exists,
             tag,
         });
     }
@@ -1353,6 +1383,7 @@ fn scan_codex_agents(
             is_symlink: meta.is_symlink,
             link_target: meta.link_target,
             in_store: meta.in_store,
+            target_exists: meta.target_exists,
             tag,
         });
     }
@@ -1444,6 +1475,7 @@ fn codex_config_toml(
                 is_symlink: false,
                 link_target: None,
                 in_store: false,
+                target_exists: true,
                 tag,
             });
         }
@@ -1495,6 +1527,7 @@ fn codex_config_toml(
                         is_symlink: false,
                         link_target: None,
                         in_store: false,
+                        target_exists: true,
                         tag,
                     });
                 }
@@ -1665,6 +1698,7 @@ fn scan_skills_dir(
                     is_symlink: meta.is_symlink,
                     link_target: meta.link_target,
                     in_store: meta.in_store,
+                    target_exists: meta.target_exists,
                     tag,
                 });
             }
@@ -1719,6 +1753,7 @@ fn agent_from_md(e: MdEntry) -> AgentEntry {
         is_symlink: e.link_meta.is_symlink,
         link_target: e.link_meta.link_target,
         in_store: e.link_meta.in_store,
+        target_exists: e.link_meta.target_exists,
         tag: e.tag,
     }
 }
@@ -1739,6 +1774,7 @@ fn command_from_md(e: MdEntry) -> CommandEntry {
         is_symlink: e.link_meta.is_symlink,
         link_target: e.link_meta.link_target,
         in_store: e.link_meta.in_store,
+        target_exists: e.link_meta.target_exists,
         tag: e.tag,
     }
 }
@@ -1819,6 +1855,7 @@ fn parse_hooks_file_tagged(
                     is_symlink: false,
                     link_target: None,
                     in_store: false,
+                    target_exists: true,
                     tag,
                 });
             }
@@ -1974,6 +2011,7 @@ fn extract_mcp_servers(
             is_symlink: false,
             link_target: None,
             in_store: false,
+            target_exists: true,
             tag,
         });
     }
@@ -2323,20 +2361,23 @@ fn link_meta(path: &Path, store: Option<&Path>) -> LinkMeta {
     // primitive is a symlink, else the path itself (a primitive can live
     // directly inside the store without being a link — e.g. a store-owned
     // entry surfaced in its own catalog scope).
-    let (link_target, resolved) = if is_symlink {
+    // `target_exists`: a symlink that canonicalizes is resolving (links to a
+    // real master → *linked*); one that fails is dangling (→ orphaned). A
+    // non-symlink path we are scanning exists by definition.
+    let (link_target, resolved, target_exists) = if is_symlink {
         match std::fs::canonicalize(path) {
-            Ok(t) => (Some(t.to_string_lossy().to_string()), t),
+            Ok(t) => (Some(t.to_string_lossy().to_string()), t, true),
             // Dangling symlink: report the raw read_link target, treat the
-            // link's own location for the store check.
+            // link's own location for the store check, flag the missing target.
             Err(_) => {
                 let raw = std::fs::read_link(path)
                     .ok()
                     .map(|t| t.to_string_lossy().to_string());
-                (raw, path.to_path_buf())
+                (raw, path.to_path_buf(), false)
             }
         }
     } else {
-        (None, path.to_path_buf())
+        (None, path.to_path_buf(), true)
     };
 
     let in_store = store.map(|s| is_in_store(&resolved, s)).unwrap_or(false);
@@ -2345,7 +2386,56 @@ fn link_meta(path: &Path, store: Option<&Path>) -> LinkMeta {
         is_symlink,
         link_target,
         in_store,
+        target_exists,
     }
+}
+
+/// WP-03: resolve a path to its canonical target if (and only if) it exists,
+/// following symlinks. Returns `None` for a dangling link or a missing path.
+/// The WP-04 dependents scan uses this to test whether a scope symlink resolves
+/// *into* a given master directory.
+pub(crate) fn resolve_symlink_target(path: &Path) -> Option<PathBuf> {
+    std::fs::canonicalize(path).ok()
+}
+
+/// WP-04 — the incident guardrail's core: find a master's **live dependents**,
+/// computed fresh from the filesystem (never a stored list, which can drift).
+/// A dependent is a symlink directly inside one of `search_dirs` whose resolved
+/// target IS the master or sits inside it. The master is canonicalized once;
+/// only links that actually resolve count (a dangling link is not a dependent).
+///
+/// `search_dirs` are the scope×engine placement directories the caller wants to
+/// check (e.g. every `.claude/skills`, `~/.agents/skills`, `~/.codex/...` across
+/// workspace + projects). Keeping the dir set a parameter makes this pure and
+/// testable against tempdir HOMEs.
+pub(crate) fn scan_live_dependents(master: &Path, search_dirs: &[PathBuf]) -> Vec<PathBuf> {
+    let Ok(master_canon) = std::fs::canonicalize(master) else {
+        // master itself missing → nothing resolves into it
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for dir in search_dirs {
+        let Ok(rd) = std::fs::read_dir(dir) else {
+            continue;
+        };
+        for e in rd.flatten() {
+            let p = e.path();
+            let is_link = std::fs::symlink_metadata(&p)
+                .map(|m| m.file_type().is_symlink())
+                .unwrap_or(false);
+            if !is_link {
+                continue;
+            }
+            if let Some(t) = resolve_symlink_target(&p) {
+                if t == master_canon || t.starts_with(&master_canon) {
+                    out.push(p);
+                }
+            }
+        }
+    }
+    out.sort();
+    out.dedup();
+    out
 }
 
 // ─── Phase 4 — 4-tier discovery + pin CRUD (new surface) ────────────────────
@@ -2759,7 +2849,67 @@ mod tests {
         assert!(meta.is_symlink);
         assert!(meta.link_target.is_some());
         assert!(!meta.in_store, "target is outside the store root");
+        // WP-03 req #6: an out-of-store symlink that RESOLVES reads as linked —
+        // target_exists must be true even though in_store is false. This is the
+        // signal the FE uses to classify `linked` (not `orphaned`).
+        assert!(
+            meta.target_exists,
+            "resolving out-of-store symlink → linked, not orphaned"
+        );
 
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn link_meta_dangling_symlink_target_does_not_exist() {
+        // A symlink whose target is missing is the ONLY orphaned case.
+        let root = unique_tmp("dangling");
+        std::fs::create_dir_all(&root).unwrap();
+        let link = root.join("broken.md");
+        std::os::unix::fs::symlink(root.join("nope.md"), &link).unwrap();
+
+        let meta = link_meta(&link, None);
+        assert!(meta.is_symlink);
+        assert!(!meta.target_exists, "dangling link → orphaned");
+        // we still surface the raw (broken) target for display
+        assert!(meta.link_target.is_some());
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn link_meta_plain_file_target_exists() {
+        let base = unique_tmp("plain_exists");
+        std::fs::create_dir_all(&base).unwrap();
+        let f = base.join("agent.md");
+        std::fs::write(&f, "x").unwrap();
+        let meta = link_meta(&f, None);
+        assert!(!meta.is_symlink);
+        assert!(meta.target_exists, "a present non-symlink exists");
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn resolve_symlink_target_some_when_resolving_none_when_dangling() {
+        let root = unique_tmp("resolve");
+        std::fs::create_dir_all(&root).unwrap();
+        let real = root.join("master");
+        std::fs::create_dir_all(&real).unwrap();
+        let ok_link = root.join("ok");
+        std::os::unix::fs::symlink(&real, &ok_link).unwrap();
+        let bad_link = root.join("bad");
+        std::os::unix::fs::symlink(root.join("missing"), &bad_link).unwrap();
+
+        let resolved = resolve_symlink_target(&ok_link).expect("resolving link → Some");
+        assert_eq!(
+            std::fs::canonicalize(&real).unwrap(),
+            resolved,
+            "resolves into the master dir"
+        );
+        assert!(
+            resolve_symlink_target(&bad_link).is_none(),
+            "dangling link → None"
+        );
         std::fs::remove_dir_all(&root).ok();
     }
 

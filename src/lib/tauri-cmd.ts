@@ -1087,6 +1087,11 @@ export interface ClaudeLinkMeta {
 	/** Whether the resolved target lives inside the Ngwa central store
 	 *  (`<app_data_dir>/store/`). */
 	inStore: boolean;
+	/** WP-03 (Ọba registry): whether a symlink resolves to an existing target.
+	 *  `false` = dangling (orphaned); otherwise the link resolves to a valid
+	 *  master and reads as *linked* regardless of `inStore`. Absent ⇒ treat as
+	 *  resolving (only an explicit `false` means dangling). */
+	targetExists?: boolean;
 	// ── Ngwa Phase-2 cross-system entry extension (frozen contract, WP-19) ──
 	//
 	// Three additive fields every scan-result entry gains so the FE can group
@@ -1688,6 +1693,29 @@ export interface ClaudeStoreEntry {
 	modifiedMs: number;
 	/** Scopes this entry is currently enabled in (symlinked or merged). */
 	enabledIn: ClaudeStoreScope[];
+
+	// ─── Registry provenance (G-SCHEMA · Ọba registry) ───────────────────────
+	// Mirrors the flattened `RegistryProvenance` on the Rust `ClaudeStoreEntry`.
+	// The backend ALWAYS populates these on real responses (serde synthesizes a
+	// `local` entry for pre-registry data); they are optional here only for the
+	// vestigial `ngwaMockStore` + forward-compat. Dependents are NOT here — they
+	// are computed live by the scanner, never stored (see drafts/registry-schema.md).
+
+	/** Origin of the canonical master. Absent → treat as `'local'`. */
+	source?: 'local' | 'git' | 'npx' | 'catalog';
+	/** git remote URL | npm spec | catalog id; null for local. */
+	url?: string | null;
+	/** Requested git tag/branch (resolves to `version`); null otherwise. */
+	ref?: string | null;
+	/** Resolved git commit SHA | npm version; null for local. */
+	version?: string | null;
+	/** Absolute path to the real master — may be in-vault OR external/in-place. */
+	canonicalPath?: string;
+	/** true = vault master (shell owns lifecycle, deletable); false = external
+	 *  master kept in place, never hard-deleted by the safe-delete guard. */
+	managed?: boolean;
+	installedAt?: string | null;
+	updatedAt?: string | null;
 }
 
 /** Result of a symlink-farm or merge mutation. `path` is the on-disk location
@@ -2234,6 +2262,66 @@ export async function ngwaCrossEngineCopy(
 		destinations,
 		move,
 	});
+}
+
+// ─── Ọba registry — WP-04 dependent-aware safe delete ─────────────────────────
+//
+// The incident guardrail's FE surface. `obaDependents` feeds the detail-pane
+// dependents list; `obaSafeDelete` runs the guarded delete (refuses external
+// masters + masters with live dependents); `obaRelinkDependents` re-points the
+// dependent symlinks before forgetting a master. Backend: claude_store.rs.
+
+/** Outcome of a guarded delete. `verdict` is one of `unlinked` | `deleted` |
+ *  `refused_external` | `refused_dependents`. On a refusal, `dependents` lists
+ *  the live dependent paths the relink chooser offers to re-point. Mirrors the
+ *  Rust `SafeDeleteOutcome`. */
+export interface SafeDeleteOutcome {
+	verdict: 'unlinked' | 'deleted' | 'refused_external' | 'refused_dependents';
+	removed: boolean;
+	dependents: string[];
+	message: string;
+}
+
+/** Per-link result of a relink-all. Mirrors the Rust `RelinkRow`. */
+export interface ObaRelinkRow {
+	link: string;
+	ok: boolean;
+	error: string | null;
+}
+
+/**
+ * Live dependents of a primitive's canonical master — symlinks across all
+ * scopes/engines that resolve into it. Computed fresh from disk (never a stored
+ * list), so it is correct even if `store/registry.json` is lost.
+ */
+export async function obaDependents(kind: ClaudeStoreKind, name: string): Promise<string[]> {
+	return invoke<string[]>('oba_dependents', { kind, name });
+}
+
+/**
+ * Guarded delete of a primitive's canonical master. Refuses an external master
+ * (`managed:false`) and any master with live dependents; only a vault-managed
+ * master with zero dependents is hard-deleted. NEVER `remove_dir_all`s a master
+ * out from under its dependents (the data-loss-incident guardrail). On a
+ * successful hard-delete the registry record is dropped.
+ */
+export async function obaSafeDelete(
+	kind: ClaudeStoreKind,
+	name: string
+): Promise<SafeDeleteOutcome> {
+	return invoke<SafeDeleteOutcome>('oba_safe_delete', { kind, name });
+}
+
+/**
+ * Re-point dependent symlinks at a new master (relink-all), returning a per-link
+ * result in request order. Used before forgetting an external master so no
+ * dependent is left dangling.
+ */
+export async function obaRelinkDependents(
+	dependents: string[],
+	newMaster: string
+): Promise<ObaRelinkRow[]> {
+	return invoke<ObaRelinkRow[]>('oba_relink_dependents', { dependents, newMaster });
 }
 
 // ─── Iyke (phase 11 — Day 1: read-side state + shell mirror push) ─────────────

@@ -66,7 +66,11 @@ where
         // DebouncedEvent.path is a single PathBuf — wrap as a one-elem slice
         // so matches_any keeps its existing &[PathBuf] signature + tests.
         for ev in events {
-            if matches_any(std::slice::from_ref(&ev.path), &install_for_cb, &patterns_for_cb) {
+            if matches_any(
+                std::slice::from_ref(&ev.path),
+                &install_for_cb,
+                &patterns_for_cb,
+            ) {
                 (on_change_for_cb)();
                 break;
             }
@@ -171,11 +175,7 @@ mod tests {
         let pat = Pattern::new("src/**/*.ts").unwrap();
         let pats = vec![pat];
         // Event path under install, matching pattern → true.
-        assert!(matches_any(
-            &[install.join("src/a/b.ts")],
-            &install,
-            &pats
-        ));
+        assert!(matches_any(&[install.join("src/a/b.ts")], &install, &pats));
         // Event path under install, NOT matching → false.
         assert!(!matches_any(
             &[install.join("docs/readme.md")],
@@ -195,11 +195,7 @@ mod tests {
         let install = PathBuf::from("/tmp/pkg");
         let pat = Pattern::new("**/*.toml").unwrap();
         let pats = vec![pat];
-        assert!(matches_any(
-            &[install.join("Cargo.toml")],
-            &install,
-            &pats
-        ));
+        assert!(matches_any(&[install.join("Cargo.toml")], &install, &pats));
         assert!(matches_any(
             &[install.join("nested/deep/here/x.toml")],
             &install,

@@ -128,10 +128,7 @@ fn replay_unregisters(registries: &[Arc<dyn Registry>], pkg_id: &str) {
 ///
 /// Pure function over the slice + package — no `&Kernel` or `AppHandle`
 /// touched, which makes it directly testable with `MockRegistry`.
-fn replay_registers(
-    registries: &[Arc<dyn Registry>],
-    pkg: &Package,
-) -> Result<Vec<String>> {
+fn replay_registers(registries: &[Arc<dyn Registry>], pkg: &Package) -> Result<Vec<String>> {
     let mut applied: Vec<String> = Vec::new();
     for reg in registries {
         if let Err(e) = reg.register(pkg) {
@@ -1534,8 +1531,8 @@ mod tests {
         assert_eq!(
             log,
             vec![
-                "register:a:com.test.x".to_string(),  // applied
-                "register:b:com.test.x".to_string(),  // failed
+                "register:a:com.test.x".to_string(),   // applied
+                "register:b:com.test.x".to_string(),   // failed
                 "unregister:a:com.test.x".to_string(), // rollback (no c register attempted)
             ]
         );

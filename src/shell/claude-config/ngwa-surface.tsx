@@ -40,16 +40,19 @@ import {
 } from '@/lib/tauri-cmd';
 import {
 	claudeStoreQueryOptions,
+	obaDependentsQueryOptions,
 	useCopyPrimitive,
 	useDisablePrimitive,
 	useEnablePrimitive,
 	useImportToStore,
 	useMovePrimitive,
+	useRelinkDependents,
 	useRemovePrimitive,
 	type ConfigFormat,
 	type EngineId,
 	type KindStatus,
 } from '@/lib/queries/claude-config';
+import { obaSafeDelete, type SafeDeleteOutcome } from '@/lib/tauri-cmd';
 
 import { Chips, FrontmatterGrid } from './list-detail';
 import { AnalyzeSurface } from './analyze';
@@ -122,7 +125,7 @@ const ANALYZE_LABEL: Record<string, string> = {
 // Browse + Registry render off one normalized shape derived from the on-disk
 // scan (ClaudeConfig) enriched with store-catalog membership.
 
-export type ItemState = 'enabled' | 'disabled' | 'local' | 'orphaned';
+export type ItemState = 'enabled' | 'disabled' | 'local' | 'orphaned' | 'linked';
 type ItemMech = 'link' | 'merge';
 
 export interface NgwaItem {
@@ -181,6 +184,7 @@ const STATE_WORD: Record<ItemState, string> = {
 	disabled: 'Disabled',
 	local: 'Local',
 	orphaned: 'Orphaned',
+	linked: 'Linked',
 };
 
 const normRoot = (p: string) => p.replace(/\/+$/, '');
@@ -225,10 +229,18 @@ function scopeLabelOf(scope: 'personal' | 'project', projectRoot: string | null)
 /** Derive the lifecycle state of a scanned, file-based primitive. JSON-merge
  *  kinds (hook/mcp) are always "enabled" while present (their presence in the
  *  scan == merged into settings). */
-function deriveState(meta: { isSymlink: boolean; inStore: boolean }, mech: ItemMech): ItemState {
+function deriveState(
+	meta: { isSymlink: boolean; inStore: boolean; targetExists?: boolean },
+	mech: ItemMech
+): ItemState {
 	if (mech === 'merge') return 'enabled';
-	if (meta.isSymlink && meta.inStore) return 'enabled';
-	if (meta.isSymlink && !meta.inStore) return 'orphaned'; // dangling link
+	if (meta.isSymlink) {
+		// WP-03 req #6: only a DANGLING link is orphaned. A symlink that resolves
+		// reads as enabled (store-backed) or linked (resolves to a valid master
+		// outside the store, e.g. an externally-mastered primitive like groundwork).
+		if (meta.targetExists === false) return 'orphaned';
+		return meta.inStore ? 'enabled' : 'linked';
+	}
 	return 'local'; // a real file, not store-backed
 }
 
@@ -606,6 +618,9 @@ function Legend() {
 			</span>
 			<span>
 				<i className="ngwa-dot local" /> local · not in store
+			</span>
+			<span>
+				<i className="ngwa-dot linked" /> linked · external master
 			</span>
 			<span>
 				<i className="ngwa-dot orphaned" /> orphaned
@@ -1405,6 +1420,11 @@ function ItemDetail({
 	const [showCopyDrawer, setShowCopyDrawer] = useState(false);
 	const crossEngineCopyable = isCrossEngineCopyable(item.storeKind);
 	const [scriptBody, setScriptBody] = useState<string | null>(null);
+	// D-01 inline safe-delete guard — open when the user fires Remove against
+	// what may be a real master (non-symlink + non-orphaned). For a symlink
+	// placement the old per-scope remove is already safe (`remove_file` never
+	// recurses), so we keep that fast path.
+	const [showGuard, setShowGuard] = useState(false);
 
 	const on = item.state === 'enabled';
 	const k = item.storeKind;
@@ -1520,6 +1540,52 @@ function ItemDetail({
 					<FrontmatterGrid entries={fmRows} />
 				</Section>
 
+				{/* Provenance (Ọba registry · G-SCHEMA) — where this primitive's
+				    canonical master came from. Two sources:
+				    (1) the registry record (storeEntry.source) — preferred; carries
+				        version/url/managed/installedAt for git/npx installs;
+				    (2) scanner-derived fallback for a `linked` state — a symlink
+				        resolving to an external master that the registry doesn't
+				        yet index (the common pre-back-fill case, e.g. groundwork
+				        published from ikenga-pkgs into ~/.claude/skills/). The
+				        master path comes from the live link resolution. Dependents
+				        + the safe-delete guard are the interactive WP-06 slice. */}
+				{item.storeEntry?.source ? (
+					<Section label="Provenance">
+						<FrontmatterGrid
+							entries={[
+								['source', item.storeEntry.source],
+								...(item.storeEntry.url ? [['url', item.storeEntry.url] as [string, string]] : []),
+								...(item.storeEntry.version
+									? [['version', item.storeEntry.version] as [string, string]]
+									: []),
+								[
+									'master',
+									item.storeEntry.managed === false
+										? 'external · kept in place'
+										: 'vault · shell-managed',
+								],
+								...(item.storeEntry.canonicalPath
+									? [['canonical', item.storeEntry.canonicalPath] as [string, string]]
+									: []),
+							]}
+						/>
+					</Section>
+				) : item.state === 'linked' ? (
+					<Section label="Provenance">
+						<FrontmatterGrid
+							entries={[
+								['source', 'external symlink'],
+								[
+									'canonical',
+									(item.raw as { linkTarget?: string | null }).linkTarget ?? '(unresolved)',
+								],
+								['master', 'external · kept in place'],
+							]}
+						/>
+					</Section>
+				) : null}
+
 				{chips}
 
 				<div className="ccfg-section">{mech}</div>
@@ -1537,6 +1603,15 @@ function ItemDetail({
 						<div className="ngwa-mech warn">
 							<b>Orphaned.</b> The symlink target was removed from the store. Remove the dangling
 							link, or re-link to a store entry.
+						</div>
+					</div>
+				)}
+				{item.state === 'linked' && (
+					<div className="ccfg-section">
+						<div className="ngwa-mech">
+							<b>Linked.</b> A symlink resolving to a valid master outside the store
+							{item.storeEntry?.managed === false ? ' (kept in place — externally mastered)' : ''}.
+							Reads as healthy, not orphaned — updating the master updates this link in place.
 						</div>
 					</div>
 				)}
@@ -1635,7 +1710,17 @@ function ItemDetail({
 						<button
 							type="button"
 							className="ngwa-btn warn"
-							onClick={() => remove.mutate({ kind: k, name: item.name, scope: item.scopeKey })}
+							onClick={() => {
+								// Symlink placement → per-scope unlink is always safe (`remove_file`
+								// never recurses). Real master / unknown → route through the
+								// dependent-aware safe-delete guard (D-01, WP-04 backend).
+								const isPlacementSymlink = (item.raw as { isSymlink?: boolean }).isSymlink;
+								if (isPlacementSymlink) {
+									remove.mutate({ kind: k, name: item.name, scope: item.scopeKey });
+								} else {
+									setShowGuard(true);
+								}
+							}}
 						>
 							{item.storeEntry ? 'Remove from scope' : 'Delete from store'}
 						</button>
@@ -1659,6 +1744,15 @@ function ItemDetail({
 						setPicker(null);
 					}}
 					onClose={() => setPicker(null)}
+				/>
+			)}
+
+			{showGuard && (
+				<SafeDeleteGuard
+					kind={k}
+					name={item.name}
+					selfPath={item.path}
+					onClose={() => setShowGuard(false)}
 				/>
 			)}
 
@@ -1931,6 +2025,183 @@ function StoreDetail({
 				/>
 			)}
 		</>
+	);
+}
+
+// ─── Safe-delete guard (D-01, WP-06) ────────────────────────────────────────
+// Inline panel that fires when the user clicks Remove on what may be a real
+// canonical master. Calls `oba_safe_delete` (the dependent-aware backend guard
+// from WP-04): a symlink placement unlinks straight through; a real master with
+// `managed:false` OR live dependents refuses and surfaces the dependents list
+// + a relink form. NEVER reaches `remove_dir_all` on a master with dependents
+// — the WP-04 backend test `incident_regression_external_master_with_dependents_is_never_wiped`
+// proves this. Renders inline in the detail-pane footer (Variant A placement
+// of the D-01 hybrid; the SVG dependency map from Variant B is the next polish).
+
+function SafeDeleteGuard({
+	kind,
+	name,
+	selfPath,
+	onClose,
+}: {
+	kind: ClaudeStoreKind;
+	name: string;
+	selfPath: string;
+	onClose: () => void;
+}) {
+	const relink = useRelinkDependents();
+	// Live dependents scan — used both as the proactive display before the user
+	// commits, and (after) to confirm relink succeeded by re-checking.
+	const depsQ = useQuery(obaDependentsQueryOptions(kind, name));
+
+	// Fire obaSafeDelete on mount with a plain useState — the useMutation
+	// hook had a reproducible bug here where its `data` never reflected the
+	// resolved invoke result (the wrapper's console.log showed start+resolved
+	// in ~40ms, but useMutation stayed in status=pending forever). The plain
+	// pattern works fine since we don't need any of the extras useMutation
+	// provides for this one-shot, mount-time call.
+	const [outcome, setOutcome] = useState<SafeDeleteOutcome | null>(null);
+	const [safeErr, setSafeErr] = useState<string | null>(null);
+	const fired = useRef(false);
+	useEffect(() => {
+		if (fired.current) return;
+		fired.current = true;
+		obaSafeDelete(kind, name)
+			.then((r) => setOutcome(r))
+			.catch((e) => setSafeErr(String(e)));
+	}, [kind, name]);
+
+	const [newMaster, setNewMaster] = useState('');
+	const refused =
+		outcome?.verdict === 'refused_external' || outcome?.verdict === 'refused_dependents';
+	const dependents = outcome?.dependents ?? depsQ.data ?? [];
+
+	return (
+		<div className="ngwa-section ngwa-guard">
+			<div className="ngwa-guard-head">
+				<span className="ngwa-guard-icon">!</span>
+				<span className="ngwa-guard-title">
+					{!outcome ? (
+						'Checking dependents…'
+					) : refused ? (
+						<>
+							<b>Delete refused</b> ·{' '}
+							{outcome.verdict === 'refused_external'
+								? 'external master, kept in place'
+								: `${dependents.length} live dependent${dependents.length === 1 ? '' : 's'}`}
+						</>
+					) : (
+						<>
+							<b>{outcome.verdict === 'unlinked' ? 'Unlinked' : 'Deleted'}.</b> {outcome.message}
+						</>
+					)}
+				</span>
+				<button type="button" className="ngwa-guard-x" onClick={onClose} aria-label="Close">
+					✕
+				</button>
+			</div>
+
+			{outcome && refused && (
+				<div className="ngwa-guard-body">
+					<div className="ngwa-guard-line">
+						{outcome.message}. Pick a safe path below — the guard will not run{' '}
+						<code>remove_dir_all</code> on the master regardless.
+					</div>
+					{selfPath && (
+						<div className="ngwa-guard-self">
+							<span className="ngwa-guard-k">master</span> <code>{selfPath}</code>
+						</div>
+					)}
+					<div className="ngwa-guard-deps">
+						{dependents.length === 0 ? (
+							<div className="ngwa-guard-line">No live dependents found.</div>
+						) : (
+							dependents.map((p) => (
+								<div key={p} className="ngwa-guard-dep">
+									<span className="ngwa-guard-arrow">↳</span>
+									<code>{p}</code>
+								</div>
+							))
+						)}
+					</div>
+
+					{outcome.verdict === 'refused_dependents' && dependents.length > 0 && (
+						<div className="ngwa-guard-choice">
+							<div className="ngwa-guard-k">Relink dependents to a new master</div>
+							<div className="ngwa-guard-relink">
+								<input
+									type="text"
+									className="ngwa-guard-input"
+									placeholder="absolute path to the new master…"
+									value={newMaster}
+									onChange={(e) => setNewMaster(e.target.value)}
+								/>
+								<button
+									type="button"
+									className="ngwa-btn primary"
+									disabled={!newMaster || relink.isPending}
+									onClick={() =>
+										relink.mutate(
+											{ dependents, newMaster },
+											{
+												onSuccess: () => {
+													// Re-query dependents; the user can then retry the
+													// delete if everything relinked.
+													depsQ.refetch();
+												},
+											}
+										)
+									}
+								>
+									{relink.isPending ? 'Relinking…' : `Relink ${dependents.length}`}
+								</button>
+							</div>
+							{relink.data && (
+								<div className="ngwa-guard-relinkresult">
+									{relink.data.filter((r) => r.ok).length} relinked OK ·{' '}
+									{relink.data.filter((r) => !r.ok).length} failed
+									{relink.data.some((r) => !r.ok) && (
+										<ul>
+											{relink.data
+												.filter((r) => !r.ok)
+												.map((r) => (
+													<li key={r.link}>
+														<code>{r.link}</code>: {r.error}
+													</li>
+												))}
+										</ul>
+									)}
+								</div>
+							)}
+						</div>
+					)}
+
+					{outcome.verdict === 'refused_external' && (
+						<div className="ngwa-guard-line">
+							<b>External masters are never deleted by Ngwa.</b> The master lives upstream — manage
+							it where it's published (git repo / npx install).
+						</div>
+					)}
+				</div>
+			)}
+
+			{outcome && !refused && (
+				<div className="ngwa-guard-body">
+					<div className="ngwa-guard-line">{outcome.message}</div>
+					<button type="button" className="ngwa-btn" onClick={onClose}>
+						Close
+					</button>
+				</div>
+			)}
+
+			{safeErr && (
+				<div className="ngwa-guard-body">
+					<div className="ngwa-guard-line ngwa-guard-err">
+						<b>oba_safe_delete failed.</b> {safeErr}
+					</div>
+				</div>
+			)}
+		</div>
 	);
 }
 

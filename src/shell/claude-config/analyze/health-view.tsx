@@ -27,9 +27,10 @@ const KIND_LABEL: Record<ClaudeStoreKind, string> = {
 	hook: 'Hooks',
 	mcp: 'MCPs',
 };
-const STATE_ORDER: ItemState[] = ['enabled', 'disabled', 'local', 'orphaned'];
+const STATE_ORDER: ItemState[] = ['enabled', 'linked', 'disabled', 'local', 'orphaned'];
 const STATE_LABEL: Record<ItemState, string> = {
 	enabled: 'enabled',
+	linked: 'linked',
 	disabled: 'disabled',
 	local: 'local',
 	orphaned: 'orphaned',

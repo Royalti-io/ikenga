@@ -1201,7 +1201,12 @@ pub async fn post_pkg_dev_reload(
     let pkg_id = body.pkg_id;
     let summary = tokio::task::spawn_blocking(move || kernel_arc.reload_pkg(&pkg_id))
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("reload join: {e}")))?
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("reload join: {e}"),
+            )
+        })?
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("{e:#}")))?;
     serde_json::to_value(&summary)
         .map(|v| Json(serde_json::json!({ "installed": v })))

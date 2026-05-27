@@ -232,8 +232,7 @@ mod tests {
         // The inherited $PATH must always be preserved (and come first) so a
         // user's explicit ordering still wins; we only append fallbacks.
         let built = build_augmented_path();
-        let built_set: std::collections::HashSet<PathBuf> =
-            std::env::split_paths(&built).collect();
+        let built_set: std::collections::HashSet<PathBuf> = std::env::split_paths(&built).collect();
         if let Some(inherited) = std::env::var_os("PATH") {
             for entry in std::env::split_paths(&inherited) {
                 assert!(

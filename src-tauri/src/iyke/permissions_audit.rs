@@ -8,11 +8,7 @@
 
 use std::sync::Arc;
 
-use axum::{
-    extract::Query,
-    http::StatusCode,
-    Extension, Json,
-};
+use axum::{extract::Query, http::StatusCode, Extension, Json};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::Row;

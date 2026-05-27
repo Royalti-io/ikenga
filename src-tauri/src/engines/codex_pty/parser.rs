@@ -67,14 +67,22 @@ use serde_json::{Map, Value};
 /// future-proofing without panicking on shape drift.
 #[derive(Debug, Clone)]
 pub enum ParsedEvent {
-    ThreadStarted { thread_id: String },
+    ThreadStarted {
+        thread_id: String,
+    },
     TurnStarted,
-    TurnCompleted { usage: Option<Value> },
-    TurnFailed { message: String },
+    TurnCompleted {
+        usage: Option<Value>,
+    },
+    TurnFailed {
+        message: String,
+    },
     /// Top-level non-fatal warning (codex emits `{"type":"error",...}` for
     /// recoverable issues — e.g. a single MCP tool failing without aborting
     /// the turn).
-    Error { message: String },
+    Error {
+        message: String,
+    },
     Item {
         phase: ItemPhase,
         kind: ItemKind,
@@ -391,10 +399,7 @@ fn extract_todo_items(item: &Map<String, Value>) -> Vec<TodoEntry> {
                             .and_then(Value::as_str)
                             .unwrap_or_default()
                             .to_string(),
-                        completed: o
-                            .get("completed")
-                            .and_then(Value::as_bool)
-                            .unwrap_or(false),
+                        completed: o.get("completed").and_then(Value::as_bool).unwrap_or(false),
                     })
                 })
                 .collect()
@@ -457,7 +462,14 @@ fn item_to_updates(phase: ItemPhase, kind: &ItemKind) -> Vec<SessionUpdate> {
             aggregated_output,
             exit_code,
             status,
-        } => command_execution_to_updates(phase, id, command, aggregated_output.as_deref(), *exit_code, status.as_deref()),
+        } => command_execution_to_updates(
+            phase,
+            id,
+            command,
+            aggregated_output.as_deref(),
+            *exit_code,
+            status.as_deref(),
+        ),
         ItemKind::FileChange {
             id,
             changes,
@@ -516,10 +528,13 @@ fn command_execution_to_updates(
     match phase {
         ItemPhase::Started => {
             let raw_input = Some(serde_json::json!({ "command": command }));
-            let tc = ToolCall::new(ToolCallId::new(id), format!("Bash: {}", truncate(command, 80)))
-                .kind(ToolKind::Execute)
-                .status(ToolCallStatus::Pending)
-                .raw_input(raw_input);
+            let tc = ToolCall::new(
+                ToolCallId::new(id),
+                format!("Bash: {}", truncate(command, 80)),
+            )
+            .kind(ToolKind::Execute)
+            .status(ToolCallStatus::Pending)
+            .raw_input(raw_input);
             vec![SessionUpdate::ToolCall(tc)]
         }
         ItemPhase::Updated | ItemPhase::Completed => {
@@ -557,7 +572,9 @@ fn file_change_to_updates(
     // path). Title = "Edit: N file(s)" with the path of the first as a
     // hint.
     let title = match changes.first() {
-        Some(first) if changes.len() == 1 => format!("{}: {}", verb_for_kind(&first.kind), first.path),
+        Some(first) if changes.len() == 1 => {
+            format!("{}: {}", verb_for_kind(&first.kind), first.path)
+        }
         Some(first) => format!(
             "{}: {} (+{} more)",
             verb_for_kind(&first.kind),
@@ -841,7 +858,10 @@ mod tests {
         let ev = parse_event(r#"{"type":"error","message":"network blip"}"#).unwrap();
         let updates = to_session_updates(&ev);
         assert_eq!(updates.len(), 1);
-        assert_eq!(extract_chunk_text(&updates[0]), Some("[warning] network blip"));
+        assert_eq!(
+            extract_chunk_text(&updates[0]),
+            Some("[warning] network blip")
+        );
     }
 
     #[test]
@@ -1055,7 +1075,8 @@ mod tests {
 
     #[test]
     fn unknown_item_type_logs_and_emits_no_updates() {
-        let line = r#"{"type":"item.completed","item":{"id":"x","item_type":"future_thing","data":1}}"#;
+        let line =
+            r#"{"type":"item.completed","item":{"id":"x","item_type":"future_thing","data":1}}"#;
         let ev = parse_event(line).unwrap();
         // Classifies as Other; produces no SessionUpdates.
         match &ev {
@@ -1070,8 +1091,7 @@ mod tests {
 
     #[test]
     fn inline_error_item_emits_warning_chunk() {
-        let line =
-            r#"{"type":"item.completed","item":{"id":"e1","item_type":"error","message":"tool fail"}}"#;
+        let line = r#"{"type":"item.completed","item":{"id":"e1","item_type":"error","message":"tool fail"}}"#;
         let ev = parse_event(line).unwrap();
         let updates = to_session_updates(&ev);
         assert_eq!(extract_chunk_text(&updates[0]), Some("[warning] tool fail"));
