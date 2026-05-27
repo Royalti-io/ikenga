@@ -76,7 +76,11 @@ export function RouteView({ paneId, path }: RouteViewProps) {
 	// pane's router. We compare to current location to avoid a redundant
 	// navigate on first mount.
 	useEffect(() => {
-		if (router.state.location.pathname !== path) {
+		// Compare against the full location (pathname + search). `path` carries the
+		// query (`?surface=…`, `?filter=…`); comparing pathname alone fires a
+		// redundant navigate on every query-only change.
+		const current = router.state.location.pathname + (router.state.location.searchStr ?? '');
+		if (current !== path) {
 			void router.navigate({ to: path });
 		}
 	}, [path, router]);

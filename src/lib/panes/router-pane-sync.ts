@@ -8,7 +8,7 @@
 // because the comparison is on the path string, not object identity.
 
 import { useEffect } from 'react';
-import { useRouter } from '@tanstack/react-router';
+import { useRouter, type AnyRouter } from '@tanstack/react-router';
 
 import { usePaneStore } from './pane-store';
 import { findLeaf } from './pane-reducer';
@@ -22,6 +22,16 @@ function focusedRoute(): string | null {
 	return view.path;
 }
 
+// The workspace router's current path *including* its query string. Pane paths
+// are stored as `pathname?search` (Ngwa threads `?surface=&scope=&kind=&sys=`,
+// Pkgs threads `?filter=`), so the sync must mirror search too — comparing or
+// propagating `pathname` alone silently strips those params and snaps deep-link
+// surfaces back to their defaults. `searchStr` is '' or '?k=v…'.
+function browserPath(router: AnyRouter): string {
+	const l = router.state.location;
+	return l.pathname + (l.searchStr ?? '');
+}
+
 export function useRouterPaneSync(): void {
 	const router = useRouter();
 
@@ -30,11 +40,11 @@ export function useRouterPaneSync(): void {
 		// Fires on popstate, deep links, manual router.navigate calls outside
 		// the pane scope.
 		const unsubA = router.subscribe('onResolved', () => {
-			const browserPath = router.state.location.pathname;
+			const browser = browserPath(router);
 			const paneRoute = focusedRoute();
 			if (paneRoute === null) return; // focused pane shows non-route
-			if (paneRoute === browserPath) return;
-			usePaneStore.getState().navigateFocused(browserPath);
+			if (paneRoute === browser) return;
+			usePaneStore.getState().navigateFocused(browser);
 		});
 
 		// Direction B: focused pane → workspace router.
@@ -47,7 +57,7 @@ export function useRouterPaneSync(): void {
 			const path = focusedRoute();
 			if (path === null) return;
 			if (path === lastSyncedPath) return;
-			if (router.state.location.pathname === path) {
+			if (browserPath(router) === path) {
 				lastSyncedPath = path;
 				return;
 			}
@@ -60,7 +70,7 @@ export function useRouterPaneSync(): void {
 		// fires for the case where the persisted focused pane has a route
 		// other than '/'.
 		const path = focusedRoute();
-		if (path && router.state.location.pathname !== path) {
+		if (path && browserPath(router) !== path) {
 			void router.navigate({ to: path, replace: true });
 		}
 
