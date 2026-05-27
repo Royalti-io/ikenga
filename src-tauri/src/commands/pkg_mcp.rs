@@ -62,8 +62,7 @@ async fn build_pkg_env_overlay(
         let app_data = app.path().app_data_dir().ok();
         let ws_env = app_data.as_ref().map(|d| d.join("workspace.env"));
         let root_path = root.as_ref().map(std::path::PathBuf::from);
-        let layered =
-            crate::env_files::build_layered_env(ws_env.as_deref(), root_path.as_deref());
+        let layered = crate::env_files::build_layered_env(ws_env.as_deref(), root_path.as_deref());
         for (k, v) in layered {
             env.insert(k, v);
         }
@@ -174,7 +173,10 @@ pub async fn pkg_mcp_call(
     if !trust_state.is_allowed() {
         return Ok(PkgMcpCallResult {
             ok: false,
-            error: Some(format!("{}", crate::pkg::trust::trust_required_error(&pkg_id))),
+            error: Some(format!(
+                "{}",
+                crate::pkg::trust::trust_required_error(&pkg_id)
+            )),
             result: None,
         });
     }

@@ -55,10 +55,98 @@ mod merge;
 /// (`enable_mcp_for` / `enable_hook_for`) routes to it by `ConfigFormat::Toml`.
 mod toml_merge;
 
+/// WP-02 Ọba registry index I/O — `store/registry.json` load/save/back-fill +
+/// the provenance overlay `claude_store_list` applies. Provenance is stored;
+/// dependents are computed live (WP-04), so the index is non-fatal if lost.
+mod registry;
+
 // ─── Wire types (mirror the frozen G-CONTRACT) ───────────────────────────────
 
+/// Origin of a primitive's canonical master. Frozen part of `G-SCHEMA` (Ọba
+/// registry). Mirrors the `source` union on `ClaudeStoreEntry` in `tauri-cmd.ts`.
+/// Defaults to `Local` so a pre-registry entry deserializes as a plain copy-vault
+/// entry (back-compat).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ProvenanceSource {
+    /// A plain copy-vault entry — today's default; no remote.
+    #[default]
+    Local,
+    /// Cloned from a git remote (`url` + resolved `version` = commit SHA).
+    Git,
+    /// Installed via npx/npm (`url` = spec, `version` = resolved version).
+    Npx,
+    /// Installed from the recommended catalog (resolves to git/npx underneath).
+    Catalog,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+/// Provenance for a store entry: where its canonical master came from + whether
+/// the shell owns its lifecycle. The new information a copy-vault lacks; the
+/// freeze gate `G-SCHEMA` (see `plans/oba-registry/drafts/registry-schema.md`).
+///
+/// **Dependents are deliberately NOT stored here** — they are computed live from
+/// the filesystem by the scanner (a stored list can drift; the symlink graph is
+/// truth), so the safe-delete guard works even if `registry.json` is lost.
+///
+/// Flattened onto `ClaudeStoreEntry` so the wire JSON carries the fields inline.
+/// Every field has a serde default, so an entry serialized before the registry
+/// existed deserializes as a synthesized `local`, shell-managed entry.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RegistryProvenance {
+    /// Origin of the canonical master.
+    #[serde(default)]
+    pub source: ProvenanceSource,
+    /// git remote URL | npm spec | catalog id; `None` for local.
+    #[serde(default)]
+    pub url: Option<String>,
+    /// Requested git tag/branch (resolves to `version`); `None` otherwise.
+    #[serde(rename = "ref", default)]
+    pub r#ref: Option<String>,
+    /// Resolved: git commit SHA | npm version; `None` for local.
+    #[serde(default)]
+    pub version: Option<String>,
+    /// Absolute path to the real master — may be in-vault OR external/in-place.
+    /// Empty only on a legacy entry deserialized without provenance; the registry
+    /// load normalizes empty → the store path (WP-02).
+    #[serde(rename = "canonicalPath", default)]
+    pub canonical_path: String,
+    /// `true` = master lives in the Ọba vault and the shell owns its lifecycle
+    /// (deletable). `false` = external master kept in place — NEVER
+    /// `remove_dir_all`'d by the safe-delete guard.
+    #[serde(default = "default_true")]
+    pub managed: bool,
+    #[serde(rename = "installedAt", default)]
+    pub installed_at: Option<String>,
+    #[serde(rename = "updatedAt", default)]
+    pub updated_at: Option<String>,
+}
+
+impl RegistryProvenance {
+    /// Synthesized provenance for a plain copy-vault entry (today's default): the
+    /// master is the store copy, shell-managed, no remote. Used at every
+    /// in-code construction site until WP-02's registry load supplies real
+    /// provenance from `store/registry.json`.
+    pub fn local(canonical_path: String) -> Self {
+        Self {
+            source: ProvenanceSource::Local,
+            url: None,
+            r#ref: None,
+            version: None,
+            canonical_path,
+            managed: true,
+            installed_at: None,
+            updated_at: None,
+        }
+    }
+}
+
 /// A single catalog entry in the central store (Ọba). Mirrors
-/// `ClaudeStoreEntry` in `tauri-cmd.ts`.
+/// `ClaudeStoreEntry` in `tauri-cmd.ts`. Carries `RegistryProvenance` flattened
+/// inline (`G-SCHEMA`).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ClaudeStoreEntry {
     pub kind: String,
@@ -70,6 +158,30 @@ pub struct ClaudeStoreEntry {
     pub modified_ms: i64,
     #[serde(rename = "enabledIn")]
     pub enabled_in: Vec<String>,
+    /// Provenance (`G-SCHEMA`), flattened inline on the wire. Defaults to a
+    /// synthesized `local` entry when absent (back-compat).
+    #[serde(flatten)]
+    pub provenance: RegistryProvenance,
+}
+
+/// On-disk shape of the registry index `store/registry.json` (`G-SCHEMA`). The
+/// single JSON sidecar that turns the copy-vault into an index. Load/save +
+/// back-fill land in WP-02 (`claude_store/registry.rs`); the shape is frozen
+/// here so consumers can bind to it.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RegistryFile {
+    #[serde(rename = "schemaVersion")]
+    pub schema_version: u32,
+    pub entries: Vec<ClaudeStoreEntry>,
+}
+
+impl Default for RegistryFile {
+    fn default() -> Self {
+        Self {
+            schema_version: 1,
+            entries: Vec::new(),
+        }
+    }
 }
 
 /// Result of a symlink-farm mutation. Mirrors `ClaudeStoreMutation`.
@@ -321,6 +433,133 @@ fn remove_primitive(path: &Path, kind: Kind) -> Result<(), String> {
     }
 }
 
+// ─── WP-04 — dependent-aware safe delete (the incident guardrail) ─────────────
+
+/// The pure safe-delete decision. No filesystem access — the three inputs that
+/// determine whether a delete is safe, so the policy is unit-tested directly.
+/// This is the rule that makes the `groundwork` incident impossible to repeat:
+/// a real master is never `remove_dir_all`'d when it is external or has live
+/// dependents.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeleteVerdict {
+    /// `path` is a symlink — unlinking one placement is always safe (`remove_file`
+    /// never follows into the master).
+    UnlinkPlacement,
+    /// `path` is a vault-managed master with zero live dependents — safe to
+    /// hard-delete.
+    HardDelete,
+    /// `path` is an external master (`managed:false`) — kept in place; the shell
+    /// never deletes it. Refuse.
+    RefuseExternal,
+    /// `path` is a master with live dependents — refuse and offer relink.
+    RefuseHasDependents,
+}
+
+/// Decide the verdict from the three load-bearing facts. Order matters: a
+/// symlink is always just a placement; only a *real* master can be refused.
+pub(crate) fn delete_verdict(
+    is_symlink: bool,
+    managed: bool,
+    dependent_count: usize,
+) -> DeleteVerdict {
+    if is_symlink {
+        return DeleteVerdict::UnlinkPlacement;
+    }
+    if !managed {
+        return DeleteVerdict::RefuseExternal;
+    }
+    if dependent_count > 0 {
+        return DeleteVerdict::RefuseHasDependents;
+    }
+    DeleteVerdict::HardDelete
+}
+
+/// Outcome of a guarded delete, surfaced to the FE so it can render the inline
+/// safe-delete guard (D-01). On a refusal, `dependents` carries the live
+/// dependent paths the relink chooser offers to re-point.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SafeDeleteOutcome {
+    /// `unlinked` | `deleted` | `refused_external` | `refused_dependents`.
+    pub verdict: String,
+    pub removed: bool,
+    pub dependents: Vec<String>,
+    pub message: String,
+}
+
+/// Perform a guarded delete of `path` (a placement symlink OR a real master).
+/// `managed` + `dependents` come from the registry + the live dependents scan.
+/// NEVER reaches `remove_dir_all` on a real master that is external or has
+/// dependents — the verdict gates that. Idempotent on a missing path.
+pub(crate) fn guarded_delete(
+    path: &Path,
+    kind: Kind,
+    managed: bool,
+    dependents: &[PathBuf],
+) -> Result<SafeDeleteOutcome, String> {
+    let is_symlink = match std::fs::symlink_metadata(path) {
+        Ok(m) => m.file_type().is_symlink(),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(SafeDeleteOutcome {
+                verdict: "deleted".into(),
+                removed: false,
+                dependents: Vec::new(),
+                message: "already absent".into(),
+            });
+        }
+        Err(e) => return Err(format!("lstat {}: {e}", path.display())),
+    };
+    match delete_verdict(is_symlink, managed, dependents.len()) {
+        DeleteVerdict::UnlinkPlacement => {
+            remove_primitive(path, kind)?;
+            Ok(SafeDeleteOutcome {
+                verdict: "unlinked".into(),
+                removed: true,
+                dependents: Vec::new(),
+                message: "removed one placement; master untouched".into(),
+            })
+        }
+        DeleteVerdict::HardDelete => {
+            remove_primitive(path, kind)?;
+            Ok(SafeDeleteOutcome {
+                verdict: "deleted".into(),
+                removed: true,
+                dependents: Vec::new(),
+                message: "deleted vault-managed master (no dependents)".into(),
+            })
+        }
+        DeleteVerdict::RefuseExternal => Ok(SafeDeleteOutcome {
+            verdict: "refused_external".into(),
+            removed: false,
+            dependents: dependents.iter().map(|p| p.display().to_string()).collect(),
+            message: "external master kept in place — never deleted here".into(),
+        }),
+        DeleteVerdict::RefuseHasDependents => Ok(SafeDeleteOutcome {
+            verdict: "refused_dependents".into(),
+            removed: false,
+            dependents: dependents.iter().map(|p| p.display().to_string()).collect(),
+            message: format!(
+                "{} live dependent(s) resolve into this master — relink them first",
+                dependents.len()
+            ),
+        }),
+    }
+}
+
+/// Atomically re-point a dependent symlink at a new master (temp link + rename
+/// over the existing link). Used by relink-all before forgetting an external
+/// master. Refuses to touch a non-symlink (we never overwrite real files).
+pub(crate) fn relink_one(link: &Path, new_target: &Path) -> Result<(), String> {
+    let meta =
+        std::fs::symlink_metadata(link).map_err(|e| format!("lstat {}: {e}", link.display()))?;
+    if !meta.file_type().is_symlink() {
+        return Err(format!(
+            "refusing to relink {}: not a symlink (would overwrite a real path)",
+            link.display()
+        ));
+    }
+    make_symlink(new_target, link)
+}
+
 /// Create a symlink at `link` pointing to `target`, replacing any existing
 /// node atomically (build the link at a temp path, then rename over).
 fn make_symlink(target: &Path, link: &Path) -> Result<(), String> {
@@ -408,13 +647,17 @@ fn list_store_kind(store: &Path, kind: Kind) -> Vec<ClaudeStoreEntry> {
         if name.starts_with('.') {
             continue;
         }
+        let store_path = canonical.to_string_lossy().to_string();
         out.push(ClaudeStoreEntry {
             kind: kind.as_str().to_string(),
             name,
-            store_path: canonical.to_string_lossy().to_string(),
+            store_path: store_path.clone(),
             description: read_description(&canonical, kind),
             modified_ms: mtime_ms(&canonical),
             enabled_in: Vec::new(),
+            // Synthesized local provenance; WP-02's registry load overlays real
+            // provenance from store/registry.json where present.
+            provenance: RegistryProvenance::local(store_path),
         });
     }
     out.sort_by(|a, b| a.name.cmp(&b.name));
@@ -776,13 +1019,16 @@ fn import_core(
         }
         atomic_copy_file(source, &dest)?;
     }
+    let store_path = dest.to_string_lossy().to_string();
     Ok(ClaudeStoreEntry {
         kind: kind.as_str().to_string(),
         name: name.to_string(),
-        store_path: dest.to_string_lossy().to_string(),
+        store_path: store_path.clone(),
         description: read_description(&dest, kind),
         modified_ms: mtime_ms(&dest),
         enabled_in: Vec::new(),
+        // A fresh import is a shell-managed local copy in the vault.
+        provenance: RegistryProvenance::local(store_path),
     })
 }
 
@@ -1546,6 +1792,11 @@ pub async fn claude_store_list(
         }
     }
 
+    // Overlay stored provenance from store/registry.json onto the scanned
+    // entries. A missing/corrupt index degrades to empty (load never fails), so
+    // every entry simply keeps its synthesized-`local` provenance.
+    let prov_map = registry::provenance_map(&registry::load(&store));
+
     let mut out = Vec::new();
     for k in kinds {
         if !k.is_file_based() {
@@ -1558,6 +1809,7 @@ pub async fn claude_store_list(
                 .filter(|(_, claude)| is_enabled_in(claude, &store, k, &entry.name))
                 .map(|(scope, _)| scope.clone())
                 .collect();
+            registry::overlay_provenance(&mut entry, &prov_map);
             out.push(entry);
         }
     }
@@ -2075,11 +2327,375 @@ pub async fn claude_primitive_copy_batch(
     Ok(NgwaCopyBatchResult { rows })
 }
 
+// ─── WP-04 — registry-aware safe-delete command layer ─────────────────────────
+
+/// Per-link result of a relink-all (`oba_relink_dependents`). Mirrors
+/// `ObaRelinkRow` in `tauri-cmd.ts`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RelinkRow {
+    pub link: String,
+    pub ok: bool,
+    pub error: Option<String>,
+}
+
+/// Candidate dirs (across scope roots × engines) where a dependent symlink for
+/// `kind` could live. Pure path math mirroring the `EngineLayout` location
+/// templates (`engine_layout.rs`); `scan_live_dependents` then checks which
+/// entries actually resolve into the master. Non-existent dirs are harmless —
+/// the scan skips them.
+fn dependent_search_dirs(scope_roots: &[PathBuf], kind: Kind) -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    for root in scope_roots {
+        match kind {
+            Kind::Skill => {
+                dirs.push(root.join(".claude/skills"));
+                dirs.push(root.join(".agents/skills")); // cross-tool (Gemini + Codex)
+                dirs.push(root.join(".gemini/skills"));
+            }
+            Kind::Agent => {
+                dirs.push(root.join(".claude/agents"));
+                dirs.push(root.join(".gemini/agents"));
+                dirs.push(root.join(".codex/agents"));
+            }
+            Kind::Command => {
+                dirs.push(root.join(".claude/commands"));
+                dirs.push(root.join(".gemini/commands"));
+                dirs.push(root.join(".codex/prompts"));
+            }
+            // hook/mcp are merge-based — no symlink placements to depend on a master.
+            Kind::Hook | Kind::Mcp => {}
+        }
+    }
+    dirs
+}
+
+/// Every scope root the dependents scan should sweep: the workspace root, each
+/// project root, and the user home (for user-tier `~/.claude`, `~/.agents`, …).
+async fn all_scope_roots(db: &Arc<PaDb>) -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    if let Ok(r) = resolve_scope_root_dir(db, "workspace").await {
+        roots.push(r);
+    }
+    if let Ok(pool) = db.ensure_pool().await {
+        if let Ok(projects) = crate::commands::projects::list_projects(&pool, false).await {
+            for p in projects {
+                if let Some(root) = p.root_path.as_deref() {
+                    if let Ok(x) = expand(root) {
+                        roots.push(x);
+                    }
+                }
+            }
+        }
+    }
+    if let Ok(home) = user_home_dir() {
+        roots.push(home);
+    }
+    roots
+}
+
+/// Resolve the canonical master path + `managed` for (kind, name): the registry
+/// record if present, else a synthesized `local` entry at the store path.
+fn resolve_canonical(store: &Path, kind: Kind, name: &str) -> (PathBuf, bool) {
+    let map = registry::provenance_map(&registry::load(store));
+    if let Some(p) = map.get(&(kind.as_str().to_string(), name.to_string())) {
+        return (PathBuf::from(&p.canonical_path), p.managed);
+    }
+    let canonical = store_path_for(store, kind, name).unwrap_or_default();
+    (canonical, true) // a plain vault entry is managed
+}
+
+/// WP-04: live dependents of (kind, name)'s canonical master, for the UI's
+/// dependents list. Computed fresh from disk — never a stored list.
+#[tauri::command]
+pub async fn oba_dependents(
+    db: State<'_, Arc<PaDb>>,
+    kind: String,
+    name: String,
+) -> Result<Vec<String>, String> {
+    let k = Kind::parse(&kind)?;
+    validate_name(&name)?;
+    let store = store_root().ok_or_else(|| "cannot resolve store root".to_string())?;
+    let (canonical, _managed) = resolve_canonical(&store, k, &name);
+    let dirs = dependent_search_dirs(&all_scope_roots(&db).await, k);
+    Ok(
+        crate::commands::claude_config::scan_live_dependents(&canonical, &dirs)
+            .into_iter()
+            .map(|p| p.display().to_string())
+            .collect(),
+    )
+}
+
+/// WP-04: guarded delete of (kind, name)'s canonical master. Refuses external
+/// masters and masters with live dependents; hard-deletes only a managed master
+/// with zero dependents. NEVER `remove_dir_all`s out from under dependents (the
+/// incident guardrail). On a successful hard-delete, drops the registry record.
+#[tauri::command]
+pub async fn oba_safe_delete(
+    db: State<'_, Arc<PaDb>>,
+    kind: String,
+    name: String,
+) -> Result<SafeDeleteOutcome, String> {
+    let k = Kind::parse(&kind)?;
+    validate_name(&name)?;
+    let store = store_root().ok_or_else(|| "cannot resolve store root".to_string())?;
+    let (canonical, managed) = resolve_canonical(&store, k, &name);
+    let dirs = dependent_search_dirs(&all_scope_roots(&db).await, k);
+    let deps = crate::commands::claude_config::scan_live_dependents(&canonical, &dirs);
+    let outcome = guarded_delete(&canonical, k, managed, &deps)?;
+    if outcome.removed {
+        let mut rf = registry::load(&store);
+        rf.entries
+            .retain(|e| !(e.kind == k.as_str() && e.name == name));
+        let _ = registry::save(&store, &rf);
+    }
+    Ok(outcome)
+}
+
+/// WP-04: re-point dependent symlinks at a new master (relink-all), returning a
+/// per-link result in request order. Used before forgetting an external master.
+#[tauri::command]
+#[allow(non_snake_case)]
+pub async fn oba_relink_dependents(
+    dependents: Vec<String>,
+    newMaster: String,
+) -> Result<Vec<RelinkRow>, String> {
+    let target = expand(&newMaster).map_err(|e| e.to_string())?;
+    if !target.exists() {
+        return Err(format!("new master does not exist: {newMaster}"));
+    }
+    Ok(dependents
+        .iter()
+        .map(|d| {
+            let link = PathBuf::from(d);
+            match relink_one(&link, &target) {
+                Ok(()) => RelinkRow {
+                    link: d.clone(),
+                    ok: true,
+                    error: None,
+                },
+                Err(e) => RelinkRow {
+                    link: d.clone(),
+                    ok: false,
+                    error: Some(e),
+                },
+            }
+        })
+        .collect())
+}
+
 // ─── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ─── G-SCHEMA (WP-01) — registry provenance contract ─────────────────────
+
+    #[test]
+    fn provenance_back_compat_deserializes_legacy_entry() {
+        // A ClaudeStoreEntry serialized BEFORE the registry existed (no
+        // provenance keys) must deserialize as a synthesized local, managed
+        // entry — not fail. This is the back-compat half of G-SCHEMA's DoD.
+        let legacy = r#"{
+            "kind":"skill","name":"groundwork","storePath":"/s/skills/groundwork",
+            "description":null,"modifiedMs":0,"enabledIn":[]
+        }"#;
+        let e: ClaudeStoreEntry = serde_json::from_str(legacy).unwrap();
+        assert_eq!(e.provenance.source, ProvenanceSource::Local);
+        assert!(e.provenance.managed, "legacy entries default to managed");
+        assert!(e.provenance.url.is_none());
+        assert!(e.provenance.r#ref.is_none());
+        // canonical_path is empty on legacy data; WP-02's load normalizes it.
+        assert_eq!(e.provenance.canonical_path, "");
+    }
+
+    #[test]
+    fn provenance_serializes_with_camelcase_inline_keys() {
+        // Field names + flatten must match the tauri-cmd.ts mirror exactly.
+        let e = ClaudeStoreEntry {
+            kind: "skill".into(),
+            name: "huashu".into(),
+            store_path: "/s/skills/huashu".into(),
+            description: None,
+            modified_ms: 0,
+            enabled_in: vec![],
+            provenance: RegistryProvenance {
+                source: ProvenanceSource::Git,
+                url: Some("github:obra/huashu".into()),
+                r#ref: Some("v2.1.0".into()),
+                version: Some("abc123".into()),
+                canonical_path: "/s/skills/huashu".into(),
+                managed: true,
+                installed_at: None,
+                updated_at: None,
+            },
+        };
+        let v: serde_json::Value = serde_json::to_value(&e).unwrap();
+        // flattened inline (not nested under "provenance")
+        assert_eq!(v["source"], "git");
+        assert_eq!(v["ref"], "v2.1.0");
+        assert_eq!(v["canonicalPath"], "/s/skills/huashu");
+        assert_eq!(v["managed"], true);
+        assert!(
+            v.get("provenance").is_none(),
+            "provenance must be flattened"
+        );
+        // round-trips
+        let back: ClaudeStoreEntry = serde_json::from_value(v).unwrap();
+        assert_eq!(back, e);
+    }
+
+    #[test]
+    fn registry_file_defaults_to_v1_empty() {
+        let rf = RegistryFile::default();
+        assert_eq!(rf.schema_version, 1);
+        assert!(rf.entries.is_empty());
+        let v: serde_json::Value = serde_json::to_value(&rf).unwrap();
+        assert_eq!(v["schemaVersion"], 1);
+    }
+
+    // ─── WP-04 — dependent-aware safe delete (incident guardrail) ─────────────
+
+    #[test]
+    fn delete_verdict_policy_table() {
+        use DeleteVerdict::*;
+        // a symlink is always just a placement, whatever else is true
+        assert_eq!(delete_verdict(true, true, 0), UnlinkPlacement);
+        assert_eq!(delete_verdict(true, false, 9), UnlinkPlacement);
+        // a real external master is never hard-deleted
+        assert_eq!(delete_verdict(false, false, 0), RefuseExternal);
+        assert_eq!(delete_verdict(false, false, 3), RefuseExternal);
+        // a real managed master with dependents is refused (relink first)
+        assert_eq!(delete_verdict(false, true, 1), RefuseHasDependents);
+        // only a managed master with zero dependents may be hard-deleted
+        assert_eq!(delete_verdict(false, true, 0), HardDelete);
+    }
+
+    /// Lay out a real master dir + `n` symlinks (across fake scope dirs) that
+    /// resolve into it. Returns (root, master, search_dirs, link_paths).
+    fn dependents_fixture(tag: &str, n: usize) -> (PathBuf, PathBuf, Vec<PathBuf>, Vec<PathBuf>) {
+        let root = unique_tmp(tag);
+        let master = root.join("ikenga/.claude/skills/groundwork");
+        std::fs::create_dir_all(&master).unwrap();
+        std::fs::write(master.join("SKILL.md"), "---\nname: groundwork\n---\n").unwrap();
+        let mut search_dirs = Vec::new();
+        let mut links = Vec::new();
+        for i in 0..n {
+            let dir = root.join(format!("scope{i}/skills"));
+            std::fs::create_dir_all(&dir).unwrap();
+            let link = dir.join("groundwork");
+            std::os::unix::fs::symlink(&master, &link).unwrap();
+            search_dirs.push(dir);
+            links.push(link);
+        }
+        (root, master, search_dirs, links)
+    }
+
+    #[test]
+    fn incident_regression_external_master_with_dependents_is_never_wiped() {
+        // The exact shape of the data-loss incident: an EXTERNAL master
+        // (managed:false) with 3 live dependent symlinks. Deleting it must
+        // REFUSE — no remove_dir_all — and leave the master + every symlink
+        // intact. This is the test that must pass before any UI wires to delete.
+        let (root, master, search_dirs, links) = dependents_fixture("incident", 3);
+
+        let deps = crate::commands::claude_config::scan_live_dependents(&master, &search_dirs);
+        assert_eq!(deps.len(), 3, "all 3 symlinks resolve into the master");
+
+        let outcome = guarded_delete(&master, Kind::Skill, /*managed=*/ false, &deps).unwrap();
+        assert_eq!(outcome.verdict, "refused_external");
+        assert!(!outcome.removed);
+        assert_eq!(outcome.dependents.len(), 3);
+
+        // The master and every dependent must STILL be on disk + resolving.
+        assert!(master.join("SKILL.md").exists(), "master must survive");
+        for l in &links {
+            assert!(
+                std::fs::canonicalize(l).is_ok(),
+                "dependent {} must still resolve",
+                l.display()
+            );
+        }
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn guarded_delete_managed_master_with_dependents_refuses_relink() {
+        let (root, master, search_dirs, _links) = dependents_fixture("managed_deps", 2);
+        let deps = crate::commands::claude_config::scan_live_dependents(&master, &search_dirs);
+        let outcome = guarded_delete(&master, Kind::Skill, true, &deps).unwrap();
+        assert_eq!(outcome.verdict, "refused_dependents");
+        assert!(!outcome.removed);
+        assert!(master.exists(), "master survives a refused delete");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn guarded_delete_unlinks_a_placement_symlink_leaving_master() {
+        let (root, master, _sd, links) = dependents_fixture("unlink", 1);
+        let link = &links[0];
+        // deleting the SYMLINK (a placement) is always safe regardless of managed
+        let outcome = guarded_delete(link, Kind::Skill, false, &[]).unwrap();
+        assert_eq!(outcome.verdict, "unlinked");
+        assert!(outcome.removed);
+        assert!(
+            std::fs::symlink_metadata(link).is_err(),
+            "placement removed"
+        );
+        assert!(master.join("SKILL.md").exists(), "master untouched");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn guarded_delete_hard_deletes_managed_master_with_no_dependents() {
+        let (root, master, _sd, _l) = dependents_fixture("hard", 0);
+        let outcome = guarded_delete(&master, Kind::Skill, true, &[]).unwrap();
+        assert_eq!(outcome.verdict, "deleted");
+        assert!(outcome.removed);
+        assert!(!master.exists(), "managed master with no deps is removed");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn dependent_search_dirs_cover_cross_engine_placements() {
+        let root = PathBuf::from("/w");
+        // skills: claude + cross-tool .agents + gemini
+        let s = dependent_search_dirs(&[root.clone()], Kind::Skill);
+        assert!(s.contains(&root.join(".claude/skills")));
+        assert!(s.contains(&root.join(".agents/skills")));
+        // agents: per-engine
+        let a = dependent_search_dirs(&[root.clone()], Kind::Agent);
+        assert!(a.contains(&root.join(".claude/agents")));
+        assert!(a.contains(&root.join(".codex/agents")));
+        // merge-based kinds have no symlink placements
+        assert!(dependent_search_dirs(&[root], Kind::Mcp).is_empty());
+    }
+
+    #[test]
+    fn relink_one_repoints_atomically_and_refuses_real_paths() {
+        let root = unique_tmp("relink");
+        let master_a = root.join("a");
+        let master_b = root.join("b");
+        std::fs::create_dir_all(&master_a).unwrap();
+        std::fs::create_dir_all(&master_b).unwrap();
+        let link = root.join("scope/groundwork");
+        std::fs::create_dir_all(link.parent().unwrap()).unwrap();
+        std::os::unix::fs::symlink(&master_a, &link).unwrap();
+
+        relink_one(&link, &master_b).unwrap();
+        assert_eq!(
+            std::fs::canonicalize(&link).unwrap(),
+            std::fs::canonicalize(&master_b).unwrap(),
+            "link now resolves to the new master"
+        );
+        assert!(master_a.exists(), "old master untouched by relink");
+
+        // never overwrite a real path
+        let real = root.join("real");
+        std::fs::create_dir_all(&real).unwrap();
+        assert!(relink_one(&real, &master_b).is_err(), "refuses non-symlink");
+        std::fs::remove_dir_all(&root).ok();
+    }
 
     fn unique_tmp(tag: &str) -> PathBuf {
         let mut p = std::env::temp_dir();

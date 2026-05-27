@@ -189,13 +189,8 @@ impl PermissionsRegistry {
         // 2026-05-04 note in `fs_read_permissions`). The dev-mode spike
         // (`commands/spike.rs`) grants one perm per cap and works cleanly;
         // mirror that exactly.
-        let cap_ids = self.add_fs_capabilities(
-            pkg,
-            "fs.read",
-            idx,
-            &path_str,
-            fs_read_permissions(),
-        )?;
+        let cap_ids =
+            self.add_fs_capabilities(pkg, "fs.read", idx, &path_str, fs_read_permissions())?;
         Ok(GrantedScope {
             pkg_id: pkg.manifest.id.clone(),
             scope_kind: "fs.read".into(),
@@ -207,13 +202,8 @@ impl PermissionsRegistry {
     fn add_fs_write(&self, pkg: &Package, idx: usize, raw: &str) -> Result<GrantedScope> {
         let path = self.resolve_path(pkg, raw)?;
         let path_str = path.display().to_string();
-        let cap_ids = self.add_fs_capabilities(
-            pkg,
-            "fs.write",
-            idx,
-            &path_str,
-            fs_write_permissions(),
-        )?;
+        let cap_ids =
+            self.add_fs_capabilities(pkg, "fs.write", idx, &path_str, fs_write_permissions())?;
         Ok(GrantedScope {
             pkg_id: pkg.manifest.id.clone(),
             scope_kind: "fs.write".into(),

@@ -139,10 +139,7 @@ pub(crate) fn dispatch_envelope(value: &Value, out: &mut Vec<ChatEvent>) {
                     .get("tool_name")
                     .and_then(Value::as_str)
                     .map(str::to_string),
-                tool_input: req
-                    .get("input")
-                    .or_else(|| req.get("tool_input"))
-                    .cloned(),
+                tool_input: req.get("input").or_else(|| req.get("tool_input")).cloned(),
                 tool_use_id: req
                     .get("tool_use_id")
                     .and_then(Value::as_str)

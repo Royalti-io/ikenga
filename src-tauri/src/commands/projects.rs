@@ -1093,7 +1093,8 @@ fn parse_artifact_row(path: &std::path::Path) -> Option<ArtifactRow> {
         }
     };
 
-    let manifest = extract_manifest_json(&raw).and_then(|json| serde_json::from_str::<serde_json::Value>(&json).ok());
+    let manifest = extract_manifest_json(&raw)
+        .and_then(|json| serde_json::from_str::<serde_json::Value>(&json).ok());
     let (name, kind, version, starred, has_manifest) = match manifest {
         Some(v) => (
             v.get("name")

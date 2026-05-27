@@ -60,8 +60,9 @@ impl ClaudeCodeAdapter {
     }
 
     fn claude_home() -> Result<PathBuf> {
-        let home = crate::platform::home_dir()
-            .ok_or_else(|| anyhow!("could not resolve home directory (HOME / USERPROFILE unset)"))?;
+        let home = crate::platform::home_dir().ok_or_else(|| {
+            anyhow!("could not resolve home directory (HOME / USERPROFILE unset)")
+        })?;
         Ok(home.join(".claude"))
     }
 
@@ -90,11 +91,7 @@ impl ClaudeCodeAdapter {
     ///   - target points at source already → `skipped`.
     ///   - target is a stale symlink → remove + replace, emit warning.
     ///   - target is not a symlink → error, do not clobber.
-    fn install_asset_folder(
-        kind: &str,
-        source: &Path,
-        pkg_slug: &str,
-    ) -> Result<InstallReport> {
+    fn install_asset_folder(kind: &str, source: &Path, pkg_slug: &str) -> Result<InstallReport> {
         if !source.is_dir() {
             return Err(anyhow!(
                 "`{kind}` source `{}` is not a directory",
@@ -102,8 +99,7 @@ impl ClaudeCodeAdapter {
             ));
         }
         let parent = Self::assets_dir(kind)?;
-        std::fs::create_dir_all(&parent)
-            .with_context(|| format!("mkdir {}", parent.display()))?;
+        std::fs::create_dir_all(&parent).with_context(|| format!("mkdir {}", parent.display()))?;
         let target = parent.join(pkg_slug);
 
         let mut report = InstallReport::default();
@@ -150,10 +146,7 @@ impl ClaudeCodeAdapter {
         match std::fs::symlink_metadata(&target) {
             Ok(meta) if meta.file_type().is_symlink() => {
                 if let Err(e) = std::fs::remove_file(&target) {
-                    log::warn!(
-                        "[engine.claude-code] rm symlink {}: {e}",
-                        target.display()
-                    );
+                    log::warn!("[engine.claude-code] rm symlink {}: {e}", target.display());
                 }
             }
             Ok(_) => {
@@ -163,10 +156,7 @@ impl ClaudeCodeAdapter {
                 );
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Err(e) => log::warn!(
-                "[engine.claude-code] stat {}: {e}",
-                target.display()
-            ),
+            Err(e) => log::warn!("[engine.claude-code] stat {}: {e}", target.display()),
         }
         Ok(())
     }
@@ -425,7 +415,12 @@ mod tests {
     use std::collections::HashMap;
 
     /// Build a test MCP server. Lifecycle defaults to per-call.
-    fn server(name: &str, command: &str, env: &[(&str, &str)], lifecycle: Option<&str>) -> McpServer {
+    fn server(
+        name: &str,
+        command: &str,
+        env: &[(&str, &str)],
+        lifecycle: Option<&str>,
+    ) -> McpServer {
         let mut env_map = HashMap::new();
         for (k, v) in env {
             env_map.insert((*k).to_string(), (*v).to_string());
@@ -449,7 +444,9 @@ mod tests {
         let _h = HomeGuard::new();
         let adapter = ClaudeCodeAdapter::new();
         let s = server("royalti-cms", "node", &[], None);
-        let report = adapter.register_mcp_server(&s, "com.example.foo", "com-example-foo").unwrap();
+        let report = adapter
+            .register_mcp_server(&s, "com.example.foo", "com-example-foo")
+            .unwrap();
         assert_eq!(report.wrote.len(), 1);
         assert!(report.skipped.is_empty());
         assert!(report.warnings.is_empty());
@@ -461,7 +458,10 @@ mod tests {
         let entry = v.get("mcpServers").unwrap().get(key).unwrap();
         assert_eq!(entry.get("type").unwrap(), "stdio");
         assert_eq!(entry.get("command").unwrap(), "node");
-        assert!(entry.get("disabled").is_none(), "per-call should NOT have disabled");
+        assert!(
+            entry.get("disabled").is_none(),
+            "per-call should NOT have disabled"
+        );
     }
 
     #[test]
@@ -470,10 +470,13 @@ mod tests {
         let _h = HomeGuard::new();
         let adapter = ClaudeCodeAdapter::new();
         let s = server("watcher", "bun", &[], Some("long-lived"));
-        adapter.register_mcp_server(&s, "com.example.bar", "com-example-bar").unwrap();
+        adapter
+            .register_mcp_server(&s, "com.example.bar", "com-example-bar")
+            .unwrap();
         let raw = std::fs::read_to_string(ClaudeCodeAdapter::settings_path().unwrap()).unwrap();
         let v: Value = serde_json::from_str(&raw).unwrap();
-        let entry = v.get("mcpServers")
+        let entry = v
+            .get("mcpServers")
             .unwrap()
             .get("ikenga.com-example-bar.watcher")
             .unwrap();
@@ -548,8 +551,14 @@ mod tests {
         let raw2 = std::fs::read_to_string(&path).unwrap();
         let v: Value = serde_json::from_str(&raw2).unwrap();
         let servers = v.get("mcpServers").unwrap();
-        assert!(servers.get("ikenga.p.svc").is_none(), "our key should be gone");
-        assert!(servers.get("user-thing").is_some(), "user entry should remain");
+        assert!(
+            servers.get("ikenga.p.svc").is_none(),
+            "our key should be gone"
+        );
+        assert!(
+            servers.get("user-thing").is_some(),
+            "user entry should remain"
+        );
     }
 
     #[test]
@@ -629,10 +638,7 @@ mod tests {
             .install_skills(src.path(), "com.test.x", "com-test-x")
             .unwrap_err();
         let msg = format!("{err:#}");
-        assert!(
-            msg.contains("is not a symlink"),
-            "unexpected error: {msg}"
-        );
+        assert!(msg.contains("is not a symlink"), "unexpected error: {msg}");
         // The user content is still there.
         assert!(target.join("user-file.md").exists());
     }
@@ -677,7 +683,9 @@ mod tests {
         let adapter = ClaudeCodeAdapter::new();
 
         // Missing target — no-op.
-        adapter.uninstall_skills("com.test.x", "com-test-x").unwrap();
+        adapter
+            .uninstall_skills("com.test.x", "com-test-x")
+            .unwrap();
 
         // Install then uninstall removes the symlink.
         let src = scratch_source();
@@ -686,7 +694,9 @@ mod tests {
             .unwrap();
         let target = ClaudeCodeAdapter::asset_target("skills", "com-test-x").unwrap();
         assert!(std::fs::symlink_metadata(&target).is_ok());
-        adapter.uninstall_skills("com.test.x", "com-test-x").unwrap();
+        adapter
+            .uninstall_skills("com.test.x", "com-test-x")
+            .unwrap();
         assert!(
             std::fs::symlink_metadata(&target)
                 .err()
@@ -698,7 +708,12 @@ mod tests {
         // Non-symlink at target — warn and skip, do not remove.
         std::fs::create_dir_all(&target).unwrap();
         std::fs::write(target.join("user-file.md"), "user").unwrap();
-        adapter.uninstall_skills("com.test.x", "com-test-x").unwrap();
-        assert!(target.join("user-file.md").exists(), "user dir must survive");
+        adapter
+            .uninstall_skills("com.test.x", "com-test-x")
+            .unwrap();
+        assert!(
+            target.join("user-file.md").exists(),
+            "user dir must survive"
+        );
     }
 }

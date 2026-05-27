@@ -157,8 +157,9 @@ mod tests {
 
     #[test]
     fn parses_quoted_values() {
-        let m =
-            parse_env_string("DOUBLE=\"hello world\"\nSINGLE='literal $stuff'\nESC=\"line\\nbreak\"\n");
+        let m = parse_env_string(
+            "DOUBLE=\"hello world\"\nSINGLE='literal $stuff'\nESC=\"line\\nbreak\"\n",
+        );
         assert_eq!(m.get("DOUBLE"), Some(&"hello world".to_string()));
         assert_eq!(m.get("SINGLE"), Some(&"literal $stuff".to_string()));
         assert_eq!(m.get("ESC"), Some(&"line\nbreak".to_string()));

@@ -41,6 +41,12 @@ use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::{oneshot, Mutex as TokioMutex};
 
+use crate::claude::event::ChatEvent;
+use crate::claude::session::{
+    send_control_response, send_interrupt, send_set_mode, send_user_message_with_content,
+    EffortLevel, SessionOpts, SessionsManager,
+};
+use crate::commands::db::PaDb;
 use crate::engines::claude_code::fork::{validate_fork_request, ForkRequest, ForkResult};
 use crate::engines::claude_code::mode::{mode_state, AcpSessionMode};
 use crate::engines::claude_code::notify::{payload_from_permission, payload_from_system_hook};
@@ -49,12 +55,6 @@ use crate::engines::claude_code::{
     mapping::chat_event_to_session_updates,
     prompt::{extract_content, map_stop_reason},
 };
-use crate::claude::event::ChatEvent;
-use crate::claude::session::{
-    send_control_response, send_interrupt, send_set_mode, send_user_message_with_content,
-    EffortLevel, SessionOpts, SessionsManager,
-};
-use crate::commands::db::PaDb;
 
 /// How long we wait for the client to answer a `session/request_permission`
 /// before giving up and synthesizing a cancellation. 5 minutes mirrors the
@@ -693,7 +693,10 @@ impl ClaudeCodeEngine {
                 // downgrade e.g. a deliberate Bypass pick to Default on the
                 // first turn). Return Ok so the picker doesn't surface a
                 // spurious "mode change failed".
-                self.pending_modes.lock().await.insert(thread_id.clone(), mode);
+                self.pending_modes
+                    .lock()
+                    .await
+                    .insert(thread_id.clone(), mode);
                 // Close the race where `handle_new_session` created the
                 // session between our `get` miss and the insert above: if it
                 // exists now, drain+apply via the same helper so the choice

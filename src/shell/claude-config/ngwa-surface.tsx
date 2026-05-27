@@ -122,7 +122,7 @@ const ANALYZE_LABEL: Record<string, string> = {
 // Browse + Registry render off one normalized shape derived from the on-disk
 // scan (ClaudeConfig) enriched with store-catalog membership.
 
-export type ItemState = 'enabled' | 'disabled' | 'local' | 'orphaned';
+export type ItemState = 'enabled' | 'disabled' | 'local' | 'orphaned' | 'linked';
 type ItemMech = 'link' | 'merge';
 
 export interface NgwaItem {
@@ -181,6 +181,7 @@ const STATE_WORD: Record<ItemState, string> = {
 	disabled: 'Disabled',
 	local: 'Local',
 	orphaned: 'Orphaned',
+	linked: 'Linked',
 };
 
 const normRoot = (p: string) => p.replace(/\/+$/, '');
@@ -225,10 +226,18 @@ function scopeLabelOf(scope: 'personal' | 'project', projectRoot: string | null)
 /** Derive the lifecycle state of a scanned, file-based primitive. JSON-merge
  *  kinds (hook/mcp) are always "enabled" while present (their presence in the
  *  scan == merged into settings). */
-function deriveState(meta: { isSymlink: boolean; inStore: boolean }, mech: ItemMech): ItemState {
+function deriveState(
+	meta: { isSymlink: boolean; inStore: boolean; targetExists?: boolean },
+	mech: ItemMech
+): ItemState {
 	if (mech === 'merge') return 'enabled';
-	if (meta.isSymlink && meta.inStore) return 'enabled';
-	if (meta.isSymlink && !meta.inStore) return 'orphaned'; // dangling link
+	if (meta.isSymlink) {
+		// WP-03 req #6: only a DANGLING link is orphaned. A symlink that resolves
+		// reads as enabled (store-backed) or linked (resolves to a valid master
+		// outside the store, e.g. an externally-mastered primitive like groundwork).
+		if (meta.targetExists === false) return 'orphaned';
+		return meta.inStore ? 'enabled' : 'linked';
+	}
 	return 'local'; // a real file, not store-backed
 }
 
@@ -1520,6 +1529,32 @@ function ItemDetail({
 					<FrontmatterGrid entries={fmRows} />
 				</Section>
 
+				{/* Provenance (Ọba registry · G-SCHEMA) — where this primitive's
+				    canonical master came from. Dependents + the safe-delete guard
+				    are the interactive WP-06 slice. */}
+				{item.storeEntry?.source && (
+					<Section label="Provenance">
+						<FrontmatterGrid
+							entries={[
+								['source', item.storeEntry.source],
+								...(item.storeEntry.url ? [['url', item.storeEntry.url] as [string, string]] : []),
+								...(item.storeEntry.version
+									? [['version', item.storeEntry.version] as [string, string]]
+									: []),
+								[
+									'master',
+									item.storeEntry.managed === false
+										? 'external · kept in place'
+										: 'vault · shell-managed',
+								],
+								...(item.storeEntry.canonicalPath
+									? [['canonical', item.storeEntry.canonicalPath] as [string, string]]
+									: []),
+							]}
+						/>
+					</Section>
+				)}
+
 				{chips}
 
 				<div className="ccfg-section">{mech}</div>
@@ -1537,6 +1572,15 @@ function ItemDetail({
 						<div className="ngwa-mech warn">
 							<b>Orphaned.</b> The symlink target was removed from the store. Remove the dangling
 							link, or re-link to a store entry.
+						</div>
+					</div>
+				)}
+				{item.state === 'linked' && (
+					<div className="ccfg-section">
+						<div className="ngwa-mech">
+							<b>Linked.</b> A symlink resolving to a valid master outside the store
+							{item.storeEntry?.managed === false ? ' (kept in place — externally mastered)' : ''}.
+							Reads as healthy, not orphaned — updating the master updates this link in place.
 						</div>
 					</div>
 				)}

@@ -75,12 +75,9 @@ pub async fn call_tool(
             denial.declared
         );
         if let Some(pool) = audit_pool {
-            if let Err(e) = crate::pkg::permissions_check::record_violation(
-                pool,
-                "shell.execute",
-                &denial,
-            )
-            .await
+            if let Err(e) =
+                crate::pkg::permissions_check::record_violation(pool, "shell.execute", &denial)
+                    .await
             {
                 log::warn!("[mcp_runtime] audit record failed: {e:#}");
             }

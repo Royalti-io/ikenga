@@ -193,33 +193,41 @@ pub async fn comment_list(
     let include = include_resolved.unwrap_or(false);
 
     let rows: Vec<CommentRow> = match (artifact_path.as_deref(), include) {
-        (Some(path), true) => sqlx::query_as(&format!(
-            "SELECT {COMMENT_COLUMNS} FROM artifact_comments \
+        (Some(path), true) => {
+            sqlx::query_as(&format!(
+                "SELECT {COMMENT_COLUMNS} FROM artifact_comments \
              WHERE artifact_path = ? ORDER BY created_at ASC"
-        ))
-        .bind(path)
-        .fetch_all(&pool)
-        .await,
-        (Some(path), false) => sqlx::query_as(&format!(
-            "SELECT {COMMENT_COLUMNS} FROM artifact_comments \
+            ))
+            .bind(path)
+            .fetch_all(&pool)
+            .await
+        }
+        (Some(path), false) => {
+            sqlx::query_as(&format!(
+                "SELECT {COMMENT_COLUMNS} FROM artifact_comments \
              WHERE artifact_path = ? AND status != 'resolved' \
              ORDER BY created_at ASC"
-        ))
-        .bind(path)
-        .fetch_all(&pool)
-        .await,
-        (None, true) => sqlx::query_as(&format!(
-            "SELECT {COMMENT_COLUMNS} FROM artifact_comments \
+            ))
+            .bind(path)
+            .fetch_all(&pool)
+            .await
+        }
+        (None, true) => {
+            sqlx::query_as(&format!(
+                "SELECT {COMMENT_COLUMNS} FROM artifact_comments \
              ORDER BY status, created_at DESC"
-        ))
-        .fetch_all(&pool)
-        .await,
-        (None, false) => sqlx::query_as(&format!(
-            "SELECT {COMMENT_COLUMNS} FROM artifact_comments \
+            ))
+            .fetch_all(&pool)
+            .await
+        }
+        (None, false) => {
+            sqlx::query_as(&format!(
+                "SELECT {COMMENT_COLUMNS} FROM artifact_comments \
              WHERE status != 'resolved' ORDER BY status, created_at DESC"
-        ))
-        .fetch_all(&pool)
-        .await,
+            ))
+            .fetch_all(&pool)
+            .await
+        }
     }
     .map_err(|e| format!("list comments: {e}"))?;
 

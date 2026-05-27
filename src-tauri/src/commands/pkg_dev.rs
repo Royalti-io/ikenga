@@ -40,9 +40,7 @@ pub async fn pkg_dev_register(
     _scope: Option<String>,
 ) -> Result<InstalledSummary, String> {
     let path = PathBuf::from(&install_path);
-    let source = InstallSource::Dev {
-        path: install_path,
-    };
+    let source = InstallSource::Dev { path: install_path };
     let kernel_arc = kernel.0.clone();
 
     // Install on a blocking thread for the same reason `pkg_install_from_path`

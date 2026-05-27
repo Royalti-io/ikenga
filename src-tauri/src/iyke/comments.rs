@@ -104,8 +104,13 @@ pub async fn get_pin_read(
     .await
     .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("pin read: {e}")))?;
     match row {
-        Some(r) => Ok(Json(serde_json::to_value(row_to_view(r)).unwrap_or(json!({})))),
-        None => Err(err(StatusCode::NOT_FOUND, format!("pin {} not found", q.id))),
+        Some(r) => Ok(Json(
+            serde_json::to_value(row_to_view(r)).unwrap_or(json!({})),
+        )),
+        None => Err(err(
+            StatusCode::NOT_FOUND,
+            format!("pin {} not found", q.id),
+        )),
     }
 }
 
@@ -140,7 +145,10 @@ pub async fn post_pin_acknowledge(
     .await
     .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("pin ack: {e}")))?;
     if res.rows_affected() == 0 {
-        return Err(err(StatusCode::NOT_FOUND, format!("pin {} not found", body.id)));
+        return Err(err(
+            StatusCode::NOT_FOUND,
+            format!("pin {} not found", body.id),
+        ));
     }
     fetch_view(&pool, body.id).await
 }
@@ -170,17 +178,22 @@ pub async fn post_pin_resolve(
     .bind(body.id)
     .execute(&pool)
     .await
-    .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("pin resolve: {e}")))?;
+    .map_err(|e| {
+        err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("pin resolve: {e}"),
+        )
+    })?;
     if res.rows_affected() == 0 {
-        return Err(err(StatusCode::NOT_FOUND, format!("pin {} not found", body.id)));
+        return Err(err(
+            StatusCode::NOT_FOUND,
+            format!("pin {} not found", body.id),
+        ));
     }
     fetch_view(&pool, body.id).await
 }
 
-async fn fetch_view(
-    pool: &sqlx::SqlitePool,
-    id: i64,
-) -> Result<Json<Value>, (StatusCode, String)> {
+async fn fetch_view(pool: &sqlx::SqlitePool, id: i64) -> Result<Json<Value>, (StatusCode, String)> {
     let row: PinRow = sqlx::query_as(&format!(
         "SELECT {PIN_COLUMNS} FROM artifact_comments WHERE id = ?"
     ))
@@ -188,7 +201,9 @@ async fn fetch_view(
     .fetch_one(pool)
     .await
     .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("pin fetch: {e}")))?;
-    Ok(Json(serde_json::to_value(row_to_view(row)).unwrap_or(json!({}))))
+    Ok(Json(
+        serde_json::to_value(row_to_view(row)).unwrap_or(json!({})),
+    ))
 }
 
 fn now_millis() -> i64 {

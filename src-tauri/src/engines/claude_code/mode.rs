@@ -216,8 +216,11 @@ mod tests {
             serde_json::from_str(env.trim_end()).expect("envelope is JSON");
         assert_eq!(parsed["request"]["mode"], serde_json::json!("plan"));
 
-        let env =
-            set_mode_envelope(AcpSessionMode::BypassPermissions, "req_bypass", ControlWire::Modern);
+        let env = set_mode_envelope(
+            AcpSessionMode::BypassPermissions,
+            "req_bypass",
+            ControlWire::Modern,
+        );
         let parsed: serde_json::Value =
             serde_json::from_str(env.trim_end()).expect("envelope is JSON");
         assert_eq!(

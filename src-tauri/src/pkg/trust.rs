@@ -79,10 +79,7 @@ pub enum TrustState {
     /// prompt. Same surface as a user-approved row from the FE's POV.
     AutoGranted,
     /// User explicitly approved this version's sensitive perms.
-    Granted {
-        version: String,
-        granted_at_ms: i64,
-    },
+    Granted { version: String, granted_at_ms: i64 },
     /// Approval needed. Caller must surface the prompt.
     NeedsApproval {
         reason: NeedsApprovalReason,
@@ -411,16 +408,10 @@ mod tests {
     #[test]
     fn auto_trust_requires_both_builtin_source_and_ikenga_id() {
         // Both ✓ → auto-trust.
-        assert!(is_auto_trusted(
-            "com.ikenga.iyke",
-            &InstallSource::Builtin
-        ));
+        assert!(is_auto_trusted("com.ikenga.iyke", &InstallSource::Builtin));
         // Builtin source, third-party id → NOT auto-trusted (an attacker
         // who got their pkg into builtin-pkgs/ still can't masquerade).
-        assert!(!is_auto_trusted(
-            "com.evil.miner",
-            &InstallSource::Builtin
-        ));
+        assert!(!is_auto_trusted("com.evil.miner", &InstallSource::Builtin));
         // ikenga id, non-builtin source → NOT auto-trusted (a sideloaded
         // pkg that names itself com.ikenga.X doesn't count).
         assert!(!is_auto_trusted(
@@ -710,9 +701,14 @@ mod tests {
         perms.shell_execute.push("bin/run".into());
         let pkg_v1 = pkg_with_perms("com.evil.studio", perms);
         let summary = summarize_sensitive(&pkg_v1.manifest.permissions);
-        grant(&pool, &pkg_v1.manifest.id, &pkg_v1.manifest.version, &summary)
-            .await
-            .expect("grant v1");
+        grant(
+            &pool,
+            &pkg_v1.manifest.id,
+            &pkg_v1.manifest.version,
+            &summary,
+        )
+        .await
+        .expect("grant v1");
 
         // v2 widens shell.execute — should re-prompt.
         let mut perms2 = Permissions::default();
@@ -733,7 +729,10 @@ mod tests {
         .expect("evaluate v2");
         match state {
             TrustState::NeedsApproval {
-                reason: NeedsApprovalReason::PermissionsChanged { ref prior_version, .. },
+                reason:
+                    NeedsApprovalReason::PermissionsChanged {
+                        ref prior_version, ..
+                    },
                 ref current_version,
             } => {
                 assert_eq!(prior_version, "0.1.0");
@@ -750,9 +749,14 @@ mod tests {
         perms.shell_execute.push("bin/run".into());
         let pkg_v1 = pkg_with_perms("com.evil.studio", perms.clone());
         let summary = summarize_sensitive(&pkg_v1.manifest.permissions);
-        grant(&pool, &pkg_v1.manifest.id, &pkg_v1.manifest.version, &summary)
-            .await
-            .expect("grant v1");
+        grant(
+            &pool,
+            &pkg_v1.manifest.id,
+            &pkg_v1.manifest.version,
+            &summary,
+        )
+        .await
+        .expect("grant v1");
 
         // v2: same perms set, bumped version — must stay trusted.
         let mut pkg_v2 = pkg_with_perms("com.evil.studio", perms);

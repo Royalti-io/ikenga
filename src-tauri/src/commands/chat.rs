@@ -20,10 +20,10 @@ use agent_client_protocol::schema::{
 };
 use tauri::{AppHandle, State};
 
-use crate::engines::claude_code::fork::{ForkRequest, ForkResult};
-use crate::engines::{EngineHandle, EngineRegistryState};
 use crate::claude::session::EffortLevel;
 use crate::commands::db::PaDb;
+use crate::engines::claude_code::fork::{ForkRequest, ForkResult};
+use crate::engines::{EngineHandle, EngineRegistryState};
 
 /// FE-facing snapshot of which engine ids are registered in the dispatcher.
 /// Pairs with `detect_agents` on the frontend side: the catalog UI shows a
@@ -242,9 +242,9 @@ pub async fn chat_fork_session(
         EngineHandle::CodexPty(_) => {
             Err("chat_fork_session: codex engine does not yet support session fork".to_string())
         }
-        EngineHandle::CursorAgent(_) => Err(
-            "session/fork is not supported for cursor-agent (ADR-013 §7 OQ#3)".to_string(),
-        ),
+        EngineHandle::CursorAgent(_) => {
+            Err("session/fork is not supported for cursor-agent (ADR-013 §7 OQ#3)".to_string())
+        }
     }
 }
 
@@ -261,10 +261,16 @@ pub async fn chat_load_session(
 ) -> Result<LoadSessionResponse, String> {
     match resolve_engine(&registry, engineId).await? {
         EngineHandle::ClaudeCode(state) => state.handle_load_session(threadId).await,
-        EngineHandle::GeminiAcp(state) => state.handle_load_session(threadId, String::new(), app).await,
+        EngineHandle::GeminiAcp(state) => {
+            state
+                .handle_load_session(threadId, String::new(), app)
+                .await
+        }
         EngineHandle::CodexPty(state) => state.handle_load_session(threadId).await,
         EngineHandle::CursorAgent(state) => {
-            state.handle_load_session(threadId, String::new(), app).await
+            state
+                .handle_load_session(threadId, String::new(), app)
+                .await
         }
     }
 }

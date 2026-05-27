@@ -589,6 +589,9 @@ button.ccfg-tree-row.dir:hover {
 	--st-disabled: var(--fg-faint);
 	--st-local: var(--achievement);
 	--st-orphaned: var(--danger);
+	/* WP-03 (Ọba registry): a symlink resolving to a valid master OUTSIDE the
+	 * store — distinct from store-backed `enabled`; reads as healthy, not orphaned. */
+	--st-linked: hsl(212, 48%, 60%);
 	/* Node-kind identity colours for the Analyze surfaces (Phase 4 · D-06/D-07).
 	 * Warm, in-theme; one hue per primitive kind. */
 	--nk-command: hsl(20, 64%, 54%);
@@ -721,6 +724,9 @@ button.ccfg-tree-row.dir:hover {
 	background: var(--st-orphaned);
 	box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--danger) 45%, transparent);
 }
+.ngwa-dot.linked {
+	background: var(--st-linked);
+}
 .ngwa-stword {
 	text-transform: uppercase;
 	letter-spacing: 0.08em;
@@ -737,6 +743,9 @@ button.ccfg-tree-row.dir:hover {
 }
 .ngwa-stword.orphaned {
 	color: var(--st-orphaned);
+}
+.ngwa-stword.linked {
+	color: var(--st-linked);
 }
 
 /* mechanism tag — link / merge */

@@ -197,23 +197,19 @@ impl ViewerServerManager {
         // free. The actual bound port is returned, threaded into the shell's
         // window URL by `lib.rs` so the webview always loads from the right
         // place.
-        let listener = match tokio::net::TcpListener::bind(SocketAddr::from((
-            [127, 0, 0, 1],
-            port,
-        )))
-        .await
-        {
-            Ok(l) => l,
-            Err(e) if port != 0 => {
-                tracing::warn!(
-                    "[viewer] port {port} unavailable ({e}); falling back to OS-assigned port"
-                );
-                tokio::net::TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0)))
-                    .await
-                    .context("bind viewer listener on OS-assigned port")?
-            }
-            Err(e) => return Err(e).context("bind viewer listener"),
-        };
+        let listener =
+            match tokio::net::TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], port))).await {
+                Ok(l) => l,
+                Err(e) if port != 0 => {
+                    tracing::warn!(
+                        "[viewer] port {port} unavailable ({e}); falling back to OS-assigned port"
+                    );
+                    tokio::net::TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0)))
+                        .await
+                        .context("bind viewer listener on OS-assigned port")?
+                }
+                Err(e) => return Err(e).context("bind viewer listener"),
+            };
         let local_addr = listener.local_addr().context("local_addr")?;
         let bound = local_addr.port();
 
@@ -261,9 +257,9 @@ fn serve_frontend_asset<R: tauri::Runtime>(
             if let Some(csp) = &asset.csp_header {
                 builder = builder.header(header::CONTENT_SECURITY_POLICY, csp);
             }
-            builder
-                .body(Body::from(asset.bytes))
-                .unwrap_or_else(|_| (StatusCode::INTERNAL_SERVER_ERROR, "asset build failed").into_response())
+            builder.body(Body::from(asset.bytes)).unwrap_or_else(|_| {
+                (StatusCode::INTERNAL_SERVER_ERROR, "asset build failed").into_response()
+            })
         }
         None => (StatusCode::NOT_FOUND, "not found").into_response(),
     }
@@ -587,7 +583,9 @@ mod tests {
             "expected artifact-bridge marker in served HTML, got:\n{html}",
         );
 
-        let head_close = html.find("<head").and_then(|i| html[i..].find('>').map(|j| i + j + 1));
+        let head_close = html
+            .find("<head")
+            .and_then(|i| html[i..].find('>').map(|j| i + j + 1));
         let marker_at = html.find(ARTIFACT_INJECT_MARKER).unwrap();
         let polyfill_at = html.find("__ikenga_bridge_polyfill__ = ").unwrap();
 

@@ -133,7 +133,8 @@ pub async fn pkg_sidecar_rpc_send(
         .get_or_init(|| async move {
             log::info!(
                 "[pkg_sidecar_rpc_send] spawning fresh sidecar for {}::{}",
-                key_for_spawn.0, key_for_spawn.1
+                key_for_spawn.0,
+                key_for_spawn.1
             );
             spawn_streaming_child_sync(
                 app_for_spawn,
@@ -223,9 +224,7 @@ fn spawn_streaming_child_sync(
                         }
                     }
                     Err(e) => {
-                        log::warn!(
-                            "[pkg_sidecar_rpc_send] stdout read error pid={pid}: {e}"
-                        );
+                        log::warn!("[pkg_sidecar_rpc_send] stdout read error pid={pid}: {e}");
                         break;
                     }
                 }
@@ -274,7 +273,10 @@ fn spawn_streaming_child_sync(
             let status = child.wait().await;
             log::info!(
                 "[pkg_sidecar_rpc_send] child exited pkg={} name={} pid={} status={:?}",
-                key.0, key.1, pid, status
+                key.0,
+                key.1,
+                pid,
+                status
             );
             // remove_if guarantees the predicate runs under the per-shard
             // lock; the entry is only removed if it's still our slot.
@@ -291,10 +293,7 @@ fn spawn_streaming_child_sync(
 /// Explicit shutdown — drop the live entry so the child sees stdin EOF.
 /// Optional for callers; the child also dies if the app exits (kill_on_drop).
 #[tauri::command]
-pub async fn pkg_sidecar_rpc_shutdown(
-    pkg_id: String,
-    name: String,
-) -> Result<bool, String> {
+pub async fn pkg_sidecar_rpc_shutdown(pkg_id: String, name: String) -> Result<bool, String> {
     let manager = global_manager().clone();
     Ok(manager.children.remove(&(pkg_id, name)).is_some())
 }
