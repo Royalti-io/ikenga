@@ -861,10 +861,7 @@ struct ColMeta {
 /// Convert the value at column index `i` in a SQLite row to a serde_json Value.
 /// Mirrors the type-mapping in `db_query` (db.rs) so export → import → export
 /// round-trips identically.
-fn sqlite_col_to_json(
-    row: &sqlx::sqlite::SqliteRow,
-    i: usize,
-) -> Result<Value, String> {
+fn sqlite_col_to_json(row: &sqlx::sqlite::SqliteRow, i: usize) -> Result<Value, String> {
     use sqlx::{Row, TypeInfo, ValueRef};
     let raw = row
         .try_get_raw(i)
@@ -934,23 +931,15 @@ fn bind_ndjson_params<'q>(
     q
 }
 
-/// Export every user table in `pa.db` as a separate `<table>.ndjson` file in
-/// `dest_dir`. Tables are emitted in alphabetical order; rows in PK / rowid
-/// order. One JSON object per line; keys in column-definition order.
-///
-/// `VACUUM INTO` (backup_export) stays as the fast binary snapshot — this
-/// command is the git-versionable, single-row-diffable text artifact.
-#[tauri::command]
-pub async fn db_export_ndjson(
-    db: State<'_, Arc<PaDb>>,
-    dest_dir: String,
+/// Inner logic of [`db_export_ndjson`] — takes a bare pool so tests can call
+/// it directly without constructing a Tauri `State`.
+async fn export_ndjson_to_dir(
+    pool: &sqlx::SqlitePool,
+    dest: &Path,
 ) -> Result<NdjsonExportResult, String> {
     use sqlx::Row;
 
-    let dest = PathBuf::from(&dest_dir);
-    fs::create_dir_all(&dest).map_err(|e| format!("mkdir dest_dir: {e}"))?;
-
-    let pool = db.ensure_reader_pool().await?;
+    fs::create_dir_all(dest).map_err(|e| format!("mkdir dest_dir: {e}"))?;
 
     // All user tables, name-sorted for stable output order.
     let table_names: Vec<String> = sqlx::query_scalar(
@@ -960,7 +949,7 @@ pub async fn db_export_ndjson(
            AND name <> '_pa_migrations' \
          ORDER BY name ASC",
     )
-    .fetch_all(&pool)
+    .fetch_all(pool)
     .await
     .map_err(|e| format!("list tables: {e}"))?;
 
@@ -971,7 +960,7 @@ pub async fn db_export_ndjson(
         // PRAGMA table_info: cid, name, type, notnull, dflt_value, pk
         let col_rows: Vec<sqlx::sqlite::SqliteRow> =
             sqlx::query(&format!("PRAGMA table_info(\"{table}\")"))
-                .fetch_all(&pool)
+                .fetch_all(pool)
                 .await
                 .map_err(|e| format!("PRAGMA table_info({table}): {e}"))?;
 
@@ -1005,7 +994,7 @@ pub async fn db_export_ndjson(
         let sql = format!("SELECT {col_select} FROM \"{table}\" ORDER BY {order_by}");
 
         let rows: Vec<sqlx::sqlite::SqliteRow> = sqlx::query(&sql)
-            .fetch_all(&pool)
+            .fetch_all(pool)
             .await
             .map_err(|e| format!("query {table}: {e}"))?;
 
@@ -1042,28 +1031,35 @@ pub async fn db_export_ndjson(
     }
 
     Ok(NdjsonExportResult {
-        dir: dest_dir,
+        dir: dest.to_string_lossy().into_owned(),
         table_count: table_names.len(),
         row_count: total_rows,
         tables: tables_out,
     })
 }
 
-/// Load NDJSON files produced by `db_export_ndjson` into the current pa.db.
-/// Each `<table>.ndjson` file is read in alphabetical order; each line is
-/// parsed as a JSON object and upserted via `INSERT OR REPLACE`.
+/// Export every user table in `pa.db` as a separate `<table>.ndjson` file in
+/// `dest_dir`. Tables are emitted in alphabetical order; rows in PK / rowid
+/// order. One JSON object per line; keys in column-definition order.
 ///
-/// Idempotent: re-running replaces rows with identical primary keys.
-/// Intended for the round-trip test: export → fresh db → import → re-export.
+/// `VACUUM INTO` (backup_export) stays as the fast binary snapshot — this
+/// command is the git-versionable, single-row-diffable text artifact.
 #[tauri::command]
-pub async fn db_import_ndjson(
+pub async fn db_export_ndjson(
     db: State<'_, Arc<PaDb>>,
-    src_dir: String,
-) -> Result<NdjsonLoadResult, String> {
-    let src = PathBuf::from(&src_dir);
-    let pool = db.ensure_pool().await?;
+    dest_dir: String,
+) -> Result<NdjsonExportResult, String> {
+    let pool = db.ensure_reader_pool().await?;
+    export_ndjson_to_dir(&pool, Path::new(&dest_dir)).await
+}
 
-    let mut entries: Vec<PathBuf> = fs::read_dir(&src)
+/// Inner logic of [`db_import_ndjson`] — takes a bare pool so tests can call
+/// it directly without constructing a Tauri `State`.
+async fn import_ndjson_from_dir(
+    pool: &sqlx::SqlitePool,
+    src: &Path,
+) -> Result<NdjsonLoadResult, String> {
+    let mut entries: Vec<PathBuf> = fs::read_dir(src)
         .map_err(|e| format!("read_dir {}: {e}", src.display()))?
         .filter_map(|e| e.ok().map(|e| e.path()))
         .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("ndjson"))
@@ -1080,8 +1076,8 @@ pub async fn db_import_ndjson(
             .ok_or_else(|| format!("bad ndjson filename: {}", path.display()))?
             .to_string();
 
-        let content = fs::read_to_string(path)
-            .map_err(|e| format!("read {}: {e}", path.display()))?;
+        let content =
+            fs::read_to_string(path).map_err(|e| format!("read {}: {e}", path.display()))?;
 
         let mut rows_loaded: u64 = 0;
         for line in content.lines() {
@@ -1089,8 +1085,8 @@ pub async fn db_import_ndjson(
             if line.is_empty() {
                 continue;
             }
-            let obj: serde_json::Map<String, Value> = serde_json::from_str(line)
-                .map_err(|e| format!("parse line in {table}: {e}"))?;
+            let obj: serde_json::Map<String, Value> =
+                serde_json::from_str(line).map_err(|e| format!("parse line in {table}: {e}"))?;
             if obj.is_empty() {
                 continue;
             }
@@ -1107,7 +1103,7 @@ pub async fn db_import_ndjson(
 
             let params: Vec<Value> = obj.values().cloned().collect();
             let q = bind_ndjson_params(sqlx::query(&sql), &params);
-            q.execute(&pool)
+            q.execute(pool)
                 .await
                 .map_err(|e| format!("insert into {table}: {e}"))?;
             rows_loaded += 1;
@@ -1121,6 +1117,22 @@ pub async fn db_import_ndjson(
         table_count,
         row_count: total_rows,
     })
+}
+
+/// Load NDJSON files produced by `db_export_ndjson` into the current pa.db.
+/// Each `<table>.ndjson` file is read in alphabetical order; each line is
+/// parsed as a JSON object and upserted via `INSERT OR REPLACE`.
+///
+/// Idempotent: re-running replaces rows with identical primary keys.
+/// Intended for the round-trip test: export → fresh db → import → re-export.
+#[tauri::command]
+pub async fn db_import_ndjson(
+    db: State<'_, Arc<PaDb>>,
+    src_dir: String,
+) -> Result<NdjsonLoadResult, String> {
+    let src = PathBuf::from(&src_dir);
+    let pool = db.ensure_pool().await?;
+    import_ndjson_from_dir(&pool, &src).await
 }
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
@@ -1299,4 +1311,129 @@ fn age_decrypt(ciphertext: &[u8], passphrase: &str) -> Result<Vec<u8>, String> {
         .read_to_end(&mut out)
         .map_err(|e| format!("age read: {e}"))?;
     Ok(out)
+}
+
+// ─── tests ────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::commands::db::PaDb;
+    use std::collections::BTreeMap;
+
+    async fn fresh_db() -> (PaDb, tempfile::TempDir) {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let db = PaDb::new(tmp.path().join("pa.db"));
+        (db, tmp)
+    }
+
+    fn read_export_dir(dir: &Path) -> BTreeMap<String, String> {
+        let mut out = BTreeMap::new();
+        for entry in fs::read_dir(dir).expect("read export dir") {
+            let p = entry.unwrap().path();
+            if p.extension().and_then(|e| e.to_str()) == Some("ndjson") {
+                let name = p.file_name().unwrap().to_str().unwrap().to_string();
+                let content = fs::read_to_string(&p).expect("read ndjson");
+                out.insert(name, content);
+            }
+        }
+        out
+    }
+
+    /// WP-06 DoD: export → import into fresh db → re-export is BYTE-IDENTICAL;
+    /// a single-row edit in the original db yields exactly one changed line in
+    /// the affected table's .ndjson (i.e. a git diff is a single hunk).
+    #[tokio::test]
+    async fn wp06_ndjson_round_trip_byte_identical() {
+        // ── db1: apply schema + insert two known tasks ────────────────────────
+        let (db1, _tmp1) = fresh_db().await;
+        let pool1 = db1.ensure_pool().await.expect("db1 ensure_pool");
+
+        sqlx::query("INSERT INTO tasks (id, title, status, priority) VALUES (?, ?, ?, ?)")
+            .bind("tsk_rt_001")
+            .bind("Round-trip task alpha")
+            .bind("pending")
+            .bind("medium")
+            .execute(&pool1)
+            .await
+            .expect("insert task 1");
+
+        sqlx::query("INSERT INTO tasks (id, title, status, priority) VALUES (?, ?, ?, ?)")
+            .bind("tsk_rt_002")
+            .bind("Round-trip task beta")
+            .bind("done")
+            .bind("high")
+            .execute(&pool1)
+            .await
+            .expect("insert task 2");
+
+        // ── export1 from db1 ──────────────────────────────────────────────────
+        let exp1 = tempfile::tempdir().expect("exp1 dir");
+        export_ndjson_to_dir(&pool1, exp1.path())
+            .await
+            .expect("export1");
+
+        // ── db2: fresh schema + import from export1 ───────────────────────────
+        let (db2, _tmp2) = fresh_db().await;
+        let pool2 = db2.ensure_pool().await.expect("db2 ensure_pool");
+        import_ndjson_from_dir(&pool2, exp1.path())
+            .await
+            .expect("import into db2");
+
+        // ── export2 from db2 ──────────────────────────────────────────────────
+        let exp2 = tempfile::tempdir().expect("exp2 dir");
+        export_ndjson_to_dir(&pool2, exp2.path())
+            .await
+            .expect("export2");
+
+        // ── assert BYTE-IDENTICAL ─────────────────────────────────────────────
+        let snap1 = read_export_dir(exp1.path());
+        let snap2 = read_export_dir(exp2.path());
+        assert_eq!(
+            snap1.len(),
+            snap2.len(),
+            "both exports must have the same number of .ndjson files"
+        );
+        for (name, c1) in &snap1 {
+            let c2 = snap2
+                .get(name)
+                .unwrap_or_else(|| panic!("{name} missing from re-export"));
+            assert_eq!(
+                c1, c2,
+                "re-export of {name} must be byte-identical to first export"
+            );
+        }
+
+        // ── single-row edit → exactly one line differs ────────────────────────
+        sqlx::query("UPDATE tasks SET status = 'in_progress' WHERE id = 'tsk_rt_001'")
+            .execute(&pool1)
+            .await
+            .expect("update task");
+
+        let exp3 = tempfile::tempdir().expect("exp3 dir");
+        export_ndjson_to_dir(&pool1, exp3.path())
+            .await
+            .expect("export3");
+
+        let snap3 = read_export_dir(exp3.path());
+        let tasks1 = snap1.get("tasks.ndjson").expect("tasks.ndjson in snap1");
+        let tasks3 = snap3.get("tasks.ndjson").expect("tasks.ndjson in snap3");
+
+        let lines1: Vec<&str> = tasks1.lines().collect();
+        let lines3: Vec<&str> = tasks3.lines().collect();
+        assert_eq!(
+            lines1.len(),
+            lines3.len(),
+            "a row-update must not change the line count"
+        );
+        let diff_count = lines1
+            .iter()
+            .zip(lines3.iter())
+            .filter(|(a, b)| a != b)
+            .count();
+        assert_eq!(
+            diff_count, 1,
+            "exactly one line must differ after a single-row edit (got {diff_count})"
+        );
+    }
 }
