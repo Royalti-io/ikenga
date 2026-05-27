@@ -49,7 +49,9 @@ pub use activity_bar::{
     activity_pins_resolve_artifact, activity_pins_touch_open, activity_sections_create,
     activity_sections_list, activity_sections_remove, activity_sections_update,
 };
-pub use backup::{backup_delete, backup_export, backup_import, backup_list};
+pub use backup::{
+    backup_delete, backup_export, backup_import, backup_list, db_export_ndjson, db_import_ndjson,
+};
 #[cfg(debug_assertions)]
 pub use bg_spike::{bg_spike_reply, bg_spike_run, new_state as new_bg_spike_state};
 pub use claude::{

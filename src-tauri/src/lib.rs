@@ -32,7 +32,8 @@ use commands::{
     activity_pins_list, activity_pins_remove, activity_pins_reorder, activity_pins_resolve_artifact,
     activity_pins_touch_open, activity_sections_create, activity_sections_list,
     activity_sections_remove, activity_sections_update, backup_delete,
-    backup_export, backup_import, backup_list, chat_thread_move, chat_threads_list_by_project,
+    backup_export, backup_import, backup_list, db_export_ndjson, db_import_ndjson, chat_thread_move,
+    chat_threads_list_by_project,
     claude_asset_list_pins, claude_asset_pin, claude_asset_unpin, claude_assets_discover,
     claude_config_load, claude_config_read_file, claude_config_unwatch, claude_config_watch,
     claude_primitive_copy, claude_primitive_copy_batch, claude_primitive_disable,
@@ -823,6 +824,8 @@ pub fn run() {
             backup_import,
             backup_list,
             backup_delete,
+            db_export_ndjson,
+            db_import_ndjson,
             // desktop
             set_dock_badge,
             iyke_mcp_info,
