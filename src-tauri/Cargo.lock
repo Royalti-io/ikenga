@@ -3003,6 +3003,7 @@ dependencies = [
  "tokio",
  "tokio-cron-scheduler",
  "toml 0.8.2",
+ "toml_edit 0.20.2",
  "tower 0.4.13",
  "tower-http 0.5.2",
  "tracing",

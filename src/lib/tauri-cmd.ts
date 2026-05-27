@@ -1981,6 +1981,261 @@ export async function claudePrimitiveRemove(
 	return invoke('claude_primitive_remove', { kind, name, scope });
 }
 
+// ─── Ngwa v2b write engine — G-WRITE (frozen signatures, WP-22) ───────────────
+//
+// FROZEN per-engine write-command contract for the Phase-2 (v2b) cross-system
+// WRITE layer. Published by WP-22 (the settings-embedded JSON + TOML merge
+// engine + Gemini strict-key guard) for WP-23 (file-kind writes), WP-24
+// (cross-engine transcode copy/move), WP-25 (adapter de-dup), and WP-26 (FE
+// write affordances / D-09) to build against.
+//
+// What WP-22 itself ships (Rust): the engine-aware merge dispatch
+// (`merge::{enable,disable}_{hook,mcp}_for(EngineId, scope, …)`) routing JSON
+// vs TOML by the frozen `EngineLayout`, plus the typed `StoreError` (below).
+// The corresponding Tauri *commands* — the per-engine `claude_primitive_*`
+// surface threaded with an `engine` arg — are registered by WP-23/26; these
+// signatures freeze their wire shape now so the FE + sibling WPs can compile
+// against a stable contract before the handlers land.
+//
+// Vocabulary reuse: `EngineId` (claude | gemini | codex) and `ConfigFormat`
+// are the G-ADAPTER types mirrored above; `ClaudeStoreScope` / `ClaudeStoreKind`
+// / `ClaudeStoreMutation` are the G-CONTRACT store types. The engine arg
+// *defaults* to `'claude'` so the existing Phase-1 call sites (which omit it)
+// keep their exact behaviour — Claude stays the default engine.
+
+/** Which on-disk settings file a hook write targets, for the JSON engines
+ *  (Claude/Gemini). `shared` → `settings.json`; `local` → `settings.local.json`.
+ *  Ignored for Codex (single `hooks.json` / inline `config.toml`). Mirrors the
+ *  Rust `merge::HookFile`. */
+export type NgwaHookFile = 'shared' | 'local';
+
+/** Typed failure modes of the v2b settings-embedded write engine, mirrored from
+ *  the Rust `StoreError` (`#[serde(tag = "kind")]`). A rejected write surfaces
+ *  as one of these so the FE (D-09) can branch — most importantly
+ *  `strictKeyRejected`, which is a refusal *before* any disk write (never a
+ *  write-and-fail), so a strict Gemini `settings.json` is never corrupted. */
+export type NgwaStoreError =
+	/** A strict (`additionalProperties:false`) settings file — Gemini's
+	 *  `settings.json` — would reject `key`; refused before write. */
+	| { kind: 'strictKeyRejected'; engine: EngineId; key: string }
+	/** The backing parent (`mcpServers` / `hooks` / `mcp_servers`) is a
+	 *  non-object/table scalar; refusing to clobber it. */
+	| { kind: 'nonTableParent'; path: string; key: string }
+	/** Target file failed to parse as its declared format. */
+	| { kind: 'parse'; path: string; message: string }
+	/** A block value has no representation in the target format (e.g. JSON
+	 *  `null` → TOML); a typed error, never a silent drop. */
+	| { kind: 'unrepresentableValue'; path: string; message: string }
+	/** Filesystem error (read / write / rename / mkdir). */
+	| { kind: 'io'; path: string; message: string }
+	/** Scope grammar / resolution error, or an unsupported (engine, kind). */
+	| { kind: 'unsupported'; message: string }
+	/** A cross-engine copy whose direction has no transcoder — the blocked
+	 *  TOML→MD reverse (Codex agent → Claude/Gemini, Gemini command → Claude;
+	 *  see `06`). Returned *before* any disk write, so the dest is never
+	 *  partially created; the D-09 drawer greys these destinations. */
+	| { kind: 'transcodeUnsupported'; from: string; to: string; reason: string };
+
+/**
+ * Enable (insert/overwrite) a settings-embedded primitive (`hook` | `mcp`) in a
+ * scope for a specific engine. Routes JSON vs TOML by the frozen `EngineLayout`
+ * (Claude/Gemini → JSON `settings.json` / `.mcp.json` / `~/.claude.json`; Codex
+ * → TOML `~/.codex/config.toml`). For Gemini the strict-key guard runs first —
+ * a rejected write throws an `NgwaStoreError` of kind `strictKeyRejected`
+ * before touching disk. `hookFile` selects shared vs local for hooks on the
+ * JSON engines (ignored for `mcp` and for Codex).
+ *
+ * G-WRITE: command handler registered by WP-23/26; signature frozen by WP-22.
+ * `engine` defaults to `'claude'` so Phase-1 callers are unaffected.
+ */
+export async function claudePrimitiveEnableFor(
+	engine: EngineId,
+	kind: ClaudeStoreKind,
+	name: string,
+	scope: ClaudeStoreScope,
+	hookFile: NgwaHookFile = 'shared'
+): Promise<ClaudeStoreMutation> {
+	return invoke<ClaudeStoreMutation>('claude_primitive_enable_for', {
+		engine,
+		kind,
+		name,
+		scope,
+		hookFile,
+	});
+}
+
+/**
+ * Disable (remove) a settings-embedded primitive (`hook` | `mcp`) from a scope
+ * for a specific engine — the inverse of {@link claudePrimitiveEnableFor}.
+ * Same JSON/TOML routing; removing the last block restores the file to its
+ * pre-enable byte-identical state (the empty parent is dropped). A missing
+ * file / key is a no-op.
+ *
+ * G-WRITE: command handler registered by WP-23/26; signature frozen by WP-22.
+ */
+export async function claudePrimitiveDisableFor(
+	engine: EngineId,
+	kind: ClaudeStoreKind,
+	name: string,
+	scope: ClaudeStoreScope,
+	hookFile: NgwaHookFile = 'shared'
+): Promise<void> {
+	return invoke('claude_primitive_disable_for', { engine, kind, name, scope, hookFile });
+}
+
+// ─── Ngwa v2b cross-engine transcode copy — D-09 batch (WP-24 / WP-26) ────────
+//
+// The multi-destination checklist drawer (D-09, WP-26) copies a single source
+// primitive into N (engine, scope) destinations in one batch. Each destination
+// is either a verbatim same-format copy (md→md) or a forward transcode
+// (md→toml, via the existing `transcoder.rs` entry points); reverse (toml→md)
+// destinations are blocked at the UI and never reach this call. The
+// directionality contract is `plans/cockpit/06-cross-engine-transcode.md`.
+//
+// ░░ MOCK SEAM — WP-24 NOT BUILT YET ░░
+// WP-24 lands the real `claude_primitive_copy_batch` Tauri command (cross-engine
+// forward transcode copy/move, after WP-22 engine + WP-23 file writes). Until it
+// merges, `ngwaCrossEngineCopy` routes through `NGWA_TRANSCODE_MOCK` below, which
+// returns a canned per-row batch result matching the frozen wire shape — so the
+// D-09 drawer + its mutation hook are fully exercised ahead of the backend.
+//
+// CUTOVER (single line for the orchestrator / WP-24 finalization): set
+// `NGWA_TRANSCODE_MOCK = false`. The wrapper then falls straight through to its
+// `invoke('claude_primitive_copy_batch', …)` body — the request + result shapes
+// here ARE the frozen contract WP-24 implements against, so nothing else changes.
+
+/** How a single destination relates to the source's format: a verbatim copy
+ *  (same format, e.g. md→md), a forward transcode (md→toml), or a blocked
+ *  reverse (toml→md — no reverse transcoder exists, see `06`). The drawer never
+ *  submits `blocked` rows; it's here so the result/preview vocabulary is shared. */
+export type NgwaTranscodeMode = 'same' | 'transcode' | 'blocked';
+
+/** One requested destination in a cross-engine batch copy: a target engine +
+ *  scope. `mode` is the resolved transcode relationship (drives the per-row
+ *  cue + which transcoder entry point the backend calls). `move` flips the
+ *  per-destination semantics from copy to copy-then-remove-source. */
+export interface NgwaCopyDestination {
+	engine: EngineId;
+	scope: ClaudeStoreScope;
+	mode: NgwaTranscodeMode;
+}
+
+/** Per-row outcome of a batch copy — one entry per requested destination, in
+ *  request order. `ok` rows carry the produced mutation; failed rows carry a
+ *  typed `NgwaStoreError` so the drawer can render partial-failure inline. This
+ *  is the per-row batch-result shape D-09 renders against. */
+export type NgwaCopyRowResult =
+	| {
+			engine: EngineId;
+			scope: ClaudeStoreScope;
+			mode: NgwaTranscodeMode;
+			ok: true;
+			mutation: ClaudeStoreMutation;
+	  }
+	| {
+			engine: EngineId;
+			scope: ClaudeStoreScope;
+			mode: NgwaTranscodeMode;
+			ok: false;
+			error: NgwaStoreError;
+	  };
+
+export interface NgwaCopyBatchResult {
+	/** One result per requested destination, in request order. */
+	rows: NgwaCopyRowResult[];
+}
+
+// ░░ CUTOVER DONE ░░ — WP-24 landed `claude_primitive_copy_batch`; mock off.
+const NGWA_TRANSCODE_MOCK = false;
+
+/** Canned batch result for the mock seam: every destination "succeeds" with a
+ *  synthesized mutation EXCEPT a deliberately-failing one (the first `transcode`
+ *  destination targeting a `project:` scope) so the drawer's partial-failure
+ *  per-row rendering is exercised in dev. Mirrors the real wire shape exactly. */
+async function ngwaCrossEngineCopyMock(
+	fromEngine: EngineId,
+	kind: ClaudeStoreKind,
+	name: string,
+	fromScope: ClaudeStoreScope,
+	destinations: NgwaCopyDestination[],
+	move: boolean
+): Promise<NgwaCopyBatchResult> {
+	await Promise.resolve();
+	void fromEngine;
+	void fromScope;
+	void move;
+	let failedOnce = false;
+	const rows: NgwaCopyRowResult[] = destinations.map((d) => {
+		// Exercise one partial failure: first transcode→project destination.
+		if (!failedOnce && d.mode === 'transcode' && d.scope.startsWith('project:')) {
+			failedOnce = true;
+			return {
+				engine: d.engine,
+				scope: d.scope,
+				mode: d.mode,
+				ok: false,
+				error: {
+					kind: 'io',
+					path: `${d.scope}/.${d.engine}/${kind}s/${name}.toml`,
+					message: 'mock partial-failure (WP-24 backend not yet wired)',
+				},
+			};
+		}
+		const fileBased = kind === 'skill' || kind === 'agent' || kind === 'command';
+		const ext = d.mode === 'transcode' ? 'toml' : 'md';
+		const scopeRoot =
+			d.scope === 'workspace'
+				? `~/.${d.engine}`
+				: `${d.scope.slice('project:'.length)}/.${d.engine}`;
+		return {
+			engine: d.engine,
+			scope: d.scope,
+			mode: d.mode,
+			ok: true,
+			mutation: {
+				kind,
+				name,
+				scope: d.scope,
+				path: fileBased ? `${scopeRoot}/${kind}s/${name}.${ext}` : `${scopeRoot}/settings.json`,
+				linkTarget: null,
+			},
+		};
+	});
+	return { rows };
+}
+
+/**
+ * Copy (or move) a single source primitive into N (engine, scope) destinations
+ * in one batch — the backend for the D-09 multi-destination checklist drawer.
+ * Same-format destinations copy verbatim; `md→toml` destinations transcode via
+ * the existing forward transcoder. Each destination writes atomically and
+ * reports its own row result, so a partial failure never rolls back the rows
+ * that succeeded.
+ *
+ * WP-24 owns the Rust `claude_primitive_copy_batch` handler; until it lands this
+ * routes through the mock seam above (`NGWA_TRANSCODE_MOCK`).
+ */
+export async function ngwaCrossEngineCopy(
+	fromEngine: EngineId,
+	kind: ClaudeStoreKind,
+	name: string,
+	fromScope: ClaudeStoreScope,
+	destinations: NgwaCopyDestination[],
+	move = false
+): Promise<NgwaCopyBatchResult> {
+	if (NGWA_TRANSCODE_MOCK) {
+		return ngwaCrossEngineCopyMock(fromEngine, kind, name, fromScope, destinations, move);
+	}
+	return invoke<NgwaCopyBatchResult>('claude_primitive_copy_batch', {
+		fromEngine,
+		kind,
+		name,
+		fromScope,
+		destinations,
+		move,
+	});
+}
+
 // ─── Iyke (phase 11 — Day 1: read-side state + shell mirror push) ─────────────
 
 export interface IykeEndpoint {

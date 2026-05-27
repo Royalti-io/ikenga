@@ -90,6 +90,14 @@ serde_yaml = "0.9"
 # proper parser here. Pinned to 0.8 — already present transitively in the
 # lock (`toml v0.8.2`, via `system-deps`), so this adds no new version.
 toml = "0.8"
+# Format-preserving TOML editing for the v2b (WP-22) Codex write engine. The
+# read side (`toml::Value`) reorders + reformats on re-serialize, which would
+# break the "unrelated keys byte-identical" round-trip guarantee. `toml_edit`'s
+# `DocumentMut` preserves whitespace, key order, and comments and only mutates
+# the single touched key. Pinned to 0.20 — the exact version `toml v0.8.2`
+# already pulls into `Cargo.lock` (`toml_edit v0.20.2`), so this adds no new
+# version to the tree.
+toml_edit = "0.20"
 # Cron scheduler for the pkg-kernel cron registry. Picked over a hand-rolled
 # tokio-interval loop so we get real cron-expression semantics (6-field with
 # seconds, used by smoke tests for `* * * * * *`).

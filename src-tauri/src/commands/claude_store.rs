@@ -38,6 +38,9 @@ use crate::commands::claude_config::{
     store_root, string_field, validate_pin_scope,
 };
 use crate::commands::db::PaDb;
+use crate::commands::engine_layout::{
+    engine_layout_by_id, ConfigFormat, EngineId, KindLayout, Mechanism, PrimitiveKind,
+};
 use crate::commands::projects::get_project;
 
 /// WP-03 merge engine — JSON-fragment (hook/mcp) splice into Claude Code's
@@ -45,6 +48,12 @@ use crate::commands::projects::get_project;
 /// next to this file). We call its pure, synchronous API; the async
 /// `project:<id>` → `root_path` resolution stays here (`resolve_scope_root`).
 mod merge;
+
+/// WP-22 TOML merge engine — the Codex sibling of `merge.rs`'s JSON path, kept
+/// **disjoint** from it. Splices `config.toml` `[mcp_servers.<name>]` / inline
+/// `[hooks]` blocks format-preservingly. `merge.rs`'s engine-aware dispatch
+/// (`enable_mcp_for` / `enable_hook_for`) routes to it by `ConfigFormat::Toml`.
+mod toml_merge;
 
 // ─── Wire types (mirror the frozen G-CONTRACT) ───────────────────────────────
 
@@ -231,7 +240,11 @@ fn atomic_copy_dir(src: &Path, dst: &Path) -> Result<(), String> {
                 // Roll the original back.
                 let _ = std::fs::rename(&old, dst);
                 let _ = std::fs::remove_dir_all(&tmp);
-                Err(format!("rename {} -> {}: {e}", tmp.display(), dst.display()))
+                Err(format!(
+                    "rename {} -> {}: {e}",
+                    tmp.display(),
+                    dst.display()
+                ))
             }
         }
     } else {
@@ -254,7 +267,8 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), String> {
             copy_dir_recursive(&from, &to)?;
         } else {
             // Resolve symlinks into real bytes so the store copy is canonical.
-            let bytes = std::fs::read(&from).map_err(|e| format!("read {}: {e}", from.display()))?;
+            let bytes =
+                std::fs::read(&from).map_err(|e| format!("read {}: {e}", from.display()))?;
             write_then_sync(&to, &bytes)?;
         }
     }
@@ -263,7 +277,8 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), String> {
 
 fn write_then_sync(path: &Path, bytes: &[u8]) -> Result<(), String> {
     use std::io::Write;
-    let mut f = std::fs::File::create(path).map_err(|e| format!("create {}: {e}", path.display()))?;
+    let mut f =
+        std::fs::File::create(path).map_err(|e| format!("create {}: {e}", path.display()))?;
     f.write_all(bytes)
         .map_err(|e| format!("write {}: {e}", path.display()))?;
     f.sync_all()
@@ -376,7 +391,10 @@ fn list_store_kind(store: &Path, kind: Kind) -> Vec<ClaudeStoreEntry> {
             if !ft.is_dir() {
                 continue;
             }
-            (entry.file_name().to_string_lossy().to_string(), path.clone())
+            (
+                entry.file_name().to_string_lossy().to_string(),
+                path.clone(),
+            )
         } else {
             if ft.is_dir() {
                 continue;
@@ -638,10 +656,89 @@ fn disable_fragment_in_scope(
             merge::disable_hook(scope, project_root, frag.file.to_merge(), &frag.event)
                 .map_err(|e| e.to_string())
         }
+        Kind::Mcp => merge::disable_mcp(scope, project_root, name).map_err(|e| e.to_string()),
+        other => Err(format!("kind {} is not a JSON fragment", other.as_str())),
+    }
+}
+
+/// Engine-aware sibling of [`enable_fragment_in_scope`] — reads the store
+/// hook/mcp fragment and splices it for an ARBITRARY engine via WP-22's
+/// engine-aware merge dispatch (`merge::enable_hook_for` / `enable_mcp_for`),
+/// which routes JSON vs TOML by the frozen layout and runs the Gemini strict-key
+/// guard before any write. The Phase-1 path above stays Claude-pinned; this is
+/// the one the unified `*_for` commands call so a single command name handles
+/// both file-kinds (WP-23) and settings-embedded (WP-22). Returns the settings
+/// file touched (for `ClaudeStoreMutation.path`). For hooks `hook_file` overrides
+/// the fragment's own `file` tag (the FE passes it explicitly per the TS
+/// contract); the fragment's tag is the fallback default.
+fn enable_fragment_in_scope_for(
+    engine: EngineId,
+    store: &Path,
+    kind: Kind,
+    name: &str,
+    scope: &str,
+    project_root: Option<&Path>,
+    hook_file: merge::HookFile,
+) -> Result<PathBuf, String> {
+    match kind {
+        Kind::Hook => {
+            let frag = read_hook_fragment(store, name)?;
+            merge::enable_hook_for(
+                engine,
+                scope,
+                project_root,
+                hook_file,
+                &frag.event,
+                frag.block,
+            )
+            .map_err(|e| e.to_string())?;
+            merge::resolve_hook_target(engine, scope, project_root, hook_file)
+                .map_err(|e| e.to_string())
+        }
         Kind::Mcp => {
-            merge::disable_mcp(scope, project_root, name).map_err(|e| e.to_string())
+            let server_def = read_mcp_fragment(store, name)?;
+            merge::enable_mcp_for(engine, scope, project_root, name, server_def)
+                .map_err(|e| e.to_string())?;
+            merge::resolve_mcp_target(engine, scope, project_root).map_err(|e| e.to_string())
         }
         other => Err(format!("kind {} is not a JSON fragment", other.as_str())),
+    }
+}
+
+/// Engine-aware sibling of [`disable_fragment_in_scope`] — unsplices a hook/mcp
+/// block for an arbitrary engine via WP-22's `merge::disable_hook_for` /
+/// `disable_mcp_for`. For hooks the event comes from the store fragment; the
+/// `hook_file` selects the target settings file (JSON engines) and is ignored by
+/// Codex's single TOML/JSON target.
+fn disable_fragment_in_scope_for(
+    engine: EngineId,
+    store: &Path,
+    kind: Kind,
+    name: &str,
+    scope: &str,
+    project_root: Option<&Path>,
+    hook_file: merge::HookFile,
+) -> Result<(), String> {
+    match kind {
+        Kind::Hook => {
+            let frag = read_hook_fragment(store, name)?;
+            merge::disable_hook_for(engine, scope, project_root, hook_file, &frag.event)
+                .map_err(|e| e.to_string())
+        }
+        Kind::Mcp => {
+            merge::disable_mcp_for(engine, scope, project_root, name).map_err(|e| e.to_string())
+        }
+        other => Err(format!("kind {} is not a JSON fragment", other.as_str())),
+    }
+}
+
+/// Map the wire `hookFile` string (`"shared"` | `"local"`) to `merge::HookFile`.
+/// Defaults to `Shared` (matches the TS default).
+fn parse_hook_file(s: &str) -> merge::HookFile {
+    match s {
+        "local" => merge::HookFile::Local,
+        // "shared" or anything else → shared (the TS default).
+        _ => merge::HookFile::Shared,
     }
 }
 
@@ -708,7 +805,10 @@ fn enable_core(
     }
     let link = scope_path_for(scope_claude, kind, name)?;
     if !is_under_claude_or_store(&link) {
-        return Err(format!("enable target outside .claude/store: {}", link.display()));
+        return Err(format!(
+            "enable target outside .claude/store: {}",
+            link.display()
+        ));
     }
     // Idempotent: if already a store-backed link, no-op.
     if is_enabled_in(scope_claude, store, kind, name) {
@@ -735,7 +835,10 @@ fn enable_core(
 fn disable_core(scope_claude: &Path, kind: Kind, name: &str) -> Result<(), String> {
     let link = scope_path_for(scope_claude, kind, name)?;
     if !is_under_claude_or_store(&link) {
-        return Err(format!("disable target outside .claude/store: {}", link.display()));
+        return Err(format!(
+            "disable target outside .claude/store: {}",
+            link.display()
+        ));
     }
     remove_primitive(&link, kind)
 }
@@ -746,7 +849,10 @@ fn disable_core(scope_claude: &Path, kind: Kind, name: &str) -> Result<(), Strin
 fn remove_core(scope_claude: &Path, kind: Kind, name: &str) -> Result<(), String> {
     let p = scope_path_for(scope_claude, kind, name)?;
     if !is_under_claude_or_store(&p) {
-        return Err(format!("remove target outside .claude/store: {}", p.display()));
+        return Err(format!(
+            "remove target outside .claude/store: {}",
+            p.display()
+        ));
     }
     remove_primitive(&p, kind)
 }
@@ -767,10 +873,16 @@ fn copy_core(
     let src = scope_path_for(from_claude, kind, name)?;
     let dst = scope_path_for(to_claude, kind, name)?;
     if !is_under_claude_or_store(&src) {
-        return Err(format!("copy source outside .claude/store: {}", src.display()));
+        return Err(format!(
+            "copy source outside .claude/store: {}",
+            src.display()
+        ));
     }
     if !is_under_claude_or_store(&dst) {
-        return Err(format!("copy dest outside .claude/store: {}", dst.display()));
+        return Err(format!(
+            "copy dest outside .claude/store: {}",
+            dst.display()
+        ));
     }
     if !src.exists() {
         return Err(format!("copy source missing: {}", src.display()));
@@ -810,6 +922,596 @@ fn move_core(
     let src = scope_path_for(from_claude, kind, name)?;
     remove_primitive(&src, kind)?;
     Ok(mutation)
+}
+
+// ─── WP-23: per-engine file-kind write paths (skill/agent/command) ────────────
+//
+// The Phase-1 farm above (`enable_core`/`disable_core`/`remove_core`) is
+// Claude-specific: it hardcodes `<scope>/.claude/<kind>s/<name>` via
+// `scope_path_for` and confines through `is_under_claude_or_store` (a `.claude`
+// segment check). WP-23 generalizes the file-based half per engine by threading
+// the frozen `EngineLayout` location/mechanism cell:
+//
+//   - **Claude** — UNCHANGED. `engine == Claude` routes straight back through
+//     the Phase-1 `*_core` functions, so Claude's on-disk writes are
+//     byte-for-byte identical to Phase 1 (asserted in the tests).
+//   - **Gemini** — skills `{root}/.agents/skills/{name}/` (SymlinkDir),
+//     agents `{user_root}/.gemini/agents/{name}.md` (SymlinkDir),
+//     commands `{user_root}/.gemini/commands/{name}.toml` (File → copy-on-enable).
+//   - **Codex** — skills `{root}/.agents/skills/{name}/` (SymlinkDir),
+//     agents `{user_root}/.codex/agents/{name}.toml` (File → copy-on-enable),
+//     commands `{user_root}/.codex/prompts/{name}.md` (File, deprecated).
+//
+// `Mechanism::SymlinkDir` cells symlink into the store (same as Phase 1);
+// `Mechanism::File` cells copy the resolved store primitive on enable (a symlink
+// would dangle for a single standalone file the engine reads in place). Disable
+// / remove drop the scope-local node either way; the store copy is untouched.
+//
+// **Confinement is per-engine**: a resolved write target must sit under one of
+// the engine's declared roots (its dotdir under the scope root, plus the
+// cross-tool `.agents/` for skill cells) — the generalization of the Claude-only
+// `.claude` check. A target computed outside those roots is refused before any
+// FS touch. Every write is atomic (symlink temp+rename / atomic copy).
+
+/// Map a wire engine id (`"claude"` / `"gemini"` / `"codex"`) to the typed
+/// `EngineId`. Defaults are NOT applied here — the command layer defaults a
+/// missing arg to `"claude"` so the Phase-1 path stays the zero-config default.
+fn parse_engine(s: &str) -> Result<EngineId, String> {
+    match s {
+        "claude" => Ok(EngineId::Claude),
+        "gemini" => Ok(EngineId::Gemini),
+        "codex" => Ok(EngineId::Codex),
+        _ => Err(format!("engine must be claude|gemini|codex, got {s:?}")),
+    }
+}
+
+/// The `PrimitiveKind` for a file-based `Kind`. Errors for hook/mcp (those route
+/// through the settings-embedded merge engine, never the file paths).
+fn primitive_kind_for(kind: Kind) -> Result<PrimitiveKind, String> {
+    match kind {
+        Kind::Skill => Ok(PrimitiveKind::Skill),
+        Kind::Agent => Ok(PrimitiveKind::Agent),
+        Kind::Command => Ok(PrimitiveKind::Command),
+        Kind::Hook | Kind::Mcp => Err(format!(
+            "kind {} is settings-embedded, not file-based",
+            kind.as_str()
+        )),
+    }
+}
+
+/// Look up the frozen layout cell for `(engine, kind)`.
+fn file_layout_cell(engine: EngineId, kind: Kind) -> Result<KindLayout, String> {
+    let pk = primitive_kind_for(kind)?;
+    let layout =
+        engine_layout_by_id(engine).ok_or_else(|| format!("no layout for engine {engine:?}"))?;
+    layout
+        .kinds
+        .get(&pk)
+        .cloned()
+        .ok_or_else(|| format!("engine {engine:?} has no {pk:?} cell"))
+}
+
+/// The engine's dotdir basename (`.claude` / `.gemini` / `.codex`).
+fn engine_dotdir_name(engine: EngineId) -> &'static str {
+    match engine {
+        EngineId::Claude => ".claude",
+        EngineId::Gemini => ".gemini",
+        EngineId::Codex => ".codex",
+    }
+}
+
+/// Resolve the user-tier dotdir for an engine (`<home>/.claude` / `.gemini` /
+/// `.codex`) — the home of `{user_root}` location templates. `user_home` is the
+/// resolved user home dir (threaded in by the caller, NOT read from the process
+/// env here — so the pure core never depends on a global `HOME` the test suite
+/// would race on).
+fn engine_user_dotdir(engine: EngineId, user_home: &Path) -> PathBuf {
+    user_home.join(engine_dotdir_name(engine))
+}
+
+/// Resolve a file-based primitive's concrete on-disk path for `(engine, kind,
+/// name)` in a scope whose root is `scope_root` (the directory that holds the
+/// engine dotdir — `~` for workspace, `<project.root_path>` for project scope).
+///
+/// This reads the frozen `EngineLayout` `location` template and substitutes the
+/// three placeholders the file cells use:
+///   - `{root}`      → `scope_root` (scope-relative dotdir parent).
+///   - `{user_root}` → `~` (user-tier; these cells are user-scoped on disk).
+///   - `{name}`      → the validated primitive name.
+///
+/// The Gemini `commands/**/{name}.toml` namespace wildcard collapses to a flat
+/// `commands/{name}.toml` for writes (Ngwa writes the un-namespaced leaf; reads
+/// still walk the `**` tree). For dir primitives (skills) a trailing-slash
+/// template yields a directory path.
+fn engine_file_path(
+    engine: EngineId,
+    cell: &KindLayout,
+    scope_root: &Path,
+    user_home: &Path,
+    kind: Kind,
+    name: &str,
+) -> Result<PathBuf, String> {
+    // Resolve the template body up to the engine-relative dotdir, then append
+    // the kind subdir + leaf so the wildcard / trailing-slash quirks don't leak.
+    // We don't string-substitute the raw template (its `**` and trailing `/`
+    // are not real path segments) — we read it only to pick the dotdir + subdir.
+    let leaf = if kind.is_dir_primitive() {
+        name.to_string()
+    } else {
+        // File extension is engine-declared by the cell location suffix.
+        let ext = if cell.location.ends_with(".toml") {
+            "toml"
+        } else {
+            // Claude/Gemini agents + Claude/Codex commands are `.md`.
+            "md"
+        };
+        format!("{name}.{ext}")
+    };
+
+    let pk = primitive_kind_for(kind)?;
+    let path = match (engine, pk) {
+        // ── Claude: scope-relative `.claude/<kind>s/<leaf>` ──────────────────
+        (EngineId::Claude, PrimitiveKind::Skill) => {
+            scope_root.join(".claude").join("skills").join(&leaf)
+        }
+        (EngineId::Claude, PrimitiveKind::Agent) => {
+            scope_root.join(".claude").join("agents").join(&leaf)
+        }
+        (EngineId::Claude, PrimitiveKind::Command) => {
+            scope_root.join(".claude").join("commands").join(&leaf)
+        }
+        // ── Gemini ───────────────────────────────────────────────────────────
+        // Skills ride the cross-tool `.agents/skills/` alias (scope-relative).
+        (EngineId::Gemini, PrimitiveKind::Skill) => {
+            scope_root.join(".agents").join("skills").join(&leaf)
+        }
+        // Agents + commands are user-tier under `~/.gemini`.
+        (EngineId::Gemini, PrimitiveKind::Agent) => engine_user_dotdir(engine, user_home)
+            .join("agents")
+            .join(&leaf),
+        (EngineId::Gemini, PrimitiveKind::Command) => engine_user_dotdir(engine, user_home)
+            .join("commands")
+            .join(&leaf),
+        // ── Codex ──────────────────────────────────────────────────────────
+        (EngineId::Codex, PrimitiveKind::Skill) => {
+            scope_root.join(".agents").join("skills").join(&leaf)
+        }
+        (EngineId::Codex, PrimitiveKind::Agent) => engine_user_dotdir(engine, user_home)
+            .join("agents")
+            .join(&leaf),
+        // Deprecated, but still writable (read/migration parity).
+        (EngineId::Codex, PrimitiveKind::Command) => engine_user_dotdir(engine, user_home)
+            .join("prompts")
+            .join(&leaf),
+        (_, other) => return Err(format!("engine {engine:?} has no file path for {other:?}")),
+    };
+    Ok(path)
+}
+
+/// Per-engine write confinement: a resolved file target must sit under one of
+/// the engine's declared roots — its dotdir (under the scope root for
+/// scope-relative cells, `~/<dotdir>` for user-tier cells) OR the cross-tool
+/// `.agents/` dir (for skill cells). This is the per-engine generalization of
+/// Phase-1's Claude-only `is_under_claude_or_store` check.
+fn is_under_engine_root(engine: EngineId, scope_root: &Path, user_home: &Path, p: &Path) -> bool {
+    // Build the permitted roots for this engine + scope.
+    let mut roots: Vec<PathBuf> = Vec::new();
+    // Scope-relative dotdir (Claude `.claude`, and the project-scope dotdirs).
+    roots.push(scope_root.join(engine_dotdir_name(engine)));
+    // User-tier dotdir (Gemini/Codex agents + commands live here).
+    roots.push(engine_user_dotdir(engine, user_home));
+    // Cross-tool `.agents/` (skills): scope-relative + user home.
+    roots.push(scope_root.join(".agents"));
+    roots.push(user_home.join(".agents"));
+    roots.iter().any(|r| p == r || p.starts_with(r))
+}
+
+/// `enable` for an arbitrary engine. Claude routes back through the Phase-1
+/// `enable_core` (byte-identical). For other engines: `SymlinkDir` cells symlink
+/// into the store; `File` cells copy the resolved store primitive on enable.
+/// Idempotent. Atomic. Per-engine path-confined.
+fn enable_for_core(
+    engine: EngineId,
+    store: &Path,
+    scope_root: &Path,
+    user_home: &Path,
+    scope: &str,
+    kind: Kind,
+    name: &str,
+) -> Result<ClaudeStoreMutation, String> {
+    if engine == EngineId::Claude {
+        // Phase-1 path: confinement + write are byte-unchanged.
+        let scope_claude = scope_root.join(".claude");
+        return enable_core(store, &scope_claude, scope, kind, name);
+    }
+    let cell = file_layout_cell(engine, kind)?;
+    let target_src = store_path_for(store, kind, name)?;
+    if !target_src.exists() {
+        return Err(format!(
+            "store has no {} named {name:?} (expected {})",
+            kind.as_str(),
+            target_src.display()
+        ));
+    }
+    let dest = engine_file_path(engine, &cell, scope_root, user_home, kind, name)?;
+    if !is_under_engine_root(engine, scope_root, user_home, &dest) {
+        return Err(format!(
+            "enable target outside {engine:?} roots: {}",
+            dest.display()
+        ));
+    }
+    let link_target = match cell.mechanism {
+        Mechanism::SymlinkDir => {
+            // Idempotent: an existing store-backed link is a no-op.
+            if !is_engine_enabled(&dest, store) {
+                make_symlink(&target_src, &dest)?;
+            }
+            Some(target_src.to_string_lossy().to_string())
+        }
+        Mechanism::File => {
+            // Copy-on-enable: a single standalone file the engine reads in place.
+            // We resolve the store copy into real bytes at the destination.
+            if kind.is_dir_primitive() {
+                atomic_copy_dir(&target_src, &dest)?;
+            } else {
+                atomic_copy_file(&target_src, &dest)?;
+            }
+            None
+        }
+        Mechanism::SettingsKey => {
+            return Err(format!(
+                "kind {} for {engine:?} is settings-embedded, not file-based",
+                kind.as_str()
+            ))
+        }
+    };
+    Ok(ClaudeStoreMutation {
+        kind: kind.as_str().to_string(),
+        name: name.to_string(),
+        scope: scope.to_string(),
+        path: dest.to_string_lossy().to_string(),
+        link_target,
+    })
+}
+
+/// True iff `dest` is a symlink resolving into `store` (engine-agnostic enabled
+/// probe for SymlinkDir cells; the per-engine sibling of `is_enabled_in`).
+fn is_engine_enabled(dest: &Path, store: &Path) -> bool {
+    let Ok(meta) = std::fs::symlink_metadata(dest) else {
+        return false;
+    };
+    if !meta.file_type().is_symlink() {
+        return false;
+    }
+    match std::fs::canonicalize(dest) {
+        Ok(resolved) => is_in_store(&resolved, store),
+        Err(_) => false,
+    }
+}
+
+/// `disable` for an arbitrary engine — drop only the scope-local node (link or
+/// copied file/dir). The store copy is untouched. Idempotent. Claude routes back
+/// through Phase-1 `disable_core`.
+fn disable_for_core(
+    engine: EngineId,
+    scope_root: &Path,
+    user_home: &Path,
+    kind: Kind,
+    name: &str,
+) -> Result<(), String> {
+    if engine == EngineId::Claude {
+        let scope_claude = scope_root.join(".claude");
+        return disable_core(&scope_claude, kind, name);
+    }
+    let cell = file_layout_cell(engine, kind)?;
+    let dest = engine_file_path(engine, &cell, scope_root, user_home, kind, name)?;
+    if !is_under_engine_root(engine, scope_root, user_home, &dest) {
+        return Err(format!(
+            "disable target outside {engine:?} roots: {}",
+            dest.display()
+        ));
+    }
+    remove_primitive(&dest, kind)
+}
+
+/// `remove` for an arbitrary engine — delete the scope-local entry (link or real
+/// file/dir). Does NOT touch the store. Claude routes back through Phase-1
+/// `remove_core`. (For file-kind primitives disable and remove are the same FS
+/// op — drop the scope-local node — but kept distinct to mirror the contract and
+/// the Phase-1 surface.)
+fn remove_for_core(
+    engine: EngineId,
+    scope_root: &Path,
+    user_home: &Path,
+    kind: Kind,
+    name: &str,
+) -> Result<(), String> {
+    if engine == EngineId::Claude {
+        let scope_claude = scope_root.join(".claude");
+        return remove_core(&scope_claude, kind, name);
+    }
+    let cell = file_layout_cell(engine, kind)?;
+    let dest = engine_file_path(engine, &cell, scope_root, user_home, kind, name)?;
+    if !is_under_engine_root(engine, scope_root, user_home, &dest) {
+        return Err(format!(
+            "remove target outside {engine:?} roots: {}",
+            dest.display()
+        ));
+    }
+    remove_primitive(&dest, kind)
+}
+
+// ─── WP-24: cross-engine transcode copy/move (D-09 batch) ─────────────────────
+//
+// Resolve `(fromEngine, kind, toEngine)` → a transcode plan per the
+// directionality contract in `plans/cockpit/06-cross-engine-transcode.md`, then
+// materialize the destination with the existing forward transcoder
+// (`md_to_codex_toml` / `md_to_gemini_command_toml`) for MD→TOML pairs, or a
+// direct file/dir copy for same-format pairs. Every blocked direction (TOML→MD)
+// returns `StoreError::TranscodeUnsupported` BEFORE any disk write.
+//
+// The unit of work is the SOURCE: we read the resolved scope-local primitive in
+// `fromEngine`/`fromScope`, then write one destination per requested
+// `(toEngine, toScope)`. Each destination write is atomic (temp+rename, reusing
+// the WP-23 file-write path). A batch reports a per-row result so a partial
+// failure (one bad destination) never rolls back the rows that succeeded.
+
+use merge::StoreError;
+
+/// The resolved transcode plan for one `(fromEngine, kind, toEngine)` triple.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TranscodePlan {
+    /// Same on-disk format end-to-end → direct file/dir copy (no transform).
+    /// (Claude↔Gemini MD agents, any skill dir, Claude→Claude, …)
+    DirectCopy,
+    /// MD → Codex TOML agent: `md_to_codex_toml`.
+    MdToCodexToml,
+    /// MD command → Gemini slash-command TOML: `md_to_gemini_command_toml`.
+    MdToGeminiCommandToml,
+}
+
+/// Map a typed `EngineId` to its stable wire id (matches `parse_engine`).
+fn engine_wire_id(engine: EngineId) -> &'static str {
+    match engine {
+        EngineId::Claude => "claude",
+        EngineId::Gemini => "gemini",
+        EngineId::Codex => "codex",
+    }
+}
+
+/// The on-disk `ConfigFormat` of a file-based `(engine, kind)` cell — the basis
+/// for the same-format vs transcode decision. Reads the frozen `EngineLayout`
+/// cell so the matrix stays in lockstep with G-ADAPTER. Errors for hook/mcp
+/// (settings-embedded — out of v2b cross-engine scope) and for cells the engine
+/// doesn't have.
+fn cell_format(engine: EngineId, kind: Kind) -> Result<ConfigFormat, StoreError> {
+    let cell =
+        file_layout_cell(engine, kind).map_err(|message| StoreError::Unsupported { message })?;
+    Ok(cell.format)
+}
+
+/// Resolve `(fromEngine, kind, toEngine)` → a [`TranscodePlan`] per the
+/// directionality matrix in `06-cross-engine-transcode.md`. Returns
+/// `StoreError::TranscodeUnsupported` for the blocked TOML→MD directions and
+/// `StoreError::Unsupported` for kinds that are out of v2b cross-engine scope
+/// (hook/mcp — settings-embedded, not a portable primitive).
+fn resolve_transcode_plan(
+    from_engine: EngineId,
+    to_engine: EngineId,
+    kind: Kind,
+) -> Result<TranscodePlan, StoreError> {
+    // hooks / MCP are settings-embedded — explicitly OUT of v2b cross-engine
+    // scope (06 §matrix: "not a portable primitive"). Never offer a copy.
+    if !kind.is_file_based() {
+        return Err(StoreError::Unsupported {
+            message: format!(
+                "{} is settings-embedded; cross-engine copy is out of v2b scope",
+                kind.as_str()
+            ),
+        });
+    }
+
+    let from_fmt = cell_format(from_engine, kind)?;
+    let to_fmt = cell_format(to_engine, kind)?;
+
+    use ConfigFormat::*;
+    match (from_fmt, to_fmt) {
+        // Same on-disk format end-to-end → verbatim copy. Covers Claude↔Gemini
+        // MD agents, every skill (MD dir under `.agents/skills`), Claude→Claude,
+        // and any TOML→TOML pair.
+        (MdYaml, MdYaml) | (Toml, Toml) => Ok(TranscodePlan::DirectCopy),
+        // MD → TOML: forward transcode. Which entry point depends on the kind:
+        //   - agent  → `md_to_codex_toml`  (Codex agent: body → system_prompt)
+        //   - command→ `md_to_gemini_command_toml` (Gemini command: body → prompt)
+        (MdYaml, Toml) => match kind {
+            Kind::Agent => Ok(TranscodePlan::MdToCodexToml),
+            Kind::Command => Ok(TranscodePlan::MdToGeminiCommandToml),
+            // A skill is always MD on both sides (no TOML skill cell exists), so
+            // this arm is unreachable for skills; guard it anyway.
+            Kind::Skill => Err(StoreError::Unsupported {
+                message: "skills are MD on every engine; no MD→TOML skill transcode".to_string(),
+            }),
+            Kind::Hook | Kind::Mcp => unreachable!("file-based guard above excludes hook/mcp"),
+        },
+        // TOML → MD: BLOCKED. No reverse transcoder exists (06 §matrix). Refused
+        // before any write so a blocked destination never leaves a partial file.
+        (Toml, MdYaml) => Err(StoreError::TranscodeUnsupported {
+            from: engine_wire_id(from_engine).to_string(),
+            to: engine_wire_id(to_engine).to_string(),
+            reason: format!(
+                "no reverse transcoder for {} {} (TOML→Markdown); see 06-cross-engine-transcode.md",
+                engine_wire_id(from_engine),
+                kind.as_str()
+            ),
+        }),
+        // JSON-embedded should never reach here (file-based guard above).
+        (JsonEmbedded, _) | (_, JsonEmbedded) => Err(StoreError::Unsupported {
+            message: "settings-embedded format has no portable cross-engine copy".to_string(),
+        }),
+    }
+}
+
+/// Read the resolved (real, symlink-followed) source primitive's UTF-8 body for
+/// a transcode. Only single-file primitives (agent/command) are transcoded;
+/// skills are dir primitives and always take the same-format direct-copy path.
+fn read_source_md(src_resolved: &Path) -> Result<String, StoreError> {
+    std::fs::read_to_string(src_resolved).map_err(|e| StoreError::Io {
+        path: src_resolved.to_string_lossy().to_string(),
+        message: format!("read source for transcode: {e}"),
+    })
+}
+
+/// Execute one cross-engine destination write per a resolved [`TranscodePlan`].
+/// `src_resolved` is the real (symlink-followed) source path in the from-scope;
+/// `dest` is the computed, already-confinement-checked destination path. The
+/// write is atomic (temp+rename) for both copy and transcode. Returns the bytes-
+/// landed `ClaudeStoreMutation` (`link_target: None` — a cross-engine copy always
+/// materializes a real file/dir, never a link).
+#[allow(clippy::too_many_arguments)]
+fn write_transcoded_dest(
+    plan: TranscodePlan,
+    kind: Kind,
+    name: &str,
+    src_resolved: &Path,
+    dest: &Path,
+    to_scope: &str,
+) -> Result<ClaudeStoreMutation, StoreError> {
+    // Same-format → independent copy; cross-format → transcode. (Symlink-based
+    // dedup was reverted after a data-loss incident — see the primitive-registry
+    // plan; symlinks return there with provenance + dependent-aware deletes.)
+    match plan {
+        TranscodePlan::DirectCopy => {
+            if kind.is_dir_primitive() {
+                atomic_copy_dir(src_resolved, dest).map_err(|message| StoreError::Io {
+                    path: dest.to_string_lossy().to_string(),
+                    message,
+                })?;
+            } else {
+                atomic_copy_file(src_resolved, dest).map_err(|message| StoreError::Io {
+                    path: dest.to_string_lossy().to_string(),
+                    message,
+                })?;
+            }
+        }
+        TranscodePlan::MdToCodexToml | TranscodePlan::MdToGeminiCommandToml => {
+            let md = read_source_md(src_resolved)?;
+            let toml = match plan {
+                TranscodePlan::MdToCodexToml => {
+                    crate::pkg::engine_adapters::transcoder::md_to_codex_toml(&md)
+                }
+                TranscodePlan::MdToGeminiCommandToml => {
+                    crate::pkg::engine_adapters::transcoder::md_to_gemini_command_toml(&md)
+                }
+                TranscodePlan::DirectCopy => unreachable!(),
+            }
+            .map_err(|e| StoreError::UnrepresentableValue {
+                path: dest.to_string_lossy().to_string(),
+                message: format!("transcode failed: {e}"),
+            })?;
+            // Atomic: write the transcoded bytes to a temp sibling, fsync, rename.
+            if let Some(parent) = dest.parent() {
+                std::fs::create_dir_all(parent).map_err(|e| StoreError::Io {
+                    path: parent.to_string_lossy().to_string(),
+                    message: format!("mkdir: {e}"),
+                })?;
+            }
+            let tmp = temp_sibling(dest);
+            write_then_sync(&tmp, toml.as_bytes()).map_err(|message| StoreError::Io {
+                path: tmp.to_string_lossy().to_string(),
+                message,
+            })?;
+            std::fs::rename(&tmp, dest).map_err(|e| {
+                let _ = std::fs::remove_file(&tmp);
+                StoreError::Io {
+                    path: dest.to_string_lossy().to_string(),
+                    message: format!("rename {} -> {}: {e}", tmp.display(), dest.display()),
+                }
+            })?;
+        }
+    }
+    Ok(ClaudeStoreMutation {
+        kind: kind.as_str().to_string(),
+        name: name.to_string(),
+        scope: to_scope.to_string(),
+        path: dest.to_string_lossy().to_string(),
+        link_target: None,
+    })
+}
+
+/// The pure core of one batch row: resolve the plan, compute + confine the
+/// destination path, then write atomically. Reads `from`'s resolved source once
+/// per row (callers may hoist the read; kept per-row here for blocked-pair
+/// safety — a blocked plan returns BEFORE the source is even read or any path is
+/// touched). `from_resolved` is the already-resolved (symlink-followed) source
+/// path; `to_scope_root`/`to_user_home` locate the destination per the WP-23
+/// file-path math. Never partial-writes: a blocked or unsupported plan errors
+/// before any FS mutation.
+#[allow(clippy::too_many_arguments)]
+fn copy_cross_engine_row(
+    from_engine: EngineId,
+    to_engine: EngineId,
+    kind: Kind,
+    name: &str,
+    from_resolved: &Path,
+    to_scope: &str,
+    to_scope_root: &Path,
+    to_user_home: &Path,
+) -> Result<ClaudeStoreMutation, StoreError> {
+    // 1. Resolve the plan FIRST — a blocked (TOML→MD) or out-of-scope direction
+    //    errors here, before any destination path is computed or touched.
+    let plan = resolve_transcode_plan(from_engine, to_engine, kind)?;
+
+    // 2. Compute the destination cell + path for the TARGET engine. For a
+    //    transcode the on-disk leaf extension follows the target engine's cell
+    //    (`.toml`), which `engine_file_path` already derives from the cell.
+    let cell =
+        file_layout_cell(to_engine, kind).map_err(|message| StoreError::Unsupported { message })?;
+    let dest = engine_file_path(to_engine, &cell, to_scope_root, to_user_home, kind, name)
+        .map_err(|message| StoreError::Unsupported { message })?;
+
+    // 3. Per-engine confinement on the TARGET — same guard WP-23 enforces.
+    if !is_under_engine_root(to_engine, to_scope_root, to_user_home, &dest) {
+        return Err(StoreError::Unsupported {
+            message: format!(
+                "cross-engine copy target outside {to_engine:?} roots: {}",
+                dest.display()
+            ),
+        });
+    }
+
+    // 4. Materialize the destination atomically.
+    write_transcoded_dest(plan, kind, name, from_resolved, &dest, to_scope)
+}
+
+/// The user home dir (`$HOME`). Resolved at the command boundary and threaded
+/// into the pure file-path core so the core itself never touches the env.
+fn user_home_dir() -> Result<PathBuf, String> {
+    std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .ok_or_else(|| "HOME not set".to_string())
+}
+
+/// Resolve a `ClaudeStoreScope` string to the scope ROOT (the parent of the
+/// engine dotdir): `~` for `workspace`, `<project.root_path>` for `project:<id>`.
+/// The per-engine sibling of [`resolve_scope_claude`] (which appends `.claude`);
+/// the WP-23 file paths append the engine-specific dotdir themselves.
+async fn resolve_scope_root_dir(db: &Arc<PaDb>, scope: &str) -> Result<PathBuf, String> {
+    validate_pin_scope(scope)?;
+    if scope == "workspace" {
+        let home = std::env::var_os("HOME").ok_or_else(|| "HOME not set".to_string())?;
+        return Ok(PathBuf::from(home));
+    }
+    let id = scope
+        .strip_prefix("project:")
+        .ok_or_else(|| format!("unexpected scope {scope:?}"))?;
+    let pool = db.ensure_pool().await?;
+    let project = get_project(&pool, id)
+        .await?
+        .ok_or_else(|| format!("no project with id {id:?}"))?;
+    let root = project
+        .root_path
+        .ok_or_else(|| format!("project {id:?} has no root_path"))?;
+    expand(&root).map_err(|e| e.to_string())
 }
 
 // ─── Tauri command surface ────────────────────────────────────────────────────
@@ -1043,6 +1745,336 @@ pub async fn claude_primitive_remove(
     Ok(())
 }
 
+// ─── WP-23: per-engine unified-dispatch Tauri commands ────────────────────────
+//
+// `*_for` mirror the frozen TS write signatures (`claudePrimitiveEnableFor` /
+// `DisableFor`); `engine` defaults to `"claude"` at the TS layer so the Phase-1
+// zero-config path is unchanged. ONE command name handles BOTH families, keyed
+// on `kind`:
+//   - **file kinds** (skill / agent / command) → WP-23's per-engine symlink /
+//     copy paths (`enable_for_core` / `disable_for_core` / `remove_for_core`).
+//   - **settings-embedded** (hook / mcp) → WP-22's engine-aware merge dispatch
+//     (`merge::enable_hook_for` / `enable_mcp_for` / …) via the store fragment.
+// This unified routing is the contract WP-22 froze (`tauri-cmd.ts` documents
+// `claude_primitive_enable_for` taking a `hookFile` arg and routing hook/mcp).
+// `hookFile` is consumed only by the hook branch (JSON engines); file kinds and
+// mcp ignore it. **Coordination note (drift §2):** WP-22's TS doc framed these
+// as the *settings-embedded* commands; WP-23 widens the handler to also serve
+// file kinds so the FE has one command per verb — flagged for WP-26.
+
+/// Enable a store primitive in a scope for a specific engine. File kinds symlink
+/// / copy per engine; hook/mcp splice via the settings-embedded merge engine.
+#[tauri::command]
+pub async fn claude_primitive_enable_for(
+    db: State<'_, Arc<PaDb>>,
+    engine: String,
+    kind: String,
+    name: String,
+    scope: String,
+    #[allow(non_snake_case)] hookFile: Option<String>,
+) -> Result<ClaudeStoreMutation, String> {
+    let e = parse_engine(&engine)?;
+    let k = Kind::parse(&kind)?;
+    validate_name(&name)?;
+    let store = store_root().ok_or_else(|| "cannot resolve store root".to_string())?;
+    if !k.is_file_based() {
+        // hook/mcp → WP-22 engine-aware merge dispatch (read store fragment,
+        // splice for `engine`). No symlink → link_target None.
+        let hf = parse_hook_file(hookFile.as_deref().unwrap_or("shared"));
+        let project_root = resolve_scope_root(&db, &scope).await?;
+        let target =
+            enable_fragment_in_scope_for(e, &store, k, &name, &scope, project_root.as_deref(), hf)?;
+        return Ok(ClaudeStoreMutation {
+            kind: k.as_str().to_string(),
+            name,
+            scope,
+            path: target.to_string_lossy().to_string(),
+            link_target: None,
+        });
+    }
+    let scope_root = resolve_scope_root_dir(&db, &scope).await?;
+    let user_home = user_home_dir()?;
+    enable_for_core(e, &store, &scope_root, &user_home, &scope, k, &name)
+}
+
+/// Disable a store primitive in a scope for a specific engine. File kinds drop
+/// the scope-local link/copy; hook/mcp unsplice via the merge engine. Store
+/// untouched either way.
+#[tauri::command]
+pub async fn claude_primitive_disable_for(
+    db: State<'_, Arc<PaDb>>,
+    engine: String,
+    kind: String,
+    name: String,
+    scope: String,
+    #[allow(non_snake_case)] hookFile: Option<String>,
+) -> Result<(), String> {
+    let e = parse_engine(&engine)?;
+    let k = Kind::parse(&kind)?;
+    validate_name(&name)?;
+    if !k.is_file_based() {
+        let hf = parse_hook_file(hookFile.as_deref().unwrap_or("shared"));
+        let store = store_root().ok_or_else(|| "cannot resolve store root".to_string())?;
+        let project_root = resolve_scope_root(&db, &scope).await?;
+        disable_fragment_in_scope_for(e, &store, k, &name, &scope, project_root.as_deref(), hf)?;
+    } else {
+        let scope_root = resolve_scope_root_dir(&db, &scope).await?;
+        let user_home = user_home_dir()?;
+        disable_for_core(e, &scope_root, &user_home, k, &name)?;
+    }
+    // WP-04: clear any pin that pointed at the now-removed scope-local primitive.
+    let pool = db.ensure_pool().await?;
+    clear_pin_for(&pool, &scope, k.as_str(), &name).await?;
+    Ok(())
+}
+
+/// Remove a primitive from a single scope for a specific engine (does NOT touch
+/// the store canonical copy). For file kinds this is the scope-local delete; for
+/// hook/mcp it is the scope-local unsplice (the store fragment survives).
+#[tauri::command]
+pub async fn claude_primitive_remove_for(
+    db: State<'_, Arc<PaDb>>,
+    engine: String,
+    kind: String,
+    name: String,
+    scope: String,
+    #[allow(non_snake_case)] hookFile: Option<String>,
+) -> Result<(), String> {
+    let e = parse_engine(&engine)?;
+    let k = Kind::parse(&kind)?;
+    validate_name(&name)?;
+    if !k.is_file_based() {
+        let hf = parse_hook_file(hookFile.as_deref().unwrap_or("shared"));
+        let store = store_root().ok_or_else(|| "cannot resolve store root".to_string())?;
+        let project_root = resolve_scope_root(&db, &scope).await?;
+        disable_fragment_in_scope_for(e, &store, k, &name, &scope, project_root.as_deref(), hf)?;
+    } else {
+        let scope_root = resolve_scope_root_dir(&db, &scope).await?;
+        let user_home = user_home_dir()?;
+        remove_for_core(e, &scope_root, &user_home, k, &name)?;
+    }
+    let pool = db.ensure_pool().await?;
+    clear_pin_for(&pool, &scope, k.as_str(), &name).await?;
+    Ok(())
+}
+
+// ─── WP-24: cross-engine transcode copy batch (D-09) — Tauri command ──────────
+//
+// `claude_primitive_copy_batch` copies (or moves) a single source primitive into
+// N `(engine, scope)` destinations in one call, returning a per-row result in
+// REQUEST ORDER. Mirrors the frozen FE wire shape (`NgwaCopyBatchResult` /
+// `NgwaCopyRowResult` in `tauri-cmd.ts`): each row is `{ engine, scope, mode }`
+// plus either `ok: true, mutation` or `ok: false, error`. The `mode` echoed back
+// is the RESOLVED transcode relationship (we re-derive it from the matrix — the
+// FE-supplied `mode` on the request is advisory and not trusted for the write).
+
+/// One requested destination in a batch copy. Mirrors `NgwaCopyDestination`.
+/// `mode` on the REQUEST is advisory (FE preview cue); the backend re-resolves
+/// the authoritative plan from `(fromEngine, kind, engine)`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct NgwaCopyDestination {
+    pub engine: String,
+    pub scope: String,
+    /// Advisory mode the FE computed; ignored for the write, echoed (resolved).
+    #[serde(default)]
+    pub mode: Option<String>,
+}
+
+/// The resolved transcode relationship echoed on each row. Serializes to
+/// `NgwaTranscodeMode` (`same | transcode | blocked`).
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "lowercase")]
+enum CopyMode {
+    Same,
+    Transcode,
+    Blocked,
+}
+
+impl CopyMode {
+    fn from_plan(plan: TranscodePlan) -> CopyMode {
+        match plan {
+            TranscodePlan::DirectCopy => CopyMode::Same,
+            TranscodePlan::MdToCodexToml | TranscodePlan::MdToGeminiCommandToml => {
+                CopyMode::Transcode
+            }
+        }
+    }
+}
+
+/// Per-row outcome. Serializes to `NgwaCopyRowResult` — the row identity
+/// (`engine`/`scope`/`mode`) is flattened alongside the `ok` discriminant so the
+/// wire shape matches the FE union exactly.
+#[derive(Debug, Clone, Serialize)]
+struct NgwaCopyRowResult {
+    engine: String,
+    scope: String,
+    mode: CopyMode,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    mutation: Option<ClaudeStoreMutation>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<StoreError>,
+}
+
+/// Batch result. Serializes to `NgwaCopyBatchResult { rows }`.
+#[derive(Debug, Clone, Serialize)]
+pub struct NgwaCopyBatchResult {
+    rows: Vec<NgwaCopyRowResult>,
+}
+
+/// Map a wire scope string to the resolved scope ROOT (parent of the engine
+/// dotdir), reusing the WP-23 resolver. Workspace → `~`; project:<id> → project
+/// root_path.
+async fn resolve_dest_scope_root(db: &Arc<PaDb>, scope: &str) -> Result<PathBuf, String> {
+    resolve_scope_root_dir(db, scope).await
+}
+
+/// Copy (or move) one source primitive into N `(engine, scope)` destinations in
+/// one batch. Per the directionality contract (`06-cross-engine-transcode.md`):
+/// same-format destinations copy verbatim; MD→TOML destinations transcode via the
+/// existing forward transcoder; TOML→MD destinations are blocked with a typed
+/// `TranscodeUnsupported` error BEFORE any write. Each destination writes
+/// atomically and reports its own row; a partial failure never rolls back the
+/// rows that succeeded. For `move`, the source is removed only AFTER the batch,
+/// and only if at least one destination succeeded (a total failure degrades to a
+/// no-op, never to loss).
+#[tauri::command]
+#[allow(non_snake_case)]
+pub async fn claude_primitive_copy_batch(
+    db: State<'_, Arc<PaDb>>,
+    fromEngine: String,
+    kind: String,
+    name: String,
+    fromScope: String,
+    destinations: Vec<NgwaCopyDestination>,
+    #[allow(non_snake_case)] r#move: bool,
+) -> Result<NgwaCopyBatchResult, String> {
+    let from_engine = parse_engine(&fromEngine)?;
+    let k = Kind::parse(&kind)?;
+    validate_name(&name)?;
+
+    // Resolve the SOURCE once: its real (symlink-followed) on-disk path in the
+    // from-engine's from-scope. A missing source fails the whole batch up front
+    // (nothing to copy) rather than per-row.
+    let from_scope_root = resolve_scope_root_dir(&db, &fromScope).await?;
+    let user_home = user_home_dir()?;
+    let from_cell = file_layout_cell(from_engine, k)?;
+    let src = engine_file_path(
+        from_engine,
+        &from_cell,
+        &from_scope_root,
+        &user_home,
+        k,
+        &name,
+    )?;
+    if !src.exists() {
+        return Err(format!(
+            "cross-engine copy source missing: {} ({fromEngine} {} {name:?} in {fromScope})",
+            src.display(),
+            k.as_str()
+        ));
+    }
+    let from_resolved = std::fs::canonicalize(&src)
+        .map_err(|e| format!("resolve source {}: {e}", src.display()))?;
+
+    let mut rows: Vec<NgwaCopyRowResult> = Vec::with_capacity(destinations.len());
+    let mut any_ok = false;
+
+    for dest in &destinations {
+        // Resolve the target engine + scope root per row; a bad engine/scope is a
+        // per-row error (the batch keeps going for the other destinations).
+        let to_engine = match parse_engine(&dest.engine) {
+            Ok(e) => e,
+            Err(message) => {
+                rows.push(NgwaCopyRowResult {
+                    engine: dest.engine.clone(),
+                    scope: dest.scope.clone(),
+                    mode: CopyMode::Blocked,
+                    ok: false,
+                    mutation: None,
+                    error: Some(StoreError::Unsupported { message }),
+                });
+                continue;
+            }
+        };
+
+        // Resolve the plan first so a blocked direction echoes mode=blocked and
+        // never touches disk.
+        let plan = match resolve_transcode_plan(from_engine, to_engine, k) {
+            Ok(p) => p,
+            Err(err) => {
+                rows.push(NgwaCopyRowResult {
+                    engine: dest.engine.clone(),
+                    scope: dest.scope.clone(),
+                    mode: CopyMode::Blocked,
+                    ok: false,
+                    mutation: None,
+                    error: Some(err),
+                });
+                continue;
+            }
+        };
+        let mode = CopyMode::from_plan(plan);
+
+        let to_scope_root = match resolve_dest_scope_root(&db, &dest.scope).await {
+            Ok(r) => r,
+            Err(message) => {
+                rows.push(NgwaCopyRowResult {
+                    engine: dest.engine.clone(),
+                    scope: dest.scope.clone(),
+                    mode,
+                    ok: false,
+                    mutation: None,
+                    error: Some(StoreError::Unsupported { message }),
+                });
+                continue;
+            }
+        };
+
+        match copy_cross_engine_row(
+            from_engine,
+            to_engine,
+            k,
+            &name,
+            &from_resolved,
+            &dest.scope,
+            &to_scope_root,
+            &user_home,
+        ) {
+            Ok(mutation) => {
+                any_ok = true;
+                rows.push(NgwaCopyRowResult {
+                    engine: dest.engine.clone(),
+                    scope: dest.scope.clone(),
+                    mode,
+                    ok: true,
+                    mutation: Some(mutation),
+                    error: None,
+                });
+            }
+            Err(err) => rows.push(NgwaCopyRowResult {
+                engine: dest.engine.clone(),
+                scope: dest.scope.clone(),
+                mode,
+                ok: false,
+                mutation: None,
+                error: Some(err),
+            }),
+        }
+    }
+
+    // Move semantics: drop the source only after the batch, and only if at least
+    // one destination landed — so a total failure degrades to a no-op (copy
+    // safety: never lose the source to a failed move).
+    if r#move && any_ok {
+        let _ = remove_for_core(from_engine, &from_scope_root, &user_home, k, &name);
+        let pool = db.ensure_pool().await?;
+        clear_pin_for(&pool, &fromScope, k.as_str(), &name).await?;
+    }
+
+    Ok(NgwaCopyBatchResult { rows })
+}
+
 // ─── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -1075,7 +2107,11 @@ mod tests {
     fn seed_agent(store: &Path, name: &str, desc: &str) {
         let p = store_path_for(store, Kind::Agent, name).unwrap();
         std::fs::create_dir_all(p.parent().unwrap()).unwrap();
-        std::fs::write(&p, format!("---\nname: {name}\ndescription: {desc}\n---\nbody")).unwrap();
+        std::fs::write(
+            &p,
+            format!("---\nname: {name}\ndescription: {desc}\n---\nbody"),
+        )
+        .unwrap();
     }
 
     fn seed_skill(store: &Path, name: &str, desc: &str) {
@@ -1128,13 +2164,19 @@ mod tests {
 
         // Resolves to the store canonical copy.
         let resolved = std::fs::canonicalize(&link).unwrap();
-        let expected = std::fs::canonicalize(store_path_for(&store, Kind::Agent, "shared").unwrap())
-            .unwrap();
+        let expected =
+            std::fs::canonicalize(store_path_for(&store, Kind::Agent, "shared").unwrap()).unwrap();
         assert_eq!(resolved, expected, "symlink resolves into the store");
-        assert!(is_in_store(&resolved, &store), "resolved target is in store");
+        assert!(
+            is_in_store(&resolved, &store),
+            "resolved target is in store"
+        );
         // link_target is the (unresolved) store path the symlink points at.
         let lt = m.link_target.expect("link_target populated on enable");
-        assert!(lt.ends_with("shared.md"), "link target points at store copy: {lt}");
+        assert!(
+            lt.ends_with("shared.md"),
+            "link target points at store copy: {lt}"
+        );
 
         std::fs::remove_dir_all(&base).ok();
     }
@@ -1156,7 +2198,10 @@ mod tests {
         seed_skill(&store, "myskill", "a skill");
         let m = enable_core(&store, &scope, "workspace", Kind::Skill, "myskill").unwrap();
         let link = PathBuf::from(&m.path);
-        assert!(std::fs::symlink_metadata(&link).unwrap().file_type().is_symlink());
+        assert!(std::fs::symlink_metadata(&link)
+            .unwrap()
+            .file_type()
+            .is_symlink());
         // SKILL.md is reachable through the link.
         assert!(link.join("SKILL.md").exists());
         std::fs::remove_dir_all(&base).ok();
@@ -1218,7 +2263,10 @@ mod tests {
         let m = copy_core(&from, &to, "workspace", "project:p2", Kind::Agent, "a").unwrap();
         // Source link still present.
         let src_link = scope_path_for(&from, Kind::Agent, "a").unwrap();
-        assert!(std::fs::symlink_metadata(&src_link).unwrap().file_type().is_symlink());
+        assert!(std::fs::symlink_metadata(&src_link)
+            .unwrap()
+            .file_type()
+            .is_symlink());
         // Dest is a REAL file (not a symlink), resolving the source link.
         let dst = PathBuf::from(&m.path);
         let dmeta = std::fs::symlink_metadata(&dst).unwrap();
@@ -1239,7 +2287,10 @@ mod tests {
         enable_core(&store, &from, "workspace", Kind::Skill, "s").unwrap();
         let m = copy_core(&from, &to, "workspace", "project:p2", Kind::Skill, "s").unwrap();
         let dst = PathBuf::from(&m.path);
-        assert!(!std::fs::symlink_metadata(&dst).unwrap().file_type().is_symlink());
+        assert!(!std::fs::symlink_metadata(&dst)
+            .unwrap()
+            .file_type()
+            .is_symlink());
         assert!(dst.join("SKILL.md").is_file());
         assert!(dst.join("helper.py").is_file());
         std::fs::remove_dir_all(&base).ok();
@@ -1361,7 +2412,10 @@ mod tests {
         // Now complete the rename — the dest flips atomically to the new content.
         std::fs::rename(&tmp, &dest).unwrap();
         let final_content = std::fs::read_to_string(&dest).unwrap();
-        assert!(final_content.contains("partial"), "rename commits new content");
+        assert!(
+            final_content.contains("partial"),
+            "rename commits new content"
+        );
 
         std::fs::remove_dir_all(&base).ok();
     }
@@ -1482,7 +2536,10 @@ mod tests {
         // disable-in-scope → only the royalti block removed; exa survives.
         disable_fragment_in_scope(&store, Kind::Mcp, "royalti", "project:p", Some(&proj)).unwrap();
         let after2: Value = serde_json::from_slice(&std::fs::read(&mcp_json).unwrap()).unwrap();
-        assert!(after2.pointer("/mcpServers/royalti").is_none(), "royalti removed");
+        assert!(
+            after2.pointer("/mcpServers/royalti").is_none(),
+            "royalti removed"
+        );
         assert!(after2.pointer("/mcpServers/exa").is_some(), "exa untouched");
 
         std::fs::remove_dir_all(&base).ok();
@@ -1524,7 +2581,10 @@ mod tests {
 
         disable_fragment_in_scope(&store, Kind::Hook, "guard", "project:p", Some(&proj)).unwrap();
         let after2: Value = serde_json::from_slice(&std::fs::read(&expected).unwrap()).unwrap();
-        assert!(after2.pointer("/hooks/PreToolUse").is_none(), "block removed on disable");
+        assert!(
+            after2.pointer("/hooks/PreToolUse").is_none(),
+            "block removed on disable"
+        );
 
         std::fs::remove_dir_all(&base).ok();
     }
@@ -1552,22 +2612,24 @@ mod tests {
         enable_fragment_in_scope(&store, Kind::Mcp, "royalti", "project:d", Some(&dst)).unwrap();
         disable_fragment_in_scope(&store, Kind::Mcp, "royalti", "project:s", Some(&src)).unwrap();
 
-        let in_dst: Value = serde_json::from_slice(&std::fs::read(dst.join(".mcp.json")).unwrap())
-            .unwrap();
+        let in_dst: Value =
+            serde_json::from_slice(&std::fs::read(dst.join(".mcp.json")).unwrap()).unwrap();
         assert_eq!(
             in_dst.pointer("/mcpServers/royalti").unwrap(),
             &def,
             "present in dest after move"
         );
-        let in_src: Value = serde_json::from_slice(&std::fs::read(src.join(".mcp.json")).unwrap())
-            .unwrap();
+        let in_src: Value =
+            serde_json::from_slice(&std::fs::read(src.join(".mcp.json")).unwrap()).unwrap();
         assert!(
             in_src.pointer("/mcpServers/royalti").is_none(),
             "absent in source after move"
         );
 
         // Store fragment is NOT deleted by scope-local ops.
-        assert!(fragment_path(&store, Kind::Mcp, "royalti").unwrap().exists());
+        assert!(fragment_path(&store, Kind::Mcp, "royalti")
+            .unwrap()
+            .exists());
 
         std::fs::remove_dir_all(&base).ok();
     }
@@ -1636,9 +2698,13 @@ mod tests {
         .unwrap();
 
         // (a) the string the fixed FE emits resolves to the project's .claude.
-        let resolved = resolve_scope_claude(&db, "project:smoke-alias").await.unwrap();
+        let resolved = resolve_scope_claude(&db, "project:smoke-alias")
+            .await
+            .unwrap();
         assert_eq!(resolved, proj_root.join(".claude"));
-        let root = resolve_scope_root(&db, "project:smoke-alias").await.unwrap();
+        let root = resolve_scope_root(&db, "project:smoke-alias")
+            .await
+            .unwrap();
         assert_eq!(root, Some(proj_root.clone()));
 
         // (b) the OLD basename string passes scope-format validation but has no
@@ -1646,16 +2712,31 @@ mod tests {
         let err = resolve_scope_claude(&db, "project:ngwa-smoke-proj")
             .await
             .unwrap_err();
-        assert!(err.contains("no project"), "expected no-project error, got: {err}");
+        assert!(
+            err.contains("no project"),
+            "expected no-project error, got: {err}"
+        );
 
         // end-to-end: enable into the resolved project scope; symlink lands
         // under the project's .claude and resolves into the store.
-        let m = enable_core(&store, &resolved, "project:smoke-alias", Kind::Skill, "smoke-skill")
-            .unwrap();
+        let m = enable_core(
+            &store,
+            &resolved,
+            "project:smoke-alias",
+            Kind::Skill,
+            "smoke-skill",
+        )
+        .unwrap();
         let link = PathBuf::from(&m.path);
-        assert!(link.starts_with(proj_root.join(".claude")), "link outside project: {link:?}");
         assert!(
-            std::fs::symlink_metadata(&link).unwrap().file_type().is_symlink(),
+            link.starts_with(proj_root.join(".claude")),
+            "link outside project: {link:?}"
+        );
+        assert!(
+            std::fs::symlink_metadata(&link)
+                .unwrap()
+                .file_type()
+                .is_symlink(),
             "expected a symlink at {link:?}"
         );
         assert!(
@@ -1665,6 +2746,820 @@ mod tests {
             "symlink does not resolve into the store"
         );
 
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    // ── WP-23: per-engine file-kind writes (enable/disable/remove) ───────────
+    //
+    // Per-engine enable/disable/remove on FIXTURE trees only. The pure core
+    // functions take an explicit `user_home` (the resolved `~`), so these tests
+    // pass a tempdir for it and NEVER mutate the process-global `HOME` — no
+    // races with the dev's real `~/.gemini` / `~/.codex`, and no cross-test
+    // contention with the `merge.rs` HOME-mutating suite. The Claude path is
+    // asserted byte-identical to the Phase-1 `enable_core`.
+
+    fn seed_command(store: &Path, name: &str, desc: &str) {
+        let p = store_path_for(store, Kind::Command, name).unwrap();
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(
+            &p,
+            format!("---\nname: {name}\ndescription: {desc}\n---\nbody"),
+        )
+        .unwrap();
+    }
+
+    // ── Claude: byte-unchanged from Phase 1 ──────────────────────────────────
+
+    /// The engine-aware enable for Claude must produce a result identical to the
+    /// Phase-1 `enable_core`, and the on-disk symlink must be byte-identical
+    /// (same link node, same store target). This is the DoD "Claude file-writes
+    /// byte-unchanged from Phase 1" assertion.
+    #[test]
+    fn claude_engine_aware_enable_byte_identical_to_phase1() {
+        // Two independent fixtures, identical seeds: one driven by the Phase-1
+        // `enable_core`, one by the WP-23 `enable_for_core(Claude, …)`.
+        let (base1, store1, scope1) = fixture("cl_phase1");
+        let (base2, store2, _scope2) = fixture("cl_wp23");
+        seed_agent(&store1, "shared", "an agent");
+        seed_agent(&store2, "shared", "an agent");
+
+        // Phase-1 takes the `<scope>/.claude` dir directly.
+        let m_phase1 = enable_core(&store1, &scope1, "workspace", Kind::Agent, "shared").unwrap();
+        // WP-23 takes the scope ROOT (parent of `.claude`) and appends `.claude`.
+        // (Claude ignores user_home — it routes straight back to Phase-1.)
+        let scope2_root = base2.join("proj");
+        let m_wp23 = enable_for_core(
+            EngineId::Claude,
+            &store2,
+            &scope2_root,
+            &base2,
+            "workspace",
+            Kind::Agent,
+            "shared",
+        )
+        .unwrap();
+
+        // Same mutation shape (kind/name/scope + link_target relative suffix).
+        assert_eq!(m_phase1.kind, m_wp23.kind);
+        assert_eq!(m_phase1.name, m_wp23.name);
+        assert_eq!(m_phase1.scope, m_wp23.scope);
+        assert!(m_phase1.path.ends_with(".claude/agents/shared.md"));
+        assert!(m_wp23.path.ends_with(".claude/agents/shared.md"));
+
+        // Both produced a symlink resolving into their store.
+        for (link, store) in [(&m_phase1.path, &store1), (&m_wp23.path, &store2)] {
+            let lp = PathBuf::from(link);
+            assert!(
+                std::fs::symlink_metadata(&lp)
+                    .unwrap()
+                    .file_type()
+                    .is_symlink(),
+                "Claude enable produces a symlink (Phase-1 mechanism)"
+            );
+            let resolved = std::fs::canonicalize(&lp).unwrap();
+            assert!(is_in_store(&resolved, store), "resolves into the store");
+        }
+
+        std::fs::remove_dir_all(&base1).ok();
+        std::fs::remove_dir_all(&base2).ok();
+    }
+
+    /// Claude disable + remove through the engine-aware path behave exactly like
+    /// Phase-1 (drop the link, store untouched).
+    #[test]
+    fn claude_engine_aware_disable_remove_match_phase1() {
+        let (base, store, _scope) = fixture("cl_dis");
+        let scope_root = base.join("proj");
+        seed_skill(&store, "s", "x");
+        enable_for_core(
+            EngineId::Claude,
+            &store,
+            &scope_root,
+            &base,
+            "workspace",
+            Kind::Skill,
+            "s",
+        )
+        .unwrap();
+        let link = scope_root.join(".claude").join("skills").join("s");
+        assert!(std::fs::symlink_metadata(&link)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+
+        disable_for_core(EngineId::Claude, &scope_root, &base, Kind::Skill, "s").unwrap();
+        assert!(std::fs::symlink_metadata(&link).is_err(), "link dropped");
+        // Store dir + files survive.
+        let sdir = store_path_for(&store, Kind::Skill, "s").unwrap();
+        assert!(sdir.join("SKILL.md").exists());
+
+        // remove on an absent node is idempotent.
+        remove_for_core(EngineId::Claude, &scope_root, &base, Kind::Skill, "s").unwrap();
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    // ── Gemini: skills symlink, agents/commands copy-on-enable ───────────────
+
+    /// A WP-23 fixture: `(base, store, scope_root, user_home)`. `scope_root` is
+    /// the parent of the scope dotdir (`<base>/proj`); `user_home` is an explicit
+    /// `~` tempdir (`<base>/home`) — never the process env.
+    fn engine_fixture(tag: &str) -> (PathBuf, PathBuf, PathBuf, PathBuf) {
+        let base = unique_tmp(tag);
+        let store = base.join("store");
+        std::fs::create_dir_all(&store).unwrap();
+        let scope_root = base.join("proj");
+        std::fs::create_dir_all(&scope_root).unwrap();
+        let user_home = base.join("home");
+        std::fs::create_dir_all(&user_home).unwrap();
+        (base, store, scope_root, user_home)
+    }
+
+    #[test]
+    fn gemini_skill_symlinks_into_store_via_agents_alias() {
+        let (base, store, scope_root, home) = engine_fixture("gm_skill");
+        seed_skill(&store, "myskill", "a skill");
+
+        let m = enable_for_core(
+            EngineId::Gemini,
+            &store,
+            &scope_root,
+            &home,
+            "workspace",
+            Kind::Skill,
+            "myskill",
+        )
+        .unwrap();
+        let link = PathBuf::from(&m.path);
+        assert!(
+            link.starts_with(scope_root.join(".agents").join("skills")),
+            "lands under .agents/skills: {link:?}"
+        );
+        assert!(
+            std::fs::symlink_metadata(&link)
+                .unwrap()
+                .file_type()
+                .is_symlink(),
+            "skill is a symlink"
+        );
+        assert!(
+            link.join("SKILL.md").exists(),
+            "SKILL.md reachable through link"
+        );
+        assert!(m.link_target.is_some(), "symlink cell reports link_target");
+
+        // disable drops the link; store survives.
+        disable_for_core(EngineId::Gemini, &scope_root, &home, Kind::Skill, "myskill").unwrap();
+        assert!(std::fs::symlink_metadata(&link).is_err());
+        assert!(store_path_for(&store, Kind::Skill, "myskill")
+            .unwrap()
+            .join("SKILL.md")
+            .exists());
+
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn gemini_agent_symlinks_to_user_dotdir() {
+        let (base, store, scope_root, home) = engine_fixture("gm_agent");
+        seed_agent(&store, "planner", "a planner");
+
+        // Gemini agents are user-tier `~/.gemini/agents/<name>.md`, SymlinkDir
+        // per the frozen layout (a symlink to the single .md store copy).
+        let m = enable_for_core(
+            EngineId::Gemini,
+            &store,
+            &scope_root,
+            &home,
+            "workspace",
+            Kind::Agent,
+            "planner",
+        )
+        .unwrap();
+        let dest = PathBuf::from(&m.path);
+        assert_eq!(dest, home.join(".gemini").join("agents").join("planner.md"));
+        let meta = std::fs::symlink_metadata(&dest).unwrap();
+        assert!(
+            meta.file_type().is_symlink(),
+            "Gemini agent is SymlinkDir per the layout"
+        );
+        // Resolves to the store copy.
+        let src = store_path_for(&store, Kind::Agent, "planner").unwrap();
+        assert_eq!(
+            std::fs::canonicalize(&dest).unwrap(),
+            std::fs::canonicalize(&src).unwrap()
+        );
+        assert!(m.link_target.is_some(), "symlink cell reports link_target");
+
+        // remove drops the link; store untouched.
+        remove_for_core(EngineId::Gemini, &scope_root, &home, Kind::Agent, "planner").unwrap();
+        assert!(std::fs::symlink_metadata(&dest).is_err());
+        assert!(src.exists(), "store copy untouched by scope-local remove");
+
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    /// Codex agents ARE copy-on-enable (`Mechanism::File`, `.toml` leaf) — the
+    /// real exercise of the copy fallback for a single-file primitive.
+    #[test]
+    fn codex_agent_copies_on_enable_real_file() {
+        let (base, store, scope_root, home) = engine_fixture("cx_agent");
+        seed_agent(&store, "planner", "a planner");
+
+        let m = enable_for_core(
+            EngineId::Codex,
+            &store,
+            &scope_root,
+            &home,
+            "workspace",
+            Kind::Agent,
+            "planner",
+        )
+        .unwrap();
+        let dest = PathBuf::from(&m.path);
+        assert_eq!(
+            dest,
+            home.join(".codex").join("agents").join("planner.toml")
+        );
+        let meta = std::fs::symlink_metadata(&dest).unwrap();
+        assert!(
+            !meta.file_type().is_symlink(),
+            "File cell copies a REAL file (not a link)"
+        );
+        assert!(dest.is_file());
+        assert_eq!(m.link_target, None, "copy cell has no link_target");
+        // Content matches the store copy byte-for-byte (no transcode in WP-23).
+        let src = store_path_for(&store, Kind::Agent, "planner").unwrap();
+        assert_eq!(std::fs::read(&dest).unwrap(), std::fs::read(&src).unwrap());
+
+        remove_for_core(EngineId::Codex, &scope_root, &home, Kind::Agent, "planner").unwrap();
+        assert!(std::fs::symlink_metadata(&dest).is_err());
+        assert!(src.exists(), "store copy untouched");
+
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn gemini_command_copies_as_toml_leaf() {
+        let (base, store, scope_root, home) = engine_fixture("gm_cmd");
+        seed_command(&store, "ship", "ship it");
+
+        let m = enable_for_core(
+            EngineId::Gemini,
+            &store,
+            &scope_root,
+            &home,
+            "workspace",
+            Kind::Command,
+            "ship",
+        )
+        .unwrap();
+        let dest = PathBuf::from(&m.path);
+        // `commands/**/{name}.toml` collapses to a flat `commands/ship.toml`.
+        assert_eq!(
+            dest,
+            home.join(".gemini").join("commands").join("ship.toml")
+        );
+        assert!(dest.is_file());
+        assert_eq!(m.link_target, None);
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    // ── Codex: skills symlink, agents copy as .toml leaf ─────────────────────
+
+    #[test]
+    fn codex_skill_symlinks_and_agent_copies() {
+        let (base, store, scope_root, home) = engine_fixture("cx");
+        seed_skill(&store, "sk", "a skill");
+        seed_agent(&store, "ag", "an agent");
+
+        // Skill → symlink under cross-tool `.agents/skills`.
+        let ms = enable_for_core(
+            EngineId::Codex,
+            &store,
+            &scope_root,
+            &home,
+            "workspace",
+            Kind::Skill,
+            "sk",
+        )
+        .unwrap();
+        let slink = PathBuf::from(&ms.path);
+        assert!(slink.starts_with(scope_root.join(".agents").join("skills")));
+        assert!(std::fs::symlink_metadata(&slink)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+
+        // Agent → copied `.toml` leaf under `~/.codex/agents`.
+        let ma = enable_for_core(
+            EngineId::Codex,
+            &store,
+            &scope_root,
+            &home,
+            "workspace",
+            Kind::Agent,
+            "ag",
+        )
+        .unwrap();
+        let adest = PathBuf::from(&ma.path);
+        assert_eq!(adest, home.join(".codex").join("agents").join("ag.toml"));
+        assert!(!std::fs::symlink_metadata(&adest)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert!(adest.is_file());
+        assert_eq!(ma.link_target, None);
+
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    // ── enable is idempotent for symlink cells across engines ────────────────
+
+    #[test]
+    fn gemini_enable_symlink_is_idempotent() {
+        let (base, store, scope_root, home) = engine_fixture("gm_idem");
+        seed_skill(&store, "s", "x");
+        let m1 = enable_for_core(
+            EngineId::Gemini,
+            &store,
+            &scope_root,
+            &home,
+            "workspace",
+            Kind::Skill,
+            "s",
+        )
+        .unwrap();
+        let m2 = enable_for_core(
+            EngineId::Gemini,
+            &store,
+            &scope_root,
+            &home,
+            "workspace",
+            Kind::Skill,
+            "s",
+        )
+        .unwrap();
+        assert_eq!(m1.path, m2.path);
+        assert!(is_engine_enabled(&PathBuf::from(&m1.path), &store));
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    // ── missing store entry errors ───────────────────────────────────────────
+
+    #[test]
+    fn enable_for_missing_store_entry_errors() {
+        let (base, store, scope_root, home) = engine_fixture("missing_for");
+        let err = enable_for_core(
+            EngineId::Gemini,
+            &store,
+            &scope_root,
+            &home,
+            "workspace",
+            Kind::Agent,
+            "ghost",
+        )
+        .unwrap_err();
+        assert!(err.contains("store has no"), "got: {err}");
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    // ── per-engine path confinement ──────────────────────────────────────────
+
+    /// A resolved write target outside the engine's declared roots is refused —
+    /// the per-engine generalization of Phase-1's `.claude`-only guard.
+    #[test]
+    fn enable_for_confinement_rejects_out_of_root_target() {
+        let (base, _store, scope_root, home) = engine_fixture("confine");
+
+        // A computed path under neither the scope `.gemini`/`.agents`, the
+        // user-tier `~/.gemini`, nor `~/.agents` must be rejected.
+        let rogue = base.join("rogue").join("s");
+        assert!(
+            !is_under_engine_root(EngineId::Gemini, &scope_root, &home, &rogue),
+            "a path under no engine root must not pass confinement"
+        );
+        // Legitimate targets pass: scope-relative `.agents/skills` (skill cell)…
+        let ok_skill = scope_root.join(".agents").join("skills").join("s");
+        assert!(is_under_engine_root(
+            EngineId::Gemini,
+            &scope_root,
+            &home,
+            &ok_skill
+        ));
+        // …and user-tier `~/.gemini/agents` (agent cell).
+        let ok_agent = home.join(".gemini").join("agents").join("a.md");
+        assert!(is_under_engine_root(
+            EngineId::Gemini,
+            &scope_root,
+            &home,
+            &ok_agent
+        ));
+
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    // ── engine + kind parsing guards ─────────────────────────────────────────
+
+    #[test]
+    fn parse_engine_and_file_layout_cell() {
+        assert_eq!(parse_engine("claude").unwrap(), EngineId::Claude);
+        assert_eq!(parse_engine("gemini").unwrap(), EngineId::Gemini);
+        assert_eq!(parse_engine("codex").unwrap(), EngineId::Codex);
+        assert!(parse_engine("nope").is_err());
+
+        // file_layout_cell errors for settings-embedded kinds.
+        assert!(file_layout_cell(EngineId::Gemini, Kind::Hook).is_err());
+        assert!(file_layout_cell(EngineId::Gemini, Kind::Mcp).is_err());
+        // and resolves for file kinds with the right mechanism.
+        assert_eq!(
+            file_layout_cell(EngineId::Gemini, Kind::Skill)
+                .unwrap()
+                .mechanism,
+            Mechanism::SymlinkDir
+        );
+        assert_eq!(
+            file_layout_cell(EngineId::Gemini, Kind::Command)
+                .unwrap()
+                .mechanism,
+            Mechanism::File
+        );
+        assert_eq!(
+            file_layout_cell(EngineId::Codex, Kind::Agent)
+                .unwrap()
+                .mechanism,
+            Mechanism::File
+        );
+    }
+
+    // ── WP-24: cross-engine transcode copy/move (D-09) ───────────────────────
+    //
+    // All on FIXTURE trees with an explicit `user_home` tempdir (never the
+    // process env). `copy_cross_engine_row` is the pure core the
+    // `claude_primitive_copy_batch` command delegates to per destination, so the
+    // round-trip + blocked-pair + batch behaviour are all exercised here without
+    // a Tauri State / DB harness.
+
+    /// Write a single-file MD primitive (agent/command frontmatter + body) at an
+    /// arbitrary path and return it. Used as the "resolved source" for a copy.
+    fn seed_md_source(dir: &Path, leaf: &str, name: &str, body: &str) -> PathBuf {
+        std::fs::create_dir_all(dir).unwrap();
+        let p = dir.join(leaf);
+        std::fs::write(
+            &p,
+            format!("---\nname: {name}\ndescription: a {name}\n---\n\n{body}\n"),
+        )
+        .unwrap();
+        p
+    }
+
+    /// matrix: every cell of `resolve_transcode_plan` matches `06`.
+    #[test]
+    fn transcode_matrix_matches_contract() {
+        use EngineId::*;
+        use Kind::*;
+        // Same-format direct copies.
+        assert_eq!(
+            resolve_transcode_plan(Claude, Gemini, Agent).unwrap(),
+            TranscodePlan::DirectCopy
+        );
+        assert_eq!(
+            resolve_transcode_plan(Gemini, Claude, Agent).unwrap(),
+            TranscodePlan::DirectCopy
+        );
+        // Skills are MD everywhere → direct dir copy in every pair.
+        for (a, b) in [(Claude, Gemini), (Gemini, Codex), (Codex, Claude)] {
+            assert_eq!(
+                resolve_transcode_plan(a, b, Skill).unwrap(),
+                TranscodePlan::DirectCopy,
+                "skill {a:?}→{b:?} is a direct dir copy"
+            );
+        }
+        // MD agent → Codex TOML agent (from Claude AND Gemini).
+        assert_eq!(
+            resolve_transcode_plan(Claude, Codex, Agent).unwrap(),
+            TranscodePlan::MdToCodexToml
+        );
+        assert_eq!(
+            resolve_transcode_plan(Gemini, Codex, Agent).unwrap(),
+            TranscodePlan::MdToCodexToml
+        );
+        // Claude MD command → Gemini TOML command.
+        assert_eq!(
+            resolve_transcode_plan(Claude, Gemini, Command).unwrap(),
+            TranscodePlan::MdToGeminiCommandToml
+        );
+        // BLOCKED: Codex TOML agent → Claude/Gemini MD agent.
+        for to in [Claude, Gemini] {
+            let err = resolve_transcode_plan(Codex, to, Agent).unwrap_err();
+            assert!(
+                matches!(err, StoreError::TranscodeUnsupported { .. }),
+                "Codex→{to:?} agent must be TranscodeUnsupported, got {err:?}"
+            );
+        }
+        // BLOCKED: Gemini TOML command → Claude/Codex MD command.
+        for to in [Claude, Codex] {
+            let err = resolve_transcode_plan(Gemini, to, Command).unwrap_err();
+            assert!(
+                matches!(err, StoreError::TranscodeUnsupported { .. }),
+                "Gemini→{to:?} command must be TranscodeUnsupported, got {err:?}"
+            );
+        }
+        // hooks / MCP are out of scope (settings-embedded, not portable).
+        assert!(matches!(
+            resolve_transcode_plan(Claude, Gemini, Hook).unwrap_err(),
+            StoreError::Unsupported { .. }
+        ));
+        assert!(matches!(
+            resolve_transcode_plan(Claude, Codex, Mcp).unwrap_err(),
+            StoreError::Unsupported { .. }
+        ));
+    }
+
+    /// ALLOWED #1 — Claude agent (MD) → Gemini agent (MD): direct copy, lands a
+    /// real file under `~/.gemini/agents/<name>.md` byte-identical to the source.
+    #[test]
+    fn xeng_claude_agent_to_gemini_agent_direct_copy() {
+        let (base, _store, scope_root, home) = engine_fixture("xe_cl_gm_agent");
+        let src = seed_md_source(&base.join("src"), "planner.md", "planner", "Plan it.");
+        let original = std::fs::read_to_string(&src).unwrap();
+
+        let m = copy_cross_engine_row(
+            EngineId::Claude,
+            EngineId::Gemini,
+            Kind::Agent,
+            "planner",
+            &src,
+            "workspace",
+            &scope_root,
+            &home,
+        )
+        .unwrap();
+        let dest = PathBuf::from(&m.path);
+        assert_eq!(dest, home.join(".gemini").join("agents").join("planner.md"));
+        assert_eq!(
+            std::fs::read_to_string(&dest).unwrap(),
+            original,
+            "byte-identical copy"
+        );
+        assert!(
+            m.link_target.is_none(),
+            "cross-engine copy materializes a real file"
+        );
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    /// ALLOWED #2 — skill (MD dir) → skill: direct dir copy, SKILL.md + helpers
+    /// land under the target engine's `.agents/skills/<name>/`.
+    #[test]
+    fn xeng_skill_to_skill_direct_dir_copy() {
+        let (base, store, scope_root, home) = engine_fixture("xe_skill");
+        // Seed a real skill dir in the store, resolve its path as the source.
+        seed_skill(&store, "huashu", "design");
+        let src = store_path_for(&store, Kind::Skill, "huashu").unwrap();
+
+        let m = copy_cross_engine_row(
+            EngineId::Claude,
+            EngineId::Codex,
+            Kind::Skill,
+            "huashu",
+            &src,
+            "workspace",
+            &scope_root,
+            &home,
+        )
+        .unwrap();
+        let dest = PathBuf::from(&m.path);
+        assert!(dest.starts_with(scope_root.join(".agents").join("skills")));
+        assert!(dest.join("SKILL.md").exists(), "SKILL.md copied");
+        assert!(dest.join("helper.py").exists(), "supporting file copied");
+        assert!(!dest.is_symlink(), "real dir, not a link");
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    /// ALLOWED #3 — Claude agent (MD) → Codex agent (TOML): `md_to_codex_toml`.
+    /// The transcoded file lands at `~/.codex/agents/<name>.toml` and contains the
+    /// transcoder's output (`system_prompt` from the body).
+    #[test]
+    fn xeng_claude_agent_to_codex_toml() {
+        let (base, _store, scope_root, home) = engine_fixture("xe_cl_cx_agent");
+        let src = seed_md_source(
+            &base.join("src"),
+            "planner.md",
+            "planner",
+            "You are a planner.",
+        );
+
+        let m = copy_cross_engine_row(
+            EngineId::Claude,
+            EngineId::Codex,
+            Kind::Agent,
+            "planner",
+            &src,
+            "workspace",
+            &scope_root,
+            &home,
+        )
+        .unwrap();
+        let dest = PathBuf::from(&m.path);
+        assert_eq!(
+            dest,
+            home.join(".codex").join("agents").join("planner.toml")
+        );
+        let toml = std::fs::read_to_string(&dest).unwrap();
+        assert!(toml.contains("name = \"planner\""), "frontmatter carried");
+        assert!(
+            toml.contains("system_prompt = \"\"\""),
+            "body → system_prompt"
+        );
+        assert!(toml.contains("You are a planner."));
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    /// ALLOWED #4 — Claude command (MD) → Gemini command (TOML):
+    /// `md_to_gemini_command_toml`. Body → `prompt`, lands `.toml`.
+    #[test]
+    fn xeng_claude_command_to_gemini_toml() {
+        let (base, _store, scope_root, home) = engine_fixture("xe_cl_gm_cmd");
+        let src = seed_md_source(&base.join("src"), "ship.md", "ship", "Ship the release.");
+
+        let m = copy_cross_engine_row(
+            EngineId::Claude,
+            EngineId::Gemini,
+            Kind::Command,
+            "ship",
+            &src,
+            "workspace",
+            &scope_root,
+            &home,
+        )
+        .unwrap();
+        let dest = PathBuf::from(&m.path);
+        assert_eq!(
+            dest,
+            home.join(".gemini").join("commands").join("ship.toml")
+        );
+        let toml = std::fs::read_to_string(&dest).unwrap();
+        assert!(
+            toml.contains("prompt = \"\"\""),
+            "body → prompt (Gemini command)"
+        );
+        assert!(toml.contains("Ship the release."));
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    /// BLOCKED — Codex agent (TOML) → Claude agent (MD): returns
+    /// `TranscodeUnsupported` BEFORE any write. Assert NO FS change at the dest.
+    #[test]
+    fn xeng_codex_agent_to_claude_blocked_no_write() {
+        let (base, _store, scope_root, home) = engine_fixture("xe_cx_cl_block");
+        // A real TOML source (what a Codex agent looks like on disk).
+        let src_dir = base.join("src");
+        std::fs::create_dir_all(&src_dir).unwrap();
+        let src = src_dir.join("planner.toml");
+        std::fs::write(
+            &src,
+            "name = \"planner\"\nsystem_prompt = \"\"\"\nx\"\"\"\n",
+        )
+        .unwrap();
+
+        // The destination Claude would write to, were it not blocked.
+        let would_be_dest = scope_root.join(".claude").join("agents").join("planner.md");
+        assert!(!would_be_dest.exists());
+
+        let err = copy_cross_engine_row(
+            EngineId::Codex,
+            EngineId::Claude,
+            Kind::Agent,
+            "planner",
+            &src,
+            "workspace",
+            &scope_root,
+            &home,
+        )
+        .unwrap_err();
+        assert!(
+            matches!(err, StoreError::TranscodeUnsupported { .. }),
+            "blocked pair returns TranscodeUnsupported, got {err:?}"
+        );
+        // Pre-write assertion: NOTHING was written at the destination, and the
+        // `.claude` farm dir was never even created.
+        assert!(
+            !would_be_dest.exists(),
+            "blocked pair never writes the dest file"
+        );
+        assert!(
+            !scope_root.join(".claude").join("agents").exists(),
+            "blocked pair never creates the dest dir"
+        );
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    /// BATCH-shape — drive `copy_cross_engine_row` over a mixed set of
+    /// destinations (the per-row loop `claude_primitive_copy_batch` runs): two
+    /// allowed (one same-format, one transcode) + one deliberately blocked. Assert
+    /// per-row outcomes in request order, and that the blocked row left no file.
+    #[test]
+    fn xeng_batch_mixed_per_row_results() {
+        let (base, _store, scope_root, home) = engine_fixture("xe_batch");
+        let src = seed_md_source(&base.join("src"), "planner.md", "planner", "Plan.");
+
+        // Request order: [Gemini agent (same), Codex agent (transcode)].
+        // Both ALLOWED from a Claude MD agent source.
+        let r_same = copy_cross_engine_row(
+            EngineId::Claude,
+            EngineId::Gemini,
+            Kind::Agent,
+            "planner",
+            &src,
+            "workspace",
+            &scope_root,
+            &home,
+        );
+        let r_transcode = copy_cross_engine_row(
+            EngineId::Claude,
+            EngineId::Codex,
+            Kind::Agent,
+            "planner",
+            &src,
+            "workspace",
+            &scope_root,
+            &home,
+        );
+        assert!(r_same.is_ok(), "same-format row ok");
+        assert!(r_transcode.is_ok(), "transcode row ok");
+        assert_eq!(
+            CopyMode::from_plan(TranscodePlan::DirectCopy) as u8,
+            CopyMode::Same as u8
+        );
+
+        // A deliberately blocked destination (Codex TOML → Claude MD), using a
+        // TOML source — fails before any write.
+        let toml_src = base.join("src").join("p.toml");
+        std::fs::write(&toml_src, "name = \"p\"\n").unwrap();
+        let r_blocked = copy_cross_engine_row(
+            EngineId::Codex,
+            EngineId::Claude,
+            Kind::Agent,
+            "p",
+            &toml_src,
+            "workspace",
+            &scope_root,
+            &home,
+        );
+        assert!(
+            matches!(r_blocked, Err(StoreError::TranscodeUnsupported { .. })),
+            "blocked row errors typed"
+        );
+        // The two ok rows landed real files; the blocked one wrote nothing.
+        assert!(home
+            .join(".gemini")
+            .join("agents")
+            .join("planner.md")
+            .exists());
+        assert!(home
+            .join(".codex")
+            .join("agents")
+            .join("planner.toml")
+            .exists());
+        assert!(!scope_root
+            .join(".claude")
+            .join("agents")
+            .join("p.md")
+            .exists());
+
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    /// The transcoded TOML for an agent is byte-equal to calling the transcoder
+    /// directly — proving WP-24 does NOT alter the transcoder's output.
+    #[test]
+    fn xeng_transcode_output_equals_transcoder_directly() {
+        let (base, _store, scope_root, home) = engine_fixture("xe_byteq");
+        let md = "---\nname: planner\ndescription: a planner\n---\n\nYou are a planner.\n";
+        let src = base.join("src");
+        std::fs::create_dir_all(&src).unwrap();
+        let src_file = src.join("planner.md");
+        std::fs::write(&src_file, md).unwrap();
+
+        copy_cross_engine_row(
+            EngineId::Claude,
+            EngineId::Codex,
+            Kind::Agent,
+            "planner",
+            &src_file,
+            "workspace",
+            &scope_root,
+            &home,
+        )
+        .unwrap();
+        let landed =
+            std::fs::read_to_string(home.join(".codex").join("agents").join("planner.toml"))
+                .unwrap();
+        let direct = crate::pkg::engine_adapters::transcoder::md_to_codex_toml(md).unwrap();
+        assert_eq!(
+            landed, direct,
+            "WP-24 writes the transcoder's bytes verbatim"
+        );
         std::fs::remove_dir_all(&base).ok();
     }
 }

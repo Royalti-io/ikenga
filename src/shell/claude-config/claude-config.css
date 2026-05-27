@@ -5,6 +5,19 @@
  * tokens come from `lib/ikenga/tokens.css`.
  */
 
+/* Ngwa mode tint — the sibling of the `--tint-<mode>-bg/-fg` set in
+ * `ikenga-tokens.css` (app/mail/outbox/studio/agents/files). The `ngwa`
+ * pair was never added there (WP-06 gap), so the SYSTEM-facet selected
+ * state, the D-09 checkbox checked-fill, and the activity-bar rail
+ * highlight — all of which reference `--tint-ngwa-fg` — resolved to
+ * nothing. Define them here (this stylesheet is eagerly imported by
+ * `ngwa-mode`, so the :root vars land before any consumer renders).
+ * Values mirror the locked design (`designs/write-transcode-drawer.html`). */
+:root {
+	--tint-ngwa-bg: hsl(28, 16%, 11%);
+	--tint-ngwa-fg: hsl(28, 40%, 68%);
+}
+
 .ccfg {
 	display: grid;
 	grid-template-rows: auto auto 1fr;
@@ -2631,27 +2644,19 @@ button.ccfg-tree-row.dir:hover {
 }
 
 /* Engine badge — used in the topbar set + the detail header (CL / GM / CX). */
+/* Inline engine badge (detail-pane system tag + "same name across systems"
+   callout): bare brand logo in original colour, no tinted box — matches the
+   no-box treatment of the other engine tiles. */
 .ccfg-eb {
-	font-family: var(--font-mono);
-	font-size: 8px;
-	font-weight: 600;
-	color: var(--bg-base);
-	border-radius: var(--radius-xs);
-	padding: 0 4px;
 	flex: none;
-	letter-spacing: 0.06em;
 	display: inline-grid;
 	place-items: center;
-	line-height: 1.5;
+	width: 15px;
+	height: 15px;
+	vertical-align: middle;
 }
-.ccfg-eb.cl {
-	background: var(--eng-claude);
-}
-.ccfg-eb.gm {
-	background: var(--eng-gemini);
-}
-.ccfg-eb.cx {
-	background: var(--eng-codex);
+.ccfg-eb svg {
+	display: block;
 }
 
 /* Topbar live engine-set indicator (read-only). */
@@ -2661,13 +2666,30 @@ button.ccfg-tree-row.dir:hover {
 	align-items: center;
 }
 .ngwa-sysset .ngwa-eb {
-	font-family: var(--font-mono);
-	font-size: 8px;
-	font-weight: 600;
+	width: 15px;
+	height: 15px;
+	display: grid;
+	place-items: center;
 	color: var(--bg-base);
 	border-radius: var(--radius-xs);
-	padding: 2px 6px;
-	letter-spacing: 0.06em;
+}
+/* Brand-logo glyphs (EngineGlyph): the logo shows in its original brand colour
+   with NO tinted box. Drop the tile background + radius (the per-engine
+   `.cl`/`.gm`/`.cx` modifiers set a tint background at higher specificity, so
+   override with !important), keep the fixed footprint for row alignment, and
+   render the svg as a centred block. */
+.ccfg-engine-head .eg,
+.ngwa-sysrow .ngwa-eg,
+.ngwa-sysset .ngwa-eb,
+.ngwa-drow .eg {
+	background: transparent !important;
+	border-radius: 0;
+}
+.ccfg-engine-head .eg svg,
+.ngwa-sysrow .ngwa-eg svg,
+.ngwa-sysset .ngwa-eb svg,
+.ngwa-drow .eg svg {
+	display: block;
 }
 .ngwa-sysset .ngwa-eb.cl {
 	background: var(--eng-claude);
@@ -2749,4 +2771,312 @@ button.ccfg-tree-row.dir:hover {
 .ngwa-sysrow .ngwa-sys-chk.on {
 	background: var(--tint-ngwa-fg);
 	border-color: var(--tint-ngwa-fg);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   D-09 — multi-destination transcode copy drawer (WP-26).
+   Ports designs/write-transcode-drawer.html's `.drawer` idiom to the Ngwa
+   `ngwa-dr-*` namespace; reuses the engine (--eng-*) + format (--fmt-*) tints
+   defined above and the shared `--tint-ngwa-fg` / spacing / radius tokens.
+   ───────────────────────────────────────────────────────────────────────── */
+.ngwa-dr-scrim {
+	position: fixed;
+	inset: 0;
+	background: color-mix(in srgb, var(--bg-sunken) 70%, transparent);
+	z-index: 48;
+}
+.ngwa-dr {
+	position: fixed;
+	top: 0;
+	right: 0;
+	height: 100vh;
+	width: 560px;
+	max-width: 92vw;
+	background: var(--bg-surface);
+	border-left: 1px solid var(--border);
+	box-shadow: var(--shadow-3);
+	transform: translateX(100%);
+	transition: transform 0.18s var(--ease-calm, ease);
+	z-index: 49;
+	display: flex;
+	flex-direction: column;
+}
+.ngwa-dr.show {
+	transform: none;
+}
+.ngwa-dr-head {
+	padding: var(--space-4) var(--space-5);
+	border-bottom: 1px solid var(--border-soft);
+	display: flex;
+	align-items: center;
+	gap: 10px;
+}
+.ngwa-dr-head h3 {
+	font-family: var(--font-display);
+	font-size: 14px;
+	font-weight: 500;
+	margin: 0;
+	color: var(--fg);
+}
+.ngwa-dr-head .x {
+	margin-left: auto;
+	border: 0;
+	background: transparent;
+	color: var(--fg-faint);
+	font-size: 16px;
+	cursor: pointer;
+}
+.ngwa-dr-head .x:hover {
+	color: var(--fg);
+}
+.ngwa-dr-body {
+	padding: var(--space-5);
+	overflow: auto;
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-4);
+	flex: 1;
+}
+.ngwa-dr-sect {
+	display: flex;
+	flex-direction: column;
+	gap: 7px;
+}
+.ngwa-dr-label {
+	font-family: var(--font-mono);
+	font-size: 10px;
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+	color: var(--fg-faint);
+}
+.ngwa-dr-label code,
+.ngwa-tcfn {
+	font-family: var(--font-mono);
+	font-size: 10px;
+	color: var(--fmt-toml);
+	background: var(--bg-base);
+	border: 1px solid var(--border-soft);
+	padding: 1px 5px;
+	border-radius: var(--radius-xs);
+	text-transform: none;
+	letter-spacing: 0;
+}
+
+/* destination checklist */
+.ngwa-dlist {
+	display: flex;
+	flex-direction: column;
+	border: 1px solid var(--border-soft);
+	border-radius: var(--radius-md);
+	overflow: hidden;
+	background: var(--bg-base);
+}
+.ngwa-drow {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	padding: 8px 11px;
+	border-bottom: 1px solid var(--border-soft);
+	cursor: pointer;
+	font-family: var(--font-mono);
+	font-size: 11.5px;
+	color: var(--fg);
+}
+.ngwa-drow:last-child {
+	border-bottom: 0;
+}
+.ngwa-drow:hover:not(.src):not(.blocked):not(.res) {
+	background: var(--bg-raised);
+}
+.ngwa-drow .cb {
+	width: 14px;
+	height: 14px;
+	border-radius: var(--radius-xs);
+	border: 1px solid var(--border-strong, var(--border));
+	display: grid;
+	place-items: center;
+	font-size: 9px;
+	color: var(--bg-base);
+	flex: none;
+}
+.ngwa-drow.on .cb {
+	background: var(--tint-ngwa-fg);
+	border-color: var(--tint-ngwa-fg);
+}
+.ngwa-drow .de {
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	color: var(--fg);
+	min-width: 0;
+}
+.ngwa-drow.src {
+	opacity: 0.5;
+	cursor: default;
+}
+.ngwa-drow.src .cb {
+	border-style: dashed;
+	background: transparent;
+	color: var(--fg-faint);
+}
+.ngwa-drow.blocked {
+	opacity: 0.5;
+	cursor: not-allowed;
+}
+.ngwa-drow.blocked .cb {
+	border-style: dashed;
+	background: transparent;
+	color: var(--fg-faint);
+}
+.ngwa-drow .eg {
+	width: 16px;
+	height: 16px;
+	border-radius: var(--radius-xs);
+	display: grid;
+	place-items: center;
+	font-family: var(--font-mono);
+	font-size: 7px;
+	font-weight: 600;
+	color: var(--bg-base);
+	flex: none;
+}
+.ngwa-drow .eg.cl {
+	background: var(--eng-claude);
+}
+.ngwa-drow .eg.gm {
+	background: var(--eng-gemini);
+}
+.ngwa-drow .eg.cx {
+	background: var(--eng-codex);
+}
+.ngwa-drow .xf {
+	margin-left: auto;
+	font-size: 9px;
+	color: var(--fg-faint);
+	flex: none;
+}
+.ngwa-drow .xf.same {
+	color: var(--fmt-md);
+}
+.ngwa-drow .xf.tc {
+	color: var(--fmt-toml);
+}
+.ngwa-drow .xf.bl {
+	color: var(--danger);
+}
+.ngwa-drow .rowres {
+	margin-left: auto;
+	font-size: 9px;
+	font-family: var(--font-mono);
+	flex: none;
+}
+.ngwa-drow .rowres.ok {
+	color: var(--systemic);
+}
+.ngwa-drow .rowres.fail {
+	color: var(--danger);
+}
+.ngwa-dsum {
+	font-family: var(--font-mono);
+	font-size: 10px;
+	color: var(--fg-muted);
+}
+.ngwa-dsum b {
+	color: var(--fg);
+}
+.ngwa-dsum .bl {
+	color: var(--danger);
+}
+
+/* transcode preview diff */
+.ngwa-diff {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 10px;
+}
+.ngwa-pane {
+	border: 1px solid var(--border-soft);
+	border-radius: var(--radius-md);
+	overflow: hidden;
+}
+.ngwa-pane .ph {
+	font-family: var(--font-mono);
+	font-size: 9px;
+	letter-spacing: 0.1em;
+	text-transform: uppercase;
+	padding: 5px 9px;
+	background: var(--bg-sunken);
+	color: var(--fg-faint);
+	display: flex;
+	justify-content: space-between;
+	gap: 8px;
+}
+.ngwa-pane .ph .f {
+	color: var(--fmt-md);
+}
+.ngwa-pane.dst .ph .f {
+	color: var(--fmt-toml);
+}
+.ngwa-pane .code {
+	font-family: var(--font-mono);
+	font-size: 10.5px;
+	line-height: 1.55;
+	padding: 10px;
+	white-space: pre-wrap;
+	word-break: break-word;
+	color: var(--fg);
+	max-height: 210px;
+	overflow: auto;
+	background: var(--bg-base);
+}
+.ngwa-pane .code .add {
+	color: var(--fmt-toml);
+}
+.ngwa-pane .code .key {
+	color: var(--fg-muted);
+}
+
+/* faithful-transcode callout + error */
+.ngwa-dr-warn {
+	font-size: 11px;
+	color: var(--fg-muted);
+	background: var(--bg-base);
+	border: 1px solid color-mix(in srgb, var(--systemic) 35%, var(--border));
+	border-left: 2px solid var(--systemic);
+	border-radius: var(--radius-sm);
+	padding: 9px 11px;
+	line-height: 1.5;
+}
+.ngwa-dr-warn b {
+	color: var(--systemic);
+}
+.ngwa-dr-warn code {
+	font-family: var(--font-mono);
+	font-size: 10px;
+	background: var(--bg-surface);
+	border: 1px solid var(--border-soft);
+	padding: 1px 5px;
+	border-radius: var(--radius-xs);
+}
+.ngwa-dr-warn.err {
+	border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+	border-left-color: var(--danger);
+}
+.ngwa-dr-warn.err b {
+	color: var(--danger);
+}
+
+.ngwa-dr-foot {
+	padding: var(--space-4) var(--space-5);
+	border-top: 1px solid var(--border-soft);
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+	align-items: center;
+}
+.ngwa-dr-foot .note {
+	margin-right: auto;
+	font-family: var(--font-mono);
+	font-size: 9.5px;
+	color: var(--fg-faint);
 }

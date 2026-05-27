@@ -34,6 +34,82 @@ use crate::pkg::manifest::McpServer;
 
 const IKENGA_SECRET_PREFIX: &str = "${IKENGA_SECRET:";
 
+// ── G-ADAPTER de-dup (WP-25) ─────────────────────────────────────────────
+//
+// These path segments are sourced from the frozen `EngineLayout` descriptor
+// (`crate::commands::engine_layout`) so the scanner/FE matrix and this write
+// adapter can't drift apart. The descriptor's `location` templates are glob /
+// scanner strings (`{user_root}/.gemini/settings.json#mcpServers.{name}`,
+// `{user_root}/.gemini/commands/**/{name}.toml`, …), NOT byte-exact write
+// paths, so we extract only the *stable literal directory/file segments* from
+// them — the engine dotdir, the settings filename, and the per-kind subdir —
+// and keep the keying / extension / glob logic local to the adapter.
+//
+// Each accessor falls back to the historical literal and emits a
+// `tracing::warn!` if the layout template ever drifts to a shape we can't
+// parse, so a future layout edit can NEVER silently change on-disk output
+// (DoD: byte-equivalence). The `layout_segments_match_literals` test pins the
+// extraction to the known-good values.
+
+/// Engine dotdir under `$HOME`, e.g. `.gemini`. Sourced from the MCP cell's
+/// `location` (`{user_root}/.gemini/settings.json#…`).
+fn gemini_dotdir() -> &'static str {
+    layout_segment(PrimitiveKind::Mcp, ".gemini", |loc| {
+        // `{user_root}/.gemini/settings.json#…` → `.gemini`
+        loc.split('/').find(|s| s.starts_with(".gemini"))
+    })
+}
+
+/// Settings filename, e.g. `settings.json`. Sourced from the MCP cell's
+/// `location` (the file segment before the `#key` fragment).
+fn gemini_settings_file() -> &'static str {
+    layout_segment(PrimitiveKind::Mcp, "settings.json", |loc| {
+        loc.rsplit('/').next().and_then(|seg| seg.split('#').next())
+    })
+}
+
+/// Per-pkg commands output subdir, e.g. `commands`. Sourced from the Command
+/// cell's `location` (`{user_root}/.gemini/commands/**/{name}.toml`).
+fn gemini_commands_subdir() -> &'static str {
+    layout_segment(PrimitiveKind::Command, "commands", |loc| {
+        // segment immediately after `.gemini/`
+        let mut parts = loc.split('/');
+        parts.by_ref().find(|s| s.starts_with(".gemini"))?;
+        parts.next()
+    })
+}
+
+/// Extract a `&'static str` segment from a Gemini `KindLayout::location`
+/// template via `pick`, falling back to `fallback` (and warning) if the
+/// engine layout, the kind cell, or the picked segment is missing/empty.
+fn layout_segment(
+    kind: PrimitiveKind,
+    fallback: &'static str,
+    pick: impl Fn(&'static str) -> Option<&'static str>,
+) -> &'static str {
+    use crate::commands::engine_layout::{engine_layout_by_id, EngineId};
+    // `engine_layout_by_id` returns an owned `EngineLayout`, but every field
+    // it holds is `&'static str` (the descriptor is built from string
+    // literals), so the picked slice outlives the temporary.
+    let resolved = engine_layout_by_id(EngineId::Gemini)
+        .as_ref()
+        .and_then(|layout| layout.kinds.get(&kind))
+        .and_then(|cell| pick(cell.location))
+        .filter(|s| !s.is_empty());
+    match resolved {
+        Some(seg) => seg,
+        None => {
+            tracing::warn!(
+                "[engine.gemini] could not source path segment from EngineLayout \
+                 {kind:?} cell — falling back to literal `{fallback}` (output unchanged)"
+            );
+            fallback
+        }
+    }
+}
+
+use crate::commands::engine_layout::PrimitiveKind;
+
 /// Cached secret-pattern regex. Same shape as the Claude adapter's literal.
 fn secret_key_regex() -> &'static Regex {
     use std::sync::OnceLock;
@@ -52,13 +128,16 @@ impl GeminiAdapter {
     }
 
     fn gemini_home() -> Result<PathBuf> {
-        let home = crate::platform::home_dir()
-            .ok_or_else(|| anyhow!("could not resolve home directory (HOME / USERPROFILE unset)"))?;
-        Ok(home.join(".gemini"))
+        let home = crate::platform::home_dir().ok_or_else(|| {
+            anyhow!("could not resolve home directory (HOME / USERPROFILE unset)")
+        })?;
+        // `.gemini` sourced from EngineLayout (WP-25) — falls back to literal.
+        Ok(home.join(gemini_dotdir()))
     }
 
     fn settings_path() -> Result<PathBuf> {
-        Ok(Self::gemini_home()?.join("settings.json"))
+        // `settings.json` sourced from EngineLayout (WP-25).
+        Ok(Self::gemini_home()?.join(gemini_settings_file()))
     }
 
     fn mcp_key(pkg_slug: &str, server_name: &str) -> String {
@@ -77,18 +156,17 @@ impl GeminiAdapter {
     }
 
     /// `~/.gemini/commands/<pkg-slug>` — the per-pkg commands output dir.
+    /// `commands` subdir sourced from EngineLayout (WP-25).
     fn commands_dir(pkg_slug: &str) -> Result<PathBuf> {
-        Ok(Self::gemini_home()?.join("commands").join(pkg_slug))
+        Ok(Self::gemini_home()?
+            .join(gemini_commands_subdir())
+            .join(pkg_slug))
     }
 
     /// Folder-symlink installer — same shape as the Claude adapter's
     /// `install_asset_folder`. Used for both skills (`extensions`) and
     /// agents.
-    fn install_asset_folder(
-        kind: &str,
-        source: &Path,
-        pkg_slug: &str,
-    ) -> Result<InstallReport> {
+    fn install_asset_folder(kind: &str, source: &Path, pkg_slug: &str) -> Result<InstallReport> {
         if !source.is_dir() {
             return Err(anyhow!(
                 "`{kind}` source `{}` is not a directory",
@@ -96,8 +174,7 @@ impl GeminiAdapter {
             ));
         }
         let parent = Self::assets_dir(kind)?;
-        std::fs::create_dir_all(&parent)
-            .with_context(|| format!("mkdir {}", parent.display()))?;
+        std::fs::create_dir_all(&parent).with_context(|| format!("mkdir {}", parent.display()))?;
         let target = parent.join(pkg_slug);
 
         let mut report = InstallReport::default();
@@ -137,10 +214,7 @@ impl GeminiAdapter {
         match std::fs::symlink_metadata(&target) {
             Ok(meta) if meta.file_type().is_symlink() => {
                 if let Err(e) = std::fs::remove_file(&target) {
-                    log::warn!(
-                        "[engine.gemini] rm symlink {}: {e}",
-                        target.display()
-                    );
+                    log::warn!("[engine.gemini] rm symlink {}: {e}", target.display());
                 }
             }
             Ok(_) => {
@@ -150,10 +224,7 @@ impl GeminiAdapter {
                 );
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Err(e) => log::warn!(
-                "[engine.gemini] stat {}: {e}",
-                target.display()
-            ),
+            Err(e) => log::warn!("[engine.gemini] stat {}: {e}", target.display()),
         }
         Ok(())
     }
@@ -177,8 +248,8 @@ impl GeminiAdapter {
         let mut per_file_skipped = 0usize;
         let mut warnings: Vec<String> = Vec::new();
 
-        let entries = std::fs::read_dir(source)
-            .with_context(|| format!("readdir {}", source.display()))?;
+        let entries =
+            std::fs::read_dir(source).with_context(|| format!("readdir {}", source.display()))?;
 
         for entry in entries {
             let entry = match entry {
@@ -560,6 +631,18 @@ mod tests {
         dir
     }
 
+    /// WP-25: the segments we source from `EngineLayout` must equal the
+    /// historical literals so on-disk output is byte-identical. If the frozen
+    /// layout ever drifts, this pins the regression at the seam (the accessors
+    /// themselves fall back to the literal + `tracing::warn!`, so output is
+    /// still safe — this test makes the drift loud).
+    #[test]
+    fn layout_segments_match_literals() {
+        assert_eq!(gemini_dotdir(), ".gemini");
+        assert_eq!(gemini_settings_file(), "settings.json");
+        assert_eq!(gemini_commands_subdir(), "commands");
+    }
+
     #[test]
     fn register_mcp_writes_settings_json() {
         let _g = test_lock();
@@ -704,14 +787,21 @@ mod tests {
 
         // The .toml file must exist at <out_dir>/ship.toml.
         let out_file = out_dir.join("ship.toml");
-        assert!(out_file.exists(), "ship.toml should exist at {}", out_file.display());
+        assert!(
+            out_file.exists(),
+            "ship.toml should exist at {}",
+            out_file.display()
+        );
 
         // Non-.md sibling must not be transcoded.
         assert!(!out_dir.join("README.toml").exists());
 
         // Content sanity: text-grep for expected lines.
         let contents = std::fs::read_to_string(&out_file).unwrap();
-        assert!(contents.contains("name = \"ship\""), "missing name line: {contents}");
+        assert!(
+            contents.contains("name = \"ship\""),
+            "missing name line: {contents}"
+        );
         assert!(
             contents.contains("description = \"Ship a release\""),
             "missing description line: {contents}"
@@ -740,7 +830,9 @@ mod tests {
         let adapter = GeminiAdapter::new();
 
         // Missing dir → no-op.
-        adapter.uninstall_commands("com.test.x", "com-test-x").unwrap();
+        adapter
+            .uninstall_commands("com.test.x", "com-test-x")
+            .unwrap();
 
         // Install, then uninstall.
         let src = tempfile::tempdir().unwrap();
@@ -751,7 +843,9 @@ mod tests {
         let out_dir = GeminiAdapter::commands_dir("com-test-x").unwrap();
         assert!(out_dir.exists());
 
-        adapter.uninstall_commands("com.test.x", "com-test-x").unwrap();
+        adapter
+            .uninstall_commands("com.test.x", "com-test-x")
+            .unwrap();
         assert!(!out_dir.exists(), "commands dir should be gone");
     }
 

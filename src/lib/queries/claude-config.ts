@@ -8,11 +8,14 @@ import {
 	claudeConfigWatch,
 	claudePrimitiveCopy,
 	claudePrimitiveDisable,
+	claudePrimitiveDisableFor,
 	claudePrimitiveEnable,
+	claudePrimitiveEnableFor,
 	claudePrimitiveMove,
 	claudePrimitiveRemove,
 	claudeStoreImport,
 	claudeStoreList,
+	ngwaCrossEngineCopy,
 	type ClaudeAgent,
 	type ClaudeCommand,
 	type ClaudeConfig,
@@ -26,6 +29,11 @@ import {
 	type ConfigFormat,
 	type EngineId,
 	type KindStatus,
+	type NgwaCopyBatchResult,
+	type NgwaCopyDestination,
+	type NgwaHookFile,
+	type NgwaStoreError,
+	type NgwaTranscodeMode,
 } from '@/lib/tauri-cmd';
 import { queryKeys } from '@/lib/query-keys';
 
@@ -48,6 +56,11 @@ export type {
 	ConfigFormat,
 	EngineId,
 	KindStatus,
+	NgwaCopyBatchResult,
+	NgwaCopyDestination,
+	NgwaHookFile,
+	NgwaStoreError,
+	NgwaTranscodeMode,
 };
 
 // The query layer is engine-agnostic: `claudeConfigLoad` returns the same
@@ -230,4 +243,86 @@ export function useRemovePrimitive() {
 			onSuccess: invalidate,
 		}
 	);
+}
+
+// ─── Ngwa v2b cross-system write hooks (WP-26 / D-09) ────────────────────────
+//
+// The per-ENGINE enable/disable + the cross-engine batch copy back the D-09
+// drawer. They mirror the same invalidate pattern as the Phase-1 store hooks:
+// each mutation invalidates the store catalog + the on-disk scan on success, so
+// the engine-grouped facet live-refreshes. The per-engine writes target the
+// frozen WP-22 `claude_primitive_enable_for` / `disable_for` commands; the batch
+// copy targets WP-24's `claude_primitive_copy_batch` (mock-backed in tauri-cmd
+// until WP-24 lands — see `NGWA_TRANSCODE_MOCK`).
+
+/** Enable a settings-embedded primitive (hook/mcp) in a scope FOR A SPECIFIC
+ *  ENGINE. Gemini strict-key rejection surfaces as an `NgwaStoreError` of kind
+ *  `strictKeyRejected` (thrown before any disk write). `engine` defaults to
+ *  `'claude'` so Phase-1 behaviour is preserved when omitted. */
+export function useEnablePrimitiveFor() {
+	const invalidate = useInvalidateClaudeStore();
+	return useMutation<
+		ClaudeStoreMutation,
+		Error,
+		{
+			engine: EngineId;
+			kind: ClaudeStoreKind;
+			name: string;
+			scope: ClaudeStoreScope;
+			hookFile?: NgwaHookFile;
+		}
+	>({
+		mutationFn: ({ engine, kind, name, scope, hookFile }) =>
+			claudePrimitiveEnableFor(engine, kind, name, scope, hookFile ?? 'shared'),
+		onSuccess: invalidate,
+	});
+}
+
+/** Disable a settings-embedded primitive (hook/mcp) from a scope for a specific
+ *  engine — inverse of {@link useEnablePrimitiveFor}. */
+export function useDisablePrimitiveFor() {
+	const invalidate = useInvalidateClaudeStore();
+	return useMutation<
+		void,
+		Error,
+		{
+			engine: EngineId;
+			kind: ClaudeStoreKind;
+			name: string;
+			scope: ClaudeStoreScope;
+			hookFile?: NgwaHookFile;
+		}
+	>({
+		mutationFn: ({ engine, kind, name, scope, hookFile }) =>
+			claudePrimitiveDisableFor(engine, kind, name, scope, hookFile ?? 'shared'),
+		onSuccess: invalidate,
+	});
+}
+
+/** Cross-engine forward transcode copy/move into N (engine, scope) destinations
+ *  in one batch — the D-09 "Copy to N" action. Resolves to a per-row batch
+ *  result (`NgwaCopyBatchResult`); the drawer renders partial failures inline.
+ *  Invalidates on settle (not just success) so the scan refreshes even when some
+ *  rows fail — a partial success still changed the disk for the rows that wrote.
+ *
+ *  MOCK SEAM: `ngwaCrossEngineCopy` is mock-backed until WP-24 (see tauri-cmd
+ *  `NGWA_TRANSCODE_MOCK`); this hook is finalized against the real command then. */
+export function useCrossEngineCopy() {
+	const invalidate = useInvalidateClaudeStore();
+	return useMutation<
+		NgwaCopyBatchResult,
+		Error,
+		{
+			fromEngine: EngineId;
+			kind: ClaudeStoreKind;
+			name: string;
+			fromScope: ClaudeStoreScope;
+			destinations: NgwaCopyDestination[];
+			move?: boolean;
+		}
+	>({
+		mutationFn: ({ fromEngine, kind, name, fromScope, destinations, move }) =>
+			ngwaCrossEngineCopy(fromEngine, kind, name, fromScope, destinations, move ?? false),
+		onSettled: () => invalidate(),
+	});
 }

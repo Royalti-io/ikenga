@@ -87,6 +87,91 @@ fn secret_key_regex() -> &'static Regex {
     })
 }
 
+// ── G-ADAPTER de-dup (WP-25) ─────────────────────────────────────────────
+//
+// Path segments sourced from the frozen `EngineLayout` descriptor
+// (`crate::commands::engine_layout`) so the scanner/FE matrix and this write
+// adapter share one source of truth. The descriptor's `location` templates are
+// glob / scanner strings (`{user_root}/.codex/config.toml#mcp_servers.{name}`,
+// `{user_root}/.codex/agents/{name}.toml`, `{root}/.agents/skills/{name}/`),
+// NOT byte-exact write paths, so we extract only the *stable literal
+// directory/file segments* — the engine dotdir, the config filename, the
+// agents subdir, and the cross-tool project skills segments — and keep the
+// table-keying / transcode / extension logic local to the adapter.
+//
+// Each accessor falls back to the historical literal + `tracing::warn!` if the
+// template ever drifts to an unparseable shape, so a future layout edit can
+// NEVER silently change on-disk output (DoD: byte-equivalence). The
+// `layout_segments_match_literals` test pins the extraction.
+
+/// Engine dotdir under `$HOME`, e.g. `.codex`.
+fn codex_dotdir() -> &'static str {
+    layout_segment(PrimitiveKind::Mcp, ".codex", |loc| {
+        loc.split('/').find(|s| s.starts_with(".codex"))
+    })
+}
+
+/// MCP config filename, e.g. `config.toml` (file segment before `#key`).
+fn codex_config_file() -> &'static str {
+    layout_segment(PrimitiveKind::Mcp, "config.toml", |loc| {
+        loc.rsplit('/').next().and_then(|seg| seg.split('#').next())
+    })
+}
+
+/// Per-pkg subagents output subdir, e.g. `agents`, from the Agent cell's
+/// `location` (`{user_root}/.codex/agents/{name}.toml`).
+fn codex_agents_subdir() -> &'static str {
+    layout_segment(PrimitiveKind::Agent, "agents", |loc| {
+        let mut parts = loc.split('/');
+        parts.by_ref().find(|s| s.starts_with(".codex"))?;
+        parts.next()
+    })
+}
+
+/// Project-scoped skills root segments — `.agents` and `skills` — from the
+/// Skill cell's cross-tool `location` (`{root}/.agents/skills/{name}/`).
+/// Returns `(".agents", "skills")`, falling back to those literals.
+fn codex_project_skills_segments() -> (&'static str, &'static str) {
+    let dotagents = layout_segment(PrimitiveKind::Skill, ".agents", |loc| {
+        loc.split('/').find(|s| s.starts_with(".agents"))
+    });
+    let skills = layout_segment(PrimitiveKind::Skill, "skills", |loc| {
+        let mut parts = loc.split('/');
+        parts.by_ref().find(|s| s.starts_with(".agents"))?;
+        parts.next()
+    });
+    (dotagents, skills)
+}
+
+/// Extract a `&'static str` segment from a Codex `KindLayout::location`
+/// template via `pick`, falling back to `fallback` (and warning) when the
+/// layout, kind cell, or picked segment is missing/empty. Every descriptor
+/// field is a string literal, so the picked slice is `'static`.
+fn layout_segment(
+    kind: PrimitiveKind,
+    fallback: &'static str,
+    pick: impl Fn(&'static str) -> Option<&'static str>,
+) -> &'static str {
+    use crate::commands::engine_layout::{engine_layout_by_id, EngineId};
+    let resolved = engine_layout_by_id(EngineId::Codex)
+        .as_ref()
+        .and_then(|layout| layout.kinds.get(&kind))
+        .and_then(|cell| pick(cell.location))
+        .filter(|s| !s.is_empty());
+    match resolved {
+        Some(seg) => seg,
+        None => {
+            tracing::warn!(
+                "[engine.codex] could not source path segment from EngineLayout \
+                 {kind:?} cell — falling back to literal `{fallback}` (output unchanged)"
+            );
+            fallback
+        }
+    }
+}
+
+use crate::commands::engine_layout::PrimitiveKind;
+
 pub struct CodexAdapter;
 
 impl CodexAdapter {
@@ -95,17 +180,21 @@ impl CodexAdapter {
     }
 
     fn codex_home() -> Result<PathBuf> {
-        let home = crate::platform::home_dir()
-            .ok_or_else(|| anyhow!("could not resolve home directory (HOME / USERPROFILE unset)"))?;
-        Ok(home.join(".codex"))
+        let home = crate::platform::home_dir().ok_or_else(|| {
+            anyhow!("could not resolve home directory (HOME / USERPROFILE unset)")
+        })?;
+        // `.codex` sourced from EngineLayout (WP-25) — falls back to literal.
+        Ok(home.join(codex_dotdir()))
     }
 
     fn config_path() -> Result<PathBuf> {
-        Ok(Self::codex_home()?.join("config.toml"))
+        // `config.toml` sourced from EngineLayout (WP-25).
+        Ok(Self::codex_home()?.join(codex_config_file()))
     }
 
     fn agents_dir() -> Result<PathBuf> {
-        Ok(Self::codex_home()?.join("agents"))
+        // `agents` subdir sourced from EngineLayout (WP-25).
+        Ok(Self::codex_home()?.join(codex_agents_subdir()))
     }
 
     fn per_pkg_agents_dir(pkg_slug: &str) -> Result<PathBuf> {
@@ -129,7 +218,10 @@ impl CodexAdapter {
     }
 
     fn project_skills_dir(root: &Path, pkg_slug: &str) -> PathBuf {
-        root.join(".agents").join("skills").join(pkg_slug)
+        // `.agents/skills` sourced from EngineLayout's cross-tool Skill cell
+        // (WP-25) — falls back to those literals.
+        let (dotagents, skills) = codex_project_skills_segments();
+        root.join(dotagents).join(skills).join(pkg_slug)
     }
 
     /// Atomic write: tmp in the same dir then rename. POSIX rename is
@@ -138,8 +230,7 @@ impl CodexAdapter {
         let parent = dest
             .parent()
             .ok_or_else(|| anyhow!("path has no parent: {}", dest.display()))?;
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("mkdir {}", parent.display()))?;
+        std::fs::create_dir_all(parent).with_context(|| format!("mkdir {}", parent.display()))?;
         let tmp_name = format!(
             ".{}.{}.{}.tmp",
             dest.file_name()
@@ -204,7 +295,10 @@ impl CodexAdapter {
         let mut out = String::new();
         out.push_str(&table_header);
         out.push('\n');
-        out.push_str(&format!("command = {}\n", quote_toml_string(&server.command)));
+        out.push_str(&format!(
+            "command = {}\n",
+            quote_toml_string(&server.command)
+        ));
         let args_str = server
             .args
             .iter()
@@ -275,7 +369,12 @@ impl CodexAdapter {
                 env_table.push((key, value));
             }
         }
-        (env_table, env_vars_allowlist, refuse_warnings, info_warnings)
+        (
+            env_table,
+            env_vars_allowlist,
+            refuse_warnings,
+            info_warnings,
+        )
     }
 
     /// Find the line-range of an existing `<table_header>` block in `toml`,
@@ -320,7 +419,7 @@ impl CodexAdapter {
         Some((start, end))
     }
 
-/// Best-effort uninstall: remove a per-slug path that may be either a
+    /// Best-effort uninstall: remove a per-slug path that may be either a
     /// symlink (skills case) or a real dir (commands-as-skills case). User
     /// data is never touched outside the per-slug namespace.
     fn remove_symlink_or_dir(target: &Path) -> Result<()> {
@@ -328,16 +427,10 @@ impl CodexAdapter {
             Ok(meta) => {
                 if meta.file_type().is_symlink() {
                     if let Err(e) = std::fs::remove_file(target) {
-                        log::warn!(
-                            "[engine.codex] rm symlink {}: {e}",
-                            target.display()
-                        );
+                        log::warn!("[engine.codex] rm symlink {}: {e}", target.display());
                     }
                 } else if let Err(e) = std::fs::remove_dir_all(target) {
-                    log::warn!(
-                        "[engine.codex] rm dir {}: {e}",
-                        target.display()
-                    );
+                    log::warn!("[engine.codex] rm dir {}: {e}", target.display());
                 }
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
@@ -409,7 +502,11 @@ impl EngineAdapter for CodexAdapter {
             Self::emit_mcp_block(pkg_slug, server, &env_table, &env_vars_allowlist);
         let dest = Self::config_path()?;
         let existing = Self::read_file_or_empty(&dest)?;
-        let entry_ref = format!("{}#{}", dest.display(), &table_header[1..table_header.len() - 1]);
+        let entry_ref = format!(
+            "{}#{}",
+            dest.display(),
+            &table_header[1..table_header.len() - 1]
+        );
 
         if let Some((start, end)) = Self::find_block_range(&existing, &table_header) {
             let current = &existing[start..end];
@@ -520,8 +617,7 @@ impl EngineAdapter for CodexAdapter {
         }
         let target = Self::project_skills_dir(&root, pkg_slug);
         let parent = target.parent().unwrap_or(&root).to_path_buf();
-        std::fs::create_dir_all(&parent)
-            .with_context(|| format!("mkdir {}", parent.display()))?;
+        std::fs::create_dir_all(&parent).with_context(|| format!("mkdir {}", parent.display()))?;
 
         let mut report = InstallReport::default();
         let source = folder.to_path_buf();
@@ -758,6 +854,18 @@ mod tests {
     }
 
     use super::super::test_util::{test_lock, HomeGuard};
+
+    /// WP-25: segments sourced from `EngineLayout` must equal the historical
+    /// literals so on-disk output stays byte-identical. Pins the seam against
+    /// a future frozen-layout drift (accessors fall back to the literal +
+    /// `tracing::warn!`, so output is safe regardless; this makes drift loud).
+    #[test]
+    fn layout_segments_match_literals() {
+        assert_eq!(codex_dotdir(), ".codex");
+        assert_eq!(codex_config_file(), "config.toml");
+        assert_eq!(codex_agents_subdir(), "agents");
+        assert_eq!(codex_project_skills_segments(), (".agents", "skills"));
+    }
 
     #[test]
     fn register_mcp_writes_config_toml() {

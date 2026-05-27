@@ -53,6 +53,8 @@ import {
 
 import { Chips, FrontmatterGrid } from './list-detail';
 import { AnalyzeSurface } from './analyze';
+import { EngineGlyph } from './engine-glyph';
+import { WriteTranscodeDrawer, isCrossEngineCopyable } from './write-drawer';
 
 // ─── URL-param vocabularies (must match WP-06's ngwa-mode.tsx) ──────────────
 export type NgwaSurfaceId = 'browse' | 'registry' | 'graph' | 'map' | 'life' | 'health' | 'flow';
@@ -542,8 +544,9 @@ export function NgwaSurface({
 								<span
 									key={e}
 									className={cn('ngwa-eb', ENGINE_META[e].code, !activeSystems.has(e) && 'off')}
+									title={ENGINE_META[e].display}
 								>
-									{ENGINE_META[e].badge}
+									<EngineGlyph system={e} />
 								</span>
 							))}
 						</div>
@@ -825,7 +828,9 @@ function BrowseSurface({
 						engineGroups.map(({ system, items: its }) => (
 							<div key={system}>
 								<div className={cn('ccfg-engine-head', ENGINE_META[system].code)}>
-									<span className="eg">{ENGINE_META[system].badge}</span>
+									<span className="eg" aria-hidden>
+										<EngineGlyph system={system} />
+									</span>
 									<span className="hn">
 										{ENGINE_META[system].display} · {its.length}
 									</span>
@@ -868,6 +873,7 @@ function BrowseSurface({
 						projectScopes={projectScopes}
 						onEdit={onEdit}
 						siblingSystems={siblingSystemsOf(selected, items)}
+						present={present}
 					/>
 				) : (
 					<EmptyCarve />
@@ -1007,6 +1013,7 @@ function RegistrySurface({
 	items,
 	scope,
 	activeSystems,
+	present,
 	isLoading,
 	error,
 	onEdit,
@@ -1288,6 +1295,7 @@ function RegistrySurface({
 							projectScopes={projectScopes}
 							onEdit={onEdit}
 							siblingSystems={siblingSystemsOf(drawerItem, items)}
+							present={present}
 						/>
 						<div style={{ padding: 'var(--space-3)', textAlign: 'right' }}>
 							<button type="button" className="ngwa-btn" onClick={() => setDrawerId(null)}>
@@ -1372,6 +1380,7 @@ function ItemDetail({
 	projectScopes,
 	onEdit,
 	siblingSystems = [],
+	present = ['claude'],
 }: {
 	item: NgwaItem;
 	projectScopes: Array<{ key: ClaudeStoreScope; label: string }>;
@@ -1379,6 +1388,9 @@ function ItemDetail({
 	/** Other engines that have a primitive of the same kind+name (cross-engine
 	 *  collision, e.g. the `reviewer` agent under Gemini + Codex). */
 	siblingSystems?: NgwaSystemId[];
+	/** Engines present in the scan — drives the D-09 cross-engine destination set.
+	 *  Defaults to Claude-only so single-engine views behave exactly as before. */
+	present?: NgwaSystemId[];
 }) {
 	const enable = useEnablePrimitive();
 	const disable = useDisablePrimitive();
@@ -1388,6 +1400,10 @@ function ItemDetail({
 	const importToStore = useImportToStore();
 
 	const [picker, setPicker] = useState<null | 'move' | 'copy'>(null);
+	// D-09: the cross-engine multi-destination transcode drawer (file-based kinds
+	// only). For hooks/mcp, "Copy to…" keeps the single-scope same-engine picker.
+	const [showCopyDrawer, setShowCopyDrawer] = useState(false);
+	const crossEngineCopyable = isCrossEngineCopyable(item.storeKind);
 	const [scriptBody, setScriptBody] = useState<string | null>(null);
 
 	const on = item.state === 'enabled';
@@ -1451,8 +1467,8 @@ function ItemDetail({
 					</button>
 				</div>
 				<h2>
-					<span className={cn('ccfg-eb', ENGINE_META[item.system].code)}>
-						{ENGINE_META[item.system].badge}
+					<span className={cn('ccfg-eb', ENGINE_META[item.system].code)} aria-hidden>
+						<EngineGlyph system={item.system} />
 					</span>
 					{item.name}
 					<StateDot state={item.state} />
@@ -1488,7 +1504,9 @@ function ItemDetail({
 							{siblingSystems.map((s, i) => (
 								<span key={s}>
 									{i > 0 && ', '}
-									<span className={cn('ccfg-eb', ENGINE_META[s].code)}>{ENGINE_META[s].badge}</span>{' '}
+									<span className={cn('ccfg-eb', ENGINE_META[s].code)} aria-hidden>
+										<EngineGlyph system={s} />
+									</span>{' '}
 									{ENGINE_META[s].display}
 								</span>
 							))}
@@ -1601,7 +1619,16 @@ function ItemDetail({
 					<button type="button" className="ngwa-btn" onClick={() => setPicker('move')}>
 						Move to…
 					</button>
-					<button type="button" className="ngwa-btn" onClick={() => setPicker('copy')}>
+					<button
+						type="button"
+						className="ngwa-btn"
+						onClick={() => (crossEngineCopyable ? setShowCopyDrawer(true) : setPicker('copy'))}
+						title={
+							crossEngineCopyable
+								? 'Copy to one or more engine + scope destinations (transcode where needed)'
+								: undefined
+						}
+					>
 						Copy to…
 					</button>
 					{item.state !== 'orphaned' && (
@@ -1632,6 +1659,15 @@ function ItemDetail({
 						setPicker(null);
 					}}
 					onClose={() => setPicker(null)}
+				/>
+			)}
+
+			{showCopyDrawer && (
+				<WriteTranscodeDrawer
+					item={item}
+					present={present}
+					projectScopes={projectScopes}
+					onClose={() => setShowCopyDrawer(false)}
 				/>
 			)}
 		</>

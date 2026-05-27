@@ -35,8 +35,10 @@ use commands::{
     backup_export, backup_import, backup_list, chat_thread_move, chat_threads_list_by_project,
     claude_asset_list_pins, claude_asset_pin, claude_asset_unpin, claude_assets_discover,
     claude_config_load, claude_config_read_file, claude_config_unwatch, claude_config_watch,
-    claude_primitive_copy, claude_primitive_disable, claude_primitive_enable,
-    claude_primitive_move, claude_primitive_remove, claude_store_import, claude_store_list,
+    claude_primitive_copy, claude_primitive_copy_batch, claude_primitive_disable,
+    claude_primitive_disable_for, claude_primitive_enable, claude_primitive_enable_for,
+    claude_primitive_move, claude_primitive_remove, claude_primitive_remove_for,
+    claude_store_import, claude_store_list,
     claude_list_sessions, claude_read_jsonl, comment_create, comment_delete, comment_get,
     comment_list, comment_record_routing, comment_route, comment_set_status, db_exec, db_query,
     dev_bind_port, dev_release_port, engine_layout,
@@ -748,6 +750,11 @@ pub fn run() {
             claude_primitive_copy,
             claude_primitive_move,
             claude_primitive_remove,
+            // Ngwa Phase-2 v2b write — unified per-engine dispatch + cross-engine copy
+            claude_primitive_enable_for,
+            claude_primitive_disable_for,
+            claude_primitive_remove_for,
+            claude_primitive_copy_batch,
             // Ngwa Phase-2 cross-system — G-ADAPTER engine layout descriptor
             engine_layout,
             // viewer

@@ -62,8 +62,10 @@ pub use claude_config::{
     claude_config_load, claude_config_read_file, claude_config_unwatch, claude_config_watch,
 };
 pub use claude_store::{
-    claude_primitive_copy, claude_primitive_disable, claude_primitive_enable,
-    claude_primitive_move, claude_primitive_remove, claude_store_import, claude_store_list,
+    claude_primitive_copy, claude_primitive_copy_batch, claude_primitive_disable,
+    claude_primitive_disable_for, claude_primitive_enable, claude_primitive_enable_for,
+    claude_primitive_move, claude_primitive_remove, claude_primitive_remove_for,
+    claude_store_import, claude_store_list,
 };
 pub use comment_route::comment_route;
 pub use comments::{

@@ -47,6 +47,7 @@ import {
 	summarizeSystems,
 	type NgwaSystemId,
 } from '@/shell/claude-config/ngwa-surface';
+import { EngineGlyph } from '@/shell/claude-config/engine-glyph';
 
 // Pulls in the WP-20 engine/format tint vars + `.ngwa-sysrow` rules so the
 // SYSTEM facet styles even when the /claude route isn't mounted yet.
@@ -425,7 +426,7 @@ export function NgwaMode() {
 											)}
 										>
 											<span className={cn('ngwa-eg', meta.code)} aria-hidden>
-												{meta.badge}
+												<EngineGlyph system={engine} />
 											</span>
 											<span className="truncate">{meta.display}</span>
 											<span className="ngwa-sys-ct ml-auto font-mono text-[9px] text-muted-foreground/60">
