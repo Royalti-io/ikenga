@@ -39,12 +39,14 @@ pub fn normalize(manifest: &Manifest) -> String {
     let mut fs_read = perms.fs_read.clone();
     let mut fs_write = perms.fs_write.clone();
     let mut net = perms.net.clone();
+    let mut sqlite_tables = perms.sqlite_tables.clone();
     let mut supabase_tables = perms.supabase_tables.clone();
     let mut vault_keys = perms.vault_keys.clone();
     shell_execute.sort();
     fs_read.sort();
     fs_write.sort();
     net.sort();
+    sqlite_tables.sort();
     supabase_tables.sort();
     vault_keys.sort();
 
@@ -53,6 +55,7 @@ pub fn normalize(manifest: &Manifest) -> String {
         "fs.read": fs_read,
         "fs.write": fs_write,
         "net": net,
+        "sqlite.tables": sqlite_tables,
         "supabase.tables": supabase_tables,
         "vault.keys": vault_keys,
     });
@@ -212,6 +215,7 @@ mod tests {
         let mut b = minimal_manifest();
         b.capabilities = Some(crate::pkg::manifest::CapabilitiesBlock {
             supabase: Some(crate::pkg::manifest::SupabaseCapability { required: true }),
+            sqlite: None,
             webview: None,
         });
         assert!(capabilities_changed(&normalize(&a), &normalize(&b)));
@@ -275,7 +279,10 @@ mod tests {
         let json_v2 = normalize(&m_v2);
         write_explicit(&pool, &m_v2.id, &json_v2).await.expect("v2");
 
-        let snap = fetch(&pool, &m_v1.id).await.expect("fetch").expect("present");
+        let snap = fetch(&pool, &m_v1.id)
+            .await
+            .expect("fetch")
+            .expect("present");
         assert_eq!(snap.manifest_capabilities_json, json_v2);
         assert!(!snap.approved_by_implicit);
     }

@@ -69,6 +69,9 @@ struct PkgEntry {
     /// = required (mint fails if vault keys missing). `Some(false)` = opt-in,
     /// missing keys surface as null.
     supabase_required: Option<bool>,
+    /// Logical DB name when the pkg declared `capabilities.sqlite` (api ≥ 2).
+    /// `None` = pkg didn't declare the capability and never sees the db name.
+    sqlite_db: Option<String>,
 }
 
 #[derive(Clone)]
@@ -163,6 +166,12 @@ impl PkgContentServer {
     /// `Some(required)` when it did.
     pub fn supabase_capability(&self, pkg_id: &str) -> Option<bool> {
         self.pkgs.get(pkg_id).and_then(|e| e.supabase_required)
+    }
+
+    /// Logical DB name for a registered pkg that declared `capabilities.sqlite`.
+    /// Returns `None` if the pkg isn't registered or didn't declare the capability.
+    pub fn sqlite_capability(&self, pkg_id: &str) -> Option<String> {
+        self.pkgs.get(pkg_id).and_then(|e| e.sqlite_db.clone())
     }
 
     /// Revoke a single token (iframe unmount).
@@ -635,6 +644,12 @@ impl Registry for PkgContentServer {
             .as_ref()
             .and_then(|c| c.supabase.as_ref())
             .map(|s| s.required);
+        let sqlite_db = pkg
+            .manifest
+            .capabilities
+            .as_ref()
+            .and_then(|c| c.sqlite.as_ref())
+            .map(|s| s.db.clone());
         self.pkgs.insert(
             pkg.manifest.id.clone(),
             PkgEntry {
@@ -642,6 +657,7 @@ impl Registry for PkgContentServer {
                 csp_overrides,
                 perm_overrides,
                 supabase_required,
+                sqlite_db,
             },
         );
         Ok(())

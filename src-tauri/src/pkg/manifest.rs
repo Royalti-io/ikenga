@@ -21,7 +21,10 @@ use serde::{Deserialize, Serialize};
 /// Current host API contract version. Bump when manifest semantics change in
 /// a non-additive way. Packages declaring older versions are auto-disabled
 /// once they fall outside the {current, current-1} support window.
-pub const IKENGA_API_VERSION: u32 = 1;
+///
+/// v2 (WP-05): added `capabilities.sqlite` + `permissions["sqlite.tables"]`;
+/// `permissions["supabase.tables"]` kept as a compat alias for api=1 manifests.
+pub const IKENGA_API_VERSION: u32 = 2;
 
 /// Smallest supported manifest version. Packages with older `ikenga_api` are
 /// auto-disabled at boot; the kernel surfaces them with an "update required"
@@ -209,12 +212,42 @@ pub struct EngineBlock {
 pub struct CapabilitiesBlock {
     #[serde(default)]
     pub supabase: Option<SupabaseCapability>,
+    /// Local SQLite capability (api ≥ 2). Declares that this pkg reads from
+    /// `pa.db` via `db_query`. The host resolves the logical db name and
+    /// threads it through `hostContext.sqlite` at iframe-mount time.
+    /// Mirrors `SqliteCapabilitySchema` in `@ikenga/contract/manifest.ts`.
+    #[serde(default)]
+    pub sqlite: Option<SqliteCapability>,
     /// Native child-webview capability. Required for any `ui.routes[]` entry
     /// with `kind = "webview"` to mount. See `pkg/webview.rs` for the kernel
     /// implementation. Mirrors `WebviewCapabilitySchema` in
     /// `@ikenga/contract/manifest.ts`.
     #[serde(default)]
     pub webview: Option<WebviewCapability>,
+}
+
+/// Local SQLite capability block. Threads the db name into the iframe host
+/// context so the pkg can call `db_query("ikenga.local", sql, params)` without
+/// hard-coding the db name.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SqliteCapability {
+    /// Logical DB name. Currently only `"ikenga.local"` is supported by the
+    /// host. Defaults to `"ikenga.local"` when omitted.
+    #[serde(default = "default_sqlite_db")]
+    pub db: String,
+}
+
+impl Default for SqliteCapability {
+    fn default() -> Self {
+        Self {
+            db: default_sqlite_db(),
+        }
+    }
+}
+
+fn default_sqlite_db() -> String {
+    "ikenga.local".to_string()
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -347,6 +380,15 @@ pub struct Permissions {
     #[serde(default)]
     pub net: Vec<String>, // URL prefixes
 
+    /// Local SQLite table patterns this pkg is allowed to query via `db_query`.
+    /// Validates against `tables.json` at install time (WP-05 schema-validator).
+    /// For api ≥ 2 manifests; prefer over `supabase_tables`.
+    #[serde(default, rename = "sqlite.tables")]
+    pub sqlite_tables: Vec<String>,
+
+    /// Deprecated (api = 1 compat alias for `sqlite.tables`). Kept so existing
+    /// manifests authored against ikenga_api = "1" continue to parse without
+    /// errors. New manifests should use `sqlite.tables` instead.
     #[serde(default, rename = "supabase.tables")]
     pub supabase_tables: Vec<String>, // table-name globs
 

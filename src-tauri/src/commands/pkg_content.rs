@@ -57,6 +57,18 @@ pub struct SupabaseHostConfig {
     pub anon_key: String,
 }
 
+/// Resolved SQLite host context threaded to pkgs that declared
+/// `capabilities.sqlite` (ikenga_api ≥ 2). Exposes only the logical DB name
+/// — actual queries go through the `db_query` Tauri command, not a client
+/// library credential, so there is nothing secret to protect here.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SqliteHostConfig {
+    /// Logical DB name — currently always `"ikenga.local"` for the local
+    /// `pa.db` store. Future: additional named stores may be added.
+    pub db: String,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PkgContentHtmlHandle {
@@ -70,6 +82,9 @@ pub struct PkgContentHtmlHandle {
     /// `capabilities.supabase`. `None` if the pkg didn't declare it, or
     /// declared it as non-required and the vault is missing keys.
     pub supabase: Option<SupabaseHostConfig>,
+    /// Resolved SQLite config when the pkg declared `capabilities.sqlite`.
+    /// `None` if the pkg didn't declare the capability.
+    pub sqlite: Option<SqliteHostConfig>,
 }
 
 #[tauri::command]
@@ -87,16 +102,12 @@ pub async fn pkg_content_html(
             // read_secret_scoped falls through to the legacy unscoped key
             // when the scoped row is missing — so user vaults populated
             // before Phase 7 keep working.
-            let url = read_secret_scoped(
-                &app,
-                &secrets_lock,
-                &Scope::Workspace,
-                "VITE_SUPABASE_URL",
-            )
-            .unwrap_or_else(|e| {
-                log::warn!("[pkg_content] vault read VITE_SUPABASE_URL failed: {e}");
-                None
-            });
+            let url =
+                read_secret_scoped(&app, &secrets_lock, &Scope::Workspace, "VITE_SUPABASE_URL")
+                    .unwrap_or_else(|e| {
+                        log::warn!("[pkg_content] vault read VITE_SUPABASE_URL failed: {e}");
+                        None
+                    });
             let anon = read_secret_scoped(
                 &app,
                 &secrets_lock,
@@ -123,6 +134,10 @@ pub async fn pkg_content_html(
             }
         }
     };
+    let sqlite = server
+        .0
+        .sqlite_capability(&pkg_id)
+        .map(|db| SqliteHostConfig { db });
     let h = server
         .0
         .mint_html(&pkg_id, &source)
@@ -132,6 +147,7 @@ pub async fn pkg_content_html(
         base_url: h.base_url,
         token: h.token,
         supabase,
+        sqlite,
     })
 }
 
