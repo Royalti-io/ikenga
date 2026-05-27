@@ -42,12 +42,14 @@ import { buildHostContext } from '@/lib/pkg/host-context';
 import { usePaneStore } from '@/lib/panes/pane-store';
 import { usePkgMenuStore, type PkgMenuItem } from '@/lib/pkg/pkg-menu-store';
 import {
+	dbQuery,
 	pkgContentHtml,
 	pkgContentRevoke,
 	pkgKernelStatus,
 	pkgMcpCall,
 	pkgPreviewManifest,
 	pkgSidecarCall,
+	type SqlValue,
 } from '@/lib/tauri-cmd';
 import {
 	openSessionDialog,
@@ -142,6 +144,23 @@ async function pkgDeclaresScope(pkgId: string, resource: string, action: string)
 	}
 }
 
+// Whether the pkg declared `capabilities.sqlite` (opt-in to reading the local
+// `pa.db`). Gates `host.dbQuery`. Same manifest-lookup shape as
+// `pkgDeclaresScope`; fails closed on any error.
+async function pkgDeclaresSqlite(pkgId: string): Promise<boolean> {
+	try {
+		const status = await pkgKernelStatus();
+		const entry = status.installed.find((p) => p.id === pkgId);
+		if (!entry) return false;
+		const manifest = await pkgPreviewManifest(entry.install_path);
+		const caps = manifest.capabilities as Record<string, unknown> | undefined;
+		return !!caps?.sqlite;
+	} catch (e) {
+		console.warn(`[pkg-host] sqlite capability check for ${pkgId} failed:`, e);
+		return false;
+	}
+}
+
 // Exported for unit tests (the verb's scope-gate + confirm + decline
 // branches). Not part of the pkg-facing API — callers go through the
 // AppBridge `oncalltool` path below.
@@ -210,6 +229,38 @@ export async function dispatchHostCall(
 			content: [{ type: 'text', text: rawStdout }],
 			structuredContent: structured,
 		};
+	}
+
+	if (name === 'host.dbQuery') {
+		// Read-path bridge (WP-04): lets an iframe pkg read the local `pa.db`
+		// via the host's `db_query` Tauri command instead of an in-iframe
+		// supabase-js client. Gated on the pkg declaring `capabilities.sqlite`
+		// (opt-in to local SQLite) — `host.*` verbs bypass the kernel's scope
+		// enforcement, so the check happens here, fails closed.
+		// `db_query` is SELECT-only on the Rust side; we additionally reject
+		// non-SELECT/WITH text as defense-in-depth. (Table-level scoping to the
+		// pkg's declared `permissions['sqlite.tables']` is a follow-up — the
+		// risk here is read-only access to the user's own single-user pa.db.)
+		const sql = typeof args.sql === 'string' ? args.sql : null;
+		if (!sql) {
+			return errResult('host.dbQuery: missing required `sql` argument');
+		}
+		if (!/^\s*(select|with)\b/i.test(sql)) {
+			return errResult('host.dbQuery: only SELECT/WITH read queries are allowed');
+		}
+		if (!(await pkgDeclaresSqlite(pkgId))) {
+			return errResult("host.dbQuery: pkg lacks the 'sqlite' capability");
+		}
+		const params = Array.isArray(args.params) ? (args.params as SqlValue[]) : [];
+		try {
+			const rows = await dbQuery(sql, params);
+			return {
+				content: [{ type: 'text', text: `${rows.length} row(s)` }],
+				structuredContent: { ok: true, rows },
+			};
+		} catch (e) {
+			return errResult(`host.dbQuery failed: ${(e as Error).message ?? String(e)}`);
+		}
 	}
 
 	if (name === 'host.navigate') {
