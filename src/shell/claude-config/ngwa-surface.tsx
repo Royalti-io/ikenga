@@ -40,12 +40,15 @@ import {
 } from '@/lib/tauri-cmd';
 import {
 	claudeStoreQueryOptions,
+	obaDependentsQueryOptions,
 	useCopyPrimitive,
 	useDisablePrimitive,
 	useEnablePrimitive,
 	useImportToStore,
 	useMovePrimitive,
+	useRelinkDependents,
 	useRemovePrimitive,
+	useSafeDelete,
 	type ConfigFormat,
 	type EngineId,
 	type KindStatus,
@@ -1417,6 +1420,11 @@ function ItemDetail({
 	const [showCopyDrawer, setShowCopyDrawer] = useState(false);
 	const crossEngineCopyable = isCrossEngineCopyable(item.storeKind);
 	const [scriptBody, setScriptBody] = useState<string | null>(null);
+	// D-01 inline safe-delete guard — open when the user fires Remove against
+	// what may be a real master (non-symlink + non-orphaned). For a symlink
+	// placement the old per-scope remove is already safe (`remove_file` never
+	// recurses), so we keep that fast path.
+	const [showGuard, setShowGuard] = useState(false);
 
 	const on = item.state === 'enabled';
 	const k = item.storeKind;
@@ -1702,7 +1710,17 @@ function ItemDetail({
 						<button
 							type="button"
 							className="ngwa-btn warn"
-							onClick={() => remove.mutate({ kind: k, name: item.name, scope: item.scopeKey })}
+							onClick={() => {
+								// Symlink placement → per-scope unlink is always safe (`remove_file`
+								// never recurses). Real master / unknown → route through the
+								// dependent-aware safe-delete guard (D-01, WP-04 backend).
+								const isPlacementSymlink = (item.raw as { isSymlink?: boolean }).isSymlink;
+								if (isPlacementSymlink) {
+									remove.mutate({ kind: k, name: item.name, scope: item.scopeKey });
+								} else {
+									setShowGuard(true);
+								}
+							}}
 						>
 							{item.storeEntry ? 'Remove from scope' : 'Delete from store'}
 						</button>
@@ -1726,6 +1744,15 @@ function ItemDetail({
 						setPicker(null);
 					}}
 					onClose={() => setPicker(null)}
+				/>
+			)}
+
+			{showGuard && (
+				<SafeDeleteGuard
+					kind={k}
+					name={item.name}
+					selfPath={item.path}
+					onClose={() => setShowGuard(false)}
 				/>
 			)}
 
@@ -1998,6 +2025,179 @@ function StoreDetail({
 				/>
 			)}
 		</>
+	);
+}
+
+// ─── Safe-delete guard (D-01, WP-06) ────────────────────────────────────────
+// Inline panel that fires when the user clicks Remove on what may be a real
+// canonical master. Calls `oba_safe_delete` (the dependent-aware backend guard
+// from WP-04): a symlink placement unlinks straight through; a real master with
+// `managed:false` OR live dependents refuses and surfaces the dependents list
+// + a relink form. NEVER reaches `remove_dir_all` on a master with dependents
+// — the WP-04 backend test `incident_regression_external_master_with_dependents_is_never_wiped`
+// proves this. Renders inline in the detail-pane footer (Variant A placement
+// of the D-01 hybrid; the SVG dependency map from Variant B is the next polish).
+
+function SafeDeleteGuard({
+	kind,
+	name,
+	selfPath,
+	onClose,
+}: {
+	kind: ClaudeStoreKind;
+	name: string;
+	selfPath: string;
+	onClose: () => void;
+}) {
+	const safeDelete = useSafeDelete();
+	const relink = useRelinkDependents();
+	// Live dependents scan — used both as the proactive display before the user
+	// commits, and (after) to confirm relink succeeded by re-checking.
+	const depsQ = useQuery(obaDependentsQueryOptions(kind, name));
+	// Fire the attempt immediately on mount; the verdict drives the rest of the
+	// UI (a placement symlink would have routed around this panel entirely, so
+	// in practice the verdict here is one of `deleted` / `refused_external` /
+	// `refused_dependents`).
+	const fired = useRef(false);
+	useEffect(() => {
+		if (fired.current) return;
+		fired.current = true;
+		safeDelete.mutate({ kind, name });
+	}, [safeDelete, kind, name]);
+
+	const [newMaster, setNewMaster] = useState('');
+
+	const outcome = safeDelete.data;
+	const refused =
+		outcome?.verdict === 'refused_external' || outcome?.verdict === 'refused_dependents';
+	const dependents = outcome?.dependents ?? depsQ.data ?? [];
+
+	return (
+		<div className="ngwa-section ngwa-guard">
+			<div className="ngwa-guard-head">
+				<span className="ngwa-guard-icon">!</span>
+				<span className="ngwa-guard-title">
+					{!outcome ? (
+						'Checking dependents…'
+					) : refused ? (
+						<>
+							<b>Delete refused</b> ·{' '}
+							{outcome.verdict === 'refused_external'
+								? 'external master, kept in place'
+								: `${dependents.length} live dependent${dependents.length === 1 ? '' : 's'}`}
+						</>
+					) : (
+						<>
+							<b>{outcome.verdict === 'unlinked' ? 'Unlinked' : 'Deleted'}.</b> {outcome.message}
+						</>
+					)}
+				</span>
+				<button type="button" className="ngwa-guard-x" onClick={onClose} aria-label="Close">
+					✕
+				</button>
+			</div>
+
+			{outcome && refused && (
+				<div className="ngwa-guard-body">
+					<div className="ngwa-guard-line">
+						{outcome.message}. Pick a safe path below — the guard will not run{' '}
+						<code>remove_dir_all</code> on the master regardless.
+					</div>
+					{selfPath && (
+						<div className="ngwa-guard-self">
+							<span className="ngwa-guard-k">master</span> <code>{selfPath}</code>
+						</div>
+					)}
+					<div className="ngwa-guard-deps">
+						{dependents.length === 0 ? (
+							<div className="ngwa-guard-line">No live dependents found.</div>
+						) : (
+							dependents.map((p) => (
+								<div key={p} className="ngwa-guard-dep">
+									<span className="ngwa-guard-arrow">↳</span>
+									<code>{p}</code>
+								</div>
+							))
+						)}
+					</div>
+
+					{outcome.verdict === 'refused_dependents' && dependents.length > 0 && (
+						<div className="ngwa-guard-choice">
+							<div className="ngwa-guard-k">Relink dependents to a new master</div>
+							<div className="ngwa-guard-relink">
+								<input
+									type="text"
+									className="ngwa-guard-input"
+									placeholder="absolute path to the new master…"
+									value={newMaster}
+									onChange={(e) => setNewMaster(e.target.value)}
+								/>
+								<button
+									type="button"
+									className="ngwa-btn primary"
+									disabled={!newMaster || relink.isPending}
+									onClick={() =>
+										relink.mutate(
+											{ dependents, newMaster },
+											{
+												onSuccess: () => {
+													// Re-query dependents; the user can then retry the
+													// delete if everything relinked.
+													depsQ.refetch();
+												},
+											}
+										)
+									}
+								>
+									{relink.isPending ? 'Relinking…' : `Relink ${dependents.length}`}
+								</button>
+							</div>
+							{relink.data && (
+								<div className="ngwa-guard-relinkresult">
+									{relink.data.filter((r) => r.ok).length} relinked OK ·{' '}
+									{relink.data.filter((r) => !r.ok).length} failed
+									{relink.data.some((r) => !r.ok) && (
+										<ul>
+											{relink.data
+												.filter((r) => !r.ok)
+												.map((r) => (
+													<li key={r.link}>
+														<code>{r.link}</code>: {r.error}
+													</li>
+												))}
+										</ul>
+									)}
+								</div>
+							)}
+						</div>
+					)}
+
+					{outcome.verdict === 'refused_external' && (
+						<div className="ngwa-guard-line">
+							<b>External masters are never deleted by Ngwa.</b> The master lives upstream — manage
+							it where it's published (git repo / npx install).
+						</div>
+					)}
+				</div>
+			)}
+
+			{outcome && !refused && (
+				<div className="ngwa-guard-body">
+					<div className="ngwa-guard-line">{outcome.message}</div>
+					<button type="button" className="ngwa-btn" onClick={onClose}>
+						Close
+					</button>
+				</div>
+			)}
+
+			{safeDelete.error && (
+				<div className="ngwa-guard-body">
+					<div className="ngwa-guard-line ngwa-guard-err">
+						<b>oba_safe_delete failed.</b> {String(safeDelete.error)}
+					</div>
+				</div>
+			)}
+		</div>
 	);
 }
 
