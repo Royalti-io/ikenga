@@ -48,11 +48,11 @@ import {
 	useMovePrimitive,
 	useRelinkDependents,
 	useRemovePrimitive,
-	useSafeDelete,
 	type ConfigFormat,
 	type EngineId,
 	type KindStatus,
 } from '@/lib/queries/claude-config';
+import { obaSafeDelete, type SafeDeleteOutcome } from '@/lib/tauri-cmd';
 
 import { Chips, FrontmatterGrid } from './list-detail';
 import { AnalyzeSurface } from './analyze';
@@ -2049,25 +2049,29 @@ function SafeDeleteGuard({
 	selfPath: string;
 	onClose: () => void;
 }) {
-	const safeDelete = useSafeDelete();
 	const relink = useRelinkDependents();
 	// Live dependents scan — used both as the proactive display before the user
 	// commits, and (after) to confirm relink succeeded by re-checking.
 	const depsQ = useQuery(obaDependentsQueryOptions(kind, name));
-	// Fire the attempt immediately on mount; the verdict drives the rest of the
-	// UI (a placement symlink would have routed around this panel entirely, so
-	// in practice the verdict here is one of `deleted` / `refused_external` /
-	// `refused_dependents`).
+
+	// Fire obaSafeDelete on mount with a plain useState — the useMutation
+	// hook had a reproducible bug here where its `data` never reflected the
+	// resolved invoke result (the wrapper's console.log showed start+resolved
+	// in ~40ms, but useMutation stayed in status=pending forever). The plain
+	// pattern works fine since we don't need any of the extras useMutation
+	// provides for this one-shot, mount-time call.
+	const [outcome, setOutcome] = useState<SafeDeleteOutcome | null>(null);
+	const [safeErr, setSafeErr] = useState<string | null>(null);
 	const fired = useRef(false);
 	useEffect(() => {
 		if (fired.current) return;
 		fired.current = true;
-		safeDelete.mutate({ kind, name });
-	}, [safeDelete, kind, name]);
+		obaSafeDelete(kind, name)
+			.then((r) => setOutcome(r))
+			.catch((e) => setSafeErr(String(e)));
+	}, [kind, name]);
 
 	const [newMaster, setNewMaster] = useState('');
-
-	const outcome = safeDelete.data;
 	const refused =
 		outcome?.verdict === 'refused_external' || outcome?.verdict === 'refused_dependents';
 	const dependents = outcome?.dependents ?? depsQ.data ?? [];
@@ -2190,10 +2194,10 @@ function SafeDeleteGuard({
 				</div>
 			)}
 
-			{safeDelete.error && (
+			{safeErr && (
 				<div className="ngwa-guard-body">
 					<div className="ngwa-guard-line ngwa-guard-err">
-						<b>oba_safe_delete failed.</b> {String(safeDelete.error)}
+						<b>oba_safe_delete failed.</b> {safeErr}
 					</div>
 				</div>
 			)}

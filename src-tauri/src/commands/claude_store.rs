@@ -2435,13 +2435,24 @@ pub async fn oba_safe_delete(
     kind: String,
     name: String,
 ) -> Result<SafeDeleteOutcome, String> {
+    tracing::info!("[oba_safe_delete] enter kind={kind} name={name}");
     let k = Kind::parse(&kind)?;
     validate_name(&name)?;
     let store = store_root().ok_or_else(|| "cannot resolve store root".to_string())?;
+    tracing::info!("[oba_safe_delete] store={}", store.display());
     let (canonical, managed) = resolve_canonical(&store, k, &name);
-    let dirs = dependent_search_dirs(&all_scope_roots(&db).await, k);
+    tracing::info!(
+        "[oba_safe_delete] canonical={} managed={managed}",
+        canonical.display()
+    );
+    let roots = all_scope_roots(&db).await;
+    tracing::info!("[oba_safe_delete] scope_roots={}", roots.len());
+    let dirs = dependent_search_dirs(&roots, k);
+    tracing::info!("[oba_safe_delete] dependent dirs={}", dirs.len());
     let deps = crate::commands::claude_config::scan_live_dependents(&canonical, &dirs);
+    tracing::info!("[oba_safe_delete] live dependents={}", deps.len());
     let outcome = guarded_delete(&canonical, k, managed, &deps)?;
+    tracing::info!("[oba_safe_delete] verdict={}", outcome.verdict);
     if outcome.removed {
         let mut rf = registry::load(&store);
         rf.entries
