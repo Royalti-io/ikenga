@@ -15,6 +15,20 @@ export interface PkgMenuItem {
 	label: string;
 	icon?: string | null;
 	badge?: string | number | null;
+	/** Optional group label. Consecutive items sharing the same `section` render
+	 *  under one heading; items with no `section` form the implicit first group.
+	 *  Order is preserved as published — the shell does not re-sort. */
+	section?: string | null;
+	/** When true, the item renders dimmed and is non-interactive (no click, no
+	 *  active-feature update). Pkgs use this to keep an item visible-but-inert
+	 *  when it doesn't apply to the current state (e.g. list filters while a
+	 *  non-list view is active) — mirrors Ngwa's "Kind dims on Analyze". */
+	disabled?: boolean;
+	/** Explicit active-highlight, pkg-driven. When set, it overrides the
+	 *  store's last-clicked `activeFeature` for this item — lets a pkg show two
+	 *  independent selections at once (e.g. the active view AND the active
+	 *  filter). When `undefined`, the shell falls back to `id === activeFeature`. */
+	active?: boolean;
 }
 
 interface PkgMenuState {

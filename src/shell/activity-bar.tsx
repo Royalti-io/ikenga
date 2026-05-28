@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
+	CheckSquare,
 	Folder,
 	FolderKanban,
 	Grid3x3,
@@ -119,6 +120,7 @@ function modeToWorkspace(mode: ActivityMode): IkengaWorkspace {
 // reference icons by name; the shell controls which ones are actually
 // available. Unknown names fall back to a generic `Package` glyph.
 const PKG_ICONS: Record<string, LucideIcon> = {
+	'check-square': CheckSquare,
 	'layout-dashboard': LayoutDashboard,
 	'list-checks': ListChecks,
 	'trending-up': TrendingUp,

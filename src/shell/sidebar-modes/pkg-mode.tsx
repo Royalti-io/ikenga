@@ -66,35 +66,68 @@ export function PkgMode({ pkgId }: { pkgId: string }) {
 		);
 	}
 
+	// Group items by `section`. Adjacent items sharing the same section render
+	// together under one heading; items with no section (or `null`) form the
+	// implicit first group. Order is preserved as published.
+	const groups: { section: string | null; items: PkgMenuItem[] }[] = [];
+	for (const it of items) {
+		const section = it.section ?? null;
+		const last = groups[groups.length - 1];
+		if (last && last.section === section) last.items.push(it);
+		else groups.push({ section, items: [it] });
+	}
+
 	return (
 		<div className="h-full overflow-y-auto py-2">
-			<ul className="flex flex-col">
-				{items.map((item) => {
-					const Icon = iconFor(item.icon);
-					const isActive = item.id === activeFeature;
-					return (
-						<li key={item.id}>
-							<button
-								type="button"
-								onClick={() => setActiveFeature(pkgId, item.id)}
-								className={cn(
-									'flex w-full items-center gap-3 px-4 py-1.5 text-left text-sm transition-colors',
-									'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
-									isActive && 'bg-accent text-accent-foreground font-medium'
-								)}
-							>
-								<Icon className="h-4 w-4 shrink-0" />
-								<span className="flex-1 truncate">{item.label}</span>
-								{item.badge != null && item.badge !== '' && (
-									<span className="ml-auto rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium">
-										{item.badge}
-									</span>
-								)}
-							</button>
-						</li>
-					);
-				})}
-			</ul>
+			{groups.map((g, gi) => (
+				<div
+					key={g.section ?? `__implicit_${gi}`}
+					className={cn(gi > 0 && 'mt-3 border-t border-border/40 pt-3')}
+				>
+					{g.section && (
+						<div className="px-4 pb-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70">
+							{g.section}
+						</div>
+					)}
+					<ul className="flex flex-col">
+						{g.items.map((item) => {
+							const Icon = iconFor(item.icon);
+							// Pkg-driven `active` wins; otherwise fall back to the
+							// store's last-clicked feature. Disabled items never
+							// highlight and never fire a click.
+							const isActive = item.disabled
+								? false
+								: (item.active ?? item.id === activeFeature);
+							return (
+								<li key={item.id}>
+									<button
+										type="button"
+										disabled={item.disabled}
+										aria-disabled={item.disabled}
+										onClick={
+											item.disabled ? undefined : () => setActiveFeature(pkgId, item.id)
+										}
+										className={cn(
+											'flex w-full items-center gap-3 px-4 py-1.5 text-left text-sm transition-colors',
+											'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+											isActive && 'bg-accent text-accent-foreground font-medium',
+											item.disabled && 'pointer-events-none opacity-40 hover:bg-transparent'
+										)}
+									>
+										<Icon className="h-4 w-4 shrink-0" />
+										<span className="flex-1 truncate">{item.label}</span>
+										{item.badge != null && item.badge !== '' && (
+											<span className="ml-auto rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium">
+												{item.badge}
+											</span>
+										)}
+									</button>
+								</li>
+							);
+						})}
+					</ul>
+				</div>
+			))}
 		</div>
 	);
 }

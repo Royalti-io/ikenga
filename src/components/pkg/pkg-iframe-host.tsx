@@ -296,6 +296,9 @@ export async function dispatchHostCall(
 				label: obj.label,
 				icon: typeof obj.icon === 'string' ? obj.icon : null,
 				badge: typeof obj.badge === 'string' || typeof obj.badge === 'number' ? obj.badge : null,
+				section: typeof obj.section === 'string' ? obj.section : null,
+				disabled: obj.disabled === true,
+				active: typeof obj.active === 'boolean' ? obj.active : undefined,
 			});
 		}
 		usePkgMenuStore.getState().setMenu(pkgId, items);
@@ -625,14 +628,22 @@ export function PkgIframeHost({ pkgId, source, onInitialized }: PkgIframeHostPro
 			const bridge = bridgeRef.current;
 			if (!bridge) return;
 			try {
-				bridge.sendHostContextChange({
-					hostContext: buildHostContext({
+				// `ui/notifications/host-context-changed` params ARE the host context
+				// (McpUiHostContext) — NOT wrapped in `{ hostContext }`. The wrapped
+				// shape silently type-checks (passthrough) but lands the app's
+				// `onhostcontextchanged(ctx)` with `ctx = { hostContext: {...} }`, so
+				// `ctx.royaltiSuite.activeFeature` reads undefined and the pkg never
+				// swaps its view on a live sidebar click (it only updated on remount,
+				// where `getHostContext()` returns the un-nested constructor value).
+				// Pass the context directly so init and change agree on shape.
+				bridge.sendHostContextChange(
+					buildHostContext({
 						pkgId,
 						authToken: authTokenRef.current,
 						supabase: supabaseConfigRef.current,
 						suite: { activeFeature },
-					}),
-				});
+					})
+				);
 			} catch {
 				// The bridge may not be initialized yet — the initial hostContext we
 				// passed to the constructor will reflect the current state anyway.
