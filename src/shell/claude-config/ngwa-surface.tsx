@@ -40,6 +40,7 @@ import {
 import {
 	claudeStoreQueryOptions,
 	obaDependentsQueryOptions,
+	useBackfillRegistry,
 	useCopyPrimitive,
 	useDisablePrimitive,
 	useEnablePrimitive,
@@ -847,6 +848,14 @@ function StoreSurface({ store, isLoading, error, onEdit, projectScopes }: StoreP
 	const dividerRef = useRef<HTMLDivElement | null>(null);
 	useResizableSplit(splitRef, dividerRef);
 
+	// Ọba registry back-fill — scan the live config farm for EXTERNAL masters
+	// (symlinks resolving to a master outside the store, e.g. groundwork) and
+	// register their provenance. It doesn't move files into the store, so the
+	// `canonical` count is unchanged; the win is provenance shown in each
+	// `linked` item's detail. Surface the returned count as feedback.
+	const backfill = useBackfillRegistry();
+	const [backfillMsg, setBackfillMsg] = useState<string | null>(null);
+
 	const storeList = useMemo(() => {
 		if (!filter.trim()) return store;
 		const f = filter.toLowerCase();
@@ -880,10 +889,30 @@ function StoreSurface({ store, isLoading, error, onEdit, projectScopes }: StoreP
 							placeholder="filter catalog…"
 						/>
 					</div>
+					<button
+						type="button"
+						className="ngwa-btn"
+						disabled={backfill.isPending}
+						title="Scan the live config farm for external masters (e.g. groundwork) and register their provenance into the Ọba registry."
+						onClick={() => {
+							setBackfillMsg(null);
+							backfill.mutate(undefined, {
+								onSuccess: (n) =>
+									setBackfillMsg(
+										n > 0
+											? `Back-filled ${n} external master${n === 1 ? '' : 's'}.`
+											: 'No new external masters found.'
+									),
+								onError: (e) => setBackfillMsg(String(e)),
+							});
+						}}
+					>
+						{backfill.isPending ? 'Backfilling…' : 'Backfill'}
+					</button>
 				</div>
 				<div className="ccfg-list-meta">
 					<span>STORE / CATALOG</span>
-					<span>Ọba · {storeList.length} canonical</span>
+					<span>{backfillMsg ?? `Ọba · ${storeList.length} canonical`}</span>
 				</div>
 				<div className="ccfg-list-rows">
 					{isLoading ? (
@@ -1459,6 +1488,11 @@ function ItemDetail({
 
 	const on = item.state === 'enabled';
 	const k = item.storeKind;
+	// Skills are DIRECTORY primitives — the importer (`import_core`) needs the
+	// skill dir, not the SKILL.md file that `path` points at (a file fails its
+	// `is_dir()` check, silently rejecting the import). Single-file kinds
+	// (agent/command) keep `path`. Hook/mcp are JSON-merge and never `local`.
+	const importSource = item.storeKind === 'skill' ? (item.raw as ClaudeSkill).dirPath : item.path;
 
 	// ── precedence / override callout (G-04) ──
 	let prec: React.ReactNode = null;
@@ -1707,7 +1741,7 @@ function ItemDetail({
 							className="ngwa-btn primary"
 							disabled={importToStore.isPending}
 							onClick={() =>
-								importToStore.mutate({ kind: k, name: item.name, sourcePath: item.path })
+								importToStore.mutate({ kind: k, name: item.name, sourcePath: importSource })
 							}
 						>
 							Import to store
