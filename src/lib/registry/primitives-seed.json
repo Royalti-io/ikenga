@@ -1,6 +1,6 @@
 {
 	"$schemaVersion": 1,
-	"updatedAt": "2026-05-28T00:00:00.000Z",
+	"updatedAt": "2026-05-28T12:00:00.000Z",
 	"primitives": [
 		{
 			"kind": "skill",
@@ -22,11 +22,47 @@
 		},
 		{
 			"kind": "skill",
-			"name": "release-status",
+			"name": "design-language",
 			"version": "0.1.0",
-			"description": "Scan child repos for unreleased commits, GitHub Releases drift, registry drift, and stale doc claims; emits a markdown + HTML report.",
+			"description": "Discover and apply a project's existing visual identity — token packages, tailwind/shadcn vars, theme files — into a JSON design contract for downstream artifact skills.",
+			"source": "npx",
+			"url": "royalti-io/design-language",
+			"publisher": "royalti-io"
+		},
+		{
+			"kind": "skill",
+			"name": "huashu-design",
+			"version": "0.1.0",
+			"description": "花叔Design — hi-fi HTML prototypes, interactive demos, slides, animations, and design-direction advisory; embody UX/animation/prototype experts and avoid AI-slop.",
+			"source": "npx",
+			"url": "huashu/huashu-design",
+			"publisher": "huashu"
+		},
+		{
+			"kind": "skill",
+			"name": "scrollytelling",
+			"version": "0.1.0",
+			"description": "Scroll-driven storytelling — pinned sections, progressive reveals, parallax, and scroll-linked animations for narrative landing pages.",
+			"source": "npx",
+			"url": "royalti-io/scrollytelling",
+			"publisher": "royalti-io"
+		},
+		{
+			"kind": "skill",
+			"name": "impeccable",
+			"version": "0.1.0",
+			"description": "Design, critique, and polish frontend interfaces — visual hierarchy, information architecture, accessibility, theming, motion, micro-interactions, and anti-patterns.",
+			"source": "npx",
+			"url": "royalti-io/impeccable",
+			"publisher": "royalti-io"
+		},
+		{
+			"kind": "hook",
+			"name": "subagent-model-floor",
+			"version": "0.1.0",
+			"description": "PreToolUse hook that auto-assigns a model to spawned subagents by task weight (haiku / sonnet / opus) when no model is set — a floor so Agent/Task calls don't silently inherit Opus.",
 			"source": "git",
-			"url": "https://github.com/royalti-io/ikenga",
+			"url": "https://github.com/royalti-io/claude-hooks",
 			"publisher": "royalti-io"
 		}
 	]

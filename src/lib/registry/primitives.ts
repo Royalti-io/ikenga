@@ -49,15 +49,17 @@ export async function fetchPrimitiveCatalog(): Promise<PrimitiveCatalogEntry[]> 
 	return (seed as PrimitiveCatalog).primitives;
 }
 
-const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
-
 export const primitiveCatalogKey = ['registry', 'primitives'] as const;
 
 export function usePrimitiveCatalog() {
 	return useQuery({
 		queryKey: primitiveCatalogKey,
 		queryFn: () => fetchPrimitiveCatalog(),
-		staleTime: SIX_HOURS_MS,
+		// WP-10a reads a BUNDLED seed (no network), so refetch-on-mount is free
+		// and lets seed edits show without an app restart. WP-10b swaps in the
+		// remote signed fetch — reinstate a ~6h staleTime there to match the pkg
+		// index cadence.
+		staleTime: 0,
 		refetchOnWindowFocus: false,
 	});
 }
