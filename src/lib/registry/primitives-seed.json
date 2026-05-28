@@ -1,0 +1,33 @@
+{
+	"$schemaVersion": 1,
+	"updatedAt": "2026-05-28T00:00:00.000Z",
+	"primitives": [
+		{
+			"kind": "skill",
+			"name": "groundwork",
+			"version": "0.1.0",
+			"description": "Scaffold a research → design → plan → orchestrate → act folder for non-trivial work; drops a domain-agnostic spine plus stateless action-skills.",
+			"source": "npx",
+			"url": "royalti-io/groundwork",
+			"publisher": "royalti-io"
+		},
+		{
+			"kind": "skill",
+			"name": "ikenga-artifact-builder",
+			"version": "0.1.0",
+			"description": "Author a self-contained interactive HTML artifact that renders standalone and lights up with live data inside the Ikenga shell.",
+			"source": "npx",
+			"url": "royalti-io/ikenga-artifact-builder",
+			"publisher": "royalti-io"
+		},
+		{
+			"kind": "skill",
+			"name": "release-status",
+			"version": "0.1.0",
+			"description": "Scan child repos for unreleased commits, GitHub Releases drift, registry drift, and stale doc claims; emits a markdown + HTML report.",
+			"source": "git",
+			"url": "https://github.com/royalti-io/ikenga",
+			"publisher": "royalti-io"
+		}
+	]
+}

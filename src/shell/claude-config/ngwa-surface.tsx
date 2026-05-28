@@ -53,6 +53,14 @@ import {
 	type KindStatus,
 } from '@/lib/queries/claude-config';
 import { obaSafeDelete, type SafeDeleteOutcome } from '@/lib/tauri-cmd';
+import {
+	mergePrimitiveView,
+	usePrimitiveCatalog,
+	PRIMITIVE_STATUS_WORD,
+	type PrimitiveCatalogEntry,
+	type PrimitiveStatus,
+	type PrimitiveViewItem,
+} from '@/lib/registry/primitives';
 
 import { Chips, FrontmatterGrid } from './list-detail';
 import { AnalyzeSurface } from './analyze';
@@ -827,10 +835,15 @@ function BrowseSurface({
 	);
 }
 
-// ─── STORE surface (Ọba catalog — 2-pane: list │ divider │ StoreDetail) ─────
+// ─── STORE surface (Ọba — 2-pane: list │ divider │ detail) ──────────────────
 // Promoted from the old `kind=store` branch of Browse into its own MANAGE
 // surface (peer to Browse/Registry). The catalog spans all kinds + engines, so
 // the sidebar KIND + SYSTEM facets dim here (handled in ngwa-mode.tsx).
+//
+// WP-10a: the local store (what's installed) is merged with the primitive
+// catalog (what's available to install) into one status-tagged list, sliced by
+// the Installed | Available | Updatable filter chips. Install/Update actions
+// are disabled-pending Phase 2 (git/npx install + update, WP-07–09).
 
 interface StoreProps {
 	store: ClaudeStoreEntry[];
@@ -840,8 +853,18 @@ interface StoreProps {
 	projectScopes: Array<{ key: ClaudeStoreScope; label: string }>;
 }
 
+type StoreStatusFilter = 'all' | PrimitiveStatus;
+
+const STORE_CHIPS: Array<{ id: StoreStatusFilter; label: string }> = [
+	{ id: 'all', label: 'All' },
+	{ id: 'installed', label: 'Installed' },
+	{ id: 'available', label: 'Available' },
+	{ id: 'updatable', label: 'Updatable' },
+];
+
 function StoreSurface({ store, isLoading, error, onEdit, projectScopes }: StoreProps) {
 	const [filter, setFilter] = useState('');
+	const [statusFilter, setStatusFilter] = useState<StoreStatusFilter>('all');
 	const [selId, setSelId] = useState<string | null>(null);
 
 	const splitRef = useRef<HTMLDivElement | null>(null);
@@ -856,22 +879,37 @@ function StoreSurface({ store, isLoading, error, onEdit, projectScopes }: StoreP
 	const backfill = useBackfillRegistry();
 	const [backfillMsg, setBackfillMsg] = useState<string | null>(null);
 
-	const storeList = useMemo(() => {
-		if (!filter.trim()) return store;
-		const f = filter.toLowerCase();
-		return store.filter(
-			(e) => e.name.toLowerCase().includes(f) || (e.description ?? '').toLowerCase().includes(f)
-		);
-	}, [store, filter]);
+	// WP-10a: recommendation feed. Bundled seed for now (remote signed catalog
+	// is WP-10b). Merge with the local store → status-tagged rows.
+	const catalogQuery = usePrimitiveCatalog();
+	const catalog = catalogQuery.data ?? [];
+	const view = useMemo(() => mergePrimitiveView(store, catalog), [store, catalog]);
 
-	const selectedStore = useMemo(() => {
-		if (!storeList.length) return null;
-		return storeList.find((e) => `store:${e.kind}:${e.name}` === selId) ?? storeList[0];
-	}, [storeList, selId]);
+	const rows = useMemo(() => {
+		let xs = statusFilter === 'all' ? view : view.filter((r) => r.status === statusFilter);
+		if (filter.trim()) {
+			const f = filter.toLowerCase();
+			xs = xs.filter(
+				(r) => r.name.toLowerCase().includes(f) || (r.description ?? '').toLowerCase().includes(f)
+			);
+		}
+		return xs;
+	}, [view, statusFilter, filter]);
 
-	// Distinguish "nothing published yet" (no catalog at all) from "filter
-	// excluded everything" so an empty store never reads as a blank page.
-	const storeEmpty = !isLoading && !error && store.length === 0;
+	const counts = useMemo(() => {
+		const c = { installed: 0, available: 0, updatable: 0 } as Record<PrimitiveStatus, number>;
+		for (const r of view) c[r.status] += 1;
+		return c;
+	}, [view]);
+
+	const selected = useMemo(() => {
+		if (!rows.length) return null;
+		return rows.find((r) => r.key === selId) ?? rows[0];
+	}, [rows, selId]);
+
+	const loading = isLoading || catalogQuery.isLoading;
+	// Nothing installed AND nothing recommended — a genuinely empty surface.
+	const allEmpty = !loading && !error && view.length === 0;
 
 	return (
 		<div className="ccfg-split" ref={splitRef} style={{ minHeight: 0 }}>
@@ -910,30 +948,44 @@ function StoreSurface({ store, isLoading, error, onEdit, projectScopes }: StoreP
 						{backfill.isPending ? 'Backfilling…' : 'Backfill'}
 					</button>
 				</div>
+				<div className="ngwa-toolbar" style={{ borderTop: 0, paddingTop: 0 }}>
+					{STORE_CHIPS.map((c) => {
+						const n = c.id === 'all' ? view.length : counts[c.id];
+						return (
+							<button
+								key={c.id}
+								type="button"
+								className={cn('ngwa-fchip', statusFilter === c.id && 'on')}
+								onClick={() => setStatusFilter(c.id)}
+							>
+								{c.label}
+								{c.id !== 'all' && <span style={{ opacity: 0.6 }}> {n}</span>}
+							</button>
+						);
+					})}
+				</div>
 				<div className="ccfg-list-meta">
 					<span>STORE / CATALOG</span>
-					<span>{backfillMsg ?? `Ọba · ${storeList.length} canonical`}</span>
+					<span>
+						{backfillMsg ?? `${counts.installed} installed · ${counts.available} available`}
+					</span>
 				</div>
 				<div className="ccfg-list-rows">
-					{isLoading ? (
+					{loading ? (
 						<div className="ccfg-empty">Loading…</div>
 					) : error ? (
 						<div className="ccfg-empty">{error}</div>
-					) : storeEmpty ? (
-						<div className="ccfg-empty">Ọba store is empty — nothing published yet.</div>
-					) : storeList.length === 0 ? (
-						<div className="ccfg-empty">No catalog entries match.</div>
+					) : allEmpty ? (
+						<div className="ccfg-empty">Ọba store is empty — nothing installed or recommended yet.</div>
+					) : rows.length === 0 ? (
+						<div className="ccfg-empty">No entries match this filter.</div>
 					) : (
-						storeList.map((e) => (
-							<StoreRow
-								key={`store:${e.kind}:${e.name}`}
-								entry={e}
-								active={
-									selectedStore != null &&
-									selectedStore.name === e.name &&
-									selectedStore.kind === e.kind
-								}
-								onClick={() => setSelId(`store:${e.kind}:${e.name}`)}
+						rows.map((r) => (
+							<PrimitiveRow
+								key={r.key}
+								item={r}
+								active={selected != null && selected.key === r.key}
+								onClick={() => setSelId(r.key)}
 							/>
 						))
 					)}
@@ -941,20 +993,128 @@ function StoreSurface({ store, isLoading, error, onEdit, projectScopes }: StoreP
 			</div>
 			<div className="ccfg-divider" ref={dividerRef} />
 			<div className="ccfg-detail ngwa-detail">
-				{selectedStore ? (
-					<StoreDetail entry={selectedStore} projectScopes={projectScopes} onEdit={onEdit} />
-				) : storeEmpty ? (
+				{selected?.store ? (
+					<StoreDetail entry={selected.store} projectScopes={projectScopes} onEdit={onEdit} />
+				) : selected?.catalog ? (
+					<CatalogDetail entry={selected.catalog} />
+				) : allEmpty ? (
 					<div className="ccfg-empty">
 						<div className="carve">▽▽▽</div>
-						The Ọba store has no canonical entries yet.
+						The Ọba store has no entries yet.
 						<br />
-						Import a primitive from Browse, or install a pkg.
+						Import a primitive from Browse, or install one from the catalog.
 					</div>
 				) : (
 					<EmptyCarve />
 				)}
 			</div>
 		</div>
+	);
+}
+
+// One row in the merged store view — installed canonical, an available catalog
+// recommendation, or an installed-but-updatable entry.
+function PrimitiveRow({
+	item,
+	active,
+	onClick,
+}: {
+	item: PrimitiveViewItem;
+	active: boolean;
+	onClick: () => void;
+}) {
+	const dot: ItemState =
+		item.status === 'available' ? 'disabled' : item.status === 'updatable' ? 'linked' : 'enabled';
+	const installedScopes = item.store?.enabledIn.length ?? 0;
+	return (
+		<button
+			type="button"
+			onClick={onClick}
+			className={cn('ccfg-row text-left w-full', active && 'is-on')}
+		>
+			<div className="ccfg-row-name">
+				<span className={cn('ngwa-dot', dot)} title={PRIMITIVE_STATUS_WORD[item.status]} aria-hidden />
+				<span>{item.name}</span>
+				<span className="ccfg-scope">{KIND_ABBR[UI_KIND_OF[item.kind]]}</span>
+				{item.status === 'updatable' && item.catalog && (
+					<span className="ngwa-ovr" title={`Catalog has ${item.catalog.version}`}>
+						upd
+					</span>
+				)}
+			</div>
+			{item.description && <div className="ccfg-row-desc">{item.description}</div>}
+			<div className="ccfg-row-meta">
+				<span className={cn('ngwa-stword', item.status === 'available' ? 'disabled' : 'enabled')}>
+					{item.status === 'updatable'
+						? `Update → ${item.catalog?.version}`
+						: item.status === 'available'
+							? 'Available'
+							: installedScopes
+								? `Installed · ${installedScopes}`
+								: 'In store'}
+				</span>
+				<span>·</span>
+				<span>{item.status === 'available' ? `via ${item.catalog?.source}` : 'canonical'}</span>
+			</div>
+		</button>
+	);
+}
+
+// Detail for a catalog-only (available) recommendation. Install resolves to a
+// git/npx fetch under the hood — that machinery is Phase 2 (WP-07–09), so the
+// Install action is disabled-pending here.
+function CatalogDetail({ entry }: { entry: PrimitiveCatalogEntry }) {
+	return (
+		<>
+			<div className="ccfg-detail-head">
+				<h2>
+					{entry.name}
+					<span className="ccfg-scope-pill is-project">{KIND_ABBR[UI_KIND_OF[entry.kind]]}</span>
+				</h2>
+				<div style={{ marginTop: 6 }}>
+					<span className="ngwa-dstate">Ọba catalog · available to install</span>
+				</div>
+				{entry.description && <div className="ccfg-detail-desc">{entry.description}</div>}
+			</div>
+
+			<div className="ccfg-detail-body">
+				<Section label="Source">
+					<FrontmatterGrid
+						entries={[
+							['source', entry.source],
+							['ref', <span style={{ wordBreak: 'break-all' }}>{entry.url}</span>],
+							['version', entry.version],
+							...(entry.publisher
+								? [['publisher', entry.publisher] as [string, React.ReactNode]]
+								: []),
+						]}
+					/>
+				</Section>
+				<div className="ccfg-section">
+					<div className="ngwa-mech">
+						<b>Install resolves to a {entry.source} fetch.</b> Installing clones/fetches the master
+						into the Ọba vault and symlinks it into your chosen scope — the same provenance path
+						imported primitives use.
+					</div>
+				</div>
+			</div>
+
+			<div className="ngwa-actions">
+				<div className="ngwa-acts">
+					<button
+						type="button"
+						className="ngwa-btn primary"
+						disabled
+						title="Install lands with the git/npx install path (Ọba Phase 2 · WP-07–09)"
+					>
+						Install…
+					</button>
+					<span className="ngwa-stword" style={{ textTransform: 'none', opacity: 0.7 }}>
+						install arrives with Ọba Phase 2
+					</span>
+				</div>
+			</div>
+		</>
 	);
 }
 
@@ -1030,39 +1190,6 @@ function BrowseRow({
 					{item.storeEntry ? 'store ↗' : item.scope === 'personal' ? '~/.claude' : '.claude'}
 				</span>
 				<span className={cn('ngwa-mtag', item.mech)}>{item.mech}</span>
-			</div>
-		</button>
-	);
-}
-
-function StoreRow({
-	entry,
-	active,
-	onClick,
-}: {
-	entry: ClaudeStoreEntry;
-	active: boolean;
-	onClick: () => void;
-}) {
-	const enabledCount = entry.enabledIn.length;
-	return (
-		<button
-			type="button"
-			onClick={onClick}
-			className={cn('ccfg-row text-left w-full', active && 'is-on')}
-		>
-			<div className="ccfg-row-name">
-				<StateDot state={enabledCount ? 'enabled' : 'disabled'} />
-				<span>{entry.name}</span>
-				<span className="ccfg-scope">{KIND_ABBR[UI_KIND_OF[entry.kind]]}</span>
-			</div>
-			{entry.description && <div className="ccfg-row-desc">{entry.description}</div>}
-			<div className="ccfg-row-meta">
-				<span className={cn('ngwa-stword', enabledCount ? 'enabled' : 'disabled')}>
-					{enabledCount ? `Enabled in ${enabledCount}` : 'Available'}
-				</span>
-				<span>·</span>
-				<span>canonical</span>
 			</div>
 		</button>
 	);
