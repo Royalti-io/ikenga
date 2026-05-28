@@ -8,18 +8,33 @@
 // page at /settings/about stays visible regardless of snooze.
 
 import { Download, RefreshCw, X } from 'lucide-react';
+import { useEffect } from 'react';
 import { Link } from '@tanstack/react-router';
 import { useShallow } from 'zustand/react/shallow';
 import { Button } from '@/components/ui/button';
 import { findLeaf } from '@/lib/panes/pane-reducer';
 import { usePaneStore } from '@/lib/panes/pane-store';
+import { useShellStore } from '@/lib/shell/shell-store';
 import { useUpdater } from '@/lib/updater/use-updater';
 import { useUpdaterSnooze } from '@/lib/updater/snooze';
 
 export function UpdaterBanner() {
-	const { available, installing, bytesDownloaded, totalBytes, error, install } = useUpdater();
+	const autoCheck = useShellStore((s) => s.updatesAutoCheck);
+	const autoInstallApp = useShellStore((s) => s.updatesAutoInstallApp);
+	const { available, installing, bytesDownloaded, totalBytes, error, install } = useUpdater({
+		enabled: autoCheck,
+	});
 	const snooze = useUpdaterSnooze();
 	const isSnoozed = snooze.isSnoozed(available?.version ?? null);
+
+	// Opt-in (default off): when `updates.autoInstallApp` is on, a detected
+	// binary update downloads + relaunches without a click. Snooze still wins
+	// as the escape hatch, and we never re-fire while a download is in flight.
+	useEffect(() => {
+		if (autoInstallApp && available && !isSnoozed && !installing && !error) {
+			void install();
+		}
+	}, [autoInstallApp, available, isSnoozed, installing, error, install]);
 	// Hide on /settings/about — the user is already on the dedicated surface
 	// for shell updates, so the banner is redundant noise there.
 	const onAboutPage = usePaneStore(

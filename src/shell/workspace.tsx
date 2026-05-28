@@ -12,6 +12,7 @@ import { WizardPopRecoveryChip } from './artifact-wizard/wizard-pop-recovery-chi
 import { ConnectorBanner } from './connector-banner';
 import { TrustReviewBanner } from './trust-review-banner';
 import { UpdaterBanner } from './updater-banner';
+import { PkgAutoUpdater } from './pkg-auto-updater';
 import { useIykeBridge } from '@/lib/iyke/bridge';
 import { useIykeControlListener } from '@/lib/iyke/control-listener';
 import { useIykeShellSync } from '@/lib/iyke/use-iyke-shell-sync';
@@ -285,6 +286,7 @@ export function Workspace() {
 	return (
 		<div className="flex h-screen w-screen flex-col overflow-hidden bg-background text-foreground">
 			<UpdaterBanner />
+			<PkgAutoUpdater />
 			<ConnectorBanner />
 			<TrustReviewBanner />
 			<div className="flex min-h-0 flex-1">

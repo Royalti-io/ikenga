@@ -242,6 +242,10 @@ export function deriveFromQueries(inputs: DeriveInputs): DerivedPkgs {
 		const match = registryEntries.find((e) => entryMatchesPkgId(e.name, row.id));
 		if (match && match.latest && semverCompare(row.version, match.latest) < 0) {
 			row.latest = match.latest;
+			// Carry the matching registry entry so the install sheet can resolve
+			// the update's signed dep-plan — same path a fresh registry install
+			// takes. Without this the sheet has no detail to fetch.
+			row.registryEntry = match;
 		}
 	}
 	const registryRows: PkgRowV2[] = registryEntries

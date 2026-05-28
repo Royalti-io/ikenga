@@ -27,6 +27,9 @@ const KV_CLAUDE_ROOTS = 'claude.projectRoots';
 const KV_CLAUDE_WATCH = 'claude.watchEnabled';
 const KV_ONBOARDING = 'onboarding.state';
 const KV_USER_NAME = 'user.name';
+const KV_UPDATES_AUTO_CHECK = 'updates.autoCheck';
+const KV_UPDATES_AUTO_INSTALL_APP = 'updates.autoInstallApp';
+const KV_UPDATES_AUTO_INSTALL_PKGS = 'updates.autoInstallPkgs';
 
 // Set true while pulling values from Rust into the store so the
 // subscribe-based onboarding mirror doesn't push them straight back.
@@ -204,6 +207,21 @@ interface ShellState {
 	// null when the user picks offline mode.
 	chatAdapterId: string | null;
 	setChatAdapterId: (id: string | null) => void;
+
+	// ─── Auto-update preferences ─────────────────────────────────────────
+	// `updatesAutoCheck` gates the boot + 6h poll for BOTH the app binary
+	// (useUpdater) and the pkg registry. `updatesAutoInstallApp` is OFF by
+	// default — the app relaunches the user, so a binary update stays a
+	// one-click action from the banner/About unless explicitly opted in.
+	// `updatesAutoInstallPkgs` is ON by default — pkgs are sandboxed and
+	// hot-reload in place (no relaunch), so silent background updates are
+	// low-surprise.
+	updatesAutoCheck: boolean;
+	setUpdatesAutoCheck: (v: boolean) => void;
+	updatesAutoInstallApp: boolean;
+	setUpdatesAutoInstallApp: (v: boolean) => void;
+	updatesAutoInstallPkgs: boolean;
+	setUpdatesAutoInstallPkgs: (v: boolean) => void;
 
 	fileRoots: string[];
 	addFileRoot: (path: string) => void;
@@ -405,6 +423,22 @@ export const useShellStore = create<ShellState>()(
 			setChatAdapterId: (chatAdapterId) => {
 				set({ chatAdapterId });
 				kvSet(KV_CHAT_ADAPTER, chatAdapterId);
+			},
+
+			updatesAutoCheck: true,
+			setUpdatesAutoCheck: (updatesAutoCheck) => {
+				set({ updatesAutoCheck });
+				kvSet(KV_UPDATES_AUTO_CHECK, updatesAutoCheck);
+			},
+			updatesAutoInstallApp: false,
+			setUpdatesAutoInstallApp: (updatesAutoInstallApp) => {
+				set({ updatesAutoInstallApp });
+				kvSet(KV_UPDATES_AUTO_INSTALL_APP, updatesAutoInstallApp);
+			},
+			updatesAutoInstallPkgs: true,
+			setUpdatesAutoInstallPkgs: (updatesAutoInstallPkgs) => {
+				set({ updatesAutoInstallPkgs });
+				kvSet(KV_UPDATES_AUTO_INSTALL_PKGS, updatesAutoInstallPkgs);
 			},
 
 			fileRoots: [...DEFAULT_FILE_ROOTS],
@@ -692,6 +726,9 @@ export const useShellStore = create<ShellState>()(
 						kvSet(KV_CLAUDE_ROOTS, s.claudeProjectRoots);
 						kvSet(KV_CLAUDE_WATCH, s.claudeWatchEnabled);
 						kvSet(KV_ONBOARDING, s.onboarding);
+						kvSet(KV_UPDATES_AUTO_CHECK, s.updatesAutoCheck);
+						kvSet(KV_UPDATES_AUTO_INSTALL_APP, s.updatesAutoInstallApp);
+						kvSet(KV_UPDATES_AUTO_INSTALL_PKGS, s.updatesAutoInstallPkgs);
 					} finally {
 						suppressKv = false;
 					}
@@ -719,6 +756,12 @@ export const useShellStore = create<ShellState>()(
 					}
 					const userName = parseKv<string>(all[KV_USER_NAME]);
 					if (typeof userName === 'string') next.userName = userName;
+					const autoCheck = parseKv<boolean>(all[KV_UPDATES_AUTO_CHECK]);
+					if (typeof autoCheck === 'boolean') next.updatesAutoCheck = autoCheck;
+					const autoApp = parseKv<boolean>(all[KV_UPDATES_AUTO_INSTALL_APP]);
+					if (typeof autoApp === 'boolean') next.updatesAutoInstallApp = autoApp;
+					const autoPkgs = parseKv<boolean>(all[KV_UPDATES_AUTO_INSTALL_PKGS]);
+					if (typeof autoPkgs === 'boolean') next.updatesAutoInstallPkgs = autoPkgs;
 					set(next);
 				} finally {
 					suppressKv = false;
@@ -760,9 +803,7 @@ export const useShellStore = create<ShellState>()(
 			// project root. Keep them out of the persisted blob.
 			partialize: (state) =>
 				Object.fromEntries(
-					Object.entries(state).filter(
-						([k]) => k !== 'projects' && k !== 'activeProjectId'
-					)
+					Object.entries(state).filter(([k]) => k !== 'projects' && k !== 'activeProjectId')
 				) as Partial<ShellState>,
 		}
 	)

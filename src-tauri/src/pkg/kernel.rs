@@ -218,12 +218,12 @@ impl Kernel {
         // Preserve a stronger pre-existing source: if the row is already
         // marked Builtin, never downgrade it to Local on a path-equal replay
         // (e.g. workspace dev pointing at the same dir as a builtin).
-        let effective_source = if let Some(existing) = self
+        let existing = self
             .installed
             .read()
             .ok()
-            .and_then(|g| g.get(&pkg_id).cloned())
-        {
+            .and_then(|g| g.get(&pkg_id).cloned());
+        let effective_source = if let Some(existing) = &existing {
             if existing.install_path != pkg.install_path.display().to_string() {
                 return Err(anyhow!(
                     "package `{pkg_id}` already installed from {} — uninstall first",
@@ -238,6 +238,25 @@ impl Kernel {
         } else {
             source
         };
+
+        // A same-path row already exists → this is a re-install / in-place
+        // upgrade (registry update or dev re-poke), not a first install.
+        // Several registries (ui_routes, sidecars, mcp) aren't idempotent on
+        // `register`, so unregister the prior version first. unregister is a
+        // no-op on absent ids per the Registry trait, so the forward loop
+        // below still behaves like a clean install. On a fresh install
+        // `existing` is None and this is skipped.
+        let is_reinstall = existing.is_some();
+        if is_reinstall {
+            for reg in self.registries.iter().rev() {
+                if let Err(e) = reg.unregister(&pkg_id) {
+                    log::warn!(
+                        "[pkg_kernel] pre-reinstall unregister `{}` for `{pkg_id}` failed (continuing): {e}",
+                        reg.name()
+                    );
+                }
+            }
+        }
 
         let installed_at = chrono::Utc::now().timestamp_millis();
         let summary = InstalledSummary {
@@ -311,6 +330,23 @@ impl Kernel {
             pkg.manifest.version,
             applied.len()
         );
+
+        // In-place upgrade/reinstall: tell the FE to remount any mounted
+        // iframe/webview so it picks up the new bundle without a shell
+        // restart (mirrors the dev-loop `pkg-reloaded` path). Harmless if the
+        // pkg isn't currently mounted — the host filters by pkg_id.
+        if is_reinstall {
+            if let Ok(mut live) = self.live.write() {
+                live.insert(pkg_id.clone());
+            }
+            if let Err(e) = self.app.emit(
+                "pkg-reloaded",
+                serde_json::json!({ "pkg_id": pkg_id, "version": pkg.manifest.version }),
+            ) {
+                log::warn!("[pkg_kernel] emit pkg-reloaded for `{pkg_id}` failed: {e}");
+            }
+        }
+
         Ok(summary)
     }
 

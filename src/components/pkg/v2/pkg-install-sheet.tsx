@@ -64,11 +64,14 @@ export function PkgInstallSheet({
 
 	const indexQuery = useRegistryIndex();
 	const indexUrl = indexQuery.data?.indexUrl;
+	// An already-installed pkg with a newer registry version carries the same
+	// `registryEntry` (populated in use-derived) — so the in-place update path
+	// reuses this exact sheet + signed dep-plan resolution as a fresh install.
+	const isUpdate = Boolean(pkg?.installed && pkg?.latest);
 	// Per-pkg detail is fetched only when this sheet is targeting a registry
-	// pkg — the catalog row's hero metadata is already enough until the user
-	// commits to installing.
-	const registryEntry: RegistryEntry | undefined =
-		pkg && pkg.origin === 'registry' && pkg.registryEntry ? pkg.registryEntry : undefined;
+	// pkg (or an installed pkg with an update) — the catalog row's hero
+	// metadata is already enough until the user commits.
+	const registryEntry: RegistryEntry | undefined = pkg?.registryEntry ?? undefined;
 	const detailQuery = useRegistryPkgDetail(indexUrl, registryEntry);
 	const planResolver = useInstallPlanResolver(indexUrl);
 	const refreshRegistry = useRefreshRegistry();
@@ -132,10 +135,14 @@ export function PkgInstallSheet({
 					</div>
 					<div>
 						<div className="font-display text-lg font-medium tracking-tight">
-							{pkg ? `Install ${pkg.name}` : 'Install pkg'}
+							{pkg ? `${isUpdate ? 'Update' : 'Install'} ${pkg.name}` : 'Install pkg'}
 						</div>
 						<div className="text-[11px] text-muted-foreground/70">
-							{pkg ? `${pkg.id}@${pkg.version}` : 'paste a manifest URL or pick from registry'}
+							{pkg
+								? isUpdate
+									? `${pkg.id}  v${pkg.version} → v${pkg.latest}`
+									: `${pkg.id}@${pkg.version}`
+								: 'paste a manifest URL or pick from registry'}
 						</div>
 					</div>
 					<button
@@ -242,8 +249,8 @@ export function PkgInstallSheet({
 							>
 								<Plus className="mr-1.5 h-3.5 w-3.5" />
 								{fromRegistryMut.isPending || installProgress
-									? `Installing… ${installProgress?.done ?? 0}/${installProgress?.total ?? '?'}`
-									: `Install ${pkg.name}`}
+									? `${isUpdate ? 'Updating' : 'Installing'}… ${installProgress?.done ?? 0}/${installProgress?.total ?? '?'}`
+									: `${isUpdate ? 'Update' : 'Install'} ${pkg.name}`}
 							</Button>
 						</div>
 					</>

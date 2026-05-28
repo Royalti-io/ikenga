@@ -34,10 +34,15 @@ export interface UseUpdaterOptions {
 	/** Default true. Pass false to skip the 6h interval timer (e.g. secondary
 	 *  call sites where another instance already owns the polling). */
 	autoPoll?: boolean;
+	/** Default true. Pass false to suppress automatic checks entirely — no
+	 *  boot check and no interval. The manual `check()` still works (the About
+	 *  page's "Check now" button). Driven by the `updates.autoCheck` setting. */
+	enabled?: boolean;
 }
 
 export function useUpdater(options?: UseUpdaterOptions): UpdaterState {
 	const autoPoll = options?.autoPoll ?? true;
+	const enabled = options?.enabled ?? true;
 	const [available, setAvailable] = useState<UpdateInfo | null>(null);
 	const [installing, setInstalling] = useState(false);
 	const [bytesDownloaded, setBytesDownloaded] = useState(0);
@@ -74,6 +79,7 @@ export function useUpdater(options?: UseUpdaterOptions): UpdaterState {
 
 	const intervalRef = useRef<number | null>(null);
 	useEffect(() => {
+		if (!enabled) return;
 		void check();
 		if (autoPoll) {
 			intervalRef.current = window.setInterval(() => void check(), CHECK_INTERVAL_MS);
@@ -81,7 +87,7 @@ export function useUpdater(options?: UseUpdaterOptions): UpdaterState {
 		return () => {
 			if (intervalRef.current !== null) window.clearInterval(intervalRef.current);
 		};
-	}, [check, autoPoll]);
+	}, [check, autoPoll, enabled]);
 
 	return {
 		available,

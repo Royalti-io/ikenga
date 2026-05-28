@@ -6,9 +6,12 @@
 // + per-pkg detail.
 
 import { useEffect, useMemo, useState } from 'react';
+import { ArrowUp, Loader2 } from 'lucide-react';
 import { useNavigate } from '@tanstack/react-router';
+import { Button } from '@/components/ui/button';
 import type { PkgRowV2 } from '@/lib/pkgs/use-derived';
 import { usePkgsDerived } from '@/lib/pkgs/use-derived';
+import { useUpdatePkgs, type UpdateProgress } from '@/lib/pkgs/use-update-pkgs';
 import { PkgGroup } from './pkg-row';
 import { PkgInstallSheet } from './pkg-install-sheet';
 import { PkgLoupe, type LoupeTab } from './pkg-loupe';
@@ -118,6 +121,16 @@ export function PkgsSurface({ initialFilter = 'all', initialInstallTab }: PkgsSu
 		setLoupeTab(tab);
 	};
 
+	const updatePkgs = useUpdatePkgs();
+	const [updateAllProgress, setUpdateAllProgress] = useState<UpdateProgress | null>(null);
+	const updateAll = () => {
+		if (!d.updates.length || updatePkgs.isPending) return;
+		updatePkgs.mutate(
+			{ rows: d.updates, onProgress: setUpdateAllProgress },
+			{ onSettled: () => setUpdateAllProgress(null) }
+		);
+	};
+
 	return (
 		<div className="flex h-full flex-col bg-background">
 			<PkgsTitlebar
@@ -137,6 +150,40 @@ export function PkgsSurface({ initialFilter = 'all', initialInstallTab }: PkgsSu
 					void navigate({ to: '/packages', search: { filter: 'review' } });
 				}}
 			/>
+			{d.updates.length > 0 && (
+				<div className="flex items-center gap-3 border-b border-amber-500/30 bg-amber-500/10 px-6 py-2.5 text-sm">
+					<ArrowUp className="size-4 text-amber-500" />
+					<div className="flex-1">
+						<span className="font-medium">
+							{d.updates.length} package{d.updates.length === 1 ? '' : 's'}
+						</span>
+						<span className="text-muted-foreground">
+							{' '}
+							{d.updates.length === 1 ? 'has' : 'have'} an update available.
+						</span>
+						{updateAllProgress && (
+							<span className="text-muted-foreground">
+								{' '}
+								Updating {updateAllProgress.current || '…'} ({updateAllProgress.done}/
+								{updateAllProgress.total})…
+							</span>
+						)}
+					</div>
+					<Button
+						size="sm"
+						className="bg-amber-500 text-amber-950 hover:bg-amber-500/90"
+						disabled={updatePkgs.isPending}
+						onClick={updateAll}
+					>
+						{updatePkgs.isPending ? (
+							<Loader2 className="mr-1.5 size-3.5 animate-spin" />
+						) : (
+							<ArrowUp className="mr-1.5 size-3.5" />
+						)}
+						{updatePkgs.isPending ? 'Updating…' : 'Update all'}
+					</Button>
+				</div>
+			)}
 			<div className="flex-1 overflow-y-auto px-6 py-5">
 				{d.error && (
 					<p className="mb-4 rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-300">
@@ -168,7 +215,10 @@ export function PkgsSurface({ initialFilter = 'all', initialInstallTab }: PkgsSu
 								setInstallPkg(row);
 								setInstallOpen(true);
 							}}
-							onUpdate={(row) => openLoupe(row, 'overview')}
+							onUpdate={(row) => {
+								setInstallPkg(row);
+								setInstallOpen(true);
+							}}
 							onReviewTrust={(row) => openLoupe(row, 'trust')}
 						/>
 					))}
@@ -180,6 +230,11 @@ export function PkgsSurface({ initialFilter = 'all', initialInstallTab }: PkgsSu
 				open={!!loupePkg}
 				onOpenChange={(open) => !open && setLoupePkg(null)}
 				onInstall={(row) => {
+					setInstallPkg(row);
+					setInstallOpen(true);
+				}}
+				onUpdate={(row) => {
+					setLoupePkg(null);
 					setInstallPkg(row);
 					setInstallOpen(true);
 				}}

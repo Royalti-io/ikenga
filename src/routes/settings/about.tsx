@@ -14,8 +14,10 @@ import { createFileRoute } from '@tanstack/react-router';
 import { BellOff, CheckCircle2, Download, ExternalLink, Loader2, RefreshCw } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
 import { Markdown } from '@/components/markdown';
 import { cn } from '@/components/ui/utils';
+import { useShellStore } from '@/lib/shell/shell-store';
 import {
 	findReleaseByVersion,
 	useGitHubReleases,
@@ -26,6 +28,7 @@ import { useUpdater } from '@/lib/updater/use-updater';
 import { useUpdaterSnooze } from '@/lib/updater/snooze';
 
 import { SettingGroup } from './-components/setting-group';
+import { SettingRow } from './-components/setting-row';
 
 function AboutPage() {
 	const updater = useUpdater({ autoPoll: false });
@@ -59,6 +62,8 @@ function AboutPage() {
 					onCheck={() => void updater.check()}
 				/>
 			</SettingGroup>
+
+			<AutoUpdateSettings />
 
 			{updater.available && (
 				<UpdateCard
@@ -94,6 +99,48 @@ function AboutPage() {
 				currentVersion={currentVersion}
 			/>
 		</div>
+	);
+}
+
+/* ───── Auto-update settings ───── */
+
+function AutoUpdateSettings() {
+	const autoCheck = useShellStore((s) => s.updatesAutoCheck);
+	const setAutoCheck = useShellStore((s) => s.setUpdatesAutoCheck);
+	const autoInstallApp = useShellStore((s) => s.updatesAutoInstallApp);
+	const setAutoInstallApp = useShellStore((s) => s.setUpdatesAutoInstallApp);
+	const autoInstallPkgs = useShellStore((s) => s.updatesAutoInstallPkgs);
+	const setAutoInstallPkgs = useShellStore((s) => s.setUpdatesAutoInstallPkgs);
+
+	return (
+		<SettingGroup title="Automatic updates">
+			<SettingRow
+				label="Check for updates automatically"
+				desc="Checks the app and your packages on launch and every 6 hours. Turn off to only check manually with the button above."
+			>
+				<Switch checked={autoCheck} onCheckedChange={setAutoCheck} />
+			</SettingRow>
+			<SettingRow
+				label="Install package updates in the background"
+				desc="Packages are sandboxed and reload in place — no restart. Recommended on."
+			>
+				<Switch
+					checked={autoInstallPkgs}
+					onCheckedChange={setAutoInstallPkgs}
+					disabled={!autoCheck}
+				/>
+			</SettingRow>
+			<SettingRow
+				label="Install app updates automatically"
+				desc="Off by default — an app update relaunches Ikenga. When on, a new build downloads and relaunches without a click (deferring still works)."
+			>
+				<Switch
+					checked={autoInstallApp}
+					onCheckedChange={setAutoInstallApp}
+					disabled={!autoCheck}
+				/>
+			</SettingRow>
+		</SettingGroup>
 	);
 }
 
