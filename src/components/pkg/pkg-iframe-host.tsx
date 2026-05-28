@@ -42,6 +42,7 @@ import { buildHostContext } from '@/lib/pkg/host-context';
 import { usePaneStore } from '@/lib/panes/pane-store';
 import { usePkgMenuStore, type PkgMenuItem } from '@/lib/pkg/pkg-menu-store';
 import {
+	dbExec,
 	dbQuery,
 	pkgContentHtml,
 	pkgContentRevoke,
@@ -161,6 +162,40 @@ async function pkgDeclaresSqlite(pkgId: string): Promise<boolean> {
 	}
 }
 
+// The tables a pkg declared it may touch via `permissions['sqlite.tables']`.
+// Used to scope `host.dbExec` writes to the pkg's own tables. Same
+// manifest-lookup shape as `pkgDeclaresSqlite`; fails closed (empty list) on
+// any error so an unreadable manifest can write nothing.
+async function pkgSqliteTables(pkgId: string): Promise<string[]> {
+	try {
+		const status = await pkgKernelStatus();
+		const entry = status.installed.find((p) => p.id === pkgId);
+		if (!entry) return [];
+		const manifest = await pkgPreviewManifest(entry.install_path);
+		const perms = manifest.permissions as Record<string, unknown> | undefined;
+		const tables = perms?.['sqlite.tables'];
+		return Array.isArray(tables) ? tables.filter((t): t is string => typeof t === 'string') : [];
+	} catch (e) {
+		console.warn(`[pkg-host] sqlite.tables lookup for ${pkgId} failed:`, e);
+		return [];
+	}
+}
+
+// Best-effort target-table extraction from a single write statement, for the
+// `host.dbExec` table-scope guard. Matches the leading `INSERT INTO <t>` /
+// `UPDATE <t>` / `DELETE FROM <t>`, stripping optional quoting. This is
+// defense-in-depth over a single-user local pa.db (the SQL is
+// pkg-author-controlled, not attacker-supplied) — not a hard security
+// boundary. Returns null when no table can be identified, which the caller
+// treats as a rejection.
+function writeTargetTable(sql: string): string | null {
+	const m =
+		/^\s*insert\s+(?:or\s+\w+\s+)?into\s+["'`\[]?(\w+)/i.exec(sql) ??
+		/^\s*update\s+["'`\[]?(\w+)/i.exec(sql) ??
+		/^\s*delete\s+from\s+["'`\[]?(\w+)/i.exec(sql);
+	return m ? m[1] : null;
+}
+
 // Exported for unit tests (the verb's scope-gate + confirm + decline
 // branches). Not part of the pkg-facing API — callers go through the
 // AppBridge `oncalltool` path below.
@@ -260,6 +295,48 @@ export async function dispatchHostCall(
 			};
 		} catch (e) {
 			return errResult(`host.dbQuery failed: ${(e as Error).message ?? String(e)}`);
+		}
+	}
+
+	if (name === 'host.dbExec') {
+		// Write-path bridge (local-store write-path WP): lets an iframe pkg write
+		// to the local `pa.db` via the host's `db_exec` Tauri command, so the last
+		// supabase-js dependency (the tasks status-update write) can be removed.
+		// `host.*` verbs bypass the kernel's scope enforcement, so every guard
+		// happens here and fails closed:
+		//   1. statement allowlist — only INSERT/UPDATE/DELETE; SELECT/WITH belong
+		//      on `host.dbQuery`, and DDL/ATTACH/PRAGMA/VACUUM are rejected.
+		//   2. `capabilities.sqlite` opt-in (same gate as `host.dbQuery`).
+		//   3. table-scope — the statement's target table must be in the pkg's
+		//      declared `permissions['sqlite.tables']`. Defense-in-depth over a
+		//      single-user local pa.db (see `writeTargetTable`), not a hard boundary.
+		const sql = typeof args.sql === 'string' ? args.sql : null;
+		if (!sql) {
+			return errResult('host.dbExec: missing required `sql` argument');
+		}
+		if (!/^\s*(insert|update|delete)\b/i.test(sql)) {
+			return errResult('host.dbExec: only INSERT/UPDATE/DELETE write statements are allowed');
+		}
+		if (!(await pkgDeclaresSqlite(pkgId))) {
+			return errResult("host.dbExec: pkg lacks the 'sqlite' capability");
+		}
+		const target = writeTargetTable(sql);
+		if (!target) {
+			return errResult('host.dbExec: could not identify the target table');
+		}
+		const allowed = await pkgSqliteTables(pkgId);
+		if (!allowed.includes(target)) {
+			return errResult(`host.dbExec: table '${target}' not in the pkg's declared sqlite.tables`);
+		}
+		const params = Array.isArray(args.params) ? (args.params as SqlValue[]) : [];
+		try {
+			await dbExec(sql, params);
+			return {
+				content: [{ type: 'text', text: 'ok' }],
+				structuredContent: { ok: true },
+			};
+		} catch (e) {
+			return errResult(`host.dbExec failed: ${(e as Error).message ?? String(e)}`);
 		}
 	}
 
