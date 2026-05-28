@@ -90,6 +90,10 @@ export function PkgInstallSheet({
 			if (!detailQuery.data) throw new Error('Registry detail not loaded yet');
 			const plan: InstallStep[] = await planResolver.mutateAsync({
 				root: detailQuery.data,
+				// On an update, install exactly the version the index advertised
+				// (`pkg.latest`) rather than trusting the detail file's array
+				// ordering — deterministic and immune to index/detail drift.
+				version: isUpdate ? (pkg?.latest ?? undefined) : undefined,
 			});
 			let done = 0;
 			setInstallProgress({ done: 0, total: plan.length, current: plan[0]?.name ?? '' });
