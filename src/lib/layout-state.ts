@@ -1,6 +1,6 @@
 // Layout-state persistence helpers for the workspace shell.
 //
-// Primary store: tauri-plugin-sql (sqlite:pa.db, `layout_state` kv).
+// Primary store: tauri-plugin-sql (sqlite:ikenga.db, `layout_state` kv).
 // Fallback: window.localStorage. The fallback exists because Database.load
 // has been observed to silently never resolve in some launches — the
 // terminal session-store uses the same pattern. localStorage keys are
@@ -37,7 +37,11 @@ function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
 /** Returns the SQL Database, or null if the plugin is unavailable / hung. */
 function getDb(): Promise<Database | null> {
 	if (!dbPromise) {
-		dbPromise = withTimeout(Database.load('sqlite:pa.db'), SQL_TIMEOUT_MS, 'Database.load(pa.db)')
+		dbPromise = withTimeout(
+			Database.load('sqlite:ikenga.db'),
+			SQL_TIMEOUT_MS,
+			'Database.load(ikenga.db)'
+		)
 			.then<Database | null>((db) => db)
 			.catch((err) => {
 				// eslint-disable-next-line no-console

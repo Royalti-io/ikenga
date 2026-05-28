@@ -569,7 +569,7 @@ function ResetLayoutButton() {
 			// SQLite layout_state table — best effort; the FE has localStorage as
 			// a fallback so success here isn't load-bearing.
 			try {
-				const db = await Database.load('sqlite:pa.db');
+				const db = await Database.load('sqlite:ikenga.db');
 				await db.execute('DELETE FROM layout_state');
 			} catch (e) {
 				console.warn('[settings] failed to clear layout_state', e);

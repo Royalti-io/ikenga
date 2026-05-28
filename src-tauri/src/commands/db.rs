@@ -648,7 +648,7 @@ pub fn default_db_path<R: tauri::Runtime>(app: &AppHandle<R>) -> Result<PathBuf,
         .path()
         .app_data_dir()
         .map_err(|e| format!("app_data_dir: {e}"))?;
-    Ok(dir.join("pa.db"))
+    Ok(dir.join("ikenga.db"))
 }
 
 #[cfg(test)]

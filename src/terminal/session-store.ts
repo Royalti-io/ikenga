@@ -12,7 +12,7 @@
 import { create } from 'zustand';
 
 const STORAGE_KEY = 'terminal.tabs';
-const SQL_DB_URL = 'sqlite:pa.sqlite';
+const SQL_DB_URL = 'sqlite:ikenga-terminal.sqlite';
 
 /** Who currently owns the xterm renderer for this tab.
  *

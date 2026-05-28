@@ -42,7 +42,7 @@ export function ClearDataSectionBody() {
 		try {
 			// SQLite content tables.
 			try {
-				const db = await Database.load('sqlite:pa.db');
+				const db = await Database.load('sqlite:ikenga.db');
 				const tables = [
 					'layout_state',
 					'viewer_recents',

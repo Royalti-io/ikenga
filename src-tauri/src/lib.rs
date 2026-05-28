@@ -227,6 +227,17 @@ pub fn run() {
                 Err(e) => log::error!("[fs_roots] load failed: {e:#}"),
             }
 
+            // One-time rename of the legacy local stores (pa.db → ikenga.db,
+            // pa.sqlite → ikenga-terminal.sqlite) BEFORE any pool opens and
+            // before the staged-restore swap (which targets ikenga.db).
+            // WAL-safe, idempotent, atomic-on-failure: a botched migration
+            // leaves the legacy file in place and we open it under the old
+            // name. block_on is safe here — setup runs outside any tokio
+            // runtime.
+            let main_db_name = tauri::async_runtime::block_on(
+                commands::backup::migrate_legacy_db_names(&data_dir),
+            );
+
             // If the user staged a backup restore last session, swap pa.db
             // now — before any pool opens. apply_staged_restore_if_present
             // also wipes -wal/-shm sidecars so SQLite re-derives them
@@ -237,8 +248,10 @@ pub fn run() {
                 Err(e) => log::error!("[backup] staged restore failed: {e}"),
             }
 
-            // Db wrapper points at the same file the plugin manages.
-            let db_path = data_dir.join("pa.db");
+            // Db wrapper points at the same file the plugin manages. Normally
+            // "ikenga.db"; falls back to the legacy "pa.db" if the boot-time
+            // rename above was skipped or failed (atomic-on-failure).
+            let db_path = data_dir.join(main_db_name);
             let pa_db = Arc::new(PaDb::new(db_path));
             app.manage(pa_db.clone());
 

@@ -63,10 +63,10 @@ const BACKUP_SCHEMA_VERSION: i64 = 7;
 
 const MARKER_NAME: &str = "RESTORE_PENDING";
 const STAGED_DIR: &str = "staged-restore";
-const STAGED_DB_NAME: &str = "pa.db.new";
+const STAGED_DB_NAME: &str = "ikenga.db.new";
 const STAGED_SECRETS_NAME: &str = "secrets-pending.json";
 const STAGED_PATH_REWRITE_NAME: &str = "path-rewrite.json";
-const DB_NAME: &str = "pa.db";
+const DB_NAME: &str = "ikenga.db";
 
 /// `${IKENGA_HOME}` is the export-time placeholder for the originating
 /// machine's `$HOME`. The tokenized export rewrites `$HOME/...` paths to
@@ -552,6 +552,143 @@ pub async fn backup_delete<R: tauri::Runtime>(
         ));
     }
     fs::remove_file(&canon_target).map_err(|e| format!("delete: {e}"))
+}
+
+// ─── one-time db-file rename (pa.db → ikenga.db) ─────────────────────────────
+
+/// Legacy local-store filenames, retired in favor of `ikenga.db` /
+/// `ikenga-terminal.sqlite`. Renamed once on boot if the new name is absent
+/// but the legacy file exists. See [`migrate_legacy_db_names`].
+const LEGACY_DB_NAME: &str = "pa.db";
+const LEGACY_TERMINAL_DB_NAME: &str = "pa.sqlite";
+const TERMINAL_DB_NAME: &str = "ikenga-terminal.sqlite";
+
+/// WAL-safe, idempotent, atomic-on-failure rename of a single SQLite store
+/// from `legacy_name` to `new_name` inside `data_dir`.
+///
+/// A naïve `fs::rename` of just the main file would drop any frames still
+/// sitting in the `-wal` sidecar, so we first open the legacy file and run
+/// `PRAGMA wal_checkpoint(TRUNCATE)` to fold the WAL back into the main db and
+/// empty the sidecar, then drop the handle before touching the filesystem.
+///
+/// Safety contract:
+/// * **Idempotent** — no-op if `new_name` already exists or `legacy_name` is
+///   absent (so it runs harmlessly on every boot after the first).
+/// * **Atomic-on-failure** — if the checkpoint or the main-file rename fails,
+///   the legacy file is left exactly where it was and a warning is logged; the
+///   caller then opens the store under its old name as a fallback so a botched
+///   migration can never brick the store. (We only rename the `-wal`/`-shm`
+///   siblings *after* the main rename has already succeeded, so a partial
+///   sidecar rename never orphans a live db.)
+/// Returns the filename the store should actually be opened under after the
+/// attempt: `new_name` if the migration succeeded (or had already happened),
+/// or `legacy_name` if the legacy file is still present because the migration
+/// was skipped or failed. The caller threads this into the pool path so a
+/// botched migration opens the (intact) legacy file rather than creating a
+/// fresh empty db under the new name.
+async fn migrate_one_db_name<'a>(
+    data_dir: &Path,
+    legacy_name: &'a str,
+    new_name: &'a str,
+) -> &'a str {
+    let new_path = data_dir.join(new_name);
+    let legacy_path = data_dir.join(legacy_name);
+
+    // Idempotent: nothing to do if already migrated or there's no legacy file.
+    // If the new file is present, open the new name. Otherwise (no legacy file
+    // either) this is a fresh install — also open the new name.
+    if new_path.exists() {
+        return new_name;
+    }
+    if !legacy_path.exists() {
+        return new_name;
+    }
+
+    // Step 1 — fold the WAL into the main file, then close the handle. We open
+    // with create_if_missing(false) so we never resurrect a deleted db, and in
+    // WAL mode so the checkpoint applies. Any failure here leaves the legacy
+    // file untouched (we abort before renaming).
+    {
+        let opts = sqlx::sqlite::SqliteConnectOptions::new()
+            .filename(&legacy_path)
+            .create_if_missing(false)
+            .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal);
+        let pool = match sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(opts)
+            .await
+        {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::warn!(
+                    "[migrate] open legacy {legacy_name} for checkpoint failed ({e}); \
+                     leaving in place, will open under old name"
+                );
+                return legacy_name;
+            }
+        };
+        if let Err(e) = sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
+            .execute(&pool)
+            .await
+        {
+            tracing::warn!(
+                "[migrate] wal_checkpoint on {legacy_name} failed ({e}); \
+                 leaving in place, will open under old name"
+            );
+            pool.close().await;
+            return legacy_name;
+        }
+        // Drop the handle so the OS releases the file lock before we rename.
+        pool.close().await;
+    }
+
+    // Step 2 — rename the main file. If this fails, the legacy file is still
+    // intact and the caller falls back to the old name.
+    if let Err(e) = fs::rename(&legacy_path, &new_path) {
+        tracing::warn!(
+            "[migrate] rename {legacy_name} → {new_name} failed ({e}); \
+             leaving in place, will open under old name"
+        );
+        return legacy_name;
+    }
+
+    // Step 3 — rename any now-(near-)empty -wal/-shm siblings so they don't
+    // orphan next to the renamed main file. Best-effort: the sidecars are
+    // empty after TRUNCATE and SQLite re-derives them on next open, so a
+    // failure here is cosmetic and never data-bearing.
+    for ext in ["-wal", "-shm", "-journal"] {
+        let from = data_dir.join(format!("{legacy_name}{ext}"));
+        if from.exists() {
+            let to = data_dir.join(format!("{new_name}{ext}"));
+            if let Err(e) = fs::rename(&from, &to) {
+                tracing::warn!("[migrate] rename sidecar {legacy_name}{ext} failed ({e})");
+            }
+        }
+    }
+
+    tracing::info!("[migrate] renamed local store {legacy_name} → {new_name}");
+    new_name
+}
+
+/// Boot-time, pre-pool migration of the two local SQLite stores from their
+/// legacy `royalti-pa`-era names (`pa.db`, `pa.sqlite`) to the Ikenga names
+/// (`ikenga.db`, `ikenga-terminal.sqlite`). Must run BEFORE
+/// `apply_staged_restore_if_present` (which swaps `ikenga.db`) and before any
+/// pool opens. Idempotent + atomic-on-failure per [`migrate_one_db_name`].
+///
+/// Returns the filename the **main** store (`ikenga.db`) should be opened
+/// under — normally `ikenga.db`, but `pa.db` if that migration was skipped or
+/// failed and the legacy file is still the source of truth. The caller threads
+/// this into the `PaDb` path so a botched migration opens the intact legacy
+/// file rather than creating a fresh empty db. The terminal store has no
+/// Rust-side reader to redirect (the FE plugin opens it by connection string),
+/// so its return is not surfaced — a failed terminal migration just means the
+/// FE re-derives an empty terminal-sessions store, which is acceptable.
+pub async fn migrate_legacy_db_names(data_dir: &Path) -> &'static str {
+    let main = migrate_one_db_name(data_dir, LEGACY_DB_NAME, DB_NAME).await;
+    let _terminal =
+        migrate_one_db_name(data_dir, LEGACY_TERMINAL_DB_NAME, TERMINAL_DB_NAME).await;
+    main
 }
 
 // ─── boot-time apply (called from lib.rs setup) ───────────────────────────────
@@ -1207,7 +1344,17 @@ fn read_zip_bytes(zip_path: &Path, name: &str) -> Result<Vec<u8>, String> {
 }
 
 fn extract_app_db(zip_path: &Path, dest: &Path) -> Result<(), String> {
-    let bytes = read_zip_bytes(zip_path, "app.db")?;
+    // The db member has always been stored as `app.db` (see `start_file`
+    // above), independent of the on-disk filename, so this is already
+    // version-agnostic for archives produced by this code. Back-compat
+    // fallback for any archive that named the member after the live file:
+    // try `app.db`, then the legacy `pa.db`, then the current `ikenga.db`.
+    // Whatever is found is staged as the current STAGED_DB_NAME
+    // (`ikenga.db.new`), so a legacy archive restores onto `ikenga.db`.
+    let bytes = read_zip_bytes(zip_path, "app.db")
+        .or_else(|_| read_zip_bytes(zip_path, "pa.db"))
+        .or_else(|_| read_zip_bytes(zip_path, "ikenga.db"))
+        .map_err(|_| "archive missing db member (app.db / pa.db / ikenga.db)".to_string())?;
     if dest.exists() {
         let _ = fs::remove_file(dest);
     }
