@@ -102,6 +102,50 @@ pub fn overlay_provenance(
     }
 }
 
+/// Upsert an EXTERNAL master record (`managed:false`, kept-in-place) into the
+/// index. Used by the back-fill path (`oba_backfill_registry`) so the
+/// safe-delete guard can resolve a real external canonical (e.g. `groundwork`
+/// published from `ikenga-pkgs`) instead of a nonexistent vault path. Sets
+/// `canonicalPath` to the real master and `managed:false`; **never stores
+/// dependents** (live-computed per the frozen `G-SCHEMA` contract). Returns
+/// `true` iff the index changed (new record, or an existing record's
+/// canonical/managed differed).
+pub fn upsert_external(rf: &mut RegistryFile, kind: &str, name: &str, canonical_path: &str) -> bool {
+    if let Some(e) = rf
+        .entries
+        .iter_mut()
+        .find(|e| e.kind == kind && e.name == name)
+    {
+        if e.provenance.canonical_path == canonical_path && !e.provenance.managed {
+            return false; // already an external master at this path
+        }
+        e.provenance.canonical_path = canonical_path.to_string();
+        e.provenance.managed = false;
+        return true;
+    }
+    let mut prov = RegistryProvenance::local(canonical_path.to_string());
+    prov.managed = false;
+    rf.entries.push(ClaudeStoreEntry {
+        kind: kind.to_string(),
+        name: name.to_string(),
+        store_path: canonical_path.to_string(),
+        description: None,
+        modified_ms: 0,
+        enabled_in: Vec::new(),
+        provenance: prov,
+    });
+    true
+}
+
+/// Drop the record for `(kind, name)` from the index. Returns `true` iff a
+/// record existed and was removed. Touches no files on disk — provenance only
+/// (the master + any symlinks stay exactly as they are). Backs `oba_forget`.
+pub fn forget(rf: &mut RegistryFile, kind: &str, name: &str) -> bool {
+    let before = rf.entries.len();
+    rf.entries.retain(|e| !(e.kind == kind && e.name == name));
+    rf.entries.len() != before
+}
+
 /// Build an index from the currently-scanned entries, synthesizing `local`
 /// provenance for each — the first-build back-fill. Callers persist the result
 /// with [`save`]. (Read paths do not auto-write; back-fill is an explicit op.)
@@ -259,6 +303,57 @@ mod tests {
         overlay_provenance(&mut other, &map);
         assert_eq!(other.provenance.source, ProvenanceSource::Local);
         assert!(other.provenance.managed);
+        std::fs::remove_dir_all(&store).ok();
+    }
+
+    #[test]
+    fn upsert_external_adds_then_is_idempotent() {
+        let mut rf = RegistryFile::default();
+        // first call adds an external (managed:false) record
+        assert!(upsert_external(&mut rf, "skill", "groundwork", "/ext/groundwork"));
+        assert_eq!(rf.entries.len(), 1);
+        assert!(!rf.entries[0].provenance.managed);
+        assert_eq!(rf.entries[0].provenance.canonical_path, "/ext/groundwork");
+        // second identical call is a no-op (no change)
+        assert!(!upsert_external(&mut rf, "skill", "groundwork", "/ext/groundwork"));
+        assert_eq!(rf.entries.len(), 1);
+        // a moved canonical updates in place + reports a change
+        assert!(upsert_external(&mut rf, "skill", "groundwork", "/ext2/groundwork"));
+        assert_eq!(rf.entries[0].provenance.canonical_path, "/ext2/groundwork");
+        assert!(!rf.entries[0].provenance.managed);
+    }
+
+    #[test]
+    fn upsert_external_flips_a_managed_entry_to_external() {
+        let store = tmp("upsert_flip");
+        let mut rf = RegistryFile::default();
+        rf.entries.push(entry(
+            "skill",
+            "x",
+            &store,
+            RegistryProvenance::local(store.join("skills/x").to_string_lossy().into()),
+        ));
+        assert!(rf.entries[0].provenance.managed, "starts managed");
+        assert!(upsert_external(&mut rf, "skill", "x", "/elsewhere/x"));
+        assert!(!rf.entries[0].provenance.managed, "now external");
+        assert_eq!(rf.entries[0].provenance.canonical_path, "/elsewhere/x");
+        std::fs::remove_dir_all(&store).ok();
+    }
+
+    #[test]
+    fn forget_removes_record_and_reports_presence() {
+        let store = tmp("forget");
+        let mut rf = RegistryFile::default();
+        rf.entries.push(entry(
+            "skill",
+            "groundwork",
+            &store,
+            RegistryProvenance::local(store.join("skills/groundwork").to_string_lossy().into()),
+        ));
+        assert!(forget(&mut rf, "skill", "groundwork"), "record existed");
+        assert!(rf.entries.is_empty());
+        // forgetting an absent record reports false (idempotent)
+        assert!(!forget(&mut rf, "skill", "groundwork"));
         std::fs::remove_dir_all(&store).ok();
     }
 

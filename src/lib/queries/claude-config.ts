@@ -16,9 +16,12 @@ import {
 	claudeStoreImport,
 	claudeStoreList,
 	ngwaCrossEngineCopy,
+	obaBackfillRegistry,
 	obaDependents,
+	obaForget,
 	obaRelinkDependents,
 	obaSafeDelete,
+	obaUnlinkOne,
 	type ClaudeAgent,
 	type ClaudeCommand,
 	type ClaudeConfig,
@@ -190,6 +193,33 @@ export function useRelinkDependents() {
 	const invalidate = useInvalidateClaudeStore();
 	return useMutation<ObaRelinkRow[], Error, { dependents: string[]; newMaster: string }>({
 		mutationFn: ({ dependents, newMaster }) => obaRelinkDependents(dependents, newMaster),
+		onSuccess: invalidate,
+	});
+}
+
+/** Unlink one dependent placement (a symlink) by absolute path (D-01). */
+export function useUnlinkOne() {
+	const invalidate = useInvalidateClaudeStore();
+	return useMutation<boolean, Error, { path: string }>({
+		mutationFn: ({ path }) => obaUnlinkOne(path),
+		onSuccess: invalidate,
+	});
+}
+
+/** Forget a primitive from the registry — provenance only, no files touched (D-01). */
+export function useForgetFromRegistry() {
+	const invalidate = useInvalidateClaudeStore();
+	return useMutation<boolean, Error, { kind: ClaudeStoreKind; name: string }>({
+		mutationFn: ({ kind, name }) => obaForget(kind, name),
+		onSuccess: invalidate,
+	});
+}
+
+/** Back-fill the registry with external masters discovered in the live farm. */
+export function useBackfillRegistry() {
+	const invalidate = useInvalidateClaudeStore();
+	return useMutation<number, Error, void>({
+		mutationFn: () => obaBackfillRegistry(),
 		onSuccess: invalidate,
 	});
 }

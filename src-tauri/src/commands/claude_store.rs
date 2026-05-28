@@ -2494,6 +2494,135 @@ pub async fn oba_relink_dependents(
         .collect())
 }
 
+/// Unlink a single dependent placement by absolute path: `remove_file` iff it
+/// is a symlink, refuse otherwise (we never delete a real file/dir this way —
+/// that path is the safe-delete guard's job). Idempotent on a missing path.
+pub(crate) fn unlink_placement(path: &Path) -> Result<bool, String> {
+    match std::fs::symlink_metadata(path) {
+        Ok(m) if m.file_type().is_symlink() => {
+            std::fs::remove_file(path).map_err(|e| format!("remove_file {}: {e}", path.display()))?;
+            Ok(true)
+        }
+        Ok(_) => Err(format!(
+            "refusing to unlink {}: not a symlink (use safe-delete for a real master)",
+            path.display()
+        )),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(format!("lstat {}: {e}", path.display())),
+    }
+}
+
+/// WP-06: unlink one dependent placement (a symlink) by absolute path. Always
+/// safe — `remove_file` never recurses into the master. Refuses a non-symlink.
+#[tauri::command]
+pub async fn oba_unlink_one(path: String) -> Result<bool, String> {
+    let p = expand(&path).map_err(|e| e.to_string())?;
+    unlink_placement(&p)
+}
+
+/// WP-06: drop the registry record for `(kind, name)` — provenance only. Touches
+/// no files: the master + every symlink stay on disk exactly as they are. Backs
+/// the D-01 "Forget from registry" choice. Returns `true` iff a record existed.
+#[tauri::command]
+pub async fn oba_forget(kind: String, name: String) -> Result<bool, String> {
+    let k = Kind::parse(&kind)?;
+    validate_name(&name)?;
+    let store = store_root().ok_or_else(|| "cannot resolve store root".to_string())?;
+    let mut rf = registry::load(&store);
+    let removed = registry::forget(&mut rf, k.as_str(), &name);
+    if removed {
+        registry::save(&store, &rf)?;
+    }
+    Ok(removed)
+}
+
+/// Discover EXTERNAL masters by walking the live farm: for every dependent
+/// symlink across the scope×engine placement dirs, resolve its target; if the
+/// target exists and sits OUTSIDE the vault `store`, that target is a real
+/// external master kept in place (the `groundwork` shape). Returns one
+/// `(kind, name, canonical)` per distinct external master. Pure + tempdir-
+/// testable: `scope_roots` + `store` are parameters. Dependents are NOT
+/// returned/stored — they stay live-computed at delete time (`G-SCHEMA`).
+pub(crate) fn scan_external_masters(
+    store: &Path,
+    scope_roots: &[PathBuf],
+) -> Vec<(Kind, String, PathBuf)> {
+    let store_canon = std::fs::canonicalize(store).unwrap_or_else(|_| store.to_path_buf());
+    // Keyed (kind, name) so duplicate dependents collapse to one master record.
+    let mut found: std::collections::BTreeMap<(String, String), PathBuf> =
+        std::collections::BTreeMap::new();
+    for kind in [Kind::Skill, Kind::Agent, Kind::Command] {
+        for dir in dependent_search_dirs(scope_roots, kind) {
+            let Ok(rd) = std::fs::read_dir(&dir) else {
+                continue;
+            };
+            for e in rd.flatten() {
+                let p = e.path();
+                let is_link = std::fs::symlink_metadata(&p)
+                    .map(|m| m.file_type().is_symlink())
+                    .unwrap_or(false);
+                if !is_link {
+                    continue;
+                }
+                let Some(target) =
+                    crate::commands::claude_config::resolve_symlink_target(&p)
+                else {
+                    continue; // dangling — not a master
+                };
+                if target.starts_with(&store_canon) {
+                    continue; // vault-managed; not external
+                }
+                // Name from the link's own basename (kind-aware), matching the
+                // farm's naming. Skip anything that fails the confinement check.
+                let fname = e.file_name().to_string_lossy().to_string();
+                let name = if kind.is_dir_primitive() {
+                    fname
+                } else {
+                    match fname.strip_suffix(".md") {
+                        Some(stem) => stem.to_string(),
+                        None => continue,
+                    }
+                };
+                if validate_name(&name).is_err() {
+                    continue;
+                }
+                found
+                    .entry((kind.as_str().to_string(), name))
+                    .or_insert(target);
+            }
+        }
+    }
+    found
+        .into_iter()
+        .filter_map(|((k, n), c)| Kind::parse(&k).ok().map(|k| (k, n, c)))
+        .collect()
+}
+
+/// WP-06: back-fill the registry with external masters discovered in the live
+/// farm (`managed:false`, real `canonicalPath`). Makes `oba_safe_delete`
+/// resolve a real external canonical (so it can hit `refused_external` /
+/// `refused_dependents`) instead of a nonexistent vault path. Returns the number
+/// of external-master records added or updated.
+#[tauri::command]
+pub async fn oba_backfill_registry(db: State<'_, Arc<PaDb>>) -> Result<usize, String> {
+    let store = store_root().ok_or_else(|| "cannot resolve store root".to_string())?;
+    let roots = all_scope_roots(&db).await;
+    let externals = scan_external_masters(&store, &roots);
+    tracing::info!("[oba_backfill_registry] external masters found={}", externals.len());
+    let mut rf = registry::load(&store);
+    let mut n = 0usize;
+    for (kind, name, canonical) in externals {
+        if registry::upsert_external(&mut rf, kind.as_str(), &name, &canonical.to_string_lossy()) {
+            n += 1;
+        }
+    }
+    if n > 0 {
+        registry::save(&store, &rf)?;
+    }
+    tracing::info!("[oba_backfill_registry] recorded={n}");
+    Ok(n)
+}
+
 // ─── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -2705,6 +2834,66 @@ mod tests {
         let real = root.join("real");
         std::fs::create_dir_all(&real).unwrap();
         assert!(relink_one(&real, &master_b).is_err(), "refuses non-symlink");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn unlink_placement_removes_symlink_refuses_real_idempotent_on_missing() {
+        let (root, master, _sd, links) = dependents_fixture("unlink_one", 1);
+        let link = &links[0];
+        // symlink → removed, master untouched
+        assert!(unlink_placement(link).unwrap());
+        assert!(std::fs::symlink_metadata(link).is_err(), "placement gone");
+        assert!(master.join("SKILL.md").exists(), "master untouched");
+        // missing → idempotent (false, not error)
+        assert!(!unlink_placement(link).unwrap());
+        // real dir → refused (never delete a real master this way)
+        assert!(unlink_placement(&master).is_err(), "refuses non-symlink");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn scan_external_masters_finds_external_skips_vault() {
+        // root/ has: an EXTERNAL master (outside the vault store) with 2 symlink
+        // dependents in fake scope dirs, AND a vault store with its own master +
+        // a symlink resolving INTO the vault. Only the external master is
+        // discovered; the vault-internal symlink is skipped.
+        let root = unique_tmp("scan_ext");
+        let store = root.join("store");
+        std::fs::create_dir_all(store.join("skills")).unwrap();
+
+        // External master kept in place (the groundwork shape)
+        let ext_master = root.join("repo/.claude/skills/groundwork");
+        std::fs::create_dir_all(&ext_master).unwrap();
+        std::fs::write(ext_master.join("SKILL.md"), "---\nname: groundwork\n---\n").unwrap();
+
+        // Vault-managed master (lives under store/)
+        let vault_master = store.join("skills/release-status");
+        std::fs::create_dir_all(&vault_master).unwrap();
+        std::fs::write(vault_master.join("SKILL.md"), "x").unwrap();
+
+        // Two scope roots, each with a .claude/skills holding both a dependent of
+        // the external master and a dependent of the vault master.
+        let mut scope_roots = Vec::new();
+        for i in 0..2 {
+            let sr = root.join(format!("scope{i}"));
+            let skills = sr.join(".claude/skills");
+            std::fs::create_dir_all(&skills).unwrap();
+            std::os::unix::fs::symlink(&ext_master, skills.join("groundwork")).unwrap();
+            std::os::unix::fs::symlink(&vault_master, skills.join("release-status")).unwrap();
+            scope_roots.push(sr);
+        }
+
+        let found = scan_external_masters(&store, &scope_roots);
+        assert_eq!(found.len(), 1, "only the external master is discovered");
+        let (kind, name, canonical) = &found[0];
+        assert_eq!(*kind, Kind::Skill);
+        assert_eq!(name, "groundwork");
+        assert_eq!(
+            std::fs::canonicalize(canonical).unwrap(),
+            std::fs::canonicalize(&ext_master).unwrap(),
+            "canonical is the real external master"
+        );
         std::fs::remove_dir_all(&root).ok();
     }
 

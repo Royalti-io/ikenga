@@ -44,8 +44,9 @@ use commands::{
     fs_read, fs_rename, fs_roots_add, fs_roots_list, fs_roots_remove, fs_roots_reset, fs_search,
     fs_trash, fs_unwatch, fs_watch, fs_write, iyke_dom_done, iyke_dom_query, iyke_endpoint,
     iyke_log_push, iyke_mcp_info, iyke_network_push, iyke_query_cache_done, iyke_set_shell,
-    iyke_terminal_read_done, iyke_wait_done, oba_dependents, oba_relink_dependents,
-    oba_safe_delete, pin_screenshot_write, pkg_content_html, pkg_content_revoke, pkg_content_url,
+    iyke_terminal_read_done, iyke_wait_done, oba_backfill_registry, oba_dependents, oba_forget,
+    oba_relink_dependents, oba_safe_delete, oba_unlink_one, pin_screenshot_write, pkg_content_html,
+    pkg_content_revoke, pkg_content_url,
     pkg_db_diag, pkg_dev_register, pkg_dev_reload, pkg_dev_unregister, pkg_discover_workspace,
     pkg_install_from_path, pkg_install_from_registry, pkg_kernel_status, pkg_mcp_call,
     pkg_preview_manifest, pkg_screenshot, pkg_set_enabled, pkg_set_scope, pkg_settings_get,
@@ -752,10 +753,13 @@ pub fn run() {
             claude_primitive_disable_for,
             claude_primitive_remove_for,
             claude_primitive_copy_batch,
-            // Ngwa Ọba registry — WP-04 dependent-aware safe delete
+            // Ngwa Ọba registry — WP-04 dependent-aware safe delete + WP-06 finish
             oba_dependents,
             oba_safe_delete,
             oba_relink_dependents,
+            oba_unlink_one,
+            oba_forget,
+            oba_backfill_registry,
             // Ngwa Phase-2 cross-system — G-ADAPTER engine layout descriptor
             engine_layout,
             // viewer

@@ -67,7 +67,8 @@ pub use claude_store::{
     claude_primitive_copy, claude_primitive_copy_batch, claude_primitive_disable,
     claude_primitive_disable_for, claude_primitive_enable, claude_primitive_enable_for,
     claude_primitive_move, claude_primitive_remove, claude_primitive_remove_for,
-    claude_store_import, claude_store_list, oba_dependents, oba_relink_dependents, oba_safe_delete,
+    claude_store_import, claude_store_list, oba_backfill_registry, oba_dependents, oba_forget,
+    oba_relink_dependents, oba_safe_delete, oba_unlink_one,
 };
 pub use comment_route::comment_route;
 pub use comments::{
