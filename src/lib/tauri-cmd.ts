@@ -2324,6 +2324,35 @@ export async function obaRelinkDependents(
 	return invoke<ObaRelinkRow[]>('oba_relink_dependents', { dependents, newMaster });
 }
 
+/**
+ * Unlink ONE dependent placement (a symlink) by absolute path — `remove_file`,
+ * never recurses into the master. Refuses a non-symlink (use {@link obaSafeDelete}
+ * for a real master). Resolves `true` if a link was removed, `false` if absent.
+ * Backs the D-01 "Unlink one placement" choice.
+ */
+export async function obaUnlinkOne(path: string): Promise<boolean> {
+	return invoke<boolean>('oba_unlink_one', { path });
+}
+
+/**
+ * Drop the registry record for a primitive — provenance only. Touches no files:
+ * the master + every symlink stay on disk exactly as they are. Backs the D-01
+ * "Forget from registry" choice. Resolves `true` if a record existed.
+ */
+export async function obaForget(kind: ClaudeStoreKind, name: string): Promise<boolean> {
+	return invoke<boolean>('oba_forget', { kind, name });
+}
+
+/**
+ * Back-fill the registry with EXTERNAL masters discovered in the live farm
+ * (`managed:false`, real `canonicalPath`). Lets {@link obaSafeDelete} resolve a
+ * real external canonical (so it can hit `refused_external`/`refused_dependents`)
+ * instead of a nonexistent vault path. Resolves the number of records recorded.
+ */
+export async function obaBackfillRegistry(): Promise<number> {
+	return invoke<number>('oba_backfill_registry', {});
+}
+
 // ─── Iyke (phase 11 — Day 1: read-side state + shell mirror push) ─────────────
 
 export interface IykeEndpoint {
