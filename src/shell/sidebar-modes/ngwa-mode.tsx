@@ -57,7 +57,7 @@ import '@/shell/claude-config/claude-config.css';
 // MANAGE surfaces support the KIND filter; ANALYZE surfaces do not (KIND
 // dims). The `group` drives both the section heading and the KIND-dim rule.
 type SurfaceGroup = 'manage' | 'analyze';
-type SurfaceId = 'browse' | 'registry' | 'graph' | 'map' | 'life' | 'health' | 'flow';
+type SurfaceId = 'browse' | 'registry' | 'store' | 'graph' | 'map' | 'life' | 'health' | 'flow';
 
 interface SurfaceItem {
 	id: SurfaceId;
@@ -70,6 +70,7 @@ const SURFACES: SurfaceItem[] = [
 	// MANAGE
 	{ id: 'browse', label: 'Browse', Icon: Boxes, group: 'manage' },
 	{ id: 'registry', label: 'Registry', Icon: List, group: 'manage' },
+	{ id: 'store', label: 'Ọba (store)', Icon: Network, group: 'manage' },
 	// ANALYZE (Phase 4 — bodies land with WP-07/later)
 	{ id: 'graph', label: 'Capability graph', Icon: Share2, group: 'analyze' },
 	{ id: 'map', label: 'Store map', Icon: Network, group: 'analyze' },
@@ -106,7 +107,7 @@ const SCOPE_BASE: ScopeItem[] = [
 const DEFAULT_SCOPE: ScopeId = 'all';
 
 // ─── Kind (Manage-only filter over config primitives) ─────────────────────
-type KindId = 'skills' | 'agents' | 'commands' | 'hooks' | 'mcps' | 'store';
+type KindId = 'skills' | 'agents' | 'commands' | 'hooks' | 'mcps';
 
 interface KindItem {
 	id: KindId;
@@ -120,7 +121,6 @@ const KINDS: KindItem[] = [
 	{ id: 'commands', label: 'Commands', Icon: SquareTerminal },
 	{ id: 'hooks', label: 'Hooks', Icon: GitBranch },
 	{ id: 'mcps', label: 'MCP', Icon: Plug },
-	{ id: 'store', label: 'Ọba (store)', Icon: Network },
 ];
 
 const DEFAULT_KIND: KindId = 'skills';
@@ -191,8 +191,10 @@ export function NgwaMode() {
 	const activeScope: ScopeId = (active.scope as ScopeId) ?? DEFAULT_SCOPE;
 	const activeKind: KindId = (active.kind as KindId) ?? DEFAULT_KIND;
 
-	// KIND is a Manage-only control. On ANALYZE surfaces it dims + disables.
-	const kindDisabled = ANALYZE_SURFACES.has(activeSurface);
+	// KIND + SYSTEM apply only to the Browse/Registry surfaces. They dim +
+	// disable on ANALYZE surfaces and on the Ọba store surface (the catalog spans
+	// all kinds + engines, so the facets have no meaning there).
+	const kindDisabled = ANALYZE_SURFACES.has(activeSurface) || activeSurface === 'store';
 
 	// ── SYSTEM facet (WP-20 / D-08) — engine multi-select ──
 	// Build the same item model the surface does, off the same queries, so the
@@ -241,14 +243,17 @@ export function NgwaMode() {
 		const scope = next.scope ?? activeScope;
 		const kind = next.kind ?? activeKind;
 		const sys = next.sys !== undefined ? next.sys : (active.sys ?? null);
+		// KIND + SYSTEM only apply to Browse/Registry — they're dropped from
+		// Analyze and store links so a stale kind/sys never lingers (and so
+		// clicking Browse from the store surface resets cleanly to defaults).
+		const kindApplies = surface === 'browse' || surface === 'registry';
 		const params = new URLSearchParams();
 		if (surface !== DEFAULT_SURFACE) params.set('surface', surface);
 		if (scope !== DEFAULT_SCOPE) params.set('scope', scope);
-		if (!ANALYZE_SURFACES.has(surface) && kind !== DEFAULT_KIND) {
+		if (kindApplies && kind !== DEFAULT_KIND) {
 			params.set('kind', kind);
 		}
-		// SYSTEM facet only meaningful on MANAGE surfaces (Browse/Registry).
-		if (!ANALYZE_SURFACES.has(surface) && sys) params.set('sys', sys);
+		if (kindApplies && sys) params.set('sys', sys);
 		const qs = params.toString();
 		return qs ? `${NGWA_ROUTE}?${qs}` : NGWA_ROUTE;
 	}
@@ -454,7 +459,7 @@ export function NgwaMode() {
 					<span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
 						Kind
 					</span>
-					{kindDisabled && (
+					{ANALYZE_SURFACES.has(activeSurface) && (
 						<span className="font-mono text-[9px] uppercase tracking-wider text-muted-foreground/50">
 							manage only
 						</span>
@@ -463,9 +468,8 @@ export function NgwaMode() {
 				<ul className="flex flex-col">
 					{KINDS.map(({ id, label, Icon }) => {
 						const isActive = onNgwaIndex && !kindDisabled && activeKind === id;
-						// Aggregated count across active systems (D-08 point 4). `store`
-						// is a catalog view, not a per-engine scan kind, so no count.
-						const count = id === 'store' ? null : (kindCounts?.[id] ?? null);
+						// Aggregated count across active systems (D-08 point 4).
+						const count = kindCounts?.[id] ?? null;
 						return (
 							<li key={id}>
 								<button

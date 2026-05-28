@@ -22,10 +22,16 @@ import '@/shell/claude-config/claude-config.css';
 // bare `/claude` is the Ngwa Browse landing (surface=browse, scope=all,
 // kind=skills).
 const ngwaSearchSchema = z.object({
-	surface: z.enum(['browse', 'registry', 'graph', 'map', 'life', 'health', 'flow']).optional(),
+	surface: z
+		.enum(['browse', 'registry', 'store', 'graph', 'map', 'life', 'health', 'flow'])
+		.optional()
+		.catch(undefined),
 	// 'all' | 'personal' | `project:<id>` (one per scanned project root).
 	scope: z.string().optional(),
-	kind: z.enum(['skills', 'agents', 'commands', 'hooks', 'mcps', 'store']).optional(),
+	// `store` is no longer a kind (it graduated to its own surface) — `.catch`
+	// degrades a stale `?kind=store` bookmark to the default kind instead of
+	// throwing a validateSearch error.
+	kind: z.enum(['skills', 'agents', 'commands', 'hooks', 'mcps']).optional().catch(undefined),
 	// SYSTEM facet (WP-20) — multi-select, comma-separated engine ids
 	// (`claude,gemini,codex`). Absent/empty ⇒ all present engines on.
 	sys: z.string().optional(),
