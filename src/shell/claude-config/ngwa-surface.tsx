@@ -20,7 +20,6 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { LayoutGrid, List as ListIcon } from 'lucide-react';
 
 import { cn } from '@/components/ui/utils';
 import { Markdown } from '@/components/markdown';
@@ -41,6 +40,7 @@ import {
 import {
 	claudeStoreQueryOptions,
 	obaDependentsQueryOptions,
+	useBackfillRegistry,
 	useCopyPrimitive,
 	useDisablePrimitive,
 	useEnablePrimitive,
@@ -53,6 +53,14 @@ import {
 	type KindStatus,
 } from '@/lib/queries/claude-config';
 import { obaSafeDelete, type SafeDeleteOutcome } from '@/lib/tauri-cmd';
+import {
+	mergePrimitiveView,
+	usePrimitiveCatalog,
+	PRIMITIVE_STATUS_WORD,
+	type PrimitiveCatalogEntry,
+	type PrimitiveStatus,
+	type PrimitiveViewItem,
+} from '@/lib/registry/primitives';
 
 import { Chips, FrontmatterGrid } from './list-detail';
 import { AnalyzeSurface } from './analyze';
@@ -60,12 +68,20 @@ import { EngineGlyph } from './engine-glyph';
 import { WriteTranscodeDrawer, isCrossEngineCopyable } from './write-drawer';
 
 // ─── URL-param vocabularies (must match WP-06's ngwa-mode.tsx) ──────────────
-export type NgwaSurfaceId = 'browse' | 'registry' | 'graph' | 'map' | 'life' | 'health' | 'flow';
+export type NgwaSurfaceId =
+	| 'browse'
+	| 'registry'
+	| 'store'
+	| 'graph'
+	| 'map'
+	| 'life'
+	| 'health'
+	| 'flow';
 // `project:<id>` selects one specific project; `all`/`personal` are the
 // cross-cutting defaults. The sidebar enumerates one `project:<id>` per
 // scanned project root (WP-06 ↔ WP-07 seam).
 export type NgwaScopeId = 'all' | 'personal' | `project:${string}`;
-export type NgwaKindId = 'skills' | 'agents' | 'commands' | 'hooks' | 'mcps' | 'store';
+export type NgwaKindId = 'skills' | 'agents' | 'commands' | 'hooks' | 'mcps';
 // The SYSTEM facet (WP-20 / D-08) is multi-select — peers with Scope + Kind in
 // the sidebar but, unlike them, can hold several values at once. It threads
 // through the URL as a comma-separated `sys` param; an absent / empty param
@@ -169,7 +185,6 @@ const KIND_LABEL: Record<NgwaKindId, string> = {
 	commands: 'Commands',
 	hooks: 'Hooks',
 	mcps: 'MCP',
-	store: 'Ọba · store',
 };
 const KIND_ABBR: Record<NgwaKindId, string> = {
 	skills: 'skill',
@@ -177,7 +192,6 @@ const KIND_ABBR: Record<NgwaKindId, string> = {
 	commands: 'cmd',
 	hooks: 'hook',
 	mcps: 'mcp',
-	store: 'store',
 };
 const STATE_WORD: Record<ItemState, string> = {
 	enabled: 'Enabled',
@@ -396,7 +410,6 @@ export function summarizeSystems(items: NgwaItem[]): NgwaSystemSummary {
 			commands: 0,
 			hooks: 0,
 			mcps: 0,
-			store: 0,
 		};
 		for (const it of items) {
 			if (active.has(it.system)) c[it.uiKind] += 1;
@@ -480,31 +493,14 @@ export function NgwaSurface({
 		[systems, summary.present]
 	);
 
-	const counts = useMemo(() => {
-		const c: Record<string, number> = {
-			...summary.kindCounts(activeSystems),
-		};
-		c.store = store.length;
-		return c;
-	}, [summary, activeSystems, store]);
-
 	// Total reflects the active systems too, so the header count tracks the facet.
 	const total = useMemo(
 		() => items.reduce((n, it) => (activeSystems.has(it.system) ? n + 1 : n), 0),
 		[items, activeSystems]
 	);
 
-	// Mode toggle reflects the URL surface but also lets the user flip in-place
-	// (Browse ⇄ Registry) without a sidebar round-trip — we keep a local mode
-	// seeded from the URL surface (G-02).
-	const [mode, setMode] = useState<'browse' | 'registry'>(
-		surface === 'registry' ? 'registry' : 'browse'
-	);
-	useEffect(() => {
-		if (surface === 'browse' || surface === 'registry') setMode(surface);
-	}, [surface]);
-
 	const isAnalyze = ANALYZE.has(surface);
+	const isStore = surface === 'store';
 
 	return (
 		<div className="ccfg ngwa-fill" style={{ gridTemplateRows: 'auto 1fr auto' }}>
@@ -517,33 +513,14 @@ export function NgwaSurface({
 					<span className="sub">
 						{isAnalyze
 							? ANALYZE_LABEL[surface]
-							: mode === 'registry'
-								? 'one registry · all primitives · all scopes · bulk triage'
-								: 'agents · skills · commands · hooks · MCP, across scopes'}
+							: isStore
+								? 'Ọba · canonical store · install into scopes'
+								: surface === 'registry'
+									? 'one registry · all primitives · all scopes · bulk triage'
+									: 'agents · skills · commands · hooks · MCP, across scopes'}
 					</span>
 				</div>
 				<div className="hd-right">
-					{!isAnalyze && (
-						<div
-							className="ngwa-mode"
-							title="Browse = per-kind depth · Registry = cross-kind triage + bulk"
-						>
-							<button
-								type="button"
-								className={cn(mode === 'browse' && 'on')}
-								onClick={() => setMode('browse')}
-							>
-								<LayoutGrid /> Browse
-							</button>
-							<button
-								type="button"
-								className={cn(mode === 'registry' && 'on')}
-								onClick={() => setMode('registry')}
-							>
-								<ListIcon /> Registry
-							</button>
-						</div>
-					)}
 					{/* engine seam — live badge set of the active systems (D-08). The
 					    SYSTEM facet in the sidebar is the toggle; this is a read-only
 					    indicator of which engines are currently in view. */}
@@ -574,7 +551,15 @@ export function NgwaSurface({
 					items={items}
 					store={store}
 				/>
-			) : mode === 'registry' ? (
+			) : isStore ? (
+				<StoreSurface
+					store={store}
+					isLoading={isLoading || storeQuery.isLoading}
+					error={error}
+					onEdit={onEdit}
+					projectScopes={projectScopes}
+				/>
+			) : surface === 'registry' ? (
 				<RegistrySurface
 					items={items}
 					store={store}
@@ -589,13 +574,11 @@ export function NgwaSurface({
 			) : (
 				<BrowseSurface
 					items={items}
-					store={store}
 					scope={scope}
 					kind={kind}
-					counts={counts}
 					activeSystems={activeSystems}
 					present={summary.present}
-					isLoading={isLoading || storeQuery.isLoading}
+					isLoading={isLoading}
 					error={error}
 					onEdit={onEdit}
 					projectScopes={projectScopes}
@@ -646,41 +629,13 @@ function passScope(it: NgwaItem, scope: NgwaScopeId): boolean {
 	return it.scopeKey === scope;
 }
 
-// ─── BROWSE surface (2-pane: list │ resizable divider │ detail) ─────────────
-
-interface BrowseProps {
-	items: NgwaItem[];
-	store: ClaudeStoreEntry[];
-	scope: NgwaScopeId;
-	kind: NgwaKindId;
-	counts: Record<string, number>;
-	activeSystems: ReadonlySet<NgwaSystemId>;
-	present: NgwaSystemId[];
-	isLoading: boolean;
-	error: string | null;
-	onEdit: (path: string) => void;
-	projectScopes: Array<{ key: ClaudeStoreScope; label: string }>;
-}
-
-function BrowseSurface({
-	items,
-	store,
-	scope,
-	kind,
-	activeSystems,
-	present,
-	isLoading,
-	error,
-	onEdit,
-	projectScopes,
-}: BrowseProps) {
-	const [filter, setFilter] = useState('');
-	const [selId, setSelId] = useState<string | null>(null);
-
-	const splitRef = useRef<HTMLDivElement | null>(null);
-	const dividerRef = useRef<HTMLDivElement | null>(null);
-
-	// G-06: drag-to-resize divider + double-click reset.
+// ─── Shared 2-pane resizable divider (G-06) ─────────────────────────────────
+// Drag-to-resize the list│detail split + double-click to reset. Shared by the
+// Browse and Store surfaces, which use the same `.ccfg-split` layout.
+function useResizableSplit(
+	splitRef: React.RefObject<HTMLDivElement | null>,
+	dividerRef: React.RefObject<HTMLDivElement | null>
+) {
 	useEffect(() => {
 		const split = splitRef.current;
 		const divider = dividerRef.current;
@@ -717,21 +672,45 @@ function BrowseSurface({
 			divider.removeEventListener('mousedown', onDown);
 			divider.removeEventListener('dblclick', onDouble);
 		};
-	}, []);
+	}, [splitRef, dividerRef]);
+}
 
-	// Store-catalog kind shows the interactive catalog (G-09), otherwise scope+kind
-	// filtered on-disk items.
-	const isStoreKind = kind === 'store';
+// ─── BROWSE surface (2-pane: list │ resizable divider │ detail) ─────────────
+
+interface BrowseProps {
+	items: NgwaItem[];
+	scope: NgwaScopeId;
+	kind: NgwaKindId;
+	activeSystems: ReadonlySet<NgwaSystemId>;
+	present: NgwaSystemId[];
+	isLoading: boolean;
+	error: string | null;
+	onEdit: (path: string) => void;
+	projectScopes: Array<{ key: ClaudeStoreScope; label: string }>;
+}
+
+function BrowseSurface({
+	items,
+	scope,
+	kind,
+	activeSystems,
+	present,
+	isLoading,
+	error,
+	onEdit,
+	projectScopes,
+}: BrowseProps) {
+	const [filter, setFilter] = useState('');
+	const [selId, setSelId] = useState<string | null>(null);
+
+	const splitRef = useRef<HTMLDivElement | null>(null);
+	const dividerRef = useRef<HTMLDivElement | null>(null);
+	useResizableSplit(splitRef, dividerRef);
 
 	const list = useMemo(() => {
-		if (isStoreKind) return [];
-		const storeKind = (Object.keys(UI_KIND_OF) as ClaudeStoreKind[]).find(
-			(k) => UI_KIND_OF[k] === kind
-		);
 		let xs = items.filter(
 			(it) => it.uiKind === kind && passScope(it, scope) && activeSystems.has(it.system)
 		);
-		if (storeKind) void storeKind; // kind already mapped via uiKind
 		if (filter.trim()) {
 			const f = filter.toLowerCase();
 			xs = xs.filter(
@@ -740,31 +719,12 @@ function BrowseSurface({
 			);
 		}
 		return xs;
-	}, [items, kind, scope, filter, isStoreKind, activeSystems]);
-
-	const storeList = useMemo(() => {
-		if (!isStoreKind) return [];
-		let xs = store;
-		if (filter.trim()) {
-			const f = filter.toLowerCase();
-			xs = xs.filter(
-				(e) => e.name.toLowerCase().includes(f) || (e.description ?? '').toLowerCase().includes(f)
-			);
-		}
-		return xs;
-	}, [store, isStoreKind, filter]);
+	}, [items, kind, scope, filter, activeSystems]);
 
 	const selected = useMemo(() => {
-		if (isStoreKind) return null;
 		if (!list.length) return null;
 		return list.find((it) => it.id === selId) ?? list[0];
-	}, [list, selId, isStoreKind]);
-
-	const selectedStore = useMemo(() => {
-		if (!isStoreKind) return null;
-		if (!storeList.length) return null;
-		return storeList.find((e) => `store:${e.kind}:${e.name}` === selId) ?? storeList[0];
-	}, [storeList, selId, isStoreKind]);
+	}, [list, selId]);
 
 	// Engine-grouped clusters (D-08): rows cluster under a tinted per-engine
 	// sub-header rather than interleaving. Only emitted when more than one engine
@@ -808,11 +768,11 @@ function BrowseSurface({
 					</div>
 				</div>
 				<div className="ccfg-list-meta">
-					<span>{isStoreKind ? 'STORE / CATALOG' : KIND_LABEL[kind].toUpperCase()}</span>
+					<span>{KIND_LABEL[kind].toUpperCase()}</span>
 					<span>
 						{scope === 'all' ? 'all scopes' : scope.startsWith('project:') ? scope.slice(8) : scope}{' '}
-						· {isStoreKind ? `${storeList.length} canonical` : list.length}
-						{!isStoreKind && engineGroups && ` · ${engineGroups.length} systems`}
+						· {list.length}
+						{engineGroups && ` · ${engineGroups.length} systems`}
 					</span>
 				</div>
 				<div className="ccfg-list-rows">
@@ -820,23 +780,6 @@ function BrowseSurface({
 						<div className="ccfg-empty">Loading…</div>
 					) : error ? (
 						<div className="ccfg-empty">{error}</div>
-					) : isStoreKind ? (
-						storeList.length === 0 ? (
-							<div className="ccfg-empty">No catalog entries match.</div>
-						) : (
-							storeList.map((e) => (
-								<StoreRow
-									key={`store:${e.kind}:${e.name}`}
-									entry={e}
-									active={
-										selectedStore != null &&
-										selectedStore.name === e.name &&
-										selectedStore.kind === e.kind
-									}
-									onClick={() => setSelId(`store:${e.kind}:${e.name}`)}
-								/>
-							))
-						)
 					) : list.length === 0 ? (
 						<div className="ccfg-empty">No entries match.</div>
 					) : engineGroups ? (
@@ -876,13 +819,7 @@ function BrowseSurface({
 			</div>
 			<div className="ccfg-divider" ref={dividerRef} />
 			<div className="ccfg-detail ngwa-detail">
-				{isStoreKind ? (
-					selectedStore ? (
-						<StoreDetail entry={selectedStore} projectScopes={projectScopes} onEdit={onEdit} />
-					) : (
-						<EmptyCarve />
-					)
-				) : selected ? (
+				{selected ? (
 					<ItemDetail
 						item={selected}
 						projectScopes={projectScopes}
@@ -895,6 +832,289 @@ function BrowseSurface({
 				)}
 			</div>
 		</div>
+	);
+}
+
+// ─── STORE surface (Ọba — 2-pane: list │ divider │ detail) ──────────────────
+// Promoted from the old `kind=store` branch of Browse into its own MANAGE
+// surface (peer to Browse/Registry). The catalog spans all kinds + engines, so
+// the sidebar KIND + SYSTEM facets dim here (handled in ngwa-mode.tsx).
+//
+// WP-10a: the local store (what's installed) is merged with the primitive
+// catalog (what's available to install) into one status-tagged list, sliced by
+// the Installed | Available | Updatable filter chips. Install/Update actions
+// are disabled-pending Phase 2 (git/npx install + update, WP-07–09).
+
+interface StoreProps {
+	store: ClaudeStoreEntry[];
+	isLoading: boolean;
+	error: string | null;
+	onEdit: (path: string) => void;
+	projectScopes: Array<{ key: ClaudeStoreScope; label: string }>;
+}
+
+type StoreStatusFilter = 'all' | PrimitiveStatus;
+
+const STORE_CHIPS: Array<{ id: StoreStatusFilter; label: string }> = [
+	{ id: 'all', label: 'All' },
+	{ id: 'installed', label: 'Installed' },
+	{ id: 'available', label: 'Available' },
+	{ id: 'updatable', label: 'Updatable' },
+];
+
+function StoreSurface({ store, isLoading, error, onEdit, projectScopes }: StoreProps) {
+	const [filter, setFilter] = useState('');
+	const [statusFilter, setStatusFilter] = useState<StoreStatusFilter>('all');
+	const [selId, setSelId] = useState<string | null>(null);
+
+	const splitRef = useRef<HTMLDivElement | null>(null);
+	const dividerRef = useRef<HTMLDivElement | null>(null);
+	useResizableSplit(splitRef, dividerRef);
+
+	// Ọba registry back-fill — scan the live config farm for EXTERNAL masters
+	// (symlinks resolving to a master outside the store, e.g. groundwork) and
+	// register their provenance. It doesn't move files into the store, so the
+	// `canonical` count is unchanged; the win is provenance shown in each
+	// `linked` item's detail. Surface the returned count as feedback.
+	const backfill = useBackfillRegistry();
+	const [backfillMsg, setBackfillMsg] = useState<string | null>(null);
+
+	// WP-10a: recommendation feed. Bundled seed for now (remote signed catalog
+	// is WP-10b). Merge with the local store → status-tagged rows.
+	const catalogQuery = usePrimitiveCatalog();
+	const catalog = catalogQuery.data ?? [];
+	const view = useMemo(() => mergePrimitiveView(store, catalog), [store, catalog]);
+
+	const rows = useMemo(() => {
+		let xs = statusFilter === 'all' ? view : view.filter((r) => r.status === statusFilter);
+		if (filter.trim()) {
+			const f = filter.toLowerCase();
+			xs = xs.filter(
+				(r) => r.name.toLowerCase().includes(f) || (r.description ?? '').toLowerCase().includes(f)
+			);
+		}
+		return xs;
+	}, [view, statusFilter, filter]);
+
+	const counts = useMemo(() => {
+		const c = { installed: 0, available: 0, updatable: 0 } as Record<PrimitiveStatus, number>;
+		for (const r of view) c[r.status] += 1;
+		return c;
+	}, [view]);
+
+	const selected = useMemo(() => {
+		if (!rows.length) return null;
+		return rows.find((r) => r.key === selId) ?? rows[0];
+	}, [rows, selId]);
+
+	const loading = isLoading || catalogQuery.isLoading;
+	// Nothing installed AND nothing recommended — a genuinely empty surface.
+	const allEmpty = !loading && !error && view.length === 0;
+
+	return (
+		<div className="ccfg-split" ref={splitRef} style={{ minHeight: 0 }}>
+			<div className="ccfg-list">
+				<div className="ccfg-list-toolbar">
+					<div className="ccfg-search-wrap">
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+							<circle cx="11" cy="11" r="7" />
+							<path d="m20 20-3-3" />
+						</svg>
+						<input
+							className="ccfg-search"
+							value={filter}
+							onChange={(e) => setFilter(e.target.value)}
+							placeholder="filter catalog…"
+						/>
+					</div>
+					<button
+						type="button"
+						className="ngwa-btn"
+						disabled={backfill.isPending}
+						title="Scan the live config farm for external masters (e.g. groundwork) and register their provenance into the Ọba registry."
+						onClick={() => {
+							setBackfillMsg(null);
+							backfill.mutate(undefined, {
+								onSuccess: (n) =>
+									setBackfillMsg(
+										n > 0
+											? `Back-filled ${n} external master${n === 1 ? '' : 's'}.`
+											: 'No new external masters found.'
+									),
+								onError: (e) => setBackfillMsg(String(e)),
+							});
+						}}
+					>
+						{backfill.isPending ? 'Backfilling…' : 'Backfill'}
+					</button>
+				</div>
+				<div className="ngwa-toolbar" style={{ borderTop: 0, paddingTop: 0 }}>
+					{STORE_CHIPS.map((c) => {
+						const n = c.id === 'all' ? view.length : counts[c.id];
+						return (
+							<button
+								key={c.id}
+								type="button"
+								className={cn('ngwa-fchip', statusFilter === c.id && 'on')}
+								onClick={() => setStatusFilter(c.id)}
+							>
+								{c.label}
+								{c.id !== 'all' && <span style={{ opacity: 0.6 }}> {n}</span>}
+							</button>
+						);
+					})}
+				</div>
+				<div className="ccfg-list-meta">
+					<span>STORE / CATALOG</span>
+					<span>
+						{backfillMsg ?? `${counts.installed} installed · ${counts.available} available`}
+					</span>
+				</div>
+				<div className="ccfg-list-rows">
+					{loading ? (
+						<div className="ccfg-empty">Loading…</div>
+					) : error ? (
+						<div className="ccfg-empty">{error}</div>
+					) : allEmpty ? (
+						<div className="ccfg-empty">Ọba store is empty — nothing installed or recommended yet.</div>
+					) : rows.length === 0 ? (
+						<div className="ccfg-empty">No entries match this filter.</div>
+					) : (
+						rows.map((r) => (
+							<PrimitiveRow
+								key={r.key}
+								item={r}
+								active={selected != null && selected.key === r.key}
+								onClick={() => setSelId(r.key)}
+							/>
+						))
+					)}
+				</div>
+			</div>
+			<div className="ccfg-divider" ref={dividerRef} />
+			<div className="ccfg-detail ngwa-detail">
+				{selected?.store ? (
+					<StoreDetail entry={selected.store} projectScopes={projectScopes} onEdit={onEdit} />
+				) : selected?.catalog ? (
+					<CatalogDetail entry={selected.catalog} />
+				) : allEmpty ? (
+					<div className="ccfg-empty">
+						<div className="carve">▽▽▽</div>
+						The Ọba store has no entries yet.
+						<br />
+						Import a primitive from Browse, or install one from the catalog.
+					</div>
+				) : (
+					<EmptyCarve />
+				)}
+			</div>
+		</div>
+	);
+}
+
+// One row in the merged store view — installed canonical, an available catalog
+// recommendation, or an installed-but-updatable entry.
+function PrimitiveRow({
+	item,
+	active,
+	onClick,
+}: {
+	item: PrimitiveViewItem;
+	active: boolean;
+	onClick: () => void;
+}) {
+	const dot: ItemState =
+		item.status === 'available' ? 'disabled' : item.status === 'updatable' ? 'linked' : 'enabled';
+	const installedScopes = item.store?.enabledIn.length ?? 0;
+	return (
+		<button
+			type="button"
+			onClick={onClick}
+			className={cn('ccfg-row text-left w-full', active && 'is-on')}
+		>
+			<div className="ccfg-row-name">
+				<span className={cn('ngwa-dot', dot)} title={PRIMITIVE_STATUS_WORD[item.status]} aria-hidden />
+				<span>{item.name}</span>
+				<span className="ccfg-scope">{KIND_ABBR[UI_KIND_OF[item.kind]]}</span>
+				{item.status === 'updatable' && item.catalog && (
+					<span className="ngwa-ovr" title={`Catalog has ${item.catalog.version}`}>
+						upd
+					</span>
+				)}
+			</div>
+			{item.description && <div className="ccfg-row-desc">{item.description}</div>}
+			<div className="ccfg-row-meta">
+				<span className={cn('ngwa-stword', item.status === 'available' ? 'disabled' : 'enabled')}>
+					{item.status === 'updatable'
+						? `Update → ${item.catalog?.version}`
+						: item.status === 'available'
+							? 'Available'
+							: installedScopes
+								? `Installed · ${installedScopes}`
+								: 'In store'}
+				</span>
+				<span>·</span>
+				<span>{item.status === 'available' ? `via ${item.catalog?.source}` : 'canonical'}</span>
+			</div>
+		</button>
+	);
+}
+
+// Detail for a catalog-only (available) recommendation. Install resolves to a
+// git/npx fetch under the hood — that machinery is Phase 2 (WP-07–09), so the
+// Install action is disabled-pending here.
+function CatalogDetail({ entry }: { entry: PrimitiveCatalogEntry }) {
+	return (
+		<>
+			<div className="ccfg-detail-head">
+				<h2>
+					{entry.name}
+					<span className="ccfg-scope-pill is-project">{KIND_ABBR[UI_KIND_OF[entry.kind]]}</span>
+				</h2>
+				<div style={{ marginTop: 6 }}>
+					<span className="ngwa-dstate">Ọba catalog · available to install</span>
+				</div>
+				{entry.description && <div className="ccfg-detail-desc">{entry.description}</div>}
+			</div>
+
+			<div className="ccfg-detail-body">
+				<Section label="Source">
+					<FrontmatterGrid
+						entries={[
+							['source', entry.source],
+							['ref', <span style={{ wordBreak: 'break-all' }}>{entry.url}</span>],
+							['version', entry.version],
+							...(entry.publisher
+								? [['publisher', entry.publisher] as [string, React.ReactNode]]
+								: []),
+						]}
+					/>
+				</Section>
+				<div className="ccfg-section">
+					<div className="ngwa-mech">
+						<b>Install resolves to a {entry.source} fetch.</b> Installing clones/fetches the master
+						into the Ọba vault and symlinks it into your chosen scope — the same provenance path
+						imported primitives use.
+					</div>
+				</div>
+			</div>
+
+			<div className="ngwa-actions">
+				<div className="ngwa-acts">
+					<button
+						type="button"
+						className="ngwa-btn primary"
+						disabled
+						title="Install lands with the git/npx install path (Ọba Phase 2 · WP-07–09)"
+					>
+						Install…
+					</button>
+					<span className="ngwa-stword" style={{ textTransform: 'none', opacity: 0.7 }}>
+						install arrives with Ọba Phase 2
+					</span>
+				</div>
+			</div>
+		</>
 	);
 }
 
@@ -970,39 +1190,6 @@ function BrowseRow({
 					{item.storeEntry ? 'store ↗' : item.scope === 'personal' ? '~/.claude' : '.claude'}
 				</span>
 				<span className={cn('ngwa-mtag', item.mech)}>{item.mech}</span>
-			</div>
-		</button>
-	);
-}
-
-function StoreRow({
-	entry,
-	active,
-	onClick,
-}: {
-	entry: ClaudeStoreEntry;
-	active: boolean;
-	onClick: () => void;
-}) {
-	const enabledCount = entry.enabledIn.length;
-	return (
-		<button
-			type="button"
-			onClick={onClick}
-			className={cn('ccfg-row text-left w-full', active && 'is-on')}
-		>
-			<div className="ccfg-row-name">
-				<StateDot state={enabledCount ? 'enabled' : 'disabled'} />
-				<span>{entry.name}</span>
-				<span className="ccfg-scope">{KIND_ABBR[UI_KIND_OF[entry.kind]]}</span>
-			</div>
-			{entry.description && <div className="ccfg-row-desc">{entry.description}</div>}
-			<div className="ccfg-row-meta">
-				<span className={cn('ngwa-stword', enabledCount ? 'enabled' : 'disabled')}>
-					{enabledCount ? `Enabled in ${enabledCount}` : 'Available'}
-				</span>
-				<span>·</span>
-				<span>canonical</span>
 			</div>
 		</button>
 	);
@@ -1428,6 +1615,11 @@ function ItemDetail({
 
 	const on = item.state === 'enabled';
 	const k = item.storeKind;
+	// Skills are DIRECTORY primitives — the importer (`import_core`) needs the
+	// skill dir, not the SKILL.md file that `path` points at (a file fails its
+	// `is_dir()` check, silently rejecting the import). Single-file kinds
+	// (agent/command) keep `path`. Hook/mcp are JSON-merge and never `local`.
+	const importSource = item.storeKind === 'skill' ? (item.raw as ClaudeSkill).dirPath : item.path;
 
 	// ── precedence / override callout (G-04) ──
 	let prec: React.ReactNode = null;
@@ -1676,7 +1868,7 @@ function ItemDetail({
 							className="ngwa-btn primary"
 							disabled={importToStore.isPending}
 							onClick={() =>
-								importToStore.mutate({ kind: k, name: item.name, sourcePath: item.path })
+								importToStore.mutate({ kind: k, name: item.name, sourcePath: importSource })
 							}
 						>
 							Import to store

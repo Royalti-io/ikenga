@@ -645,34 +645,6 @@ button.ccfg-tree-row.dir:hover {
 	align-items: center;
 	gap: var(--space-3);
 }
-.ngwa-mode {
-	display: flex;
-	gap: 1px;
-	background: var(--bg-sunken);
-	border: 1px solid var(--border-soft);
-	border-radius: var(--radius-sm);
-	padding: 2px;
-}
-.ngwa-mode button {
-	border: 0;
-	background: transparent;
-	border-radius: var(--radius-xs);
-	padding: 4px 12px;
-	font-family: var(--font-mono);
-	font-size: 11px;
-	color: var(--fg-faint);
-	display: flex;
-	align-items: center;
-	gap: 6px;
-}
-.ngwa-mode button.on {
-	background: var(--bg-raised);
-	color: var(--tint-fg-active, var(--primary));
-}
-.ngwa-mode button svg {
-	width: 12px;
-	height: 12px;
-}
 .ngwa-sys {
 	display: flex;
 	gap: 2px;
