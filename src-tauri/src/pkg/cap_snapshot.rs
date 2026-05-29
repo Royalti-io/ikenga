@@ -217,6 +217,7 @@ mod tests {
             supabase: Some(crate::pkg::manifest::SupabaseCapability { required: true }),
             sqlite: None,
             webview: None,
+            agent_ops: None,
         });
         assert!(capabilities_changed(&normalize(&a), &normalize(&b)));
     }

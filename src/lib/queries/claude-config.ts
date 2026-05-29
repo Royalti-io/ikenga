@@ -17,11 +17,15 @@ import {
 	claudeStoreList,
 	ngwaCrossEngineCopy,
 	obaBackfillRegistry,
+	obaCheckUpdate,
 	obaDependents,
 	obaForget,
+	obaInstallGit,
+	obaInstallNpx,
 	obaRelinkDependents,
 	obaSafeDelete,
 	obaUnlinkOne,
+	obaUpdate,
 	type ClaudeAgent,
 	type ClaudeCommand,
 	type ClaudeConfig,
@@ -42,7 +46,9 @@ import {
 	type NgwaTranscodeMode,
 	type ObaRelinkRow,
 	type SafeDeleteOutcome,
+	type UpdateStatus,
 } from '@/lib/tauri-cmd';
+import type { PrimitiveCatalogEntry } from '@/lib/registry/primitives';
 import { queryKeys } from '@/lib/query-keys';
 
 // Re-export the scan-result entry types plus the Ngwa Phase-2 cross-system
@@ -221,6 +227,41 @@ export function useBackfillRegistry() {
 	return useMutation<number, Error, void>({
 		mutationFn: () => obaBackfillRegistry(),
 		onSuccess: invalidate,
+	});
+}
+
+/**
+ * Install a catalog primitive into the vault (Ọba Phase 2 · WP-10c). Routes to
+ * `oba_install_git` / `oba_install_npx` by the entry's `source`. Invalidating the
+ * store list re-tallies the Installed/Available/Updatable chips (the merged view
+ * recomputes from the new store), so the catalog query itself need not refetch.
+ */
+export function useObaInstall() {
+	const invalidate = useInvalidateClaudeStore();
+	return useMutation<ClaudeStoreEntry, Error, PrimitiveCatalogEntry>({
+		mutationFn: (entry) =>
+			entry.source === 'npx'
+				? obaInstallNpx(entry.kind, entry.name, entry.url)
+				: obaInstallGit(entry.kind, entry.name, entry.url, null),
+		onSuccess: invalidate,
+	});
+}
+
+/** Re-fetch a managed primitive into its canonical in place (Ọba Phase 2 · WP-09). */
+export function useObaUpdate() {
+	const invalidate = useInvalidateClaudeStore();
+	return useMutation<ClaudeStoreEntry, Error, { kind: ClaudeStoreKind; name: string }>({
+		mutationFn: ({ kind, name }) => obaUpdate(kind, name),
+		onSuccess: invalidate,
+	});
+}
+
+/** On-demand update check for a git/npx-installed primitive (read-only). */
+export function obaCheckUpdateQueryOptions(kind: ClaudeStoreKind, name: string) {
+	return queryOptions({
+		queryKey: [...queryKeys.claudeStore.all, 'update-check', kind, name] as const,
+		queryFn: (): Promise<UpdateStatus> => obaCheckUpdate(kind, name),
+		staleTime: 5 * 60 * 1000,
 	});
 }
 

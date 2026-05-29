@@ -60,6 +60,15 @@ mod toml_merge;
 /// dependents are computed live (WP-04), so the index is non-fatal if lost.
 mod registry;
 
+/// Ọba Phase 2 (WP-07/08/09) — install-from-git / install-from-npx + check-update
+/// / update. Fetches a managed canonical into the vault (`store/<kind>s/<name>`,
+/// in-place uniform) and records provenance; placement stays the separate
+/// `claude_primitive_enable` step. Reuses this module's `atomic_copy_*` as the
+/// atomic swap and the `registry` I/O above.
+mod install;
+
+pub use install::{oba_check_update, oba_install_git, oba_install_npx, oba_update};
+
 // ─── Wire types (mirror the frozen G-CONTRACT) ───────────────────────────────
 
 /// Origin of a primitive's canonical master. Frozen part of `G-SCHEMA` (Ọba

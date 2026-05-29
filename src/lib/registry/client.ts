@@ -22,6 +22,13 @@ import {
 export const REGISTRY_URL = 'https://royalti-io.github.io/ikenga-registry/index.json';
 
 /**
+ * Primitive catalog (Ọba WP-10b). A separate signed `primitives.json` published
+ * to the same registry host, signed with the same key as `index.json`. Fetched
+ * + minisign-verified by `lib/registry/primitives.ts::fetchPrimitiveCatalog`.
+ */
+export const PRIMITIVES_URL = 'https://royalti-io.github.io/ikenga-registry/primitives.json';
+
+/**
  * Minisign public key for the registry signer. Generated 2026-05-13 by the
  * `update-registry-index.mjs` keypair (NOT the shell updater key — separate
  * trust roots). Hard-coded so the verifier doesn't depend on disk state.

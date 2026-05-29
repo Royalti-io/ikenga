@@ -46,6 +46,8 @@ import {
 	useEnablePrimitive,
 	useImportToStore,
 	useMovePrimitive,
+	useObaInstall,
+	useObaUpdate,
 	useRelinkDependents,
 	useRemovePrimitive,
 	type ConfigFormat,
@@ -976,7 +978,9 @@ function StoreSurface({ store, isLoading, error, onEdit, projectScopes }: StoreP
 					) : error ? (
 						<div className="ccfg-empty">{error}</div>
 					) : allEmpty ? (
-						<div className="ccfg-empty">Ọba store is empty — nothing installed or recommended yet.</div>
+						<div className="ccfg-empty">
+							Ọba store is empty — nothing installed or recommended yet.
+						</div>
 					) : rows.length === 0 ? (
 						<div className="ccfg-empty">No entries match this filter.</div>
 					) : (
@@ -994,7 +998,13 @@ function StoreSurface({ store, isLoading, error, onEdit, projectScopes }: StoreP
 			<div className="ccfg-divider" ref={dividerRef} />
 			<div className="ccfg-detail ngwa-detail">
 				{selected?.store ? (
-					<StoreDetail entry={selected.store} projectScopes={projectScopes} onEdit={onEdit} />
+					<StoreDetail
+						entry={selected.store}
+						projectScopes={projectScopes}
+						onEdit={onEdit}
+						updatable={selected.status === 'updatable'}
+						catalogVersion={selected.catalog?.version ?? null}
+					/>
 				) : selected?.catalog ? (
 					<CatalogDetail entry={selected.catalog} />
 				) : allEmpty ? (
@@ -1033,7 +1043,11 @@ function PrimitiveRow({
 			className={cn('ccfg-row text-left w-full', active && 'is-on')}
 		>
 			<div className="ccfg-row-name">
-				<span className={cn('ngwa-dot', dot)} title={PRIMITIVE_STATUS_WORD[item.status]} aria-hidden />
+				<span
+					className={cn('ngwa-dot', dot)}
+					title={PRIMITIVE_STATUS_WORD[item.status]}
+					aria-hidden
+				/>
 				<span>{item.name}</span>
 				<span className="ccfg-scope">{KIND_ABBR[UI_KIND_OF[item.kind]]}</span>
 				{item.status === 'updatable' && item.catalog && (
@@ -1061,9 +1075,17 @@ function PrimitiveRow({
 }
 
 // Detail for a catalog-only (available) recommendation. Install resolves to a
-// git/npx fetch under the hood — that machinery is Phase 2 (WP-07–09), so the
-// Install action is disabled-pending here.
+// git/npx fetch into the vault (Ọba Phase 2 · WP-07/08); placement into a scope
+// is the separate per-scope Enable step on the resulting store entry.
+// Tauri command rejections surface as plain strings (the `Err(String)` body),
+// not `Error` objects — so `.message` is undefined. Coerce either shape.
+function errText(e: unknown): string {
+	return e instanceof Error ? e.message : String(e);
+}
+
 function CatalogDetail({ entry }: { entry: PrimitiveCatalogEntry }) {
+	const install = useObaInstall();
+	const isFileBased = entry.kind === 'skill' || entry.kind === 'agent' || entry.kind === 'command';
 	return (
 		<>
 			<div className="ccfg-detail-head">
@@ -1104,13 +1126,24 @@ function CatalogDetail({ entry }: { entry: PrimitiveCatalogEntry }) {
 					<button
 						type="button"
 						className="ngwa-btn primary"
-						disabled
-						title="Install lands with the git/npx install path (Ọba Phase 2 · WP-07–09)"
+						disabled={!isFileBased || install.isPending}
+						title={
+							isFileBased
+								? `Fetch ${entry.name} from its ${entry.source} source into the Ọba vault`
+								: `${entry.kind} primitives install via the merge engine, not the vault`
+						}
+						onClick={() => install.mutate(entry)}
 					>
-						Install…
+						{install.isPending ? 'Installing…' : 'Install'}
 					</button>
 					<span className="ngwa-stword" style={{ textTransform: 'none', opacity: 0.7 }}>
-						install arrives with Ọba Phase 2
+						{install.isError
+							? `install failed: ${errText(install.error)}`
+							: install.isSuccess
+								? 'installed — enable it in a scope below'
+								: isFileBased
+									? `fetches via ${entry.source} into the vault`
+									: 'hook/mcp install is not yet supported'}
 					</span>
 				</div>
 			</div>
@@ -2102,13 +2135,20 @@ function StoreDetail({
 	entry,
 	projectScopes,
 	onEdit,
+	updatable = false,
+	catalogVersion = null,
 }: {
 	entry: ClaudeStoreEntry;
 	projectScopes: Array<{ key: ClaudeStoreScope; label: string }>;
 	onEdit: (path: string) => void;
+	/** True when the catalog lists a newer version than the installed one. */
+	updatable?: boolean;
+	/** The catalog's version, shown in the Update affordance. */
+	catalogVersion?: string | null;
 }) {
 	const enable = useEnablePrimitive();
 	const disable = useDisablePrimitive();
+	const update = useObaUpdate();
 	const [installing, setInstalling] = useState(false);
 
 	const enabledSet = new Set(entry.enabledIn);
@@ -2148,6 +2188,32 @@ function StoreDetail({
 						]}
 					/>
 				</Section>
+
+				{/* WP-10c: update available — re-fetch the managed canonical in place */}
+				{updatable && (
+					<Section label="Update available">
+						<div className="ngwa-mech" style={{ marginBottom: 8 }}>
+							Catalog has <b>{catalogVersion ?? 'a newer version'}</b>. Updating re-fetches the
+							canonical in place — existing scope symlinks resolve to the refreshed files (no
+							relink).
+						</div>
+						<div className="ngwa-acts">
+							<button
+								type="button"
+								className="ngwa-btn primary"
+								disabled={update.isPending}
+								onClick={() => update.mutate({ kind: entry.kind, name: entry.name })}
+							>
+								{update.isPending ? 'Updating…' : `Update → ${catalogVersion ?? 'latest'}`}
+							</button>
+							{update.isError && (
+								<span className="ngwa-stword" style={{ textTransform: 'none', opacity: 0.7 }}>
+									update failed: {errText(update.error)}
+								</span>
+							)}
+						</div>
+					</Section>
+				)}
 
 				{/* G-09: installed-in scopes */}
 				<Section label="Installed in" count={`${entry.enabledIn.length} scopes`}>

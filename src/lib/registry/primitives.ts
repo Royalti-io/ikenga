@@ -4,11 +4,14 @@
 //
 // SOURCE (decided 2026-05-28, see plans/oba-registry/04-discussion.md Round 3):
 // a dedicated, signed `primitives.json` published to the ikenga-registry
-// (GitHub Pages), fetched + minisign-verified exactly like the pkg index. That
-// remote catalog doesn't exist yet — publishing + signing is WP-10b — so this
-// read-only slice (WP-10a) ships a BUNDLED starter catalog in the same shape.
-// Swapping to the remote source is a one-function change in
-// `fetchPrimitiveCatalog` (mirror `client.ts::fetchIndex`).
+// (GitHub Pages), fetched + minisign-verified exactly like the pkg index.
+// WP-10b (this change): `fetchPrimitiveCatalog` now fetches `primitives.json`
+// + its `.minisig` from `PRIMITIVES_URL`, verifies the signature against the
+// same `REGISTRY_PUBKEY` the pkg index trusts, and validates the payload shape.
+// The BUNDLED `primitives-seed.json` is kept as a fallback used ONLY when the
+// remote is genuinely ABSENT (network failure / 404) — never when the signature
+// or shape fails to verify (a verify failure is treated as hostile and throws,
+// mirroring `client.ts::fetchIndex`).
 //
 // Install / update actions are gated on Phase 2 (git/npx install + update,
 // WP-07–09) — a catalog entry is only a POINTER that resolves to a git/npx
@@ -16,9 +19,10 @@
 // the UI shows Install/Update disabled-pending.
 
 import { useQuery } from '@tanstack/react-query';
-import { semverCompare } from '@ikenga/registry-client';
+import { semverCompare, verifyMinisign } from '@ikenga/registry-client';
 
 import type { ClaudeStoreEntry, ClaudeStoreKind } from '@/lib/tauri-cmd';
+import { PRIMITIVES_URL, REGISTRY_PUBKEY } from './client';
 import seed from './primitives-seed.json';
 
 /** One installable primitive in the Ọba catalog. `source`/`url` are the
@@ -42,11 +46,98 @@ export interface PrimitiveCatalog {
 	primitives: PrimitiveCatalogEntry[];
 }
 
-/** Fetch the primitive catalog. WP-10a: returns the bundled seed. WP-10b will
- *  fetch + minisign-verify `…/ikenga-registry/primitives.json` (mirroring
- *  `fetchIndex`) and fall back to the seed only if the remote is absent. */
-export async function fetchPrimitiveCatalog(): Promise<PrimitiveCatalogEntry[]> {
-	return (seed as PrimitiveCatalog).primitives;
+const KINDS: ReadonlySet<string> = new Set(['skill', 'agent', 'command', 'hook', 'mcp']);
+
+/** Defensive runtime validation of a fetched catalog payload (there is no Zod
+ *  schema for `primitives.json` in @ikenga/contract — the pkg index has one,
+ *  primitives don't yet). Throws on a malformed payload so a verified-but-junk
+ *  catalog is rejected loudly rather than rendering garbage rows. */
+function parseCatalog(json: unknown): PrimitiveCatalogEntry[] {
+	if (typeof json !== 'object' || json === null) {
+		throw new Error('primitives.json: not an object');
+	}
+	const obj = json as Record<string, unknown>;
+	if (!Array.isArray(obj.primitives)) {
+		throw new Error('primitives.json: missing `primitives` array');
+	}
+	return obj.primitives.map((raw, i) => {
+		if (typeof raw !== 'object' || raw === null) {
+			throw new Error(`primitives.json: entry ${i} is not an object`);
+		}
+		const e = raw as Record<string, unknown>;
+		if (typeof e.kind !== 'string' || !KINDS.has(e.kind)) {
+			throw new Error(`primitives.json: entry ${i} has invalid kind ${String(e.kind)}`);
+		}
+		if (typeof e.name !== 'string' || typeof e.version !== 'string') {
+			throw new Error(`primitives.json: entry ${i} missing name/version`);
+		}
+		if (e.source !== 'git' && e.source !== 'npx') {
+			throw new Error(`primitives.json: entry ${i} has invalid source ${String(e.source)}`);
+		}
+		if (typeof e.url !== 'string') {
+			throw new Error(`primitives.json: entry ${i} missing url`);
+		}
+		return {
+			kind: e.kind as ClaudeStoreKind,
+			name: e.name,
+			version: e.version,
+			description: typeof e.description === 'string' ? e.description : null,
+			source: e.source,
+			url: e.url,
+			publisher: typeof e.publisher === 'string' ? e.publisher : null,
+		};
+	});
+}
+
+/** Fetch + minisign-verify the remote primitive catalog (mirrors
+ *  `client.ts::fetchIndex`). Returns the bundled seed only when the remote is
+ *  genuinely ABSENT (network failure / non-2xx) — a signature or shape failure
+ *  THROWS, so a tampered catalog is never silently substituted with the seed. */
+export async function fetchPrimitiveCatalog(
+	signal?: AbortSignal
+): Promise<PrimitiveCatalogEntry[]> {
+	const sigUrl = `${PRIMITIVES_URL}.minisig`;
+	let raw: Uint8Array;
+	let signature: string;
+	try {
+		const [catRes, sigRes] = await Promise.all([
+			fetch(PRIMITIVES_URL, { signal }),
+			fetch(sigUrl, { signal }),
+		]);
+		if (!catRes.ok || !sigRes.ok) {
+			// Remote absent (e.g. catalog not yet published / 404). Degrade to the
+			// bundled seed rather than failing the surface.
+			console.warn(
+				`[primitives] remote catalog unavailable (${catRes.status}/${sigRes.status}); using bundled seed`
+			);
+			return (seed as PrimitiveCatalog).primitives;
+		}
+		raw = new Uint8Array(await catRes.arrayBuffer());
+		signature = await sigRes.text();
+	} catch (err) {
+		// Network error — treat as absent, fall back to the seed.
+		console.warn(
+			`[primitives] remote catalog fetch failed (${(err as Error).message}); using bundled seed`
+		);
+		return (seed as PrimitiveCatalog).primitives;
+	}
+
+	// Verify BEFORE parsing — same trust ordering as fetchIndex. A failure here
+	// is hostile, not "absent", so it throws and is NOT replaced by the seed.
+	const ok = await verifyMinisign(raw, signature, REGISTRY_PUBKEY);
+	if (!ok) {
+		throw new Error(
+			'primitives.json signature did not verify against the configured registry public key'
+		);
+	}
+
+	let json: unknown;
+	try {
+		json = JSON.parse(new TextDecoder().decode(raw));
+	} catch (err) {
+		throw new Error(`primitives.json is not valid JSON: ${(err as Error).message}`);
+	}
+	return parseCatalog(json);
 }
 
 export const primitiveCatalogKey = ['registry', 'primitives'] as const;
@@ -54,12 +145,10 @@ export const primitiveCatalogKey = ['registry', 'primitives'] as const;
 export function usePrimitiveCatalog() {
 	return useQuery({
 		queryKey: primitiveCatalogKey,
-		queryFn: () => fetchPrimitiveCatalog(),
-		// WP-10a reads a BUNDLED seed (no network), so refetch-on-mount is free
-		// and lets seed edits show without an app restart. WP-10b swaps in the
-		// remote signed fetch — reinstate a ~6h staleTime there to match the pkg
-		// index cadence.
-		staleTime: 0,
+		queryFn: ({ signal }) => fetchPrimitiveCatalog(signal),
+		// WP-10b fetches the remote signed catalog over the network, so cache it
+		// to match the pkg index cadence rather than re-fetching on every mount.
+		staleTime: 6 * 60 * 60 * 1000, // ~6h
 		refetchOnWindowFocus: false,
 	});
 }
@@ -98,8 +187,7 @@ export function mergePrimitiveView(
 		const key = `${e.kind}:${e.name}`;
 		installed.add(key);
 		const cat = catByKey.get(key) ?? null;
-		const updatable =
-			cat != null && e.version != null && semverCompare(e.version, cat.version) < 0;
+		const updatable = cat != null && e.version != null && semverCompare(e.version, cat.version) < 0;
 		out.push({
 			key: `store:${key}`,
 			kind: e.kind,
