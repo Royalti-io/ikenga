@@ -79,7 +79,7 @@ pub use comments::{
 };
 pub use agent_ops::{
     agent_ops_delete_job, agent_ops_list_jobs, agent_ops_run_now, agent_ops_set_enabled,
-    agent_ops_upsert_job,
+    agent_ops_tail_run, agent_ops_upsert_job,
 };
 pub use db::{db_exec, db_query};
 pub use desktop::{iyke_mcp_info, set_dock_badge, IykeMcpInfo};

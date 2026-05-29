@@ -399,6 +399,34 @@ export async function agentOpsDeleteJob(jobId: string): Promise<unknown> {
 	return invoke('agent_ops_delete_job', { jobId });
 }
 
+/** Mirror of `AgentOpsTailRunResult` in @ikenga/contract. Pure FS read on the
+ *  shell's own loop (never touches the daemon) — reads the per-job marker +
+ *  per-run tail file by byte-range for the pkg's Live-output view. Script-mode
+ *  only; agent jobs return an empty chunk with `mode:'agent'`. */
+export type AgentOpsTailRunResult =
+	| {
+			ok: true;
+			running: boolean;
+			status: 'running' | 'done' | null;
+			startedAtMs: number | null;
+			mode: 'agent' | 'script' | null;
+			chunk: string;
+			nextOffset: number;
+			eof: boolean;
+	  }
+	| { ok: false; code: string; status: number | null; error: string };
+
+/** Read live (or last-completed) run output for a job by byte-range. Poll with
+ *  `offset:0` first, then feed the returned `nextOffset` back each poll while
+ *  `running` is true. After completion the final chunk is still returned for
+ *  scrollback. */
+export async function agentOpsTailRun(
+	jobId: string,
+	offset?: number
+): Promise<AgentOpsTailRunResult> {
+	return invoke('agent_ops_tail_run', { jobId, offset });
+}
+
 // ─── Viewer (shared axum server, same-origin via Vite proxy / localhost-plugin)
 
 export interface ViewerHandle {
