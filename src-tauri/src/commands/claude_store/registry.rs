@@ -137,6 +137,23 @@ pub fn upsert_external(rf: &mut RegistryFile, kind: &str, name: &str, canonical_
     true
 }
 
+/// Upsert a full managed record (Phase 2 install / update). Replaces an existing
+/// `(kind, name)` entry wholesale or appends a new one. Unlike [`upsert_external`]
+/// (which only flips an external master in place), this carries the complete
+/// `RegistryProvenance` a git/npx install resolves — `source`, `url`, `ref`,
+/// resolved `version`, `managed:true`, and timestamps. Callers persist with [`save`].
+pub fn upsert_record(rf: &mut RegistryFile, entry: ClaudeStoreEntry) {
+    if let Some(e) = rf
+        .entries
+        .iter_mut()
+        .find(|e| e.kind == entry.kind && e.name == entry.name)
+    {
+        *e = entry;
+    } else {
+        rf.entries.push(entry);
+    }
+}
+
 /// Drop the record for `(kind, name)` from the index. Returns `true` iff a
 /// record existed and was removed. Touches no files on disk — provenance only
 /// (the master + any symlinks stay exactly as they are). Backs `oba_forget`.

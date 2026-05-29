@@ -2382,6 +2382,62 @@ export async function obaBackfillRegistry(): Promise<number> {
 	return invoke<number>('oba_backfill_registry', {});
 }
 
+// ─── Ọba Phase 2 — install from git / npx + update (WP-07/08/09) ──────────────
+
+/** Result of an update check: recorded version vs latest at the remote. */
+export interface UpdateStatus {
+	/** Recorded resolved version (git SHA / npm-spec SHA); null if never resolved. */
+	current: string | null;
+	/** Latest resolved version at the remote. */
+	latest: string | null;
+	/** True when an update is available (`current !== latest`). */
+	behind: boolean;
+}
+
+/**
+ * Install a primitive from a git remote into the vault as a managed canonical
+ * (`store/<kind>s/<name>`). Clones at `gitRef` (or default branch), records
+ * provenance (`source:"git"`, resolved SHA). Does NOT place into any scope —
+ * use {@link claudePrimitiveEnable} for that. File-based kinds only.
+ */
+export async function obaInstallGit(
+	kind: ClaudeStoreKind,
+	name: string,
+	url: string,
+	gitRef?: string | null
+): Promise<ClaudeStoreEntry> {
+	return invoke<ClaudeStoreEntry>('oba_install_git', { kind, name, url, gitRef: gitRef ?? null });
+}
+
+/**
+ * Install a skill via the Claude `skills` CLI (`npx skills add <spec>`) into the
+ * vault as a managed canonical. Records `source:"npx"`. Skills only.
+ */
+export async function obaInstallNpx(
+	kind: ClaudeStoreKind,
+	name: string,
+	spec: string
+): Promise<ClaudeStoreEntry> {
+	return invoke<ClaudeStoreEntry>('oba_install_npx', { kind, name, spec });
+}
+
+/**
+ * Check whether a git/npx-installed primitive is behind its remote
+ * (`git ls-remote` vs the recorded version). Read-only.
+ */
+export async function obaCheckUpdate(kind: ClaudeStoreKind, name: string): Promise<UpdateStatus> {
+	return invoke<UpdateStatus>('oba_check_update', { kind, name });
+}
+
+/**
+ * Re-fetch a managed primitive into its existing canonical IN PLACE (atomic
+ * swap), so dependent symlinks resolve to the refreshed files with no relink.
+ * Bumps the recorded version + `updatedAt`. Refuses an external master.
+ */
+export async function obaUpdate(kind: ClaudeStoreKind, name: string): Promise<ClaudeStoreEntry> {
+	return invoke<ClaudeStoreEntry>('oba_update', { kind, name });
+}
+
 // ─── Iyke (phase 11 — Day 1: read-side state + shell mirror push) ─────────────
 
 export interface IykeEndpoint {
