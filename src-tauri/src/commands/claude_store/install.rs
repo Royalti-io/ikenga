@@ -349,6 +349,7 @@ fn install_core(
     source: ProvenanceSource,
     url: &str,
     ref_: Option<&str>,
+    from_catalog: bool,
 ) -> Result<ClaudeStoreEntry, String> {
     ensure_file_based(kind)?;
     validate_name(name)?;
@@ -363,6 +364,11 @@ fn install_core(
         managed: true,
         installed_at: Some(now.clone()),
         updated_at: Some(now),
+        // Phase 3: record the catalog discovery origin orthogonally to the
+        // resolved fetch mechanism (`source`). Curated-catalog installs opt into
+        // auto-update; plain git/npx installs do not (catalog ON, manual OFF).
+        from_catalog,
+        auto_update: from_catalog,
     };
     let entry = build_entry(kind, name, &dest, prov);
     let mut rf = registry::load(store);
@@ -432,12 +438,145 @@ fn update_core(store: &Path, kind: Kind, name: &str) -> Result<ClaudeStoreEntry,
         managed: true,
         installed_at: prov.installed_at.clone(),
         updated_at: Some(now_iso()),
+        // Preserve the Phase-3 discovery origin + auto-update opt-in across a
+        // re-fetch — an update doesn't change where the primitive came from or
+        // the user's auto-update preference.
+        from_catalog: prov.from_catalog,
+        auto_update: prov.auto_update,
     };
     let entry = build_entry(kind, name, &dest, new_prov);
     let mut rf2 = registry::load(store);
     registry::upsert_record(&mut rf2, entry.clone());
     registry::save(store, &rf2)?;
     Ok(entry)
+}
+
+// ─── Phase 3 — auto-update trust policy (catalog ON, local/dev/manual OFF) ────
+
+/// Per-entry outcome of a batch auto-update run. Mirrors `AutoUpdateRow` in
+/// `tauri-cmd.ts`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AutoUpdateRow {
+    pub kind: String,
+    pub name: String,
+    /// `"updated"` (a stale entry was re-fetched), `"current"` (already at the
+    /// latest), or `"error"` (the check/update failed — see `error`).
+    pub status: String,
+    /// Resolved version after a successful update; `None` on current/error.
+    pub version: Option<String>,
+    /// Populated only when `status == "error"`.
+    pub error: Option<String>,
+}
+
+/// Summary of a batch auto-update run over every `auto_update`-opted entry.
+/// Mirrors `AutoUpdateSummary` in `tauri-cmd.ts`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AutoUpdateSummary {
+    /// Names that were re-fetched (were behind).
+    pub updated: Vec<AutoUpdateRow>,
+    /// Names that were already current (no fetch).
+    pub current: Vec<AutoUpdateRow>,
+    /// Names whose check/update errored — the batch continues past each.
+    pub errored: Vec<AutoUpdateRow>,
+}
+
+/// Run auto-updates across every registry entry with `auto_update == true`:
+/// check each against its remote and re-fetch the stale ones. A per-entry error
+/// is recorded and the batch continues (never aborts). Pure-core (store is a
+/// parameter), tempdir-testable.
+fn auto_update_all_core(store: &Path) -> AutoUpdateSummary {
+    let rf = registry::load(store);
+    // Snapshot the (kind, name) of opted-in entries up front; each update reloads
+    // + rewrites registry.json, so we don't iterate a live-mutating list.
+    let targets: Vec<(String, String)> = rf
+        .entries
+        .iter()
+        .filter(|e| e.provenance.auto_update)
+        .map(|e| (e.kind.clone(), e.name.clone()))
+        .collect();
+
+    let mut summary = AutoUpdateSummary {
+        updated: Vec::new(),
+        current: Vec::new(),
+        errored: Vec::new(),
+    };
+
+    for (kind_s, name) in targets {
+        let k = match Kind::parse(&kind_s) {
+            Ok(k) => k,
+            Err(e) => {
+                summary.errored.push(AutoUpdateRow {
+                    kind: kind_s,
+                    name,
+                    status: "error".into(),
+                    version: None,
+                    error: Some(e),
+                });
+                continue;
+            }
+        };
+        match check_update_core(store, k, &name) {
+            Ok(st) if st.behind => match update_core(store, k, &name) {
+                Ok(entry) => {
+                    tracing::info!(kind = %kind_s, name = %name, "oba auto-update: refreshed stale catalog entry");
+                    summary.updated.push(AutoUpdateRow {
+                        kind: kind_s,
+                        name,
+                        status: "updated".into(),
+                        version: entry.provenance.version,
+                        error: None,
+                    });
+                }
+                Err(e) => {
+                    tracing::warn!(kind = %kind_s, name = %name, error = %e, "oba auto-update: update failed");
+                    summary.errored.push(AutoUpdateRow {
+                        kind: kind_s,
+                        name,
+                        status: "error".into(),
+                        version: None,
+                        error: Some(e),
+                    });
+                }
+            },
+            Ok(st) => summary.current.push(AutoUpdateRow {
+                kind: kind_s,
+                name,
+                status: "current".into(),
+                version: st.current,
+                error: None,
+            }),
+            Err(e) => {
+                tracing::warn!(kind = %kind_s, name = %name, error = %e, "oba auto-update: check failed");
+                summary.errored.push(AutoUpdateRow {
+                    kind: kind_s,
+                    name,
+                    status: "error".into(),
+                    version: None,
+                    error: Some(e),
+                });
+            }
+        }
+    }
+    summary
+}
+
+/// Set the `auto_update` flag on an installed managed entry and persist it to
+/// `registry.json`. Returns the new flag value. Errors if the entry is absent.
+fn set_auto_update_core(
+    store: &Path,
+    kind: Kind,
+    name: &str,
+    enabled: bool,
+) -> Result<bool, String> {
+    let mut rf = registry::load(store);
+    let entry = rf
+        .entries
+        .iter_mut()
+        .find(|e| e.kind == kind.as_str() && e.name == name)
+        .ok_or_else(|| format!("{} {name:?} not in registry", kind.as_str()))?;
+    entry.provenance.auto_update = enabled;
+    registry::save(store, &rf)?;
+    Ok(enabled)
 }
 
 // ─── Tauri commands (thin: resolve the real store root, delegate to core) ─────
@@ -450,6 +589,7 @@ pub async fn oba_install_git(
     name: String,
     url: String,
     gitRef: Option<String>,
+    fromCatalog: Option<bool>,
 ) -> Result<ClaudeStoreEntry, String> {
     let k = Kind::parse(&kind)?;
     let store = store_root().ok_or_else(|| "cannot resolve store root".to_string())?;
@@ -460,19 +600,33 @@ pub async fn oba_install_git(
         ProvenanceSource::Git,
         &url,
         gitRef.as_deref(),
+        fromCatalog.unwrap_or(false),
     )
 }
 
 /// Install a primitive via the Claude `skills` CLI (`npx skills add <spec>`).
+/// `fromCatalog` records that the install was discovered through the recommended
+/// catalog (Phase 3) — set by the catalog Install path, omitted/false for a
+/// direct npx install.
 #[tauri::command]
+#[allow(non_snake_case)]
 pub async fn oba_install_npx(
     kind: String,
     name: String,
     spec: String,
+    fromCatalog: Option<bool>,
 ) -> Result<ClaudeStoreEntry, String> {
     let k = Kind::parse(&kind)?;
     let store = store_root().ok_or_else(|| "cannot resolve store root".to_string())?;
-    install_core(&store, k, &name, ProvenanceSource::Npx, &spec, None)
+    install_core(
+        &store,
+        k,
+        &name,
+        ProvenanceSource::Npx,
+        &spec,
+        None,
+        fromCatalog.unwrap_or(false),
+    )
 }
 
 /// Check whether a git/npx-installed primitive is behind its remote.
@@ -489,6 +643,29 @@ pub async fn oba_update(kind: String, name: String) -> Result<ClaudeStoreEntry, 
     let k = Kind::parse(&kind)?;
     let store = store_root().ok_or_else(|| "cannot resolve store root".to_string())?;
     update_core(&store, k, &name)
+}
+
+/// Phase 3 — auto-update every `auto_update`-opted entry that's behind its
+/// remote (FE-driven: called on the Ọba/catalog surface mount). Per-entry errors
+/// are collected, never abort the batch. Returns a summary of updated / current /
+/// errored entries.
+#[tauri::command]
+pub async fn oba_auto_update_all() -> Result<AutoUpdateSummary, String> {
+    let store = store_root().ok_or_else(|| "cannot resolve store root".to_string())?;
+    Ok(auto_update_all_core(&store))
+}
+
+/// Phase 3 — toggle the per-entry auto-update opt-in and persist it to
+/// `registry.json`. Returns the new flag value.
+#[tauri::command]
+pub async fn oba_set_auto_update(
+    kind: String,
+    name: String,
+    enabled: bool,
+) -> Result<bool, String> {
+    let k = Kind::parse(&kind)?;
+    let store = store_root().ok_or_else(|| "cannot resolve store root".to_string())?;
+    set_auto_update_core(&store, k, &name, enabled)
 }
 
 // ─── Tests (git path: offline, deterministic against local file:// repos) ─────
@@ -556,6 +733,7 @@ mod tests {
             ProvenanceSource::Git,
             &url,
             None,
+            false,
         )
         .expect("install ok");
 
@@ -599,6 +777,7 @@ mod tests {
             ProvenanceSource::Git,
             &url,
             None,
+            false,
         )
         .unwrap();
         let canon = store_path_for(&store, Kind::Skill, "demo").unwrap();
@@ -674,8 +853,16 @@ mod tests {
         let base = unique_tmp("reject_hook");
         let store = base.join("store");
         std::fs::create_dir_all(&store).unwrap();
-        let err =
-            install_core(&store, Kind::Hook, "x", ProvenanceSource::Git, "u", None).unwrap_err();
+        let err = install_core(
+            &store,
+            Kind::Hook,
+            "x",
+            ProvenanceSource::Git,
+            "u",
+            None,
+            false,
+        )
+        .unwrap_err();
         assert!(
             err.contains("JSON-fragment"),
             "hook install must be rejected: {err}"
@@ -706,6 +893,7 @@ mod tests {
             ProvenanceSource::Git,
             &url,
             None,
+            false,
         )
         .unwrap_err();
         assert!(err.contains("no SKILL.md"), "should fail to locate: {err}");
@@ -714,6 +902,311 @@ mod tests {
             .unwrap()
             .exists());
         assert!(registry::load(&store).entries.is_empty());
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    // ─── Phase 3 — catalog discovery origin + auto-update trust policy ────────
+
+    #[test]
+    fn catalog_install_records_from_catalog_and_auto_update_on() {
+        let base = unique_tmp("catalog_install");
+        let store = base.join("store");
+        std::fs::create_dir_all(&store).unwrap();
+        let (_repo, url) = make_skill_repo(&base, "demo", "a demo skill");
+
+        // a catalog-discovered install (from_catalog = true) still resolves via git
+        let entry = install_core(
+            &store,
+            Kind::Skill,
+            "demo",
+            ProvenanceSource::Git,
+            &url,
+            None,
+            true,
+        )
+        .expect("install ok");
+
+        // dispatch axis unchanged: the resolved mechanism stays Git
+        assert_eq!(entry.provenance.source, ProvenanceSource::Git);
+        // discovery origin recorded orthogonally
+        assert!(entry.provenance.from_catalog, "catalog discovery recorded");
+        // curated-catalog installs opt into auto-update
+        assert!(entry.provenance.auto_update, "catalog → auto_update on");
+
+        // persisted to registry.json (survives a reload)
+        let rec = registry::load(&store)
+            .entries
+            .into_iter()
+            .find(|e| e.name == "demo")
+            .expect("recorded");
+        assert!(rec.provenance.from_catalog);
+        assert!(rec.provenance.auto_update);
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn plain_git_install_is_not_catalog_discovered_and_auto_update_off() {
+        let base = unique_tmp("plain_install");
+        let store = base.join("store");
+        std::fs::create_dir_all(&store).unwrap();
+        let (_repo, url) = make_skill_repo(&base, "demo", "a demo skill");
+
+        // a direct (non-catalog) git install
+        let entry = install_core(
+            &store,
+            Kind::Skill,
+            "demo",
+            ProvenanceSource::Git,
+            &url,
+            None,
+            false,
+        )
+        .expect("install ok");
+
+        assert!(
+            !entry.provenance.from_catalog,
+            "direct install is NOT catalog-discovered"
+        );
+        assert!(
+            !entry.provenance.auto_update,
+            "manual install → auto_update off (catalog ON, manual OFF)"
+        );
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn update_preserves_from_catalog_and_auto_update() {
+        let base = unique_tmp("update_preserves");
+        let store = base.join("store");
+        std::fs::create_dir_all(&store).unwrap();
+        let (repo, url) = make_skill_repo(&base, "demo", "v1");
+
+        install_core(
+            &store,
+            Kind::Skill,
+            "demo",
+            ProvenanceSource::Git,
+            &url,
+            None,
+            true,
+        )
+        .unwrap();
+
+        // advance the source
+        std::fs::write(repo.join("NEW.md"), "added\n").unwrap();
+        git(&["add", "-A"], &repo);
+        git(&["commit", "-q", "-m", "v2"], &repo);
+
+        let updated = update_core(&store, Kind::Skill, "demo").unwrap();
+        assert!(
+            updated.provenance.from_catalog,
+            "update preserves catalog origin"
+        );
+        assert!(
+            updated.provenance.auto_update,
+            "update preserves auto_update opt-in"
+        );
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn set_auto_update_round_trips_through_registry() {
+        let base = unique_tmp("set_auto");
+        let store = base.join("store");
+        std::fs::create_dir_all(&store).unwrap();
+        let (_repo, url) = make_skill_repo(&base, "demo", "a demo skill");
+
+        // plain install → auto_update off
+        install_core(
+            &store,
+            Kind::Skill,
+            "demo",
+            ProvenanceSource::Git,
+            &url,
+            None,
+            false,
+        )
+        .unwrap();
+        let before = registry::load(&store)
+            .entries
+            .into_iter()
+            .find(|e| e.name == "demo")
+            .unwrap();
+        assert!(!before.provenance.auto_update);
+
+        // flip it on — persists
+        assert!(set_auto_update_core(&store, Kind::Skill, "demo", true).unwrap());
+        let on = registry::load(&store)
+            .entries
+            .into_iter()
+            .find(|e| e.name == "demo")
+            .unwrap();
+        assert!(on.provenance.auto_update, "persisted on");
+
+        // flip it back off — persists
+        assert!(!set_auto_update_core(&store, Kind::Skill, "demo", false).unwrap());
+        let off = registry::load(&store)
+            .entries
+            .into_iter()
+            .find(|e| e.name == "demo")
+            .unwrap();
+        assert!(!off.provenance.auto_update, "persisted off");
+
+        // absent entry errors
+        let err = set_auto_update_core(&store, Kind::Skill, "ghost", true).unwrap_err();
+        assert!(err.contains("not in registry"), "absent → error: {err}");
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn auto_update_all_updates_only_stale_auto_update_entries_and_survives_errors() {
+        let base = unique_tmp("auto_all");
+        let store = base.join("store");
+        std::fs::create_dir_all(&store).unwrap();
+
+        // (1) a catalog (auto_update) skill that WILL go stale
+        let (stale_repo, stale_url) = {
+            let repo = base.join("stale-repo");
+            std::fs::create_dir_all(&repo).unwrap();
+            git(&["init", "-q"], &repo);
+            git(&["config", "user.email", "t@t"], &repo);
+            git(&["config", "user.name", "t"], &repo);
+            std::fs::write(repo.join("SKILL.md"), "---\nname: stale\n---\nv1").unwrap();
+            git(&["add", "-A"], &repo);
+            git(&["commit", "-q", "-m", "v1"], &repo);
+            let url = format!("file://{}", repo.display());
+            (repo, url)
+        };
+        install_core(
+            &store,
+            Kind::Skill,
+            "stale",
+            ProvenanceSource::Git,
+            &stale_url,
+            None,
+            true, // catalog → auto_update on
+        )
+        .unwrap();
+
+        // (2) a catalog (auto_update) skill that stays CURRENT
+        let (_cur_repo, cur_url) = make_skill_repo(&base, "current", "stays current");
+        install_core(
+            &store,
+            Kind::Skill,
+            "current",
+            ProvenanceSource::Git,
+            &cur_url,
+            None,
+            true,
+        )
+        .unwrap();
+
+        // (3) a plain (auto_update OFF) skill that is ALSO stale — must be skipped
+        let (manual_repo, manual_url) = {
+            let repo = base.join("manual-repo");
+            std::fs::create_dir_all(&repo).unwrap();
+            git(&["init", "-q"], &repo);
+            git(&["config", "user.email", "t@t"], &repo);
+            git(&["config", "user.name", "t"], &repo);
+            std::fs::write(repo.join("SKILL.md"), "---\nname: manual\n---\nv1").unwrap();
+            git(&["add", "-A"], &repo);
+            git(&["commit", "-q", "-m", "v1"], &repo);
+            let url = format!("file://{}", repo.display());
+            (repo, url)
+        };
+        install_core(
+            &store,
+            Kind::Skill,
+            "manual",
+            ProvenanceSource::Git,
+            &manual_url,
+            None,
+            false, // manual → auto_update off
+        )
+        .unwrap();
+
+        // (4) an auto_update entry whose remote is GONE — check errors, batch survives
+        {
+            let mut rf = registry::load(&store);
+            let mut prov = RegistryProvenance::local(
+                store.join("skills/broken").to_string_lossy().to_string(),
+            );
+            prov.source = ProvenanceSource::Git;
+            prov.url = Some(format!("file://{}/does-not-exist", base.display()));
+            prov.managed = true;
+            prov.auto_update = true;
+            prov.from_catalog = true;
+            registry::upsert_record(
+                &mut rf,
+                ClaudeStoreEntry {
+                    kind: "skill".into(),
+                    name: "broken".into(),
+                    store_path: store.join("skills/broken").to_string_lossy().to_string(),
+                    description: None,
+                    modified_ms: 0,
+                    enabled_in: vec![],
+                    provenance: prov,
+                },
+            );
+            registry::save(&store, &rf).unwrap();
+        }
+
+        // now make `stale` actually behind
+        std::fs::write(stale_repo.join("NEW.md"), "added\n").unwrap();
+        git(&["add", "-A"], &stale_repo);
+        git(&["commit", "-q", "-m", "v2"], &stale_repo);
+        // (advance manual's source too — to prove it's skipped by policy, not by being current)
+        std::fs::write(manual_repo.join("NEW.md"), "added\n").unwrap();
+        git(&["add", "-A"], &manual_repo);
+        git(&["commit", "-q", "-m", "v2"], &manual_repo);
+
+        let summary = auto_update_all_core(&store);
+
+        // exactly `stale` was updated
+        assert_eq!(
+            summary.updated.len(),
+            1,
+            "only the stale auto entry updates"
+        );
+        assert_eq!(summary.updated[0].name, "stale");
+        // `current` reported current
+        assert!(summary.current.iter().any(|r| r.name == "current"));
+        // `broken` errored but did NOT abort the batch
+        assert!(summary.errored.iter().any(|r| r.name == "broken"));
+        // `manual` (auto_update off) was never touched — not in any bucket
+        let all_names: Vec<&str> = summary
+            .updated
+            .iter()
+            .chain(summary.current.iter())
+            .chain(summary.errored.iter())
+            .map(|r| r.name.as_str())
+            .collect();
+        assert!(
+            !all_names.contains(&"manual"),
+            "auto_update=false entry must be skipped entirely"
+        );
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn legacy_registry_without_phase3_fields_deserializes_with_defaults() {
+        let base = unique_tmp("legacy_serde");
+        let store = base.join("store");
+        std::fs::create_dir_all(&store).unwrap();
+        // a registry.json written before Phase 3 — no fromCatalog / autoUpdate keys
+        let raw = format!(
+            r#"{{"schemaVersion":1,"entries":[{{"kind":"skill","name":"x","storePath":"{p}","description":null,"modifiedMs":0,"enabledIn":[],"source":"git","url":"u","ref":null,"version":"sha","canonicalPath":"{p}","managed":true,"installedAt":"t","updatedAt":"t"}}]}}"#,
+            p = store.join("skills/x").to_string_lossy()
+        );
+        std::fs::write(registry::registry_path(&store), raw).unwrap();
+        let rf = registry::load(&store);
+        assert_eq!(rf.entries.len(), 1);
+        // the new fields default to false (back-compat)
+        assert!(!rf.entries[0].provenance.from_catalog);
+        assert!(!rf.entries[0].provenance.auto_update);
+        // and the pre-existing fields still bind
+        assert_eq!(rf.entries[0].provenance.source, ProvenanceSource::Git);
+        assert_eq!(rf.entries[0].provenance.version.as_deref(), Some("sha"));
         std::fs::remove_dir_all(&base).ok();
     }
 }

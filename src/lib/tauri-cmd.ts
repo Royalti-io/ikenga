@@ -1773,6 +1773,13 @@ export interface ClaudeStoreEntry {
 	managed?: boolean;
 	installedAt?: string | null;
 	updatedAt?: string | null;
+	/** Phase 3: true = discovered through the recommended Ọba catalog. Orthogonal
+	 *  to `source` (the resolved fetch mechanism). Absent → false. */
+	fromCatalog?: boolean;
+	/** Phase 3: true = the shell may auto-update this master on the catalog
+	 *  surface mount. Catalog installs default this on; manual/local off. Absent
+	 *  → false. */
+	autoUpdate?: boolean;
 }
 
 /** Result of a symlink-farm or merge mutation. `path` is the on-disk location
@@ -2432,21 +2439,79 @@ export async function obaInstallGit(
 	kind: ClaudeStoreKind,
 	name: string,
 	url: string,
-	gitRef?: string | null
+	gitRef?: string | null,
+	/** Phase 3: true when the install was discovered through the recommended
+	 *  catalog (records `fromCatalog` + opts into auto-update). Omit/false for a
+	 *  direct git install. */
+	fromCatalog?: boolean
 ): Promise<ClaudeStoreEntry> {
-	return invoke<ClaudeStoreEntry>('oba_install_git', { kind, name, url, gitRef: gitRef ?? null });
+	return invoke<ClaudeStoreEntry>('oba_install_git', {
+		kind,
+		name,
+		url,
+		gitRef: gitRef ?? null,
+		fromCatalog: fromCatalog ?? false,
+	});
 }
 
 /**
  * Install a skill via the Claude `skills` CLI (`npx skills add <spec>`) into the
  * vault as a managed canonical. Records `source:"npx"`. Skills only.
+ * `fromCatalog` records catalog discovery (Phase 3) — set by the catalog Install
+ * path, omitted for a direct npx install.
  */
 export async function obaInstallNpx(
 	kind: ClaudeStoreKind,
 	name: string,
-	spec: string
+	spec: string,
+	fromCatalog?: boolean
 ): Promise<ClaudeStoreEntry> {
-	return invoke<ClaudeStoreEntry>('oba_install_npx', { kind, name, spec });
+	return invoke<ClaudeStoreEntry>('oba_install_npx', {
+		kind,
+		name,
+		spec,
+		fromCatalog: fromCatalog ?? false,
+	});
+}
+
+/** One per-entry outcome of a batch auto-update run (Phase 3). Mirrors the Rust
+ *  `AutoUpdateRow`. */
+export interface AutoUpdateRow {
+	kind: ClaudeStoreKind;
+	name: string;
+	/** `'updated'` | `'current'` | `'error'`. */
+	status: 'updated' | 'current' | 'error';
+	version: string | null;
+	error: string | null;
+}
+
+/** Summary of a batch auto-update run (Phase 3). Mirrors the Rust
+ *  `AutoUpdateSummary`. */
+export interface AutoUpdateSummary {
+	updated: AutoUpdateRow[];
+	current: AutoUpdateRow[];
+	errored: AutoUpdateRow[];
+}
+
+/**
+ * Phase 3 — auto-update every `autoUpdate`-opted entry that's behind its remote.
+ * FE-driven (call on the catalog surface mount). Per-entry errors are collected,
+ * never abort the batch.
+ */
+export async function obaAutoUpdateAll(): Promise<AutoUpdateSummary> {
+	return invoke<AutoUpdateSummary>('oba_auto_update_all', {});
+}
+
+/**
+ * Phase 3 — toggle the per-entry auto-update opt-in (persists to registry.json).
+ * Returns the new flag value.
+ */
+export async function obaSetAutoUpdate(
+	kind: ClaudeStoreKind,
+	name: string,
+	enabled: boolean
+): Promise<boolean> {
+	return invoke<boolean>('oba_set_auto_update', { kind, name, enabled });
 }
 
 /**

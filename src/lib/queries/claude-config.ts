@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { queryOptions, useMutation, useQueryClient } from '@tanstack/react-query';
 
 import {
@@ -16,6 +16,7 @@ import {
 	claudeStoreImport,
 	claudeStoreList,
 	ngwaCrossEngineCopy,
+	obaAutoUpdateAll,
 	obaBackfillRegistry,
 	obaCheckUpdate,
 	obaDependents,
@@ -24,6 +25,7 @@ import {
 	obaInstallNpx,
 	obaRelinkDependents,
 	obaSafeDelete,
+	obaSetAutoUpdate,
 	obaUnlinkOne,
 	obaUpdate,
 	type ClaudeAgent,
@@ -44,6 +46,7 @@ import {
 	type NgwaHookFile,
 	type NgwaStoreError,
 	type NgwaTranscodeMode,
+	type AutoUpdateSummary,
 	type ObaRelinkRow,
 	type SafeDeleteOutcome,
 	type UpdateStatus,
@@ -239,10 +242,13 @@ export function useBackfillRegistry() {
 export function useObaInstall() {
 	const invalidate = useInvalidateClaudeStore();
 	return useMutation<ClaudeStoreEntry, Error, PrimitiveCatalogEntry>({
+		// Phase 3: a catalog Install threads `fromCatalog: true` so the recorded
+		// provenance carries the discovery origin (orthogonal to the resolved git/
+		// npx mechanism) and opts the entry into auto-update.
 		mutationFn: (entry) =>
 			entry.source === 'npx'
-				? obaInstallNpx(entry.kind, entry.name, entry.url)
-				: obaInstallGit(entry.kind, entry.name, entry.url, null),
+				? obaInstallNpx(entry.kind, entry.name, entry.url, true)
+				: obaInstallGit(entry.kind, entry.name, entry.url, null, true),
 		onSuccess: invalidate,
 	});
 }
@@ -252,6 +258,52 @@ export function useObaUpdate() {
 	const invalidate = useInvalidateClaudeStore();
 	return useMutation<ClaudeStoreEntry, Error, { kind: ClaudeStoreKind; name: string }>({
 		mutationFn: ({ kind, name }) => obaUpdate(kind, name),
+		onSuccess: invalidate,
+	});
+}
+
+/**
+ * Phase 3 — auto-update trust policy. Runs auto-updates across every
+ * `autoUpdate`-opted entry that's behind its remote. FE-driven: call this on the
+ * Ọba/catalog surface mount (see `useObaAutoUpdateOnMount`). Per-entry errors are
+ * collected by the backend and never abort the batch. Invalidates the store +
+ * scan when anything actually updated so the surface re-renders the new
+ * versions.
+ */
+export function useObaAutoUpdateAll() {
+	const invalidate = useInvalidateClaudeStore();
+	return useMutation<AutoUpdateSummary, Error, void>({
+		mutationFn: () => obaAutoUpdateAll(),
+		onSuccess: (summary) => {
+			if (summary.updated.length > 0) invalidate();
+		},
+	});
+}
+
+/**
+ * Fire a one-shot auto-update sweep when the catalog surface mounts (Phase 3,
+ * FE-driven — explicitly NOT a background timer/daemon). Guards against double-
+ * firing under React StrictMode's double-mount via a ref. Returns the mutation so
+ * the surface can show in-flight / result state.
+ */
+export function useObaAutoUpdateOnMount(enabled = true) {
+	const sweep = useObaAutoUpdateAll();
+	const fired = useRef(false);
+	useEffect(() => {
+		if (!enabled || fired.current) return;
+		fired.current = true;
+		sweep.mutate();
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [enabled]);
+	return sweep;
+}
+
+/** Phase 3 — toggle the per-entry auto-update opt-in (persists to the registry).
+ *  Invalidates the store so the detail UI reflects the new flag. */
+export function useObaSetAutoUpdate() {
+	const invalidate = useInvalidateClaudeStore();
+	return useMutation<boolean, Error, { kind: ClaudeStoreKind; name: string; enabled: boolean }>({
+		mutationFn: ({ kind, name, enabled }) => obaSetAutoUpdate(kind, name, enabled),
 		onSuccess: invalidate,
 	});
 }
