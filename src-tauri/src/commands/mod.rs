@@ -45,6 +45,10 @@ pub use activity_bar::{
     activity_pins_resolve_artifact, activity_pins_touch_open, activity_sections_create,
     activity_sections_list, activity_sections_remove, activity_sections_update,
 };
+pub use agent_ops::{
+    agent_ops_delete_job, agent_ops_list_jobs, agent_ops_run_now, agent_ops_set_enabled,
+    agent_ops_tail_run, agent_ops_upsert_job,
+};
 pub use backup::{
     backup_delete, backup_export, backup_import, backup_list, db_export_ndjson, db_import_ndjson,
 };
@@ -68,18 +72,14 @@ pub use claude_store::{
     claude_primitive_copy, claude_primitive_copy_batch, claude_primitive_disable,
     claude_primitive_disable_for, claude_primitive_enable, claude_primitive_enable_for,
     claude_primitive_move, claude_primitive_remove, claude_primitive_remove_for,
-    claude_store_import, claude_store_list, oba_backfill_registry, oba_check_update, oba_dependents,
-    oba_forget, oba_install_git, oba_install_npx, oba_relink_dependents, oba_safe_delete,
-    oba_unlink_one, oba_update,
+    claude_store_import, claude_store_list, oba_auto_update_all, oba_backfill_registry,
+    oba_check_update, oba_dependents, oba_forget, oba_install_git, oba_install_npx,
+    oba_relink_dependents, oba_safe_delete, oba_set_auto_update, oba_unlink_one, oba_update,
 };
 pub use comment_route::comment_route;
 pub use comments::{
     comment_create, comment_delete, comment_get, comment_list, comment_record_routing,
     comment_set_status, pin_screenshot_write,
-};
-pub use agent_ops::{
-    agent_ops_delete_job, agent_ops_list_jobs, agent_ops_run_now, agent_ops_set_enabled,
-    agent_ops_tail_run, agent_ops_upsert_job,
 };
 pub use db::{db_exec, db_query};
 pub use desktop::{iyke_mcp_info, set_dock_badge, IykeMcpInfo};

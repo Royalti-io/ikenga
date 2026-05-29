@@ -67,7 +67,10 @@ mod registry;
 /// atomic swap and the `registry` I/O above.
 mod install;
 
-pub use install::{oba_check_update, oba_install_git, oba_install_npx, oba_update};
+pub use install::{
+    oba_auto_update_all, oba_check_update, oba_install_git, oba_install_npx, oba_set_auto_update,
+    oba_update,
+};
 
 // ─── Wire types (mirror the frozen G-CONTRACT) ───────────────────────────────
 
@@ -85,7 +88,13 @@ pub enum ProvenanceSource {
     Git,
     /// Installed via npx/npm (`url` = spec, `version` = resolved version).
     Npx,
-    /// Installed from the recommended catalog (resolves to git/npx underneath).
+    /// Deprecated discovery-origin variant. **Never constructed** — catalog
+    /// discovery is now recorded orthogonally via `RegistryProvenance.from_catalog`
+    /// so the resolved fetch mechanism (`Git` vs `Npx`) stays the dispatch axis
+    /// (an npx-backed catalog entry must `npx skills add`, not `git clone`). Kept
+    /// in the enum for wire/schema back-compat: an old `registry.json` that wrote
+    /// `"source":"catalog"` still deserializes. Treated like `Git` on the
+    /// fetch/check dispatch paths.
     Catalog,
 }
 
@@ -132,6 +141,20 @@ pub struct RegistryProvenance {
     pub installed_at: Option<String>,
     #[serde(rename = "updatedAt", default)]
     pub updated_at: Option<String>,
+    /// `true` = the primitive was discovered through the recommended Ọba catalog
+    /// (Phase 3). Orthogonal to `source`, which records the resolved fetch
+    /// mechanism (`git`/`npx`). A direct (non-catalog) git/npx install leaves this
+    /// `false`. `#[serde(default)]` → an entry serialized before Phase 3
+    /// deserializes as `false` (back-compat).
+    #[serde(rename = "fromCatalog", default)]
+    pub from_catalog: bool,
+    /// `true` = the shell may auto-update this master on the catalog surface
+    /// mount. Curated-catalog installs set this `true`; plain git/npx/local
+    /// installs leave it `false` (mirrors Claude Code marketplaces: catalog ON,
+    /// local/dev/manual OFF). `#[serde(default)]` → pre-Phase-3 entries read
+    /// `false` (back-compat).
+    #[serde(rename = "autoUpdate", default)]
+    pub auto_update: bool,
 }
 
 impl RegistryProvenance {
@@ -149,6 +172,8 @@ impl RegistryProvenance {
             managed: true,
             installed_at: None,
             updated_at: None,
+            from_catalog: false,
+            auto_update: false,
         }
     }
 }
@@ -2509,7 +2534,8 @@ pub async fn oba_relink_dependents(
 pub(crate) fn unlink_placement(path: &Path) -> Result<bool, String> {
     match std::fs::symlink_metadata(path) {
         Ok(m) if m.file_type().is_symlink() => {
-            std::fs::remove_file(path).map_err(|e| format!("remove_file {}: {e}", path.display()))?;
+            std::fs::remove_file(path)
+                .map_err(|e| format!("remove_file {}: {e}", path.display()))?;
             Ok(true)
         }
         Ok(_) => Err(format!(
@@ -2573,8 +2599,7 @@ pub(crate) fn scan_external_masters(
                 if !is_link {
                     continue;
                 }
-                let Some(target) =
-                    crate::commands::claude_config::resolve_symlink_target(&p)
+                let Some(target) = crate::commands::claude_config::resolve_symlink_target(&p)
                 else {
                     continue; // dangling — not a master
                 };
@@ -2617,7 +2642,10 @@ pub async fn oba_backfill_registry(db: State<'_, Arc<PaDb>>) -> Result<usize, St
     let store = store_root().ok_or_else(|| "cannot resolve store root".to_string())?;
     let roots = all_scope_roots(&db).await;
     let externals = scan_external_masters(&store, &roots);
-    tracing::info!("[oba_backfill_registry] external masters found={}", externals.len());
+    tracing::info!(
+        "[oba_backfill_registry] external masters found={}",
+        externals.len()
+    );
     let mut rf = registry::load(&store);
     let mut n = 0usize;
     for (kind, name, canonical) in externals {
@@ -2677,6 +2705,8 @@ mod tests {
                 managed: true,
                 installed_at: None,
                 updated_at: None,
+                from_catalog: false,
+                auto_update: false,
             },
         };
         let v: serde_json::Value = serde_json::to_value(&e).unwrap();

@@ -110,7 +110,12 @@ pub fn overlay_provenance(
 /// dependents** (live-computed per the frozen `G-SCHEMA` contract). Returns
 /// `true` iff the index changed (new record, or an existing record's
 /// canonical/managed differed).
-pub fn upsert_external(rf: &mut RegistryFile, kind: &str, name: &str, canonical_path: &str) -> bool {
+pub fn upsert_external(
+    rf: &mut RegistryFile,
+    kind: &str,
+    name: &str,
+    canonical_path: &str,
+) -> bool {
     if let Some(e) = rf
         .entries
         .iter_mut()
@@ -244,6 +249,8 @@ mod tests {
             managed: false,
             installed_at: None,
             updated_at: None,
+            from_catalog: false,
+            auto_update: false,
         };
         let mut rf = RegistryFile::default();
         rf.entries
@@ -293,6 +300,8 @@ mod tests {
             managed: false,
             installed_at: None,
             updated_at: None,
+            from_catalog: false,
+            auto_update: false,
         };
         let mut rf = RegistryFile::default();
         rf.entries
@@ -327,15 +336,30 @@ mod tests {
     fn upsert_external_adds_then_is_idempotent() {
         let mut rf = RegistryFile::default();
         // first call adds an external (managed:false) record
-        assert!(upsert_external(&mut rf, "skill", "groundwork", "/ext/groundwork"));
+        assert!(upsert_external(
+            &mut rf,
+            "skill",
+            "groundwork",
+            "/ext/groundwork"
+        ));
         assert_eq!(rf.entries.len(), 1);
         assert!(!rf.entries[0].provenance.managed);
         assert_eq!(rf.entries[0].provenance.canonical_path, "/ext/groundwork");
         // second identical call is a no-op (no change)
-        assert!(!upsert_external(&mut rf, "skill", "groundwork", "/ext/groundwork"));
+        assert!(!upsert_external(
+            &mut rf,
+            "skill",
+            "groundwork",
+            "/ext/groundwork"
+        ));
         assert_eq!(rf.entries.len(), 1);
         // a moved canonical updates in place + reports a change
-        assert!(upsert_external(&mut rf, "skill", "groundwork", "/ext2/groundwork"));
+        assert!(upsert_external(
+            &mut rf,
+            "skill",
+            "groundwork",
+            "/ext2/groundwork"
+        ));
         assert_eq!(rf.entries[0].provenance.canonical_path, "/ext2/groundwork");
         assert!(!rf.entries[0].provenance.managed);
     }

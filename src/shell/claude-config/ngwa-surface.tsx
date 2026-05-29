@@ -46,7 +46,9 @@ import {
 	useEnablePrimitive,
 	useImportToStore,
 	useMovePrimitive,
+	useObaAutoUpdateOnMount,
 	useObaInstall,
+	useObaSetAutoUpdate,
 	useObaUpdate,
 	useRelinkDependents,
 	useRemovePrimitive,
@@ -887,6 +889,21 @@ function StoreSurface({ store, isLoading, error, onEdit, projectScopes }: StoreP
 	const catalog = catalogQuery.data ?? [];
 	const view = useMemo(() => mergePrimitiveView(store, catalog), [store, catalog]);
 
+	// Phase 3 — auto-update trust policy (catalog ON, manual OFF). On mount we
+	// sweep every `autoUpdate`-opted entry and re-fetch the stale ones (FE-driven,
+	// NOT a background daemon). The same mutation backs the explicit "Check
+	// updates" button below.
+	const autoSweep = useObaAutoUpdateOnMount(true);
+	const sweepMsg = autoSweep.isPending
+		? 'Checking for updates…'
+		: autoSweep.data
+			? autoSweep.data.updated.length > 0
+				? `Auto-updated ${autoSweep.data.updated.length} catalog ${autoSweep.data.updated.length === 1 ? 'primitive' : 'primitives'}.`
+				: autoSweep.data.errored.length > 0
+					? `Up to date (${autoSweep.data.errored.length} check${autoSweep.data.errored.length === 1 ? '' : 's'} errored).`
+					: null
+			: null;
+
 	const rows = useMemo(() => {
 		let xs = statusFilter === 'all' ? view : view.filter((r) => r.status === statusFilter);
 		if (filter.trim()) {
@@ -949,6 +966,15 @@ function StoreSurface({ store, isLoading, error, onEdit, projectScopes }: StoreP
 					>
 						{backfill.isPending ? 'Backfilling…' : 'Backfill'}
 					</button>
+					<button
+						type="button"
+						className="ngwa-btn"
+						disabled={autoSweep.isPending}
+						title="Re-check every auto-update primitive (curated catalog installs) against its remote and refresh the stale ones in place."
+						onClick={() => autoSweep.mutate()}
+					>
+						{autoSweep.isPending ? 'Checking…' : 'Check updates'}
+					</button>
 				</div>
 				<div className="ngwa-toolbar" style={{ borderTop: 0, paddingTop: 0 }}>
 					{STORE_CHIPS.map((c) => {
@@ -969,7 +995,9 @@ function StoreSurface({ store, isLoading, error, onEdit, projectScopes }: StoreP
 				<div className="ccfg-list-meta">
 					<span>STORE / CATALOG</span>
 					<span>
-						{backfillMsg ?? `${counts.installed} installed · ${counts.available} available`}
+						{backfillMsg ??
+							sweepMsg ??
+							`${counts.installed} installed · ${counts.available} available`}
 					</span>
 				</div>
 				<div className="ccfg-list-rows">
@@ -2149,9 +2177,14 @@ function StoreDetail({
 	const enable = useEnablePrimitive();
 	const disable = useDisablePrimitive();
 	const update = useObaUpdate();
+	const setAutoUpdate = useObaSetAutoUpdate();
 	const [installing, setInstalling] = useState(false);
 
 	const enabledSet = new Set(entry.enabledIn);
+	// Phase 3 — only a vault-managed master with a remote (git/npx/catalog) can be
+	// auto-updated; a local copy or external master has nothing to re-fetch.
+	const canAutoUpdate = entry.managed !== false && entry.source != null && entry.source !== 'local';
+	const autoOn = entry.autoUpdate === true;
 
 	return (
 		<>
@@ -2211,6 +2244,39 @@ function StoreDetail({
 									update failed: {errText(update.error)}
 								</span>
 							)}
+						</div>
+					</Section>
+				)}
+
+				{/* Phase 3 — per-entry auto-update opt-in (catalog ON by default, manual
+				    OFF). Only meaningful for a managed master with a remote. */}
+				{canAutoUpdate && (
+					<Section label="Auto-update">
+						<label className="ngwa-toggle">
+							<span
+								className={cn('ngwa-sw', autoOn && 'on')}
+								role="button"
+								tabIndex={0}
+								aria-pressed={autoOn}
+								onClick={() =>
+									setAutoUpdate.mutate({
+										kind: entry.kind,
+										name: entry.name,
+										enabled: !autoOn,
+									})
+								}
+							/>
+							<span className="ngwa-stword" style={{ textTransform: 'none' }}>
+								{autoOn
+									? 'On — refreshed automatically on the catalog surface'
+									: 'Off — update manually'}
+							</span>
+						</label>
+						<div className="ngwa-mech" style={{ marginTop: 6, opacity: 0.7 }}>
+							{entry.fromCatalog
+								? 'Installed from the Ọba catalog.'
+								: `Installed directly (${entry.source}).`}
+							{setAutoUpdate.isError && ` · failed: ${errText(setAutoUpdate.error)}`}
 						</div>
 					</Section>
 				)}
