@@ -370,6 +370,35 @@ export async function dbExec(sql: string, params: SqlValue[] = []): Promise<void
 	return invoke('db_exec', { sql, params });
 }
 
+// ─── agent-ops host bridge (WP-09 / G-TRIGGER) ────────────────────────────────
+//
+// Privileged hops the agent-ops iframe pkg can't make: trigger an out-of-schedule
+// run on the always-on cron daemon (localhost endpoint, 0600 lock token),
+// flip a job's enabled flag in the project-scoped config, and read the daemon's
+// config + state files. The Rust commands always resolve with a structured
+// `{ ok, ... }` payload (typed `code` on failure) — see contract `host-verbs.ts`.
+
+/** `Value` returned by the Rust commands (see `AgentOps*Result` in @ikenga/contract). */
+export async function agentOpsRunNow(jobId: string): Promise<unknown> {
+	return invoke('agent_ops_run_now', { jobId });
+}
+
+export async function agentOpsSetEnabled(jobId: string, enabled: boolean): Promise<unknown> {
+	return invoke('agent_ops_set_enabled', { jobId, enabled });
+}
+
+export async function agentOpsListJobs(): Promise<unknown> {
+	return invoke('agent_ops_list_jobs', {});
+}
+
+export async function agentOpsUpsertJob(job: unknown): Promise<unknown> {
+	return invoke('agent_ops_upsert_job', { job });
+}
+
+export async function agentOpsDeleteJob(jobId: string): Promise<unknown> {
+	return invoke('agent_ops_delete_job', { jobId });
+}
+
 // ─── Viewer (shared axum server, same-origin via Vite proxy / localhost-plugin)
 
 export interface ViewerHandle {

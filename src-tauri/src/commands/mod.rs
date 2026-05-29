@@ -4,6 +4,7 @@
 //! Rust side.
 
 pub mod activity_bar;
+pub mod agent_ops;
 pub mod backup;
 #[cfg(debug_assertions)]
 pub mod bg_spike;
@@ -74,6 +75,10 @@ pub use comment_route::comment_route;
 pub use comments::{
     comment_create, comment_delete, comment_get, comment_list, comment_record_routing,
     comment_set_status, pin_screenshot_write,
+};
+pub use agent_ops::{
+    agent_ops_delete_job, agent_ops_list_jobs, agent_ops_run_now, agent_ops_set_enabled,
+    agent_ops_upsert_job,
 };
 pub use db::{db_exec, db_query};
 pub use desktop::{iyke_mcp_info, set_dock_badge, IykeMcpInfo};

@@ -9,7 +9,7 @@
 // dedicated Packages mode (activity-bar ⌘4 → PkgsMode); it isn't a
 // concern of the main App mode anymore.
 
-import { CheckSquare, FileText, Home, Terminal as TerminalIcon } from 'lucide-react';
+import { Activity, CheckSquare, Clock, FileText, Home, Terminal as TerminalIcon } from 'lucide-react';
 
 export interface NavItem {
 	to: string;
@@ -36,6 +36,16 @@ export const NAV_GROUPS: NavGroup[] = [
 		items: [
 			{ to: '/scratchpads', label: 'Scratchpads', Icon: FileText },
 			{ to: '/todos', label: 'Todos', Icon: CheckSquare },
+		],
+	},
+	{
+		// Agent-ops deep-links. These routes auto-redirect to the
+		// com.ikenga.agent-ops pkg once it is installed; they show a landing
+		// page otherwise. WP-08/WP-12 will wire the live per-view sub-paths.
+		label: 'Agents',
+		items: [
+			{ to: '/cron', label: 'Cron', Icon: Clock },
+			{ to: '/agent-runs', label: 'Agent Runs', Icon: Activity },
 		],
 	},
 ];

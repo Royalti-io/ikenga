@@ -23,7 +23,9 @@ import { Route as IykeSmokeRouteImport } from './routes/iyke-smoke'
 import { Route as InstallRouteImport } from './routes/install'
 import { Route as IframeMountSmokeRouteImport } from './routes/iframe-mount-smoke'
 import { Route as CronSmokeRouteImport } from './routes/cron-smoke'
+import { Route as CronRouteImport } from './routes/cron'
 import { Route as ClaudeAssetsSmokeRouteImport } from './routes/claude-assets-smoke'
+import { Route as AgentRunsRouteImport } from './routes/agent-runs'
 import { Route as SettingsRouteRouteImport } from './routes/settings/route'
 import { Route as SessionsRouteRouteImport } from './routes/sessions/route'
 import { Route as OnboardingRouteRouteImport } from './routes/onboarding/route'
@@ -137,9 +139,19 @@ const CronSmokeRoute = CronSmokeRouteImport.update({
   path: '/cron-smoke',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CronRoute = CronRouteImport.update({
+  id: '/cron',
+  path: '/cron',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ClaudeAssetsSmokeRoute = ClaudeAssetsSmokeRouteImport.update({
   id: '/claude-assets-smoke',
   path: '/claude-assets-smoke',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AgentRunsRoute = AgentRunsRouteImport.update({
+  id: '/agent-runs',
+  path: '/agent-runs',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SettingsRouteRoute = SettingsRouteRouteImport.update({
@@ -359,7 +371,9 @@ export interface FileRoutesByFullPath {
   '/onboarding': typeof OnboardingRouteRouteWithChildren
   '/sessions': typeof SessionsRouteRouteWithChildren
   '/settings': typeof SettingsRouteRouteWithChildren
+  '/agent-runs': typeof AgentRunsRoute
   '/claude-assets-smoke': typeof ClaudeAssetsSmokeRoute
+  '/cron': typeof CronRoute
   '/cron-smoke': typeof CronSmokeRoute
   '/iframe-mount-smoke': typeof IframeMountSmokeRoute
   '/install': typeof InstallRoute
@@ -415,7 +429,9 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/claude': typeof ClaudeRouteRouteWithChildren
+  '/agent-runs': typeof AgentRunsRoute
   '/claude-assets-smoke': typeof ClaudeAssetsSmokeRoute
+  '/cron': typeof CronRoute
   '/cron-smoke': typeof CronSmokeRoute
   '/iframe-mount-smoke': typeof IframeMountSmokeRoute
   '/install': typeof InstallRoute
@@ -474,7 +490,9 @@ export interface FileRoutesById {
   '/onboarding': typeof OnboardingRouteRouteWithChildren
   '/sessions': typeof SessionsRouteRouteWithChildren
   '/settings': typeof SettingsRouteRouteWithChildren
+  '/agent-runs': typeof AgentRunsRoute
   '/claude-assets-smoke': typeof ClaudeAssetsSmokeRoute
+  '/cron': typeof CronRoute
   '/cron-smoke': typeof CronSmokeRoute
   '/iframe-mount-smoke': typeof IframeMountSmokeRoute
   '/install': typeof InstallRoute
@@ -535,7 +553,9 @@ export interface FileRouteTypes {
     | '/onboarding'
     | '/sessions'
     | '/settings'
+    | '/agent-runs'
     | '/claude-assets-smoke'
+    | '/cron'
     | '/cron-smoke'
     | '/iframe-mount-smoke'
     | '/install'
@@ -591,7 +611,9 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/claude'
+    | '/agent-runs'
     | '/claude-assets-smoke'
+    | '/cron'
     | '/cron-smoke'
     | '/iframe-mount-smoke'
     | '/install'
@@ -649,7 +671,9 @@ export interface FileRouteTypes {
     | '/onboarding'
     | '/sessions'
     | '/settings'
+    | '/agent-runs'
     | '/claude-assets-smoke'
+    | '/cron'
     | '/cron-smoke'
     | '/iframe-mount-smoke'
     | '/install'
@@ -709,7 +733,9 @@ export interface RootRouteChildren {
   OnboardingRouteRoute: typeof OnboardingRouteRouteWithChildren
   SessionsRouteRoute: typeof SessionsRouteRouteWithChildren
   SettingsRouteRoute: typeof SettingsRouteRouteWithChildren
+  AgentRunsRoute: typeof AgentRunsRoute
   ClaudeAssetsSmokeRoute: typeof ClaudeAssetsSmokeRoute
+  CronRoute: typeof CronRoute
   CronSmokeRoute: typeof CronSmokeRoute
   IframeMountSmokeRoute: typeof IframeMountSmokeRoute
   InstallRoute: typeof InstallRoute
@@ -831,11 +857,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CronSmokeRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/cron': {
+      id: '/cron'
+      path: '/cron'
+      fullPath: '/cron'
+      preLoaderRoute: typeof CronRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/claude-assets-smoke': {
       id: '/claude-assets-smoke'
       path: '/claude-assets-smoke'
       fullPath: '/claude-assets-smoke'
       preLoaderRoute: typeof ClaudeAssetsSmokeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/agent-runs': {
+      id: '/agent-runs'
+      path: '/agent-runs'
+      fullPath: '/agent-runs'
+      preLoaderRoute: typeof AgentRunsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/settings': {
@@ -1255,7 +1295,9 @@ const rootRouteChildren: RootRouteChildren = {
   OnboardingRouteRoute: OnboardingRouteRouteWithChildren,
   SessionsRouteRoute: SessionsRouteRouteWithChildren,
   SettingsRouteRoute: SettingsRouteRouteWithChildren,
+  AgentRunsRoute: AgentRunsRoute,
   ClaudeAssetsSmokeRoute: ClaudeAssetsSmokeRoute,
+  CronRoute: CronRoute,
   CronSmokeRoute: CronSmokeRoute,
   IframeMountSmokeRoute: IframeMountSmokeRoute,
   InstallRoute: InstallRoute,

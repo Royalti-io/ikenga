@@ -26,6 +26,8 @@ use tokio::sync::Mutex;
 use commands::db::PaDb;
 use commands::screenshot::new_pending as new_screenshot_pending;
 use commands::{
+    agent_ops_delete_job, agent_ops_list_jobs, agent_ops_run_now, agent_ops_set_enabled,
+    agent_ops_upsert_job,
     activity_pins_add, activity_pins_list, activity_pins_remove, activity_pins_reorder,
     activity_pins_resolve_artifact, activity_pins_touch_open, activity_sections_create,
     activity_sections_list, activity_sections_remove, activity_sections_update, backup_delete,
@@ -688,6 +690,12 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            // agent-ops host bridge (WP-09 / G-TRIGGER + WP-14 CRUD)
+            agent_ops_run_now,
+            agent_ops_set_enabled,
+            agent_ops_list_jobs,
+            agent_ops_upsert_job,
+            agent_ops_delete_job,
             // pty
             pty_spawn,
             pty_write,
