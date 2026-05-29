@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { queryOptions, useMutation, useQueryClient } from '@tanstack/react-query';
+import { type QueryKey, queryOptions, useMutation, useQueryClient } from '@tanstack/react-query';
 
 import {
 	claudeConfigListen,
@@ -299,12 +299,39 @@ export function useObaAutoUpdateOnMount(enabled = true) {
 }
 
 /** Phase 3 — toggle the per-entry auto-update opt-in (persists to the registry).
- *  Invalidates the store so the detail UI reflects the new flag. */
+ *  Optimistic: the cached store entry flips immediately so the toggle repaints on
+ *  click instead of waiting for the mutation→invalidate→refetch round-trip. Rolls
+ *  back on error; `onSettled` reconciles with server truth either way. */
 export function useObaSetAutoUpdate() {
+	const qc = useQueryClient();
 	const invalidate = useInvalidateClaudeStore();
-	return useMutation<boolean, Error, { kind: ClaudeStoreKind; name: string; enabled: boolean }>({
+	return useMutation<
+		boolean,
+		Error,
+		{ kind: ClaudeStoreKind; name: string; enabled: boolean },
+		{ prev: [QueryKey, ClaudeStoreEntry[] | undefined][] }
+	>({
 		mutationFn: ({ kind, name, enabled }) => obaSetAutoUpdate(kind, name, enabled),
-		onSuccess: invalidate,
+		onMutate: async ({ kind, name, enabled }) => {
+			// Patch only the store-LIST query family (`['claude_store','list',*]`);
+			// the dependents / update-check queries don't match this prefix so their
+			// (differently-shaped) data is untouched. The detail pane's `entry` is
+			// derived from this cache, so it repaints synchronously.
+			await qc.cancelQueries({ queryKey: queryKeys.claudeStore.all });
+			const prev = qc.getQueriesData<ClaudeStoreEntry[]>({ queryKey: ['claude_store', 'list'] });
+			for (const [key, data] of prev) {
+				if (!data) continue;
+				qc.setQueryData<ClaudeStoreEntry[]>(
+					key,
+					data.map((e) => (e.kind === kind && e.name === name ? { ...e, autoUpdate: enabled } : e))
+				);
+			}
+			return { prev };
+		},
+		onError: (_err, _vars, ctx) => {
+			for (const [key, data] of ctx?.prev ?? []) qc.setQueryData(key, data);
+		},
+		onSettled: () => invalidate(),
 	});
 }
 
