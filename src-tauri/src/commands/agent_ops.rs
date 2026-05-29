@@ -35,6 +35,20 @@ fn daemon_lock_path() -> Result<PathBuf, String> {
     Ok(home()?.join(".agent-ops/daemon.lock"))
 }
 
+/// Per-run tail directory — sibling of `daemon.lock`. The daemon's script-mode
+/// executor tees combined stdout/stderr here; this command reads it back by
+/// byte-range. Created mode 0o700 by the daemon's boot sweep (run-tail.ts).
+fn runs_dir() -> Result<PathBuf, String> {
+    Ok(home()?.join(".agent-ops/runs"))
+}
+
+/// Slugify a job id for on-disk file names. **MUST stay identical to `slug()`
+/// in the daemon's `lib/run-tail.ts`** — both sides derive the same marker /
+/// tail file names from the job id, so any divergence silently breaks the read.
+fn run_slug(job_id: &str) -> String {
+    job_id.replace(':', "-")
+}
+
 /// Project-scoped job config the skill + daemon read new-wins. Under $HOME.
 fn project_config_path() -> Result<PathBuf, String> {
     Ok(home()?.join(".atelier/skill-agent-ops/jobs.json"))
@@ -448,5 +462,217 @@ pub async fn agent_ops_list_jobs() -> Result<Value, String> {
         "daemon_up": daemon_up,
         "daemon_pid": daemon_pid,
         "jobs": jobs,
+    }))
+}
+
+// ─── tail-run (WP-13 live tail) ───────────────────────────────────────────────
+
+/// Cap on bytes returned per `agent_ops_tail_run` call (256 KiB). The pkg polls
+/// with `nextOffset` to drain anything larger across multiple reads.
+const TAIL_CHUNK_CAP: u64 = 256 * 1024;
+
+/// Read the live (or last-completed) run output for a job by byte-range, for the
+/// agent-ops pkg's Live-output view. Pure filesystem read on the **shell's own**
+/// event loop — never touches the daemon — so the daemon being blocked mid-run
+/// (synchronously executing a job) is irrelevant: we still stream whatever the
+/// child has teed to `~/.agent-ops/runs/<slug>.<startedAtMs>.tail`.
+///
+/// Mechanism is script-mode only. Agent jobs (`claude -p`) have no tail file, so
+/// we return an empty chunk with `mode:"agent"` and let the pkg render a graceful
+/// 'live output not available for agent jobs' state from the marker's status.
+///
+/// Best-effort + non-throwing: a missing marker / missing tail / unreadable file
+/// resolves to `ok:true` with an empty chunk (NOT an Err, NOT a daemon-down) so
+/// the view degrades to 'no output yet'. Only a path-escape attempt (marker's
+/// `tailPath` pointing outside `runs_dir()`) maps to `code:"io_error"`.
+#[tauri::command]
+pub async fn agent_ops_tail_run(job_id: String, offset: Option<u64>) -> Result<Value, String> {
+    let offset = offset.unwrap_or(0);
+
+    // The "no run yet" success shape — absent marker / nothing to show.
+    let empty = |status: Value, started: Value, mode: Value| {
+        json!({
+            "ok": true,
+            "running": false,
+            "status": status,
+            "startedAtMs": started,
+            "mode": mode,
+            "chunk": "",
+            "nextOffset": offset,
+            "eof": true,
+        })
+    };
+
+    let runs = match runs_dir() {
+        Ok(p) => p,
+        Err(e) => return Ok(err_value("io_error", None, e)),
+    };
+
+    // ── marker ───────────────────────────────────────────────────────────────
+    // Absent / unreadable / unparseable marker is NOT an error: the job simply
+    // has no run on disk yet → empty, status:null, mode:null.
+    let marker_path = runs.join(format!("{}.marker.json", run_slug(&job_id)));
+    let marker_raw = match tokio::fs::read(&marker_path).await {
+        Ok(r) => r,
+        Err(_) => return Ok(empty(Value::Null, Value::Null, Value::Null)),
+    };
+    let marker: Value = match serde_json::from_slice(&marker_raw) {
+        Ok(v) => v,
+        Err(_) => return Ok(empty(Value::Null, Value::Null, Value::Null)),
+    };
+
+    let status = marker.get("status").and_then(|v| v.as_str());
+    let status_json = match status {
+        Some("running") => json!("running"),
+        Some("done") => json!("done"),
+        _ => Value::Null,
+    };
+    let started_json = marker
+        .get("startedAtMs")
+        .and_then(|v| v.as_u64())
+        .map(|n| json!(n))
+        .unwrap_or(Value::Null);
+    let mode = marker.get("mode").and_then(|v| v.as_str());
+    let mode_json = match mode {
+        Some("script") => json!("script"),
+        Some("agent") => json!("agent"),
+        _ => Value::Null,
+    };
+
+    // running = status:"running" AND the marker's pid is actually alive.
+    let pid = marker.get("pid").and_then(|v| v.as_u64());
+    let running = status == Some("running") && pid.map(|p| pid_alive(p as u32)).unwrap_or(false);
+
+    // Agent mode never produces a tail file — return empty but carry the marker
+    // status/started/mode so the pkg can show a spinner while running.
+    if mode == Some("agent") {
+        return Ok(json!({
+            "ok": true,
+            "running": running,
+            "status": status_json,
+            "startedAtMs": started_json,
+            "mode": mode_json,
+            "chunk": "",
+            "nextOffset": offset,
+            "eof": true,
+        }));
+    }
+
+    // ── tail path resolution + security ────────────────────────────────────────
+    // No tailPath on the marker → nothing to read, but still surface the run's
+    // status (running:false/true) so the view doesn't go blank.
+    let Some(tail_path_str) = marker.get("tailPath").and_then(|v| v.as_str()) else {
+        return Ok(json!({
+            "ok": true,
+            "running": running,
+            "status": status_json,
+            "startedAtMs": started_json,
+            "mode": mode_json,
+            "chunk": "",
+            "nextOffset": offset,
+            "eof": true,
+        }));
+    };
+    let tail_path = PathBuf::from(tail_path_str);
+
+    // SECURITY: confirm the marker's tailPath canonicalizes to a location UNDER
+    // runs_dir() before opening — a malicious / corrupt marker must not be able
+    // to make the shell read an arbitrary file via path-escape.
+    let runs_canon = match tokio::fs::canonicalize(&runs).await {
+        Ok(p) => p,
+        // runs_dir() itself missing → no runs ever; treat as empty.
+        Err(_) => return Ok(empty(status_json, started_json, mode_json)),
+    };
+    match tokio::fs::canonicalize(&tail_path).await {
+        Ok(canon) => {
+            if !canon.starts_with(&runs_canon) {
+                return Ok(err_value(
+                    "io_error",
+                    None,
+                    "tail path escapes the runs directory",
+                ));
+            }
+        }
+        // Missing tail file → empty chunk at the current offset, eof.
+        Err(_) => {
+            return Ok(json!({
+                "ok": true,
+                "running": running,
+                "status": status_json,
+                "startedAtMs": started_json,
+                "mode": mode_json,
+                "chunk": "",
+                "nextOffset": offset,
+                "eof": true,
+            }));
+        }
+    }
+
+    // ── byte-range read ────────────────────────────────────────────────────────
+    use tokio::io::{AsyncReadExt, AsyncSeekExt};
+    let mut file = match tokio::fs::File::open(&tail_path).await {
+        Ok(f) => f,
+        Err(_) => {
+            return Ok(json!({
+                "ok": true,
+                "running": running,
+                "status": status_json,
+                "startedAtMs": started_json,
+                "mode": mode_json,
+                "chunk": "",
+                "nextOffset": offset,
+                "eof": true,
+            }));
+        }
+    };
+    let file_len = file.metadata().await.map(|m| m.len()).unwrap_or(0);
+
+    // Offset past EOF (file truncated / rotated) → empty, eof, hold the offset.
+    if offset >= file_len {
+        return Ok(json!({
+            "ok": true,
+            "running": running,
+            "status": status_json,
+            "startedAtMs": started_json,
+            "mode": mode_json,
+            "chunk": "",
+            "nextOffset": offset,
+            "eof": true,
+        }));
+    }
+
+    if file.seek(std::io::SeekFrom::Start(offset)).await.is_err() {
+        return Ok(json!({
+            "ok": true,
+            "running": running,
+            "status": status_json,
+            "startedAtMs": started_json,
+            "mode": mode_json,
+            "chunk": "",
+            "nextOffset": offset,
+            "eof": true,
+        }));
+    }
+
+    let want = (file_len - offset).min(TAIL_CHUNK_CAP);
+    let mut buf = vec![0u8; want as usize];
+    let read = match file.read(&mut buf).await {
+        Ok(n) => n,
+        Err(_) => 0,
+    };
+    buf.truncate(read);
+    let next_offset = offset + read as u64;
+    let eof = next_offset >= file_len;
+    let chunk = String::from_utf8_lossy(&buf).into_owned();
+
+    Ok(json!({
+        "ok": true,
+        "running": running,
+        "status": status_json,
+        "startedAtMs": started_json,
+        "mode": mode_json,
+        "chunk": chunk,
+        "nextOffset": next_offset,
+        "eof": eof,
     }))
 }

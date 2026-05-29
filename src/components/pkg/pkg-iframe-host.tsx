@@ -46,6 +46,7 @@ import {
 	agentOpsListJobs,
 	agentOpsRunNow,
 	agentOpsSetEnabled,
+	agentOpsTailRun,
 	agentOpsUpsertJob,
 	dbExec,
 	dbQuery,
@@ -525,6 +526,31 @@ export async function dispatchHostCall(
 			};
 		} catch (e) {
 			return errResult(`host.agentOps.runNow failed: ${(e as Error).message ?? String(e)}`);
+		}
+	}
+
+	if (name === 'host.agentOps.tailRun') {
+		const jobId = typeof args.jobId === 'string' ? args.jobId : null;
+		if (!jobId) {
+			return errResult('host.agentOps.tailRun: missing required `jobId` argument');
+		}
+		if (!(await pkgDeclaresAgentOps(pkgId))) {
+			return errResult("host.agentOps.tailRun: pkg lacks the 'agentOps' capability");
+		}
+		try {
+			const offset = typeof args.offset === 'number' ? args.offset : undefined;
+			const res = (await agentOpsTailRun(jobId, offset)) as unknown as Record<string, unknown>;
+			return {
+				content: [
+					{
+						type: 'text',
+						text: res?.ok ? `tail ${jobId} @${res?.nextOffset ?? 0}` : `tail-run: ${res?.error ?? 'failed'}`,
+					},
+				],
+				structuredContent: res,
+			};
+		} catch (e) {
+			return errResult(`host.agentOps.tailRun failed: ${(e as Error).message ?? String(e)}`);
 		}
 	}
 
