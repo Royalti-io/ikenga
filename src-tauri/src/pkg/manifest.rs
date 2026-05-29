@@ -224,7 +224,20 @@ pub struct CapabilitiesBlock {
     /// `@ikenga/contract/manifest.ts`.
     #[serde(default)]
     pub webview: Option<WebviewCapability>,
+    /// Agent-ops host-bridge capability (api ≥ 2). Opt-in to the privileged
+    /// `host.agentOps.*` verbs (run-now / enable-disable / list-jobs) the
+    /// shell exposes for the agent-ops observability pkg. Presence of the
+    /// block is the gate (mirrors the `sqlite` opt-in). Mirrors
+    /// `AgentOpsCapabilitySchema` in `@ikenga/contract/manifest.ts`.
+    #[serde(rename = "agentOps", default)]
+    pub agent_ops: Option<AgentOpsCapability>,
 }
+
+/// Agent-ops host-bridge capability block — currently empty; its presence
+/// alone gates the `host.agentOps.*` verbs in `pkg-iframe-host.tsx`. Mirrors
+/// `AgentOpsCapability` in `@ikenga/contract/manifest.ts`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AgentOpsCapability {}
 
 /// Local SQLite capability block. Threads the db name into the iframe host
 /// context so the pkg can call `db_query("ikenga.local", sql, params)` without

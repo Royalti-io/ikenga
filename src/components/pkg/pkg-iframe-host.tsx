@@ -42,6 +42,9 @@ import { buildHostContext } from '@/lib/pkg/host-context';
 import { usePaneStore } from '@/lib/panes/pane-store';
 import { usePkgMenuStore, type PkgMenuItem } from '@/lib/pkg/pkg-menu-store';
 import {
+	agentOpsListJobs,
+	agentOpsRunNow,
+	agentOpsSetEnabled,
 	dbExec,
 	dbQuery,
 	pkgContentHtml,
@@ -158,6 +161,24 @@ async function pkgDeclaresSqlite(pkgId: string): Promise<boolean> {
 		return !!caps?.sqlite;
 	} catch (e) {
 		console.warn(`[pkg-host] sqlite capability check for ${pkgId} failed:`, e);
+		return false;
+	}
+}
+
+// Whether the pkg declared `capabilities.agentOps` (opt-in to the privileged
+// `host.agentOps.*` verbs — run-now / enable-disable / list-jobs that reach the
+// always-on cron daemon + read its config/state files). Gates all three verbs.
+// Same manifest-lookup shape as `pkgDeclaresSqlite`; fails closed on any error.
+async function pkgDeclaresAgentOps(pkgId: string): Promise<boolean> {
+	try {
+		const status = await pkgKernelStatus();
+		const entry = status.installed.find((p) => p.id === pkgId);
+		if (!entry) return false;
+		const manifest = await pkgPreviewManifest(entry.install_path);
+		const caps = manifest.capabilities as Record<string, unknown> | undefined;
+		return !!caps?.agentOps;
+	} catch (e) {
+		console.warn(`[pkg-host] agentOps capability check for ${pkgId} failed:`, e);
 		return false;
 	}
 }
@@ -470,6 +491,82 @@ export async function dispatchHostCall(
 			content: [{ type: 'text', text: `sent to ${res.threadId}` }],
 			structuredContent: { ok: true, threadId: res.threadId },
 		};
+	}
+
+	// ─── agent-ops host bridge (WP-09 / G-TRIGGER) ──────────────────────────────
+	// The privileged hops the agent-ops iframe can't make: trigger a run on the
+	// always-on cron daemon, flip a job's enabled flag, read the daemon's
+	// config + state files. All gated on `capabilities.agentOps` (host.* verbs
+	// bypass kernel scope enforcement, so the check happens here, fails closed).
+	// The Rust commands always resolve a structured `{ ok, ... }` payload (typed
+	// `code` on failure), which we pass through verbatim as structuredContent so
+	// the pkg branches on `ok` — a daemon-down / disabled result is NOT a call
+	// error, only gate/arg/exception failures use the isError envelope.
+	if (name === 'host.agentOps.runNow') {
+		const jobId = typeof args.jobId === 'string' ? args.jobId : null;
+		if (!jobId) {
+			return errResult('host.agentOps.runNow: missing required `jobId` argument');
+		}
+		if (!(await pkgDeclaresAgentOps(pkgId))) {
+			return errResult("host.agentOps.runNow: pkg lacks the 'agentOps' capability");
+		}
+		try {
+			const res = (await agentOpsRunNow(jobId)) as Record<string, unknown>;
+			return {
+				content: [
+					{
+						type: 'text',
+						text: res?.ok ? `triggered ${jobId}` : `run-now: ${res?.error ?? 'failed'}`,
+					},
+				],
+				structuredContent: res,
+			};
+		} catch (e) {
+			return errResult(`host.agentOps.runNow failed: ${(e as Error).message ?? String(e)}`);
+		}
+	}
+
+	if (name === 'host.agentOps.setEnabled') {
+		const jobId = typeof args.jobId === 'string' ? args.jobId : null;
+		if (!jobId) {
+			return errResult('host.agentOps.setEnabled: missing required `jobId` argument');
+		}
+		if (typeof args.enabled !== 'boolean') {
+			return errResult('host.agentOps.setEnabled: missing required boolean `enabled` argument');
+		}
+		if (!(await pkgDeclaresAgentOps(pkgId))) {
+			return errResult("host.agentOps.setEnabled: pkg lacks the 'agentOps' capability");
+		}
+		try {
+			const res = (await agentOpsSetEnabled(jobId, args.enabled)) as Record<string, unknown>;
+			return {
+				content: [
+					{
+						type: 'text',
+						text: res?.ok ? `${jobId} enabled=${args.enabled}` : `setEnabled: ${res?.error ?? 'failed'}`,
+					},
+				],
+				structuredContent: res,
+			};
+		} catch (e) {
+			return errResult(`host.agentOps.setEnabled failed: ${(e as Error).message ?? String(e)}`);
+		}
+	}
+
+	if (name === 'host.agentOps.listJobs') {
+		if (!(await pkgDeclaresAgentOps(pkgId))) {
+			return errResult("host.agentOps.listJobs: pkg lacks the 'agentOps' capability");
+		}
+		try {
+			const res = (await agentOpsListJobs()) as Record<string, unknown>;
+			const jobs = Array.isArray(res?.jobs) ? res.jobs.length : 0;
+			return {
+				content: [{ type: 'text', text: res?.ok ? `${jobs} job(s)` : `listJobs: ${res?.error ?? 'failed'}` }],
+				structuredContent: res,
+			};
+		} catch (e) {
+			return errResult(`host.agentOps.listJobs failed: ${(e as Error).message ?? String(e)}`);
+		}
 	}
 
 	return errResult(`unknown host tool: ${name}`);
