@@ -217,6 +217,159 @@ pub async fn agent_ops_set_enabled(job_id: String, enabled: bool) -> Result<Valu
     Ok(json!({ "ok": true, "jobId": job_id, "enabled": enabled }))
 }
 
+// ─── create / edit / delete (WP-14) ──────────────────────────────────────────
+
+/// Read + parse the project config root, returning `(root, err)`. On failure
+/// returns the err_value to bubble straight back to the FE.
+async fn read_config_root() -> Result<Value, Value> {
+    let path = project_config_path().map_err(|e| err_value("io_error", None, e))?;
+    let raw = tokio::fs::read(&path)
+        .await
+        .map_err(|e| err_value("io_error", None, format!("read config: {e}")))?;
+    serde_json::from_slice(&raw).map_err(|e| err_value("io_error", None, format!("parse config: {e}")))
+}
+
+/// Atomic write of the config root back to disk (temp + rename, same fs) so the
+/// live daemon never reads a torn file.
+async fn write_config_root(root: &Value) -> Result<(), Value> {
+    let path = project_config_path().map_err(|e| err_value("io_error", None, e))?;
+    let serialized = serde_json::to_string_pretty(root)
+        .map(|s| s + "\n")
+        .map_err(|e| err_value("io_error", None, format!("serialize config: {e}")))?;
+    let tmp = path.with_extension("json.tmp");
+    tokio::fs::write(&tmp, serialized.as_bytes())
+        .await
+        .map_err(|e| err_value("io_error", None, format!("write temp config: {e}")))?;
+    tokio::fs::rename(&tmp, &path).await.map_err(|e| {
+        err_value("io_error", None, format!("rename config: {e}"))
+    })?;
+    Ok(())
+}
+
+/// Borrow the jobs array out of the config root (array root, or `{ jobs: [...] }`).
+fn jobs_array_mut(root: &mut Value) -> Option<&mut Vec<Value>> {
+    if root.is_array() {
+        root.as_array_mut()
+    } else {
+        root.get_mut("jobs").and_then(|j| j.as_array_mut())
+    }
+}
+
+fn nonempty_str<'a>(v: &'a Value, key: &str) -> Option<&'a str> {
+    v.get(key).and_then(|x| x.as_str()).map(str::trim).filter(|s| !s.is_empty())
+}
+
+/// Build a full JobDefinition from the form's `AgentOpsJobInput`, filling the
+/// behavior-preserving defaults the daemon expects (G-11: concurrency `allow`).
+/// Returns the validated id + the complete job object, or an err_value.
+fn build_job(input: &Value) -> Result<(String, Value), Value> {
+    let id = nonempty_str(input, "id")
+        .ok_or_else(|| err_value("error", None, "job.id is required"))?
+        .to_string();
+    let label = nonempty_str(input, "label")
+        .ok_or_else(|| err_value("error", None, "job.label is required"))?;
+    let schedule = nonempty_str(input, "schedule")
+        .ok_or_else(|| err_value("error", None, "job.schedule is required"))?;
+    let command = nonempty_str(input, "command")
+        .ok_or_else(|| err_value("error", None, "job.command is required"))?;
+
+    let mode = match input.get("mode").and_then(|m| m.as_str()) {
+        Some("script") => "script",
+        _ => "agent",
+    };
+    // Default dialect from field count unless explicitly provided.
+    let dialect = match input.get("schedule_dialect").and_then(|d| d.as_str()) {
+        Some("6f") => "6f",
+        Some("5f") => "5f",
+        _ => {
+            if schedule.split_whitespace().count() >= 6 { "6f" } else { "5f" }
+        }
+    };
+    let timezone = nonempty_str(input, "timezone").unwrap_or("Africa/Lagos");
+    let enabled = input.get("enabled").and_then(|e| e.as_bool()).unwrap_or(true);
+    let timeout_ms = input.get("timeout_ms").and_then(|t| t.as_u64()).unwrap_or(300_000);
+    let model = input.get("model").and_then(|m| m.as_str());
+    let agent = input.get("agent").and_then(|a| a.as_str());
+
+    let mut job = serde_json::Map::new();
+    job.insert("id".into(), json!(id));
+    job.insert("label".into(), json!(label));
+    job.insert("schedule".into(), json!(schedule));
+    job.insert("schedule_dialect".into(), json!(dialect));
+    job.insert("timezone".into(), json!(timezone));
+    job.insert("enabled".into(), json!(enabled));
+    job.insert("command".into(), json!(command));
+    job.insert("mode".into(), json!(mode));
+    job.insert("timeout_ms".into(), json!(timeout_ms));
+    job.insert("retries".into(), json!(0));
+    job.insert("backoff".into(), json!({ "type": "fixed", "delay_ms": 0 }));
+    job.insert("concurrency_policy".into(), json!("allow"));
+    if let Some(m) = model {
+        job.insert("model".into(), json!(m));
+    }
+    if let Some(a) = agent {
+        job.insert("agent".into(), json!(a));
+    }
+    Ok((id, Value::Object(job)))
+}
+
+/// Create-or-update a job in the project-scoped config. Replace by id if present
+/// (preserving the daemon-written fields the on-disk entry already had where the
+/// form doesn't override them is NOT attempted — the form owns the definition),
+/// else append. Atomic write; daemon honors on next load. The shell never runs
+/// the job — this is a config write only.
+#[tauri::command]
+pub async fn agent_ops_upsert_job(job: Value) -> Result<Value, String> {
+    let (id, full) = match build_job(&job) {
+        Ok(v) => v,
+        Err(e) => return Ok(e),
+    };
+    let mut root = match read_config_root().await {
+        Ok(r) => r,
+        Err(e) => return Ok(e),
+    };
+    let Some(arr) = jobs_array_mut(&mut root) else {
+        return Ok(err_value("io_error", None, "config is not a jobs array"));
+    };
+    let mut created = true;
+    for slot in arr.iter_mut() {
+        if slot.get("id").and_then(|v| v.as_str()) == Some(id.as_str()) {
+            *slot = full.clone();
+            created = false;
+            break;
+        }
+    }
+    if created {
+        arr.push(full);
+    }
+    if let Err(e) = write_config_root(&root).await {
+        return Ok(e);
+    }
+    Ok(json!({ "ok": true, "jobId": id, "created": created }))
+}
+
+/// Remove a job from the project-scoped config by id. Atomic write; the daemon
+/// stops scheduling it on next load.
+#[tauri::command]
+pub async fn agent_ops_delete_job(job_id: String) -> Result<Value, String> {
+    let mut root = match read_config_root().await {
+        Ok(r) => r,
+        Err(e) => return Ok(e),
+    };
+    let Some(arr) = jobs_array_mut(&mut root) else {
+        return Ok(err_value("io_error", None, "config is not a jobs array"));
+    };
+    let before = arr.len();
+    arr.retain(|j| j.get("id").and_then(|v| v.as_str()) != Some(job_id.as_str()));
+    if arr.len() == before {
+        return Ok(err_value("not_found", None, format!("no job \"{job_id}\" in config")));
+    }
+    if let Err(e) = write_config_root(&root).await {
+        return Ok(e);
+    }
+    Ok(json!({ "ok": true, "jobId": job_id }))
+}
+
 // ─── list-jobs ───────────────────────────────────────────────────────────────
 
 fn jobs_array_from(root: Value) -> Vec<Value> {

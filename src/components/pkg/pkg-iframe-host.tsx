@@ -42,9 +42,11 @@ import { buildHostContext } from '@/lib/pkg/host-context';
 import { usePaneStore } from '@/lib/panes/pane-store';
 import { usePkgMenuStore, type PkgMenuItem } from '@/lib/pkg/pkg-menu-store';
 import {
+	agentOpsDeleteJob,
 	agentOpsListJobs,
 	agentOpsRunNow,
 	agentOpsSetEnabled,
+	agentOpsUpsertJob,
 	dbExec,
 	dbQuery,
 	pkgContentHtml,
@@ -566,6 +568,44 @@ export async function dispatchHostCall(
 			};
 		} catch (e) {
 			return errResult(`host.agentOps.listJobs failed: ${(e as Error).message ?? String(e)}`);
+		}
+	}
+
+	if (name === 'host.agentOps.upsertJob') {
+		const job = args.job && typeof args.job === 'object' ? args.job : null;
+		if (!job) {
+			return errResult('host.agentOps.upsertJob: missing required `job` object');
+		}
+		if (!(await pkgDeclaresAgentOps(pkgId))) {
+			return errResult("host.agentOps.upsertJob: pkg lacks the 'agentOps' capability");
+		}
+		try {
+			const res = (await agentOpsUpsertJob(job)) as Record<string, unknown>;
+			return {
+				content: [{ type: 'text', text: res?.ok ? `upserted ${res.jobId}` : `upsertJob: ${res?.error ?? 'failed'}` }],
+				structuredContent: res,
+			};
+		} catch (e) {
+			return errResult(`host.agentOps.upsertJob failed: ${(e as Error).message ?? String(e)}`);
+		}
+	}
+
+	if (name === 'host.agentOps.deleteJob') {
+		const jobId = typeof args.jobId === 'string' ? args.jobId : null;
+		if (!jobId) {
+			return errResult('host.agentOps.deleteJob: missing required `jobId` argument');
+		}
+		if (!(await pkgDeclaresAgentOps(pkgId))) {
+			return errResult("host.agentOps.deleteJob: pkg lacks the 'agentOps' capability");
+		}
+		try {
+			const res = (await agentOpsDeleteJob(jobId)) as Record<string, unknown>;
+			return {
+				content: [{ type: 'text', text: res?.ok ? `deleted ${jobId}` : `deleteJob: ${res?.error ?? 'failed'}` }],
+				structuredContent: res,
+			};
+		} catch (e) {
+			return errResult(`host.agentOps.deleteJob failed: ${(e as Error).message ?? String(e)}`);
 		}
 	}
 

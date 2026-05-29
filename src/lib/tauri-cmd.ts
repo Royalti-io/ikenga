@@ -391,6 +391,14 @@ export async function agentOpsListJobs(): Promise<unknown> {
 	return invoke('agent_ops_list_jobs', {});
 }
 
+export async function agentOpsUpsertJob(job: unknown): Promise<unknown> {
+	return invoke('agent_ops_upsert_job', { job });
+}
+
+export async function agentOpsDeleteJob(jobId: string): Promise<unknown> {
+	return invoke('agent_ops_delete_job', { jobId });
+}
+
 // ─── Viewer (shared axum server, same-origin via Vite proxy / localhost-plugin)
 
 export interface ViewerHandle {
