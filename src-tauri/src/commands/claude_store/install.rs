@@ -336,6 +336,10 @@ fn build_entry(kind: Kind, name: &str, dest: &Path, prov: RegistryProvenance) ->
         description: read_description(dest, kind),
         modified_ms: mtime_ms(dest),
         enabled_in: Vec::new(),
+        // WP-11: requires is empty at install until WP-12's publish-time lift
+        // compiles the fetched primitive's `depends_on` into a `requires` list
+        // and WP-13's resolver records it. Empty here keeps install pure-schema.
+        requires: Vec::new(),
         provenance: prov,
     }
 }
@@ -1145,6 +1149,7 @@ mod tests {
                     description: None,
                     modified_ms: 0,
                     enabled_in: vec![],
+                    requires: vec![],
                     provenance: prov,
                 },
             );

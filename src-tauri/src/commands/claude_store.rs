@@ -42,6 +42,10 @@ use crate::commands::engine_layout::{
     engine_layout_by_id, ConfigFormat, EngineId, KindLayout, Mechanism, PrimitiveKind,
 };
 use crate::commands::projects::get_project;
+// `requires` is declared on the pkg manifest (pkg::manifest) and carried,
+// compiled, on the store registry entry. Reuse the one canonical struct so the
+// manifest and registry shapes can never drift (ADR-015 §3a / WP-11).
+use crate::pkg::manifest::RequiresEntry;
 
 /// WP-03 merge engine — JSON-fragment (hook/mcp) splice into Claude Code's
 /// settings files. `claude_store/merge.rs` (file sits in the same-named subdir
@@ -192,6 +196,16 @@ pub struct ClaudeStoreEntry {
     pub modified_ms: i64,
     #[serde(rename = "enabledIn")]
     pub enabled_in: Vec<String>,
+    /// Forward dependencies (ADR-015 §3 / WP-11). The compiled `requires` list —
+    /// each entry names a standalone primitive this one depends on; the resolver
+    /// (WP-13/14) installs the closure. A SIBLING of `provenance` on purpose:
+    /// provenance is strictly *origin* (where the master came from), `requires`
+    /// is *what it needs* — two separate graphs (the reverse-dependents graph is
+    /// also kept out of provenance, computed live by the scanner). Empty by
+    /// default (`#[serde(default)]`) so a pre-Phase-4 entry deserializes with no
+    /// deps. Mirrors `requires?` on the `ClaudeStoreEntry` TS interface.
+    #[serde(default)]
+    pub requires: Vec<RequiresEntry>,
     /// Provenance (`G-SCHEMA`), flattened inline on the wire. Defaults to a
     /// synthesized `local` entry when absent (back-compat).
     #[serde(flatten)]
@@ -212,7 +226,12 @@ pub struct RegistryFile {
 impl Default for RegistryFile {
     fn default() -> Self {
         Self {
-            schema_version: 1,
+            // v2 (WP-11, ADR-015): additive `requires` on each entry. The bump is
+            // back-compatible — the loader does not gate on the value, and every
+            // new field is `#[serde(default)]`, so a v1 `registry.json` (no
+            // `requires`) still deserializes unchanged. A freshly-created registry
+            // is written at the current version.
+            schema_version: 2,
             entries: Vec::new(),
         }
     }
@@ -689,6 +708,9 @@ fn list_store_kind(store: &Path, kind: Kind) -> Vec<ClaudeStoreEntry> {
             description: read_description(&canonical, kind),
             modified_ms: mtime_ms(&canonical),
             enabled_in: Vec::new(),
+            // Synthesized empty; WP-02's registry load overlays the recorded
+            // `requires` (and real provenance) from store/registry.json.
+            requires: Vec::new(),
             // Synthesized local provenance; WP-02's registry load overlays real
             // provenance from store/registry.json where present.
             provenance: RegistryProvenance::local(store_path),
@@ -1061,6 +1083,9 @@ fn import_core(
         description: read_description(&dest, kind),
         modified_ms: mtime_ms(&dest),
         enabled_in: Vec::new(),
+        // A fresh local import declares no forward deps; the publish-time lift
+        // (WP-12) is what populates `requires` for catalog/git/npx entries.
+        requires: Vec::new(),
         // A fresh import is a shell-managed local copy in the vault.
         provenance: RegistryProvenance::local(store_path),
     })
@@ -2696,6 +2721,7 @@ mod tests {
             description: None,
             modified_ms: 0,
             enabled_in: vec![],
+            requires: vec![],
             provenance: RegistryProvenance {
                 source: ProvenanceSource::Git,
                 url: Some("github:obra/huashu".into()),
@@ -2725,12 +2751,49 @@ mod tests {
     }
 
     #[test]
-    fn registry_file_defaults_to_v1_empty() {
+    fn registry_file_defaults_to_v2_empty() {
+        // WP-11 bumped the current registry schema to v2 (additive `requires`).
         let rf = RegistryFile::default();
-        assert_eq!(rf.schema_version, 1);
+        assert_eq!(rf.schema_version, 2);
         assert!(rf.entries.is_empty());
         let v: serde_json::Value = serde_json::to_value(&rf).unwrap();
-        assert_eq!(v["schemaVersion"], 1);
+        assert_eq!(v["schemaVersion"], 2);
+    }
+
+    #[test]
+    fn entry_requires_round_trips_and_defaults_empty() {
+        // An entry WITH requires serde-round-trips; the `requires` field rides
+        // as a sibling array, NOT under the flattened provenance.
+        let e = ClaudeStoreEntry {
+            kind: "skill".into(),
+            name: "studio".into(),
+            store_path: "/s/skills/studio".into(),
+            description: None,
+            modified_ms: 0,
+            enabled_in: vec![],
+            requires: vec![
+                RequiresEntry {
+                    kind: "skill".into(),
+                    name: "skill-core".into(),
+                    source: Some(crate::pkg::manifest::RequireSource::Npx),
+                    r#ref: None,
+                },
+            ],
+            provenance: RegistryProvenance::local("/s/skills/studio".into()),
+        };
+        let v: serde_json::Value = serde_json::to_value(&e).unwrap();
+        assert_eq!(v["requires"][0]["name"], "skill-core");
+        assert_eq!(v["requires"][0]["source"], "npx");
+        // requires is a sibling, not nested under provenance (which is flattened)
+        assert!(v.get("provenance").is_none());
+        let back: ClaudeStoreEntry = serde_json::from_value(v).unwrap();
+        assert_eq!(back, e);
+
+        // A legacy entry JSON without `requires` deserializes with an empty Vec.
+        let legacy = r#"{"kind":"skill","name":"x","storePath":"/s/skills/x",
+            "description":null,"modifiedMs":0,"enabledIn":[]}"#;
+        let le: ClaudeStoreEntry = serde_json::from_str(legacy).unwrap();
+        assert!(le.requires.is_empty());
     }
 
     // ─── WP-04 — dependent-aware safe delete (incident guardrail) ─────────────

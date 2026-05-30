@@ -137,6 +137,9 @@ pub fn upsert_external(
         description: None,
         modified_ms: 0,
         enabled_in: Vec::new(),
+        // An in-place external master carries no declared forward deps here;
+        // requires (if any) arrive via the compiled manifest/registry record.
+        requires: Vec::new(),
         provenance: prov,
     });
     true
@@ -212,6 +215,7 @@ mod tests {
             description: None,
             modified_ms: 0,
             enabled_in: vec![],
+            requires: vec![],
             provenance: prov,
         }
     }
@@ -220,7 +224,8 @@ mod tests {
     fn load_missing_is_empty_not_error() {
         let store = tmp("missing");
         let rf = load(&store);
-        assert_eq!(rf.schema_version, 1);
+        // WP-11: a missing index yields the current-version default (v2).
+        assert_eq!(rf.schema_version, 2);
         assert!(rf.entries.is_empty());
         std::fs::remove_dir_all(&store).ok();
     }

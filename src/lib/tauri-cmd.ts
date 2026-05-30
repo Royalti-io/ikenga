@@ -1736,6 +1736,20 @@ export type ClaudeStoreScope = 'workspace' | `project:${string}`;
 /** A single catalog entry in the Ngwa central store (Ọba). One row per
  *  canonical primitive the store owns; `enabledIn` lists the scopes that
  *  currently symlink/merge it so the UI can render per-scope state badges. */
+/** One forward-dependency edge (`requires[]` element, ADR-015 §3 / WP-11).
+ *  Mirrors the Rust `RequiresEntry` in `pkg/manifest.rs` + `RequiresEntrySchema`
+ *  in `@ikenga/contract`. A separate graph from a skill's `depends_on`. */
+export interface RequiresEntry {
+	/** Primitive kind: skill | agent | command | hook | mcp. */
+	kind: string;
+	/** Primitive name (e.g. `skill-core`, `@ikenga/studio-beat-detect`). */
+	name: string;
+	/** Optional fetch source; absent → resolver looks it up in the registry/catalog. */
+	source?: 'git' | 'npx' | 'catalog' | 'local';
+	/** Optional git tag/branch or version pin. */
+	ref?: string;
+}
+
 export interface ClaudeStoreEntry {
 	kind: ClaudeStoreKind;
 	/** Catalog name (the primitive's name, e.g. skill/agent/command name). */
@@ -1750,6 +1764,13 @@ export interface ClaudeStoreEntry {
 	modifiedMs: number;
 	/** Scopes this entry is currently enabled in (symlinked or merged). */
 	enabledIn: ClaudeStoreScope[];
+
+	/** Forward dependencies (ADR-015 §3 / WP-11) — the compiled `requires` list.
+	 *  A SIBLING of provenance: provenance is origin, `requires` is what this
+	 *  primitive needs (the Ọba resolver installs the closure). Absent → no deps.
+	 *  Mirrors the `requires` field on the Rust `ClaudeStoreEntry` + the pkg
+	 *  manifest `RequiresEntry` (lockstep). */
+	requires?: RequiresEntry[];
 
 	// ─── Registry provenance (G-SCHEMA · Ọba registry) ───────────────────────
 	// Mirrors the flattened `RegistryProvenance` on the Rust `ClaudeStoreEntry`.

@@ -128,6 +128,53 @@ pub struct Manifest {
     /// Mirrors `ScreenshotSchema` in `@ikenga/contract/manifest`.
     #[serde(default)]
     pub screenshots: Vec<Screenshot>,
+
+    /// Forward dependency declarations (Ọba Phase 4, ADR-015 §3). Each entry
+    /// names a standalone primitive this pkg `requires`; the Ọba resolver
+    /// (WP-13/14) installs the closure at install/enable. **This is a separate
+    /// graph from a skill's `SKILL.md` `depends_on`** (the G-04 authoring star,
+    /// `skill-core`-only): a pkg `requires` MAY reference any primitive, and the
+    /// publish-time lift (WP-12) compiles `depends_on` into this field. Empty by
+    /// default (`#[serde(default)]`), so a manifest without `requires` parses
+    /// unchanged despite `deny_unknown_fields`. Mirrors `RequiresEntrySchema` in
+    /// `@ikenga/contract/manifest` (lockstep).
+    #[serde(default)]
+    pub requires: Vec<RequiresEntry>,
+}
+
+/// One forward-dependency edge (`requires[]` element). Names a standalone Ọba
+/// primitive a pkg/registry-entry depends on. `source`/`ref` are optional fetch
+/// hints the resolver uses when the dep isn't already present; the shape leaves
+/// room for an optional semver range later without another schema break
+/// (ADR-015 §Consequences). Mirrors `RequiresEntrySchema` in `@ikenga/contract`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct RequiresEntry {
+    /// Primitive kind: `skill` | `agent` | `command` | `hook` | `mcp`. Kept a
+    /// `String` (not a closed enum) so a future kind doesn't break old manifests.
+    pub kind: String,
+    /// Primitive name (e.g. `skill-core`, `@ikenga/studio-beat-detect`).
+    pub name: String,
+    /// Optional fetch source. When absent the resolver looks the dep up in the
+    /// store registry / catalog. Mirrors the registry `ProvenanceSource` set.
+    #[serde(default)]
+    pub source: Option<RequireSource>,
+    /// Optional git tag/branch or version pin.
+    #[serde(rename = "ref", default)]
+    pub r#ref: Option<String>,
+}
+
+/// Fetch source for a `requires[]` dep. Wire-identical to the registry
+/// `ProvenanceSource` (`commands::claude_store`) but defined here so the pkg
+/// manifest module owns no dependency on the commands layer. Mirrors the
+/// `z.enum(['git','npx','catalog','local'])` in `@ikenga/contract`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RequireSource {
+    Git,
+    Npx,
+    Catalog,
+    Local,
 }
 
 /// A preview screenshot. `path` is relative to the package's install_path;
@@ -657,7 +704,55 @@ mod tests {
             capabilities: None,
             engine: None,
             screenshots: vec![],
+            requires: vec![],
         }
+    }
+
+    #[test]
+    fn requires_field_parses() {
+        let json = r#"{
+            "id": "com.ikenga.studio",
+            "name": "Studio", "version": "0.1.0", "ikenga_api": "1",
+            "requires": [
+                {"kind":"skill","name":"@ikenga/studio-beat-detect","source":"npx"},
+                {"kind":"skill","name":"skill-core","source":"git","ref":"v1.0.0"},
+                {"kind":"skill","name":"@ikenga/studio-doctor"}
+            ]
+        }"#;
+        let m: Manifest = serde_json::from_str(json).expect("parse");
+        assert_eq!(m.requires.len(), 3);
+        assert_eq!(m.requires[0].name, "@ikenga/studio-beat-detect");
+        assert_eq!(m.requires[0].source, Some(RequireSource::Npx));
+        assert_eq!(m.requires[1].source, Some(RequireSource::Git));
+        assert_eq!(m.requires[1].r#ref.as_deref(), Some("v1.0.0"));
+        // source/ref optional
+        assert_eq!(m.requires[2].source, None);
+        assert_eq!(m.requires[2].r#ref, None);
+    }
+
+    #[test]
+    fn requires_defaults_empty_when_absent() {
+        // A pre-Phase-4 manifest (no `requires`) parses despite
+        // deny_unknown_fields, with requires defaulting to empty.
+        let json = r#"{
+            "id": "com.ikenga.skill-pa",
+            "name": "PA", "version": "0.1.0", "ikenga_api": "1",
+            "skills": "skills"
+        }"#;
+        let m: Manifest = serde_json::from_str(json).expect("parse");
+        assert!(m.requires.is_empty());
+    }
+
+    #[test]
+    fn requires_rejects_unknown_field() {
+        // deny_unknown_fields on RequiresEntry — guards lockstep with the Zod.
+        let json = r#"{
+            "id": "com.ikenga.x",
+            "name": "X", "version": "0.1.0", "ikenga_api": "1",
+            "requires": [{"kind":"skill","name":"skill-core","bogus":true}]
+        }"#;
+        let result: Result<Manifest, _> = serde_json::from_str(json);
+        assert!(result.is_err(), "unknown requires field must be rejected");
     }
 
     #[test]
