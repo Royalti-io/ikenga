@@ -655,3 +655,63 @@ pub fn pkg_settings_set(
     })?;
     Ok(())
 }
+
+// ─── skill actions (WP-13: dispatch-only lighthouse) ─────────────────────────
+//
+// A `kind: skill` pkg contributes actions under
+// `<install_path>/<skills_dir>/<skill>/actions/*.md`. We resolve the install
+// path from the kernel snapshot, load the manifest to read its `skills` dir,
+// and parse each action file's YAML frontmatter. See `pkg::skill_actions`.
+
+/// Resolve an installed pkg's on-disk root + skills dir from the kernel
+/// snapshot, then discover its skill actions. Returns `[]` for unknown ids,
+/// non-skill pkgs, or pkgs without a `skills` dir (never errors — a missing
+/// skills dir is a normal "this pkg has no actions" case).
+#[tauri::command]
+pub fn list_skill_actions(
+    kernel: State<'_, KernelState>,
+    pkg_id: String,
+) -> Vec<crate::pkg::skill_actions::SkillAction> {
+    let installed = kernel.0.status().installed;
+    let Some(summary) = installed.iter().find(|p| p.id == pkg_id) else {
+        tracing::warn!(%pkg_id, "list_skill_actions: pkg not installed");
+        return Vec::new();
+    };
+    let install_path = PathBuf::from(&summary.install_path);
+    // Load the manifest to read its `skills` dir. The InstalledSummary doesn't
+    // carry it, so we read it from disk (cheap — one small JSON).
+    let pkg = match crate::pkg::manifest::Package::load(&install_path) {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::warn!(%pkg_id, error = %format!("{e:#}"), "list_skill_actions: manifest load failed");
+            return Vec::new();
+        }
+    };
+    crate::pkg::skill_actions::list_actions_for_pkg(
+        &pkg_id,
+        install_path,
+        pkg.manifest.skills.as_deref(),
+    )
+}
+
+/// List skill actions across every installed pkg. Pkgs that fail to load or
+/// declare no `skills` dir simply contribute nothing.
+#[tauri::command]
+pub fn list_all_skill_actions(
+    kernel: State<'_, KernelState>,
+) -> Vec<crate::pkg::skill_actions::SkillAction> {
+    let installed = kernel.0.status().installed;
+    let mut out = Vec::new();
+    for summary in &installed {
+        let install_path = PathBuf::from(&summary.install_path);
+        let Ok(pkg) = crate::pkg::manifest::Package::load(&install_path) else {
+            continue;
+        };
+        out.extend(crate::pkg::skill_actions::list_actions_for_pkg(
+            &summary.id,
+            install_path,
+            pkg.manifest.skills.as_deref(),
+        ));
+    }
+    out
+}

@@ -9,8 +9,9 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useEffect, useState } from 'react';
 
+import { ActionBar } from '@/components/pkg/actions/action-bar';
 import { PkgIframeHost } from '@/components/pkg/pkg-iframe-host';
-import { pkgKernelStatus } from '@/lib/tauri-cmd';
+import { listSkillActions, pkgKernelStatus } from '@/lib/tauri-cmd';
 
 export const Route = createFileRoute('/pkg/$pkgId/')({
 	component: PkgRouteIndex,
@@ -28,6 +29,9 @@ type State =
 	| { kind: 'loading' }
 	| { kind: 'iframe'; entry: UiRouteEntry }
 	| { kind: 'unmountable'; entry: UiRouteEntry }
+	// WP-13: a `kind: skill` pkg has no UI route but contributes actions.
+	// We render its action buttons as the pkg's landing surface.
+	| { kind: 'skill_actions' }
 	| { kind: 'not_found' };
 
 function PkgRouteIndex() {
@@ -51,7 +55,16 @@ function PkgRouteIndex() {
 					entries.find((e) => e.pkg_id === pkgId);
 				if (cancelled) return;
 				if (!entry) {
-					setState({ kind: 'not_found' });
+					// No UI route. A `kind: skill` pkg (e.g. skill-pa) legitimately
+					// declares none — surface its action buttons instead of a 404.
+					// (WP-13 dispatch-only lighthouse.)
+					try {
+						const actions = await listSkillActions(pkgId);
+						if (cancelled) return;
+						setState(actions.length > 0 ? { kind: 'skill_actions' } : { kind: 'not_found' });
+					} catch {
+						if (!cancelled) setState({ kind: 'not_found' });
+					}
 					return;
 				}
 				setState(
@@ -91,6 +104,24 @@ function PkgRouteIndex() {
 					<code> kind: "{state.entry.kind}"</code>. Only <code>kind: "iframe"</code> is supported
 					for installable packages.
 				</div>
+			</div>
+		);
+	}
+	if (state.kind === 'skill_actions') {
+		// WP-13: a skill pkg's landing surface is its action toolbar. Later WPs
+		// flesh this out (full action gallery, inputs forms, run history); for
+		// now it's the dispatch-only lighthouse — confirm-mode actions seed the
+		// active chat session, other modes render as disabled placeholders.
+		return (
+			<div className="flex flex-col gap-4 p-6">
+				<div>
+					<div className="mb-1 font-semibold">Actions</div>
+					<div className="text-sm opacity-70">
+						Run an action for <code>{pkgId}</code>. Confirm-mode actions seed the focused chat
+						session.
+					</div>
+				</div>
+				<ActionBar pkgId={pkgId} />
 			</div>
 		);
 	}

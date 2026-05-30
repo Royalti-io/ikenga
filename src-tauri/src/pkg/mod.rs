@@ -18,6 +18,7 @@ pub mod mcp_runtime;
 pub mod permissions_check;
 pub mod registries;
 pub mod registry;
+pub mod skill_actions;
 pub mod source;
 pub mod trust;
 pub mod webview;

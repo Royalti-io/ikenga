@@ -2710,6 +2710,43 @@ export async function pkgKernelStatus(): Promise<PkgKernelStatus> {
 	return invoke<PkgKernelStatus>('pkg_kernel_status');
 }
 
+// ─── skill actions (WP-13) ────────────────────────────────────────────────
+//
+// A `kind: skill` pkg contributes actions under
+// `<skills_dir>/<skill>/actions/*.md`. The Rust `list_skill_actions` command
+// parses each file's YAML frontmatter and returns this flat shape. Only
+// `uxMode === 'confirm'` actions dispatch in WP-13; the rest render disabled.
+
+/** UX dispatch modes a skill action can declare. Only `confirm` is wired
+ *  end-to-end in WP-13; the rest render as disabled placeholders. */
+export type SkillActionUxMode = 'confirm' | 'streaming' | 'approve' | (string & {});
+
+/** A single skill action — mirrors the Rust `SkillAction` (camelCase serde). */
+export interface SkillAction {
+	pkgId: string;
+	skill: string;
+	verb: string;
+	name: string;
+	description?: string;
+	domain?: string;
+	uxMode: SkillActionUxMode;
+	runKind?: string;
+	promptTemplate?: string;
+	inputsSchemaJson?: string;
+	dependsOn?: string[];
+}
+
+/** List the skill actions contributed by a single installed pkg. Returns an
+ *  empty array for non-skill pkgs or pkgs without a `skills` dir. */
+export async function listSkillActions(pkgId: string): Promise<SkillAction[]> {
+	return invoke<SkillAction[]>('list_skill_actions', { pkgId });
+}
+
+/** List skill actions across every installed pkg. */
+export async function listAllSkillActions(): Promise<SkillAction[]> {
+	return invoke<SkillAction[]>('list_all_skill_actions');
+}
+
 export interface PkgDiscovered {
 	id: string;
 	name: string;
