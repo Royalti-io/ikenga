@@ -1461,6 +1461,7 @@ mod tests {
                 capabilities: None,
                 engine: None,
                 screenshots: vec![],
+                requires: vec![],
             },
             install_path: PathBuf::from("/tmp"),
         }

@@ -170,6 +170,7 @@ mod tests {
             capabilities: None,
             engine: None,
             screenshots: vec![],
+            requires: vec![],
         }
     }
 
