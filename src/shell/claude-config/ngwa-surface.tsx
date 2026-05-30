@@ -47,7 +47,7 @@ import {
 	useImportToStore,
 	useMovePrimitive,
 	useObaAutoUpdateOnMount,
-	useObaInstall,
+	useObaInstallWithDeps,
 	useObaSetAutoUpdate,
 	useObaUpdate,
 	useRelinkDependents,
@@ -1034,7 +1034,7 @@ function StoreSurface({ store, isLoading, error, onEdit, projectScopes }: StoreP
 						catalogVersion={selected.catalog?.version ?? null}
 					/>
 				) : selected?.catalog ? (
-					<CatalogDetail entry={selected.catalog} />
+					<CatalogDetail entry={selected.catalog} catalog={catalog} />
 				) : allEmpty ? (
 					<div className="ccfg-empty">
 						<div className="carve">▽▽▽</div>
@@ -1111,8 +1111,14 @@ function errText(e: unknown): string {
 	return e instanceof Error ? e.message : String(e);
 }
 
-function CatalogDetail({ entry }: { entry: PrimitiveCatalogEntry }) {
-	const install = useObaInstall();
+function CatalogDetail({
+	entry,
+	catalog,
+}: {
+	entry: PrimitiveCatalogEntry;
+	catalog: PrimitiveCatalogEntry[];
+}) {
+	const install = useObaInstallWithDeps();
 	const isFileBased = entry.kind === 'skill' || entry.kind === 'agent' || entry.kind === 'command';
 	return (
 		<>
@@ -1160,7 +1166,7 @@ function CatalogDetail({ entry }: { entry: PrimitiveCatalogEntry }) {
 								? `Fetch ${entry.name} from its ${entry.source} source into the Ọba vault`
 								: `${entry.kind} primitives install via the merge engine, not the vault`
 						}
-						onClick={() => install.mutate(entry)}
+						onClick={() => install.mutate({ entry, catalog })}
 					>
 						{install.isPending ? 'Installing…' : 'Install'}
 					</button>
@@ -1168,7 +1174,9 @@ function CatalogDetail({ entry }: { entry: PrimitiveCatalogEntry }) {
 						{install.isError
 							? `install failed: ${errText(install.error)}`
 							: install.isSuccess
-								? 'installed — enable it in a scope below'
+								? install.data && install.data.installed.length > 0
+									? `installed with ${install.data.installed.length} dep${install.data.installed.length === 1 ? '' : 's'} (${install.data.installed.map((d) => d.name).join(', ')}) — enable it below`
+									: 'installed — enable it in a scope below'
 								: isFileBased
 									? `fetches via ${entry.source} into the vault`
 									: 'hook/mcp install is not yet supported'}

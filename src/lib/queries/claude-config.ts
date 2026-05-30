@@ -23,6 +23,7 @@ import {
 	obaForget,
 	obaInstallGit,
 	obaInstallNpx,
+	obaInstallWithDeps,
 	obaRelinkDependents,
 	obaSafeDelete,
 	obaSetAutoUpdate,
@@ -47,6 +48,7 @@ import {
 	type NgwaStoreError,
 	type NgwaTranscodeMode,
 	type AutoUpdateSummary,
+	type InstallWithDepsResult,
 	type ObaRelinkRow,
 	type SafeDeleteOutcome,
 	type UpdateStatus,
@@ -249,6 +251,34 @@ export function useObaInstall() {
 			entry.source === 'npx'
 				? obaInstallNpx(entry.kind, entry.name, entry.url, true)
 				: obaInstallGit(entry.kind, entry.name, entry.url, null, true),
+		onSuccess: invalidate,
+	});
+}
+
+/**
+ * Install a catalog primitive AND its forward-dependency closure (ADR-015 §3b ·
+ * WP-14). Threads the full catalog snapshot so the resolver can fetch each
+ * `requires` dependency by its source/url; the missing closure auto-installs
+ * transactionally (rolled back with the target on any failure). Invalidating the
+ * store list re-tallies the chips after the target + closure land.
+ */
+export function useObaInstallWithDeps() {
+	const invalidate = useInvalidateClaudeStore();
+	return useMutation<
+		InstallWithDepsResult,
+		Error,
+		{ entry: PrimitiveCatalogEntry; catalog: PrimitiveCatalogEntry[] }
+	>({
+		mutationFn: ({ entry, catalog }) =>
+			obaInstallWithDeps(
+				entry.kind,
+				entry.name,
+				entry.source,
+				entry.url,
+				catalog.map((c) => ({ kind: c.kind, name: c.name, source: c.source, url: c.url })),
+				null,
+				true
+			),
 		onSuccess: invalidate,
 	});
 }

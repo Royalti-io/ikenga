@@ -2495,6 +2495,73 @@ export async function obaInstallNpx(
 	});
 }
 
+/** A `(kind,name)` primitive identity. Mirrors the Rust `PrimitiveRef`
+ *  (`claude_store/resolve.rs`). */
+export interface PrimitiveRef {
+	kind: string;
+	name: string;
+}
+
+/** A catalog row the resolver-driven install uses to resolve a dependency
+ *  `(kind,name)` to a fetchable `(source,url)`. Subset of `PrimitiveCatalogEntry`.
+ *  Mirrors the Rust `CatalogEntryRef`. */
+export interface CatalogEntryRef {
+	kind: string;
+	name: string;
+	source: 'git' | 'npx';
+	url: string;
+}
+
+/** Result of a resolver-driven install (ADR-015 §3b / WP-14). Mirrors the Rust
+ *  `InstallWithDepsResult`. */
+export interface InstallWithDepsResult {
+	/** The primitive the user asked to install. */
+	target: ClaudeStoreEntry;
+	/** The auto-installed dependency closure, deepest-first (enable order). */
+	installed: ClaudeStoreEntry[];
+	/** Deps that were already present (listed, not installed) — consent UX. */
+	alreadySatisfied: PrimitiveRef[];
+}
+
+/**
+ * Install a primitive AND its forward-dependency closure (ADR-015 §3b · WP-14).
+ * The FE passes a catalog snapshot so each `requires` dependency resolves to a
+ * fetchable source; the missing closure auto-installs transactionally (rolled
+ * back with the target on any failure). Returns the target, the installed
+ * closure (enable order), and the already-satisfied deps.
+ */
+export async function obaInstallWithDeps(
+	kind: ClaudeStoreKind,
+	name: string,
+	source: 'git' | 'npx',
+	url: string,
+	catalog: CatalogEntryRef[],
+	gitRef?: string | null,
+	fromCatalog?: boolean
+): Promise<InstallWithDepsResult> {
+	return invoke<InstallWithDepsResult>('oba_install_with_deps', {
+		kind,
+		name,
+		source,
+		url,
+		gitRef: gitRef ?? null,
+		fromCatalog: fromCatalog ?? false,
+		catalog,
+	});
+}
+
+/**
+ * Re-verify a primitive's `requires` at enable time (WP-14 re-verify-at-enable):
+ * return the recorded deps that are no longer present (the FE offers to re-fetch
+ * them). Empty ⇒ the closure is intact.
+ */
+export async function obaMissingRequires(
+	kind: ClaudeStoreKind,
+	name: string
+): Promise<RequiresEntry[]> {
+	return invoke<RequiresEntry[]>('oba_missing_requires', { kind, name });
+}
+
 /** One per-entry outcome of a batch auto-update run (Phase 3). Mirrors the Rust
  *  `AutoUpdateRow`. */
 export interface AutoUpdateRow {
