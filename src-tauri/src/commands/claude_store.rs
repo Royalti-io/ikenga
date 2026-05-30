@@ -76,6 +76,12 @@ pub use install::{
     oba_update,
 };
 
+/// Forward-dependency resolver core (Ọba Phase 4, ADR-015 §3b / WP-13). Pure
+/// closure/topo/cycle over an injected `requires` graph + satisfied set; the
+/// disk helper unions the store registry with external masters. Wired into
+/// install/enable in WP-14.
+mod resolve;
+
 // ─── Wire types (mirror the frozen G-CONTRACT) ───────────────────────────────
 
 /// Origin of a primitive's canonical master. Frozen part of `G-SCHEMA` (Ọba
