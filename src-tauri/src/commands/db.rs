@@ -326,6 +326,51 @@ async fn ensure_schema(pool: &sqlx::SqlitePool) -> Result<(), String> {
             "0031_work_domain",
             include_str!("../../migrations/0031_work_domain.sql"),
         ),
+        // WP-10a — full-domain migration schema gap-fill. 0032 repairs drift in
+        // the pure-ETL tables (live columns the WP-02 down-map missed); 0033
+        // recreates the latest_account_balances view; 0034–0039 add the 14
+        // remaining business tables, down-mapped from LIVE Supabase
+        // introspection (not the drifted in-repo migrations).
+        (
+            32,
+            "0032_pure_etl_drift_fix",
+            include_str!("../../migrations/0032_pure_etl_drift_fix.sql"),
+        ),
+        (
+            33,
+            "0033_finance_views",
+            include_str!("../../migrations/0033_finance_views.sql"),
+        ),
+        (
+            34,
+            "0034_mail_outbound_ext",
+            include_str!("../../migrations/0034_mail_outbound_ext.sql"),
+        ),
+        (
+            35,
+            "0035_sales_ext",
+            include_str!("../../migrations/0035_sales_ext.sql"),
+        ),
+        (
+            36,
+            "0036_fundraising_ext",
+            include_str!("../../migrations/0036_fundraising_ext.sql"),
+        ),
+        (
+            37,
+            "0037_content_ext",
+            include_str!("../../migrations/0037_content_ext.sql"),
+        ),
+        (
+            38,
+            "0038_strategy_ext",
+            include_str!("../../migrations/0038_strategy_ext.sql"),
+        ),
+        (
+            39,
+            "0039_infra_ext",
+            include_str!("../../migrations/0039_infra_ext.sql"),
+        ),
     ];
 
     for (id, name, sql) in migrations {
@@ -663,11 +708,12 @@ mod tests {
         (db, tmp)
     }
 
-    /// Total embedded migration count. 24 shipped through WP-01; WP-02 adds 7
-    /// domain-schema migrations (0025–0031). Keep this in lockstep with the
-    /// `migrations` tuple list — it guards against a migration silently being
-    /// dropped from the embedded list (a class of bug we've hit before).
-    const MIGRATION_COUNT: i64 = 31;
+    /// Total embedded migration count. 24 shipped through WP-01; WP-02 added 7
+    /// domain-schema migrations (0025–0031); WP-10a adds 8 more (0032–0039:
+    /// drift fix + finance view + 14 new business tables). Keep this in lockstep
+    /// with the `migrations` tuple list — it guards against a migration silently
+    /// being dropped from the embedded list (a class of bug we've hit before).
+    const MIGRATION_COUNT: i64 = 39;
 
     /// Schema init applies every embedded migration exactly once. The
     /// `_pa_migrations` table must end with one row per migration tuple.
@@ -841,6 +887,90 @@ mod tests {
             !obj.keys().any(|k| k.starts_with("sqlite_")),
             "internal sqlite_* tables must be excluded"
         );
+    }
+
+    /// WP-10a (G-SCHEMA-2): the 14 new business tables (0034–0039) exist STRICT
+    /// with their key columns; the pure-ETL drift fix (0032) added the missing
+    /// live columns; the latest_account_balances VIEW (0033) is queryable. This
+    /// is the gate that the full-domain migration's local schema is complete.
+    #[tokio::test]
+    async fn wp10a_new_domain_schema_complete() {
+        let (db, _tmp) = fresh_db().await;
+        let writer = db.ensure_pool().await.expect("ensure_pool");
+        use sqlx::Row;
+
+        // (table, columns that MUST be present) for a sample of the 14 new tables.
+        let expectations: &[(&str, &[&str])] = &[
+            ("outbound_sequences", &["id", "contact_email", "sequence_id"]),
+            ("sales_activities", &["id", "deal_id", "activity_type"]),
+            (
+                "partnership_stage_transitions",
+                &["id", "partnership_id", "to_stage"],
+            ),
+            ("research_notes", &["id", "entity_type", "body"]),
+            ("ideas_backlog", &["id", "short_id", "status", "discussion"]),
+            ("review_items", &["id", "content_type", "created_by"]),
+            ("task_approvals", &["id", "task_id", "requested_by"]),
+            ("contacts", &["id", "email"]),
+            ("claude_sessions", &["id", "session_id", "agent_type"]),
+            ("video_projects", &["id", "slug", "video_provider"]),
+        ];
+        for (table, cols) in expectations {
+            let rows = sqlx::query(&format!("PRAGMA table_info(\"{table}\")"))
+                .fetch_all(&writer)
+                .await
+                .unwrap_or_else(|e| panic!("table_info({table}): {e}"));
+            assert!(!rows.is_empty(), "WP-10a table `{table}` must exist");
+            let present: std::collections::HashSet<String> =
+                rows.iter().map(|r| r.get::<String, _>("name")).collect();
+            for col in *cols {
+                assert!(
+                    present.contains(*col),
+                    "table `{table}` missing column `{col}` (got {present:?})"
+                );
+            }
+        }
+
+        // 0032 drift fix: the agent-session trio landed on a representative
+        // pure-ETL table that previously lacked them.
+        let ed = sqlx::query("PRAGMA table_info(\"email_drafts\")")
+            .fetch_all(&writer)
+            .await
+            .expect("table_info(email_drafts)");
+        let ed_cols: std::collections::HashSet<String> =
+            ed.iter().map(|r| r.get::<String, _>("name")).collect();
+        for col in ["claude_session_id", "working_dir", "delivery_external_id"] {
+            assert!(
+                ed_cols.contains(col),
+                "0032 drift fix should have added email_drafts.{col}"
+            );
+        }
+
+        // pa_actions_cursor has a COMPOSITE primary key (job_id, key).
+        let pac = sqlx::query("PRAGMA table_info(\"pa_actions_cursor\")")
+            .fetch_all(&writer)
+            .await
+            .expect("table_info(pa_actions_cursor)");
+        let pk_cols: Vec<String> = pac
+            .iter()
+            .filter(|r| r.get::<i64, _>("pk") != 0)
+            .map(|r| r.get::<String, _>("name"))
+            .collect();
+        assert_eq!(
+            pk_cols.len(),
+            2,
+            "pa_actions_cursor must have a 2-column composite PK, got {pk_cols:?}"
+        );
+
+        // 0033: the latest_account_balances VIEW exists and is queryable
+        // (returns 0 rows against an empty transaction_ledger — the point is it
+        // parses and resolves its window function, not that it has data yet).
+        let view_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM latest_account_balances")
+                .fetch_one(&writer)
+                .await
+                .expect("latest_account_balances view must be queryable");
+        assert_eq!(view_count, 0, "empty ledger → empty balances view");
     }
 
     /// Verify WAL is actually engaged on the writer connection — this is what
