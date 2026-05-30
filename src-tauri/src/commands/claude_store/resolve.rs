@@ -174,6 +174,125 @@ pub fn resolve_requires_core(
     })
 }
 
+/// Failure of the transactional closure install.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ClosureError {
+    /// The resolver itself failed (e.g. a `requires` cycle).
+    Resolve(ResolveError),
+    /// A dependency install failed. The already-installed deps were rolled back
+    /// (in reverse order); `rolled_back` is how many were undone.
+    Install {
+        item: RequiresEntry,
+        error: String,
+        rolled_back: usize,
+    },
+}
+
+impl std::fmt::Display for ClosureError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ClosureError::Resolve(e) => write!(f, "{e}"),
+            ClosureError::Install {
+                item,
+                error,
+                rolled_back,
+            } => write!(
+                f,
+                "failed installing dependency {}:{} ({error}); rolled back {rolled_back} prior install(s)",
+                item.kind, item.name
+            ),
+        }
+    }
+}
+
+/// Drive the **transactional** closure install (ADR-015 §3b / WP-14, the
+/// install-then-reresolve loop). Pure over injected effects so it is fully
+/// unit-testable without network/disk:
+///
+/// * `install_one(item)` — fetch + adopt one dependency; **returns that
+///   dependency's OWN `requires`** (revealed by its freshly-fetched manifest), so
+///   transitive deps surface across iterations without the discovery catalog
+///   needing to carry `requires`.
+/// * `rollback_one(item)` — undo a previously-installed dep (vault-delete +
+///   registry record) when a later install fails.
+///
+/// `satisfied` is the **pre-existing** present set (store ∪ external) and is read
+/// only — never grown with freshly-fetched nodes, since marking a just-fetched
+/// node satisfied would prune its *just-revealed* children and they'd never
+/// install. Instead each iteration re-resolves the full plan over the growing
+/// `graph`, then fetches the first plan item **not yet fetched this run** (the
+/// topological frontier); revealing its `requires` grows the graph so transitive
+/// deps appear in the next resolve. On any install failure every prior install is
+/// rolled back in reverse order and `ClosureError::Install` is returned.
+/// Converges (one new fetch per iteration, bounded by the closure); a `requires`
+/// cycle is caught by the inner resolver → `ClosureError::Resolve`.
+///
+/// Returns the fetched dependency closure in **topological order** (deepest dep
+/// first) — the order the caller then enables them in. Installs **only the
+/// closure**; the caller installs the target (the dependent) afterwards.
+pub fn resolve_install_loop_core<I, R>(
+    target: &[RequiresEntry],
+    satisfied: &HashSet<PrimitiveRef>,
+    graph: &mut RequiresGraph,
+    mut install_one: I,
+    mut rollback_one: R,
+) -> Result<Vec<RequiresEntry>, ClosureError>
+where
+    I: FnMut(&RequiresEntry) -> Result<Vec<RequiresEntry>, String>,
+    R: FnMut(&RequiresEntry),
+{
+    let mut installed: Vec<RequiresEntry> = Vec::new();
+    let mut fetched: HashSet<PrimitiveRef> = HashSet::new();
+    // Roll back every prior install (reverse order) and surface `err`.
+    macro_rules! abort {
+        ($err:expr) => {{
+            for done in installed.iter().rev() {
+                rollback_one(done);
+            }
+            return Err($err);
+        }};
+    }
+    loop {
+        let plan = match resolve_requires_core(target, graph, satisfied) {
+            Ok(p) => p,
+            Err(e) => abort!(ClosureError::Resolve(e)),
+        };
+        // The first topological item we haven't fetched yet (its known deps are
+        // already earlier in `ordered`, hence already fetched).
+        let next = plan
+            .ordered
+            .into_iter()
+            .find(|i| !fetched.contains(&PrimitiveRef::of(i)));
+        let Some(item) = next else {
+            break; // every planned item fetched → closure complete
+        };
+        match install_one(&item) {
+            Ok(revealed) => {
+                let r = PrimitiveRef::of(&item);
+                fetched.insert(r.clone());
+                graph.insert(r, revealed); // newly-revealed transitive edges
+                installed.push(item);
+            }
+            Err(error) => {
+                let rolled_back = installed.len();
+                abort!(ClosureError::Install {
+                    item,
+                    error,
+                    rolled_back,
+                })
+            }
+        }
+    }
+    // Final resolve over the now-complete graph → the closure in topological
+    // (enable) order. Everything is fetched + acyclic (an earlier iteration would
+    // have caught a cycle), so this never installs and won't error — but stay
+    // transactional if it somehow does.
+    match resolve_requires_core(target, graph, satisfied) {
+        Ok(plan) => Ok(plan.ordered),
+        Err(e) => abort!(ClosureError::Resolve(e)),
+    }
+}
+
 /// Build the `satisfied` set from disk: every installed store-registry entry +
 /// every external master in the live farm. Tempdir-testable (`store` +
 /// `scope_roots` are parameters), mirroring the `*_core` pattern. Bundled
@@ -234,6 +353,9 @@ mod tests {
     }
     fn names(plan: &InstallPlan) -> Vec<String> {
         plan.ordered.iter().map(|e| e.name.clone()).collect()
+    }
+    fn names_of(items: &[RequiresEntry]) -> Vec<String> {
+        items.iter().map(|e| e.name.clone()).collect()
     }
 
     #[test]
@@ -357,5 +479,105 @@ mod tests {
         assert!(satisfied.contains(&pref("groundwork")));
         // (external-master union is covered by scan_external_masters' own tests.)
         std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    // ── WP-14 — transactional resolve-install loop ──────────────────────────
+
+    /// Drive `resolve_install_loop_core` with canned per-dep reveals + an optional
+    /// failure, returning (result, fetch-order, rollback-order).
+    fn run_loop(
+        target: &[RequiresEntry],
+        satisfied: HashSet<PrimitiveRef>,
+        reveals: &HashMap<&'static str, Vec<RequiresEntry>>,
+        fail_on: Option<&str>,
+    ) -> (
+        Result<Vec<RequiresEntry>, ClosureError>,
+        Vec<String>,
+        Vec<String>,
+    ) {
+        let mut graph = RequiresGraph::new();
+        let mut install_log: Vec<String> = Vec::new();
+        let mut rollback_log: Vec<String> = Vec::new();
+        let res = {
+            let il = &mut install_log;
+            let rl = &mut rollback_log;
+            resolve_install_loop_core(
+                target,
+                &satisfied,
+                &mut graph,
+                |item| {
+                    if Some(item.name.as_str()) == fail_on {
+                        return Err(format!("boom: {}", item.name));
+                    }
+                    il.push(item.name.clone());
+                    Ok(reveals.get(item.name.as_str()).cloned().unwrap_or_default())
+                },
+                |item| rl.push(item.name.clone()),
+            )
+        };
+        (res, install_log, rollback_log)
+    }
+
+    #[test]
+    fn loop_installs_single_leaf_dep() {
+        // the real case: skill-pa requires skill-core (which reveals no deps).
+        let reveals = HashMap::from([("skill-core", vec![])]);
+        let (res, fetched, rolled) = run_loop(&[req("skill-core")], HashSet::new(), &reveals, None);
+        assert_eq!(names_of(&res.unwrap()), vec!["skill-core"]);
+        assert_eq!(fetched, vec!["skill-core"]);
+        assert!(rolled.is_empty());
+    }
+
+    #[test]
+    fn loop_resolves_transitive_in_topo_order() {
+        // a reveals it requires b; the returned closure is topo-ordered [b, a]
+        // even though a was fetched first (reveal order).
+        let reveals = HashMap::from([("a", vec![req("b")]), ("b", vec![])]);
+        let (res, fetched, rolled) = run_loop(&[req("a")], HashSet::new(), &reveals, None);
+        assert_eq!(names_of(&res.unwrap()), vec!["b", "a"]); // enable order
+        assert_eq!(fetched, vec!["a", "b"]); // fetch order
+        assert!(rolled.is_empty());
+    }
+
+    #[test]
+    fn loop_skips_already_satisfied_without_installing() {
+        let reveals = HashMap::new();
+        let satisfied: HashSet<_> = [pref("skill-core")].into_iter().collect();
+        let (res, fetched, rolled) = run_loop(&[req("skill-core")], satisfied, &reveals, None);
+        assert!(res.unwrap().is_empty());
+        assert!(fetched.is_empty());
+        assert!(rolled.is_empty());
+    }
+
+    #[test]
+    fn loop_rolls_back_in_reverse_on_install_failure() {
+        // target needs a + b; a installs, b fails → a is rolled back.
+        let reveals = HashMap::from([("a", vec![]), ("b", vec![])]);
+        let (res, fetched, rolled) =
+            run_loop(&[req("a"), req("b")], HashSet::new(), &reveals, Some("b"));
+        match res {
+            Err(ClosureError::Install {
+                item,
+                rolled_back,
+                ..
+            }) => {
+                assert_eq!(item.name, "b");
+                assert_eq!(rolled_back, 1);
+            }
+            other => panic!("expected Install error, got {other:?}"),
+        }
+        assert_eq!(fetched, vec!["a"]);
+        assert_eq!(rolled, vec!["a"]); // reverse-order rollback of the one prior install
+    }
+
+    #[test]
+    fn loop_rolls_back_all_on_revealed_cycle() {
+        // a → b → a only becomes visible after both are fetched; the next resolve
+        // catches the cycle and the loop rolls back BOTH installs.
+        let reveals = HashMap::from([("a", vec![req("b")]), ("b", vec![req("a")])]);
+        let (res, fetched, rolled) = run_loop(&[req("a")], HashSet::new(), &reveals, None);
+        assert!(matches!(res, Err(ClosureError::Resolve(ResolveError::Cycle(_)))));
+        assert_eq!(fetched, vec!["a", "b"]);
+        assert_eq!(rolled, vec!["b", "a"]); // reverse order
     }
 }
