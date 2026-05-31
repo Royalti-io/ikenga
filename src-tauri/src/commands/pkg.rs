@@ -13,6 +13,8 @@ use sha2::{Digest, Sha512};
 use tauri::State;
 use tokio::io::AsyncWriteExt;
 
+use crate::commands::claude_store::{resolve_pkg_requires, CatalogEntryRef, PkgRequiresResult};
+use crate::pkg::manifest::Package;
 use crate::pkg::registries::SettingsRegistry;
 use crate::pkg::{DiscoveredPkg, InstallSource, InstalledSummary, Kernel, KernelStatus};
 
@@ -29,18 +31,26 @@ pub struct PkgSettingsState(pub Arc<SettingsRegistry>);
 #[derive(Serialize)]
 pub struct PkgInstallResult {
     pub installed: InstalledSummary,
+    /// WP-16: the outcome of resolving the pkg manifest's `requires` via the Ọba
+    /// resolver (closure installed into the store + placed into the pkg's scope).
+    /// `None` when the pkg declares no `requires` (or resolution was skipped).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub requires: Option<PkgRequiresResult>,
 }
 
 /// Install a pkg from a local directory. `scope` (Phase 2 of
 /// projects-first-class) is the wire-format scope picker:
 /// `"workspace"` for always-loaded, `"project:<id>"` for project-bound,
-/// or null to default to the active project.
+/// or null to default to the active project. `catalog` (WP-16) is the FE's
+/// primitive-catalog snapshot used to resolve each `requires` dependency's
+/// `(source,url)`; omit it (or pass `[]`) and only already-present deps satisfy.
 #[tauri::command]
 pub async fn pkg_install_from_path(
     kernel: State<'_, KernelState>,
     db: State<'_, Arc<crate::commands::db::PaDb>>,
     install_path: String,
     scope: Option<String>,
+    catalog: Option<Vec<CatalogEntryRef>>,
 ) -> Result<PkgInstallResult, String> {
     let path = PathBuf::from(&install_path);
     // FE / iyke / dev-mode workspace installs are all `Local` provenance.
@@ -48,14 +58,44 @@ pub async fn pkg_install_from_path(
     // client lands; builtins go through `install_builtins()` at boot.
     let source = InstallSource::Local { path: install_path };
     let project_id = resolve_install_scope(db.inner().clone(), scope).await?;
+    // The scope string `resolve_pkg_requires` places required primitives into.
+    let pkg_scope = match &project_id {
+        Some(id) => format!("project:{id}"),
+        None => "workspace".to_string(),
+    };
     let kernel_arc = kernel.0.clone();
+    let path_for_kernel = path.clone();
     let installed = tokio::task::spawn_blocking(move || {
-        kernel_arc.install_from_path(&path, source, project_id)
+        kernel_arc.install_from_path(&path_for_kernel, source, project_id)
     })
     .await
     .map_err(|e| format!("install join: {e}"))?
     .map_err(|e| format!("{e:#}"))?;
-    Ok(PkgInstallResult { installed })
+
+    // WP-16 seam: satisfy the pkg manifest's `requires` via the Ọba resolver.
+    // Reads the compiled `requires` off the installed manifest (Ọba never parses
+    // SKILL.md), installs the missing closure into the store, and places it into
+    // the pkg's scope through the unified `place_primitive` layer.
+    let requires = Package::load(&path)
+        .map(|p| p.manifest.requires)
+        .unwrap_or_default();
+    let requires = if requires.is_empty() {
+        None
+    } else {
+        let cat = catalog.unwrap_or_default();
+        match resolve_pkg_requires(db.inner(), &requires, &cat, &pkg_scope).await {
+            Ok(r) => Some(r),
+            Err(e) => {
+                tracing::warn!(
+                    "[pkg/wp-16] requires resolution for `{}` failed (pkg installed, deps unresolved): {e}",
+                    installed.id
+                );
+                None
+            }
+        }
+    };
+
+    Ok(PkgInstallResult { installed, requires })
 }
 
 #[tauri::command]
@@ -474,7 +514,12 @@ async fn install_from_registry_inner(
             // Success — drop the backup + downloaded tarball.
             let _ = tokio::fs::remove_dir_all(&backup_dir).await;
             let _ = tokio::fs::remove_file(&tarball_path).await;
-            Ok(PkgInstallResult { installed: summary })
+            // WP-16 requires-resolution for the registry path is a follow-up
+            // (the registry install flow has no catalog snapshot threaded yet).
+            Ok(PkgInstallResult {
+                installed: summary,
+                requires: None,
+            })
         }
         Err(e) => {
             // Roll the filesystem back: remove the new dir, restore the backup.

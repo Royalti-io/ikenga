@@ -27,7 +27,7 @@ use serde::{Deserialize, Serialize};
 use super::registry;
 use super::{
     atomic_copy_dir, atomic_copy_file, read_description, store_path_for, validate_name,
-    ClaudeStoreEntry, Kind, ProvenanceSource, RegistryProvenance,
+    ClaudeStoreEntry, ClaudeStoreMutation, Kind, ProvenanceSource, RegistryProvenance,
 };
 use crate::commands::claude_config::{mtime_ms, store_root};
 
@@ -828,6 +828,61 @@ fn install_dep(
 /// is a separate step) and fully reversible — a closure failure rolls the
 /// target back too. The returned `installed` list is in topological ENABLE
 /// order (deepest dep first); the caller enables the closure, then the target.
+/// Install the missing forward-dependency closure of an arbitrary `requires`
+/// list into the store, transactionally. Shared by `oba_install_with_deps` (a
+/// primitive's own deps, WP-14) and the pkg-kernel → Ọba seam (a pkg manifest's
+/// `requires`, WP-16). Pure over `store` + `scope_roots` (tempdir-testable with
+/// the real `install_core` against local `file://` repos).
+///
+/// `satisfied` (store ∪ external masters) is computed once and read-only across
+/// the loop — a just-fetched node must NOT be marked satisfied or its revealed
+/// children would be pruned (the loop tracks fetched-ness separately). On any
+/// dependency failure the loop rolls back the closure in reverse and the error
+/// propagates (the caller rolls back anything it installed BEFORE calling this,
+/// e.g. `install_with_deps_core`'s target).
+///
+/// Returns `(installed-closure in topological/enable order, already-satisfied
+/// deps)`.
+fn install_requires_closure_core(
+    store: &Path,
+    scope_roots: &[PathBuf],
+    requires: &[RequiresEntry],
+    catalog: &[CatalogEntryRef],
+) -> Result<(Vec<ClaudeStoreEntry>, Vec<PrimitiveRef>), String> {
+    let satisfied = collect_satisfied(store, scope_roots);
+
+    // Deps already present up front (consent UX / WP-15) — best-effort.
+    let already_satisfied = resolve_requires_core(requires, &RequiresGraph::new(), &satisfied)
+        .map(|p| p.already_satisfied)
+        .unwrap_or_default();
+
+    // Install the missing closure transactionally. install_one reveals each dep's
+    // own requires (growing the graph); a failure rolls back the closure in reverse.
+    let mut graph = RequiresGraph::new();
+    let closure = resolve_install_loop_core(
+        requires,
+        &satisfied,
+        &mut graph,
+        |item| install_dep(store, catalog, item),
+        |item| rollback_install(store, item),
+    )
+    .map_err(|e| e.to_string())?;
+
+    // Map the topologically-ordered closure refs back to their store entries.
+    let rf = registry::load(store);
+    let installed: Vec<ClaudeStoreEntry> = closure
+        .iter()
+        .filter_map(|r| {
+            rf.entries
+                .iter()
+                .find(|e| e.kind == r.kind && e.name == r.name)
+                .cloned()
+        })
+        .collect();
+
+    Ok((installed, already_satisfied))
+}
+
 #[allow(clippy::too_many_arguments)]
 fn install_with_deps_core(
     store: &Path,
@@ -844,53 +899,18 @@ fn install_with_deps_core(
     let target_entry = install_core(store, kind, name, source, url, ref_, from_catalog)?;
     let target_requires = target_entry.requires.clone();
 
-    // 2. What's already present (store ∪ external masters). Read-only across the
-    //    loop (a just-fetched node must NOT be marked satisfied or its revealed
-    //    children would be pruned — the loop tracks fetched-ness separately).
-    let satisfied = collect_satisfied(store, scope_roots);
-
-    // 3. Deps already present up front (consent UX / WP-15) — best-effort.
-    let already_satisfied =
-        resolve_requires_core(&target_requires, &RequiresGraph::new(), &satisfied)
-            .map(|p| p.already_satisfied)
-            .unwrap_or_default();
-
-    // 4. Install the missing closure transactionally. install_one reveals each
-    //    dep's own requires (growing the graph); a failure rolls back the closure
-    //    in reverse — then we also roll back the target and surface the error.
-    let mut graph = RequiresGraph::new();
-    let closure = match resolve_install_loop_core(
-        &target_requires,
-        &satisfied,
-        &mut graph,
-        |item| install_dep(store, catalog, item),
-        |item| rollback_install(store, item),
-    ) {
-        Ok(c) => c,
+    // 2. Install the missing closure; on failure roll the TARGET back too.
+    match install_requires_closure_core(store, scope_roots, &target_requires, catalog) {
+        Ok((installed, already_satisfied)) => Ok(InstallWithDepsResult {
+            target: target_entry,
+            installed,
+            already_satisfied,
+        }),
         Err(e) => {
-            // The loop rolled back the dependency closure; undo the target too.
             rollback_install_kn(store, kind, name);
-            return Err(e.to_string());
+            Err(e)
         }
-    };
-
-    // 5. Map the topologically-ordered closure refs back to their store entries.
-    let rf = registry::load(store);
-    let installed: Vec<ClaudeStoreEntry> = closure
-        .iter()
-        .filter_map(|r| {
-            rf.entries
-                .iter()
-                .find(|e| e.kind == r.kind && e.name == r.name)
-                .cloned()
-        })
-        .collect();
-
-    Ok(InstallWithDepsResult {
-        target: target_entry,
-        installed,
-        already_satisfied,
-    })
+    }
 }
 
 /// Re-verify, at enable time, which of `(kind,name)`'s recorded `requires` are
@@ -973,6 +993,83 @@ pub async fn oba_missing_requires(
     let store = store_root().ok_or_else(|| "cannot resolve store root".to_string())?;
     let scope_roots = super::all_scope_roots(&db).await;
     Ok(missing_requires_core(&store, &scope_roots, k, &name))
+}
+
+// ─── WP-16: pkg-kernel → Ọba seam ────────────────────────────────────────────
+// When an Ikenga pkg manifest declares `requires:[skill …]`, the pkg-install
+// flow calls the Ọba resolver to satisfy the closure (ADR-015 §3c). The seam
+// runs the SAME resolver-driven closure installer as `oba_install_with_deps`
+// (a primitive's own deps) — one resolver, two trigger points. It then PLACES
+// the freshly-installed members into the pkg's scope through `super::place_primitive`
+// (the single materialization layer — WP-16 unify), the same fn the Ọba enable
+// Tauri path (`claude_primitive_enable`) routes through. This freezes `G-RESOLVER`:
+// forward resolution dispatches end-to-end via one placement layer.
+
+/// Outcome of resolving an Ikenga pkg's manifest `requires` at install (WP-16).
+#[derive(Debug, Serialize)]
+pub struct PkgRequiresResult {
+    /// Required primitives newly fetched into the store (topological enable order).
+    pub installed: Vec<ClaudeStoreEntry>,
+    /// Required primitives already present (store ∪ external) — no reinstall.
+    pub already_satisfied: Vec<PrimitiveRef>,
+    /// Scope placements created for the freshly-installed members (the unified
+    /// `place_primitive` layer). Best-effort — a placement failure leaves the
+    /// vault master intact (enable later) and is logged, not fatal.
+    pub placed: Vec<ClaudeStoreMutation>,
+}
+
+/// WP-16 seam. Given a pkg's compiled manifest `requires`, install the missing
+/// forward-dependency closure into the store (resolving each dep's `(source,url)`
+/// from the `catalog` snapshot) and place the freshly-installed members into the
+/// pkg's `scope` via the unified placement layer. Dedups vs store ∪ external.
+/// Empty `requires` ⇒ a no-op (returns empty result). Used by `pkg_install_*`.
+pub async fn resolve_pkg_requires(
+    db: &Arc<PaDb>,
+    requires: &[RequiresEntry],
+    catalog: &[CatalogEntryRef],
+    scope: &str,
+) -> Result<PkgRequiresResult, String> {
+    if requires.is_empty() {
+        return Ok(PkgRequiresResult {
+            installed: Vec::new(),
+            already_satisfied: Vec::new(),
+            placed: Vec::new(),
+        });
+    }
+    let store = store_root().ok_or_else(|| "cannot resolve store root".to_string())?;
+    let scope_roots = super::all_scope_roots(db).await;
+    let (installed, already_satisfied) =
+        install_requires_closure_core(&store, &scope_roots, requires, catalog)?;
+
+    // Materialize the freshly-installed closure into the pkg's scope through the
+    // ONE placement fn `claude_primitive_enable` also routes through (WP-16 unify).
+    // Claude layout today; the per-engine adapters' physical delegation to this fn
+    // (codex/gemini) is the deferred merge (freeze pending live-verify).
+    let mut placed = Vec::new();
+    match super::resolve_scope_claude(db, scope).await {
+        Ok(scope_claude) => {
+            for e in &installed {
+                let Ok(k) = Kind::parse(&e.kind) else { continue };
+                match super::place_primitive(&store, &scope_claude, scope, k, &e.name) {
+                    Ok(m) => placed.push(m),
+                    Err(err) => tracing::warn!(
+                        "[oba/wp-16] place {}:{} into {scope} failed (vault master kept): {err}",
+                        e.kind,
+                        e.name
+                    ),
+                }
+            }
+        }
+        Err(err) => tracing::warn!(
+            "[oba/wp-16] resolve scope {scope:?} for requires placement failed (vault masters kept): {err}"
+        ),
+    }
+
+    Ok(PkgRequiresResult {
+        installed,
+        already_satisfied,
+        placed,
+    })
 }
 
 // ─── Tests (git path: offline, deterministic against local file:// repos) ─────
@@ -1168,6 +1265,100 @@ mod tests {
             registry::load(&store).entries.is_empty(),
             "full rollback leaves no records"
         );
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    // ── WP-16 — pkg-kernel → Ọba seam (closure install over a `requires` list) ──
+
+    #[test]
+    fn pkg_requires_closure_installs_over_a_requires_list() {
+        // The seam (`resolve_pkg_requires`) drives `install_requires_closure_core`
+        // directly over a pkg manifest's `requires` — there is NO target primitive
+        // to fetch first (the pkg is not a store primitive). Transitive closure
+        // (a → b) must install both, deepest-first.
+        let base = unique_tmp("pkg_req_closure");
+        let store = base.join("store");
+        std::fs::create_dir_all(&store).unwrap();
+        let a_url =
+            make_skill_repo_with_requires(&base, "a", "a", r#"[{"kind":"skill","name":"b"}]"#);
+        let b_url = make_skill_repo_with_requires(&base, "b", "b", "[]");
+        let catalog = vec![
+            CatalogEntryRef {
+                kind: "skill".into(),
+                name: "a".into(),
+                source: "git".into(),
+                url: a_url,
+            },
+            CatalogEntryRef {
+                kind: "skill".into(),
+                name: "b".into(),
+                source: "git".into(),
+                url: b_url,
+            },
+        ];
+        // pkg requires only `a`; `a` transitively requires `b`.
+        let pkg_requires = vec![RequiresEntry {
+            kind: "skill".into(),
+            name: "a".into(),
+            source: None,
+            r#ref: None,
+        }];
+
+        let (installed, already_satisfied) =
+            install_requires_closure_core(&store, &[], &pkg_requires, &catalog)
+                .expect("closure install ok");
+
+        // Both a and b installed; topological (enable) order = deepest first (b, a).
+        let names: Vec<&str> = installed.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(names, vec!["b", "a"], "topological enable order");
+        assert!(already_satisfied.is_empty());
+        assert!(store_path_for(&store, Kind::Skill, "a")
+            .unwrap()
+            .join("SKILL.md")
+            .is_file());
+        assert!(store_path_for(&store, Kind::Skill, "b")
+            .unwrap()
+            .join("SKILL.md")
+            .is_file());
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn pkg_requires_closure_dedups_already_present() {
+        // A required primitive already in the store is surfaced as already-satisfied
+        // and NOT reinstalled — the no-double-install guarantee for the pkg seam.
+        let base = unique_tmp("pkg_req_dedup");
+        let store = base.join("store");
+        std::fs::create_dir_all(&store).unwrap();
+        let dep_url = make_skill_repo_with_requires(&base, "dep", "dep", "[]");
+        install_core(
+            &store,
+            Kind::Skill,
+            "dep",
+            ProvenanceSource::Git,
+            &dep_url,
+            None,
+            false,
+        )
+        .unwrap();
+        let catalog = vec![CatalogEntryRef {
+            kind: "skill".into(),
+            name: "dep".into(),
+            source: "git".into(),
+            url: dep_url,
+        }];
+        let pkg_requires = vec![RequiresEntry {
+            kind: "skill".into(),
+            name: "dep".into(),
+            source: None,
+            r#ref: None,
+        }];
+
+        let (installed, already_satisfied) =
+            install_requires_closure_core(&store, &[], &pkg_requires, &catalog)
+                .expect("closure ok");
+        assert!(installed.is_empty(), "satisfied dep not reinstalled");
+        assert!(already_satisfied.iter().any(|p| p.name == "dep"));
         std::fs::remove_dir_all(&base).ok();
     }
 

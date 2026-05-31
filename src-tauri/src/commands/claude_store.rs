@@ -74,6 +74,7 @@ mod install;
 pub use install::{
     oba_auto_update_all, oba_check_update, oba_install_git, oba_install_npx,
     oba_install_with_deps, oba_missing_requires, oba_set_auto_update, oba_update,
+    resolve_pkg_requires, CatalogEntryRef, PkgRequiresResult,
 };
 
 /// Forward-dependency resolver core (Ọba Phase 4, ADR-015 §3b / WP-13). Pure
@@ -1097,9 +1098,17 @@ fn import_core(
     })
 }
 
-/// `claude_primitive_enable` core: create a symlink in the scope farm pointing
-/// at the store canonical copy. Idempotent.
-fn enable_core(
+/// **The single primitive-placement layer (WP-16 unify).** Creates the scope-farm
+/// symlink `<scope>/.claude/<kind>s/<name>` → the store canonical copy. Idempotent.
+/// Both the Ọba enable Tauri path (`claude_primitive_enable` → here) and the
+/// pkg-kernel → Ọba `requires` seam (`install::resolve_pkg_requires` → here) route
+/// through this one fn, so there is ONE materialization implementation (replacing
+/// the former split between the Ọba symlink-farm and the per-engine adapters'
+/// `install_*`). The per-engine adapters keep their layout knowledge and will
+/// physically delegate to this fn (codex `.agents/skills/`, gemini) — that
+/// adapter↔enable merge's freeze is pending live-verify; the claude path is
+/// unified here now. Formerly `enable_core`.
+fn place_primitive(
     store: &Path,
     scope_claude: &Path,
     scope: &str,
@@ -1237,7 +1246,7 @@ fn move_core(
 
 // ─── WP-23: per-engine file-kind write paths (skill/agent/command) ────────────
 //
-// The Phase-1 farm above (`enable_core`/`disable_core`/`remove_core`) is
+// The Phase-1 farm above (`place_primitive`/`disable_core`/`remove_core`) is
 // Claude-specific: it hardcodes `<scope>/.claude/<kind>s/<name>` via
 // `scope_path_for` and confines through `is_under_claude_or_store` (a `.claude`
 // segment check). WP-23 generalizes the file-based half per engine by threading
@@ -1418,7 +1427,7 @@ fn is_under_engine_root(engine: EngineId, scope_root: &Path, user_home: &Path, p
 }
 
 /// `enable` for an arbitrary engine. Claude routes back through the Phase-1
-/// `enable_core` (byte-identical). For other engines: `SymlinkDir` cells symlink
+/// `place_primitive` (byte-identical). For other engines: `SymlinkDir` cells symlink
 /// into the store; `File` cells copy the resolved store primitive on enable.
 /// Idempotent. Atomic. Per-engine path-confined.
 fn enable_for_core(
@@ -1433,7 +1442,7 @@ fn enable_for_core(
     if engine == EngineId::Claude {
         // Phase-1 path: confinement + write are byte-unchanged.
         let scope_claude = scope_root.join(".claude");
-        return enable_core(store, &scope_claude, scope, kind, name);
+        return place_primitive(store, &scope_claude, scope, kind, name);
     }
     let cell = file_layout_cell(engine, kind)?;
     let target_src = store_path_for(store, kind, name)?;
@@ -1929,7 +1938,7 @@ pub async fn claude_primitive_enable(
     }
     let store = store_root().ok_or_else(|| "cannot resolve store root".to_string())?;
     let scope_claude = resolve_scope_claude(&db, &scope).await?;
-    enable_core(&store, &scope_claude, &scope, k, &name)
+    place_primitive(&store, &scope_claude, &scope, k, &name)
 }
 
 /// Disable a store primitive in a scope (drop the symlink for file-based;
@@ -3081,7 +3090,7 @@ mod tests {
         let (base, store, scope) = fixture("enable");
         seed_agent(&store, "shared", "an agent");
 
-        let m = enable_core(&store, &scope, "project:p", Kind::Agent, "shared").unwrap();
+        let m = place_primitive(&store, &scope, "project:p", Kind::Agent, "shared").unwrap();
         let link = PathBuf::from(&m.path);
         let lmeta = std::fs::symlink_metadata(&link).unwrap();
         assert!(lmeta.file_type().is_symlink(), "farm entry is a symlink");
@@ -3109,8 +3118,8 @@ mod tests {
     fn enable_is_idempotent() {
         let (base, store, scope) = fixture("idem");
         seed_agent(&store, "a", "x");
-        let m1 = enable_core(&store, &scope, "workspace", Kind::Agent, "a").unwrap();
-        let m2 = enable_core(&store, &scope, "workspace", Kind::Agent, "a").unwrap();
+        let m1 = place_primitive(&store, &scope, "workspace", Kind::Agent, "a").unwrap();
+        let m2 = place_primitive(&store, &scope, "workspace", Kind::Agent, "a").unwrap();
         assert_eq!(m1.path, m2.path);
         assert!(is_enabled_in(&scope, &store, Kind::Agent, "a"));
         std::fs::remove_dir_all(&base).ok();
@@ -3120,7 +3129,7 @@ mod tests {
     fn enable_skill_dir_symlink() {
         let (base, store, scope) = fixture("skill_enable");
         seed_skill(&store, "myskill", "a skill");
-        let m = enable_core(&store, &scope, "workspace", Kind::Skill, "myskill").unwrap();
+        let m = place_primitive(&store, &scope, "workspace", Kind::Skill, "myskill").unwrap();
         let link = PathBuf::from(&m.path);
         assert!(std::fs::symlink_metadata(&link)
             .unwrap()
@@ -3134,7 +3143,7 @@ mod tests {
     #[test]
     fn enable_missing_store_entry_errors() {
         let (base, store, scope) = fixture("missing");
-        let err = enable_core(&store, &scope, "workspace", Kind::Agent, "ghost").unwrap_err();
+        let err = place_primitive(&store, &scope, "workspace", Kind::Agent, "ghost").unwrap_err();
         assert!(err.contains("store has no"), "got: {err}");
         std::fs::remove_dir_all(&base).ok();
     }
@@ -3145,7 +3154,7 @@ mod tests {
     fn disable_drops_link_store_intact() {
         let (base, store, scope) = fixture("disable");
         seed_agent(&store, "a", "x");
-        enable_core(&store, &scope, "workspace", Kind::Agent, "a").unwrap();
+        place_primitive(&store, &scope, "workspace", Kind::Agent, "a").unwrap();
         let store_file = store_path_for(&store, Kind::Agent, "a").unwrap();
         assert!(store_file.exists());
 
@@ -3163,7 +3172,7 @@ mod tests {
     fn disable_skill_drops_link_not_store_tree() {
         let (base, store, scope) = fixture("disable_skill");
         seed_skill(&store, "s", "x");
-        enable_core(&store, &scope, "workspace", Kind::Skill, "s").unwrap();
+        place_primitive(&store, &scope, "workspace", Kind::Skill, "s").unwrap();
         disable_core(&scope, Kind::Skill, "s").unwrap();
         let link = scope_path_for(&scope, Kind::Skill, "s").unwrap();
         assert!(std::fs::symlink_metadata(&link).is_err());
@@ -3182,7 +3191,7 @@ mod tests {
         let to = base.join("proj2").join(".claude");
         std::fs::create_dir_all(&to).unwrap();
         seed_agent(&store, "a", "x");
-        enable_core(&store, &from, "workspace", Kind::Agent, "a").unwrap();
+        place_primitive(&store, &from, "workspace", Kind::Agent, "a").unwrap();
 
         let m = copy_core(&from, &to, "workspace", "project:p2", Kind::Agent, "a").unwrap();
         // Source link still present.
@@ -3208,7 +3217,7 @@ mod tests {
         let to = base.join("proj2").join(".claude");
         std::fs::create_dir_all(&to).unwrap();
         seed_skill(&store, "s", "x");
-        enable_core(&store, &from, "workspace", Kind::Skill, "s").unwrap();
+        place_primitive(&store, &from, "workspace", Kind::Skill, "s").unwrap();
         let m = copy_core(&from, &to, "workspace", "project:p2", Kind::Skill, "s").unwrap();
         let dst = PathBuf::from(&m.path);
         assert!(!std::fs::symlink_metadata(&dst)
@@ -3251,7 +3260,7 @@ mod tests {
         std::fs::create_dir_all(&rogue).unwrap();
 
         // enable into a rogue scope dir is rejected.
-        let e1 = enable_core(&store, &rogue, "workspace", Kind::Agent, "a").unwrap_err();
+        let e1 = place_primitive(&store, &rogue, "workspace", Kind::Agent, "a").unwrap_err();
         assert!(e1.contains("outside .claude/store"), "enable: {e1}");
 
         // disable on a rogue scope dir rejected.
@@ -3269,7 +3278,7 @@ mod tests {
     fn copy_rejects_rogue_dest() {
         let (base, store, from) = fixture("confine_copy");
         seed_agent(&store, "a", "x");
-        enable_core(&store, &from, "workspace", Kind::Agent, "a").unwrap();
+        place_primitive(&store, &from, "workspace", Kind::Agent, "a").unwrap();
         let rogue = base.join("rogue-dest");
         std::fs::create_dir_all(&rogue).unwrap();
         let e = copy_core(&from, &rogue, "workspace", "x", Kind::Agent, "a").unwrap_err();
@@ -3388,7 +3397,7 @@ mod tests {
         let (base, store, scope) = fixture("enabledin");
         seed_agent(&store, "a", "x");
         assert!(!is_enabled_in(&scope, &store, Kind::Agent, "a"));
-        enable_core(&store, &scope, "workspace", Kind::Agent, "a").unwrap();
+        place_primitive(&store, &scope, "workspace", Kind::Agent, "a").unwrap();
         assert!(is_enabled_in(&scope, &store, Kind::Agent, "a"));
         disable_core(&scope, Kind::Agent, "a").unwrap();
         assert!(!is_enabled_in(&scope, &store, Kind::Agent, "a"));
@@ -3643,7 +3652,7 @@ mod tests {
 
         // end-to-end: enable into the resolved project scope; symlink lands
         // under the project's .claude and resolves into the store.
-        let m = enable_core(
+        let m = place_primitive(
             &store,
             &resolved,
             "project:smoke-alias",
@@ -3680,7 +3689,7 @@ mod tests {
     // pass a tempdir for it and NEVER mutate the process-global `HOME` — no
     // races with the dev's real `~/.gemini` / `~/.codex`, and no cross-test
     // contention with the `merge.rs` HOME-mutating suite. The Claude path is
-    // asserted byte-identical to the Phase-1 `enable_core`.
+    // asserted byte-identical to the Phase-1 `place_primitive`.
 
     fn seed_command(store: &Path, name: &str, desc: &str) {
         let p = store_path_for(store, Kind::Command, name).unwrap();
@@ -3695,20 +3704,20 @@ mod tests {
     // ── Claude: byte-unchanged from Phase 1 ──────────────────────────────────
 
     /// The engine-aware enable for Claude must produce a result identical to the
-    /// Phase-1 `enable_core`, and the on-disk symlink must be byte-identical
+    /// Phase-1 `place_primitive`, and the on-disk symlink must be byte-identical
     /// (same link node, same store target). This is the DoD "Claude file-writes
     /// byte-unchanged from Phase 1" assertion.
     #[test]
     fn claude_engine_aware_enable_byte_identical_to_phase1() {
         // Two independent fixtures, identical seeds: one driven by the Phase-1
-        // `enable_core`, one by the WP-23 `enable_for_core(Claude, …)`.
+        // `place_primitive`, one by the WP-23 `enable_for_core(Claude, …)`.
         let (base1, store1, scope1) = fixture("cl_phase1");
         let (base2, store2, _scope2) = fixture("cl_wp23");
         seed_agent(&store1, "shared", "an agent");
         seed_agent(&store2, "shared", "an agent");
 
         // Phase-1 takes the `<scope>/.claude` dir directly.
-        let m_phase1 = enable_core(&store1, &scope1, "workspace", Kind::Agent, "shared").unwrap();
+        let m_phase1 = place_primitive(&store1, &scope1, "workspace", Kind::Agent, "shared").unwrap();
         // WP-23 takes the scope ROOT (parent of `.claude`) and appends `.claude`.
         // (Claude ignores user_home — it routes straight back to Phase-1.)
         let scope2_root = base2.join("proj");
