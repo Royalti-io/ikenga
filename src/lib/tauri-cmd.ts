@@ -2503,6 +2503,30 @@ export async function obaInstallNpx(
 	});
 }
 
+/**
+ * Install a multi-skill BUNDLE via the Claude `skills` CLI
+ * (`npx skills add <spec> --skill '*'`). Materializes every member skill into
+ * the vault canonical `store/bundles/<name>/<member>/` and returns the single
+ * bundle registry record (`kind:"bundle"`, `members` populated with the sorted
+ * member leaf names). Idempotent — re-running re-fetches + atomically swaps the
+ * bundle dir + re-derives members, so this doubles as the update call.
+ * `scope` is accepted for forward-compat with placement (WP-21) but is unused
+ * today. `fromCatalog` records catalog discovery (Phase 3).
+ */
+export async function obaInstallBundle(
+	name: string,
+	spec: string,
+	scope?: string | null,
+	fromCatalog?: boolean
+): Promise<ClaudeStoreEntry> {
+	return invoke<ClaudeStoreEntry>('oba_install_bundle', {
+		name,
+		spec,
+		scope: scope ?? null,
+		fromCatalog: fromCatalog ?? false,
+	});
+}
+
 /** A `(kind,name)` primitive identity. Mirrors the Rust `PrimitiveRef`
  *  (`claude_store/resolve.rs`). */
 export interface PrimitiveRef {
@@ -2518,6 +2542,9 @@ export interface CatalogEntryRef {
 	name: string;
 	source: 'git' | 'npx';
 	url: string;
+	/** Member skills a `bundle` catalog row carries (WP-18/19). Absent for
+	 *  non-bundle rows. Mirrors the Rust `CatalogEntryRef.members`. */
+	members?: string[];
 }
 
 /** Result of a resolver-driven install (ADR-015 §3b / WP-14). Mirrors the Rust

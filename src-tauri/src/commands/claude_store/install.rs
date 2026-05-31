@@ -184,6 +184,33 @@ fn npx_skills_add(spec: &str, staging: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// `npx --yes skills add <spec> --skill '*'` — installs ALL member skills a
+/// bundle source ships (the `*` / `--all` selector). HOME + cwd pinned to
+/// `staging` exactly like `npx_skills_add`, so every member lands under our
+/// isolated `.agents/skills/<member>/` tree. This is the bundle install's ONLY
+/// network/impure edge; the bundle core takes it as an injected fn so the
+/// materialization + members + registry logic stays pure/tempdir-testable.
+fn npx_skills_add_all(spec: &str, staging: &Path) -> Result<(), String> {
+    let mut c = Command::new("npx");
+    c.args(["--yes", "skills", "add", spec, "--skill", "*"])
+        .current_dir(staging)
+        .env("HOME", staging);
+    let out = c.output().map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            "`npx` not found on PATH — install Node.js to use npx-sourced primitives".to_string()
+        } else {
+            format!("npx: {e}")
+        }
+    })?;
+    if !out.status.success() {
+        return Err(format!(
+            "npx skills add --skill '*' failed: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    Ok(())
+}
+
 // ─── locate the primitive inside a fetched tree ──────────────────────────────
 
 /// Find the primitive content inside a freshly-cloned tree. Bounded, predictable
@@ -267,6 +294,37 @@ fn locate_installed_skill(staging: &Path, name: &str) -> Result<PathBuf, String>
     Err(format!(
         "npx skills add produced no skill for {name:?} under the staging dir"
     ))
+}
+
+/// Collect ALL member skills the `skills` CLI wrote under the staging dir — the
+/// multi-skill sibling of `locate_installed_skill`. Walks the same three
+/// candidate roots (`.agents/skills`, `.claude/skills`, `skills`), returns
+/// every immediate child dir containing a `SKILL.md` as `(leaf_name, path)`,
+/// sorted by leaf name (so the derived `members` list is deterministic). The
+/// FIRST root that yields any skills wins (the CLI writes to exactly one); we
+/// don't merge across roots. Errors if no root produced any skill.
+fn collect_installed_skills(staging: &Path) -> Result<Vec<(String, PathBuf)>, String> {
+    for skills_dir in [
+        staging.join(".agents").join("skills"),
+        staging.join(".claude").join("skills"),
+        staging.join("skills"),
+    ] {
+        let mut found: Vec<(String, PathBuf)> = Vec::new();
+        if let Ok(rd) = std::fs::read_dir(&skills_dir) {
+            for e in rd.flatten() {
+                let p = e.path();
+                if p.is_dir() && p.join("SKILL.md").is_file() {
+                    let leaf = e.file_name().to_string_lossy().to_string();
+                    found.push((leaf, p));
+                }
+            }
+        }
+        if !found.is_empty() {
+            found.sort_by(|a, b| a.0.cmp(&b.0));
+            return Ok(found);
+        }
+    }
+    Err("npx skills add --skill '*' produced no member skills under the staging dir".to_string())
 }
 
 /// Copy the located primitive into the vault canonical at `store/<kind>s/<name>`,
@@ -444,6 +502,14 @@ fn check_update_core(store: &Path, kind: Kind, name: &str) -> Result<UpdateStatu
 }
 
 fn update_core(store: &Path, kind: Kind, name: &str) -> Result<ClaudeStoreEntry, String> {
+    // WP-19: a bundle re-fetches whole (re-run skills-add --skill '*', re-assemble,
+    // atomic-swap, re-derive members) — it does NOT flow through the single-skill
+    // fetch_and_adopt path (which rejects Bundle). Dispatch before that.
+    if kind == Kind::Bundle {
+        return update_bundle_core(store, name, &|spec, staging| {
+            npx_skills_add_all(spec, staging)
+        });
+    }
     let rf = registry::load(store);
     let existing = rf
         .entries
@@ -489,6 +555,175 @@ fn update_core(store: &Path, kind: Kind, name: &str) -> Result<ClaudeStoreEntry,
     registry::upsert_record(&mut rf2, entry.clone());
     registry::save(store, &rf2)?;
     Ok(entry)
+}
+
+// ─── WP-19 — multi-skill BUNDLE install (store population + registry only) ────
+//
+// A bundle ships N member skills. The Claude `skills` CLI installs them all in
+// one shot with `skills add <spec> --skill '*'`. We materialize them into the
+// vault canonical `store/bundles/<name>/<member>/SKILL.md` (one dir per member)
+// and record ONE registry entry: `kind=bundle`, `members=[sorted leaf names]`,
+// provenance `source:npx`, `url:<spec>`. The members list is DERIVED from what
+// the CLI actually produced — never hand-passed.
+//
+// PLACEMENT (symlinking members into a scope's .agents/skills) is WP-21;
+// RESOLUTION (a pkg's `requires:{kind:bundle}` expanding to members) is WP-20.
+// Neither is done here — this is store + registry only.
+//
+// The network `skills add --skill '*'` step is the ONLY impure edge and is
+// INJECTED as a closure (`fetch_fn`) so the materialization core is pure and
+// tempdir-testable without any network: a test supplies a fetch_fn that writes
+// a fake `.agents/skills/<member>/SKILL.md` tree into the staging dir.
+
+/// Build the single bundle registry entry. Mirrors `build_entry` but populates
+/// `members` (sorted member leaf names) instead of leaving it empty, and never
+/// carries `requires` (a bundle has no compiled deps of its own — its members
+/// carry theirs; resolution of member requires is WP-20).
+fn build_bundle_entry(
+    name: &str,
+    dest: &Path,
+    members: Vec<String>,
+    prov: RegistryProvenance,
+) -> ClaudeStoreEntry {
+    ClaudeStoreEntry {
+        kind: Kind::Bundle.as_str().to_string(),
+        name: name.to_string(),
+        store_path: dest.to_string_lossy().to_string(),
+        // A bundle dir holds member skill subdirs, NOT a top-level SKILL.md, so a
+        // bundle has no description of its own (its members carry theirs). Be
+        // explicit rather than relying on read_description silently finding none.
+        description: None,
+        modified_ms: mtime_ms(dest),
+        enabled_in: Vec::new(),
+        requires: Vec::new(),
+        members,
+        provenance: prov,
+    }
+}
+
+/// Fetch + assemble + atomic-swap the bundle canonical, returning
+/// `(canonical_path, sorted_member_leaves, version)`. The vault is mutated only
+/// by the final `atomic_copy_dir` swap, so a failed fetch/assemble leaves the
+/// prior canonical (if any) untouched. `fetch_fn` is the injected skills-add
+/// edge: it must populate `staging` with the member skills' `.agents/skills/...`
+/// tree (real impl: `npx_skills_add_all`).
+fn fetch_and_adopt_bundle(
+    store: &Path,
+    name: &str,
+    spec: &str,
+    fetch_fn: &dyn Fn(&str, &Path) -> Result<(), String>,
+) -> Result<(PathBuf, Vec<String>, Option<String>), String> {
+    let dest = store_path_for(store, Kind::Bundle, name)?;
+    if !dest.starts_with(store) {
+        return Err(format!("install dest outside store: {}", dest.display()));
+    }
+    let staging = staging_dir("bundle");
+    std::fs::create_dir_all(&staging).map_err(|e| format!("mkdir staging: {e}"))?;
+    // Hoisted out of the closure so it is cleaned up UNCONDITIONALLY below — an
+    // error mid-assembly must not leak the temp dir in /tmp.
+    let assembled = staging_dir("bundle-assembled");
+    let res = (|| {
+        fetch_fn(spec, &staging)?;
+        let members = collect_installed_skills(&staging)?;
+        // Assemble the whole bundle dir under a disposable temp, then swap the
+        // assembled tree into the canonical in ONE atomic_copy_dir (handles
+        // swap-over-existing-dst + rollback). This makes update a true
+        // whole-bundle replace: a member dropped upstream simply isn't in the
+        // freshly-assembled tree.
+        let _ = std::fs::remove_dir_all(&assembled);
+        std::fs::create_dir_all(&assembled).map_err(|e| format!("mkdir assembled: {e}"))?;
+        let mut leaves: Vec<String> = Vec::with_capacity(members.len());
+        for (leaf, member_path) in &members {
+            atomic_copy_dir(member_path, &assembled.join(leaf))?;
+            leaves.push(leaf.clone());
+        }
+        // Best-effort source version: resolve the spec repo's HEAD SHA. NOTE:
+        // this is a SECOND, best-effort network touch separate from the injected
+        // `fetch_fn` (it `.ok()`s to None offline, incl. in tests) — the skills-add
+        // fetch is the only edge that must be injected for the core to be testable.
+        let sha = git_ls_remote_sha(&gh_url(spec), None).ok();
+        atomic_copy_dir(&assembled, &dest)?;
+        // `leaves` is already sorted (collect_installed_skills returns sorted),
+        // so members[] is the sorted member-leaf set — no re-sort needed.
+        Ok::<_, String>((dest.clone(), leaves, sha))
+    })();
+    let _ = std::fs::remove_dir_all(&assembled);
+    let _ = std::fs::remove_dir_all(&staging);
+    res
+}
+
+/// Pure bundle install/update core (store is a parameter; the skills-add edge is
+/// injected). Installs ALL member skills of `spec` into
+/// `store/bundles/<name>/` and writes ONE registry record. Idempotent:
+/// re-running re-fetches, re-assembles, atomically swaps the bundle dir, and
+/// re-derives members — so this same fn serves both install and update.
+fn install_bundle_core(
+    store: &Path,
+    name: &str,
+    spec: &str,
+    from_catalog: bool,
+    fetch_fn: &dyn Fn(&str, &Path) -> Result<(), String>,
+) -> Result<ClaudeStoreEntry, String> {
+    validate_name(name)?;
+    // Preserve the prior provenance timestamps + auto-update opt-in across a
+    // re-install (update semantics): if a record already exists, keep its
+    // installed_at + auto_update; otherwise this is a fresh install.
+    let prior = registry::load(store)
+        .entries
+        .into_iter()
+        .find(|e| e.kind == Kind::Bundle.as_str() && e.name == name);
+
+    let (dest, members, version) = fetch_and_adopt_bundle(store, name, spec, fetch_fn)?;
+    let now = now_iso();
+    let prov = RegistryProvenance {
+        source: ProvenanceSource::Npx,
+        url: Some(spec.to_string()),
+        r#ref: None,
+        version,
+        canonical_path: dest.to_string_lossy().to_string(),
+        managed: true,
+        installed_at: prior
+            .as_ref()
+            .and_then(|p| p.provenance.installed_at.clone())
+            .or_else(|| Some(now.clone())),
+        updated_at: Some(now),
+        from_catalog: prior.as_ref().map_or(from_catalog, |p| p.provenance.from_catalog),
+        auto_update: prior
+            .as_ref()
+            .map_or(from_catalog, |p| p.provenance.auto_update),
+    };
+    let entry = build_bundle_entry(name, &dest, members, prov);
+    let mut rf = registry::load(store);
+    registry::upsert_record(&mut rf, entry.clone());
+    registry::save(store, &rf)?;
+    Ok(entry)
+}
+
+/// Whole-bundle atomic re-fetch (update). Reads the existing bundle record for
+/// its `spec` (provenance url) and re-runs the install flow, which swaps the
+/// bundle dir in place and re-derives members. Mirrors `update_core`'s
+/// managed-check; the `fetch_fn` injection keeps it tempdir-testable.
+fn update_bundle_core(
+    store: &Path,
+    name: &str,
+    fetch_fn: &dyn Fn(&str, &Path) -> Result<(), String>,
+) -> Result<ClaudeStoreEntry, String> {
+    let existing = registry::load(store)
+        .entries
+        .into_iter()
+        .find(|e| e.kind == Kind::Bundle.as_str() && e.name == name)
+        .ok_or_else(|| format!("bundle {name:?} not in registry; install it first"))?;
+    if !existing.provenance.managed {
+        return Err(format!(
+            "bundle {name:?} is an external master (kept in place) — update its source upstream, not here"
+        ));
+    }
+    let spec = existing
+        .provenance
+        .url
+        .clone()
+        .ok_or_else(|| "bundle entry has no source spec; cannot update".to_string())?;
+    install_bundle_core(store, name, &spec, existing.provenance.from_catalog, fetch_fn)
 }
 
 // ─── Phase 3 — auto-update trust policy (catalog ON, local/dev/manual OFF) ────
@@ -666,6 +901,34 @@ pub async fn oba_install_npx(
         &spec,
         None,
         fromCatalog.unwrap_or(false),
+    )
+}
+
+/// Install a multi-skill BUNDLE via the Claude `skills` CLI
+/// (`npx skills add <spec> --skill '*'`). Materializes ALL member skills into
+/// the vault canonical `store/bundles/<name>/<member>/` and writes ONE registry
+/// record (`kind:bundle`, `members:[sorted leaves]`, `source:npx`). Idempotent:
+/// re-running this re-fetches + atomically swaps the bundle dir + re-derives
+/// members (so it doubles as the update path). `scope` is accepted for forward
+/// compatibility with WP-21 placement but is unused here (store population only).
+/// `fromCatalog` records catalog discovery (Phase 3).
+#[tauri::command]
+#[allow(non_snake_case)]
+pub async fn oba_install_bundle(
+    name: String,
+    spec: String,
+    scope: Option<String>,
+    fromCatalog: Option<bool>,
+) -> Result<ClaudeStoreEntry, String> {
+    // WP-19 is store + registry only; placement (the `scope`) is WP-21.
+    let _ = scope;
+    let store = store_root().ok_or_else(|| "cannot resolve store root".to_string())?;
+    install_bundle_core(
+        &store,
+        &name,
+        &spec,
+        fromCatalog.unwrap_or(false),
+        &|spec, staging| npx_skills_add_all(spec, staging),
     )
 }
 
@@ -1970,6 +2233,226 @@ mod tests {
         // and the pre-existing fields still bind
         assert_eq!(rf.entries[0].provenance.source, ProvenanceSource::Git);
         assert_eq!(rf.entries[0].provenance.version.as_deref(), Some("sha"));
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    // ─── WP-19 — multi-skill BUNDLE install (store + registry only) ───────────
+
+    /// Populate a staging dir the way `skills add --skill '*'` would: each
+    /// `member` becomes `.agents/skills/<member>/SKILL.md`. This is exactly what
+    /// the injected `fetch_fn` writes — so the bundle core is exercised with NO
+    /// network and NO npx.
+    fn make_bundle_staging(staging: &Path, members: &[&str]) -> Result<(), String> {
+        let root = staging.join(".agents").join("skills");
+        for m in members {
+            let d = root.join(m);
+            std::fs::create_dir_all(&d).map_err(|e| format!("mkdir {}: {e}", d.display()))?;
+            std::fs::write(
+                d.join("SKILL.md"),
+                format!("---\nname: {m}\ndescription: member {m}\n---\nbody"),
+            )
+            .map_err(|e| format!("write SKILL.md: {e}"))?;
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn bundle_install_materializes_all_members_and_records_one_entry() {
+        let base = unique_tmp("bundle_install");
+        let store = base.join("store");
+        std::fs::create_dir_all(&store).unwrap();
+
+        // injected skills-add edge: writes 3 member skills, no network.
+        let fetch = |_spec: &str, staging: &Path| make_bundle_staging(staging, &["gamma", "alpha", "beta"]);
+
+        let entry = install_bundle_core(
+            &store,
+            "atelier",
+            "royalti-io/atelier-bundle",
+            false,
+            &fetch,
+        )
+        .expect("bundle install ok");
+
+        // ONE registry record, kind=bundle, members=[sorted leaves]
+        assert_eq!(entry.kind, "bundle");
+        assert_eq!(entry.name, "atelier");
+        assert_eq!(
+            entry.members,
+            vec![
+                "alpha".to_string(),
+                "beta".to_string(),
+                "gamma".to_string()
+            ],
+            "members are the sorted produced leaves"
+        );
+        assert_eq!(entry.provenance.source, ProvenanceSource::Npx);
+        assert_eq!(
+            entry.provenance.url.as_deref(),
+            Some("royalti-io/atelier-bundle")
+        );
+        assert!(entry.provenance.managed);
+
+        // store/bundles/atelier/<member>/SKILL.md for ALL N members
+        let bundle_dir = store_path_for(&store, Kind::Bundle, "atelier").unwrap();
+        assert!(bundle_dir.ends_with("bundles/atelier"));
+        for m in ["alpha", "beta", "gamma"] {
+            assert!(
+                bundle_dir.join(m).join("SKILL.md").is_file(),
+                "member {m} placed in the bundle dir"
+            );
+        }
+
+        // persisted to registry.json as exactly one bundle record
+        let rf = registry::load(&store);
+        let recs: Vec<_> = rf.entries.iter().filter(|e| e.kind == "bundle").collect();
+        assert_eq!(recs.len(), 1, "exactly one bundle record");
+        assert_eq!(
+            recs[0].members,
+            vec!["alpha".to_string(), "beta".to_string(), "gamma".to_string()],
+            "registry round-trip preserves the exact sorted member set"
+        );
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn bundle_update_swaps_in_place_and_rederives_members() {
+        let base = unique_tmp("bundle_update");
+        let store = base.join("store");
+        std::fs::create_dir_all(&store).unwrap();
+
+        // v1: alpha + beta + gamma
+        let fetch_v1 =
+            |_s: &str, staging: &Path| make_bundle_staging(staging, &["alpha", "beta", "gamma"]);
+        install_bundle_core(&store, "kit", "owner/kit", true, &fetch_v1)
+            .expect("install v1 ok");
+
+        let bundle_dir = store_path_for(&store, Kind::Bundle, "kit").unwrap();
+        assert!(bundle_dir.join("gamma").join("SKILL.md").is_file());
+        // catalog install → auto_update on
+        let v1 = registry::load(&store)
+            .entries
+            .into_iter()
+            .find(|e| e.name == "kit")
+            .unwrap();
+        assert!(v1.provenance.from_catalog);
+        assert!(v1.provenance.auto_update);
+
+        // v2 upstream: gamma dropped, delta added (alpha + beta + delta)
+        let fetch_v2 =
+            |_s: &str, staging: &Path| make_bundle_staging(staging, &["alpha", "beta", "delta"]);
+        let updated = update_bundle_core(&store, "kit", &fetch_v2).expect("update ok");
+
+        // members re-derived: delta present, gamma gone
+        assert_eq!(
+            updated.members,
+            vec![
+                "alpha".to_string(),
+                "beta".to_string(),
+                "delta".to_string()
+            ],
+            "member set re-derived on whole-bundle re-fetch"
+        );
+        // on disk: the bundle dir was atomically swapped — delta exists, gamma removed
+        assert!(bundle_dir.join("delta").join("SKILL.md").is_file());
+        assert!(
+            !bundle_dir.join("gamma").exists(),
+            "dropped upstream member is gone after the atomic swap"
+        );
+        // still exactly one registry record; preserved auto_update opt-in
+        let recs: Vec<_> = registry::load(&store)
+            .entries
+            .into_iter()
+            .filter(|e| e.kind == "bundle")
+            .collect();
+        assert_eq!(recs.len(), 1, "update replaces, not appends");
+        assert_eq!(
+            recs[0].members,
+            vec!["alpha".to_string(), "beta".to_string(), "delta".to_string()],
+            "post-update members re-derived + persisted (gamma dropped, delta added)"
+        );
+        assert!(recs[0].provenance.auto_update, "auto_update preserved across update");
+        assert!(recs[0].provenance.from_catalog, "from_catalog preserved across update");
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn bundle_install_does_not_regress_single_skill_install() {
+        // A single-skill git install run ALONGSIDE a bundle install: the
+        // single-skill path stays a plain skill canonical (no members), and the
+        // bundle path stays a bundle (with members). Neither leaks into the other.
+        let base = unique_tmp("bundle_no_regress");
+        let store = base.join("store");
+        std::fs::create_dir_all(&store).unwrap();
+
+        // single-skill install (unchanged path)
+        let (_repo, url) = make_skill_repo(&base, "solo", "a solo skill");
+        let skill = install_core(
+            &store,
+            Kind::Skill,
+            "solo",
+            ProvenanceSource::Git,
+            &url,
+            None,
+            false,
+        )
+        .expect("single-skill install ok");
+        assert_eq!(skill.kind, "skill");
+        assert!(skill.members.is_empty(), "single skill records no members");
+        assert!(store_path_for(&store, Kind::Skill, "solo")
+            .unwrap()
+            .join("SKILL.md")
+            .is_file());
+
+        // bundle install (new path)
+        let fetch = |_s: &str, staging: &Path| make_bundle_staging(staging, &["one", "two"]);
+        let bundle = install_bundle_core(&store, "pack", "owner/pack", false, &fetch)
+            .expect("bundle install ok");
+        assert_eq!(bundle.kind, "bundle");
+        assert_eq!(bundle.members, vec!["one".to_string(), "two".to_string()]);
+
+        // both records coexist; the single-skill record is untouched + still has no members
+        let rf = registry::load(&store);
+        let solo = rf.entries.iter().find(|e| e.name == "solo").unwrap();
+        assert_eq!(solo.kind, "skill");
+        assert!(solo.members.is_empty(), "single-skill record unchanged");
+        let pack = rf.entries.iter().find(|e| e.name == "pack").unwrap();
+        assert_eq!(pack.kind, "bundle");
+        assert_eq!(pack.members.len(), 2);
+
+        // single-skill canonical lives under skills/, bundle under bundles/
+        assert!(store.join("skills").join("solo").join("SKILL.md").is_file());
+        assert!(store
+            .join("bundles")
+            .join("pack")
+            .join("one")
+            .join("SKILL.md")
+            .is_file());
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn bundle_collect_errors_when_staging_has_no_skills() {
+        // The injected fetch produced nothing → install fails, no canonical, no record.
+        let base = unique_tmp("bundle_empty");
+        let store = base.join("store");
+        std::fs::create_dir_all(&store).unwrap();
+        let fetch = |_s: &str, _staging: &Path| Ok::<(), String>(()); // writes nothing
+        let err = install_bundle_core(&store, "empty", "owner/empty", false, &fetch).unwrap_err();
+        assert!(
+            err.contains("no member skills"),
+            "empty staging surfaces a clear error: {err}"
+        );
+        assert!(!store_path_for(&store, Kind::Bundle, "empty")
+            .unwrap()
+            .exists());
+        assert!(
+            registry::load(&store)
+                .entries
+                .iter()
+                .all(|e| e.kind != "bundle"),
+            "no bundle record written on failure"
+        );
         std::fs::remove_dir_all(&base).ok();
     }
 }
