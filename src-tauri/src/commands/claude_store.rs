@@ -1217,6 +1217,213 @@ fn disable_core(scope_claude: &Path, kind: Kind, name: &str) -> Result<(), Strin
     remove_primitive(&link, kind)
 }
 
+// ─── WP-21 — bundle placement / removal (members, not the bundle) ─────────────
+
+/// The member-skill leaf names of a bundle, registry-first with a disk fallback.
+/// The registry record (`members[]`, recorded by the WP-19 installer) is the
+/// authoritative installed set; if it is absent/empty (e.g. a hand-assembled
+/// vault dir or a pre-WP-19 entry) we fall back to enumerating the canonical
+/// bundle dir's subdirectories. Returns leaves sorted for deterministic order.
+fn bundle_member_leaves(store: &Path, name: &str) -> Result<Vec<String>, String> {
+    // Prefer the registry record's members[].
+    let rf = registry::load(store);
+    if let Some(e) = rf
+        .entries
+        .iter()
+        .find(|e| e.kind == Kind::Bundle.as_str() && e.name == name)
+    {
+        if !e.members.is_empty() {
+            let mut m = e.members.clone();
+            m.sort();
+            return Ok(m);
+        }
+    }
+    // Fallback: enumerate the canonical bundle dir's member subdirs.
+    let canonical = store_path_for(store, Kind::Bundle, name)?;
+    let rd = match std::fs::read_dir(&canonical) {
+        Ok(rd) => rd,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Err(format!(
+                "store has no bundle named {name:?} (expected {})",
+                canonical.display()
+            ));
+        }
+        Err(e) => return Err(format!("read_dir {}: {e}", canonical.display())),
+    };
+    let mut leaves = Vec::new();
+    for entry in rd.flatten() {
+        if entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false) {
+            leaves.push(entry.file_name().to_string_lossy().to_string());
+        } else {
+            // A bundle member must be a directory (it holds SKILL.md). A stray
+            // file here means a malformed bundle — surface it rather than
+            // silently dropping it (a silent drop could leave a member's scope
+            // link uncleaned). Not fatal: skip it.
+            tracing::warn!(
+                bundle = %name,
+                entry = ?entry.file_name(),
+                "bundle canonical contains a non-directory member entry — skipping (malformed bundle)"
+            );
+        }
+    }
+    leaves.sort();
+    Ok(leaves)
+}
+
+/// **WP-21 bundle placement.** A bundle is invisible to engines — enabling one
+/// in a scope places each of its MEMBER skills as a single cross-tool skill
+/// symlink (`<scope>/.claude/skills/<member>` → `store/bundles/<bundle>/<member>`),
+/// the same scope alias a single skill uses, so every engine reads it.
+///
+/// FIRST-WINS on a member-leaf collision: if the member's scope link already
+/// exists and points somewhere OTHER than this bundle's member canonical
+/// (another bundle/skill placed a same-named leaf), the collider is SKIPPED with
+/// a `tracing::warn!` — never clobbered, never an error for the whole enable.
+/// A link that already points into THIS bundle's member canonical is idempotent.
+/// Returns a synthetic bundle-level mutation summarizing the placement; per-member
+/// links are side effects under the one cross-tool skill path.
+fn place_bundle(
+    store: &Path,
+    scope_claude: &Path,
+    scope: &str,
+    name: &str,
+) -> Result<ClaudeStoreMutation, String> {
+    let canonical = store_path_for(store, Kind::Bundle, name)?;
+    if !canonical.exists() {
+        return Err(format!(
+            "store has no bundle named {name:?} (expected {})",
+            canonical.display()
+        ));
+    }
+    let members = bundle_member_leaves(store, name)?;
+    for member in &members {
+        // Guard each member leaf name (registry/disk-sourced) before it becomes
+        // a path segment — same confinement the single-skill path enforces.
+        validate_name(member)?;
+        let target = canonical.join(member);
+        let link = scope_path_for(scope_claude, Kind::Skill, member)?;
+        if !is_under_claude_or_store(&link) {
+            return Err(format!(
+                "bundle member enable target outside .claude/store: {}",
+                link.display()
+            ));
+        }
+        // FIRST-WINS collision check — MUST precede make_symlink (which renames
+        // over unconditionally). Inspect the existing node, if any.
+        if let Ok(meta) = std::fs::symlink_metadata(&link) {
+            // Already points into THIS bundle's member canonical → idempotent.
+            let owned = meta.file_type().is_symlink()
+                && std::fs::canonicalize(&link)
+                    .ok()
+                    .zip(std::fs::canonicalize(&target).ok())
+                    .map(|(l, t)| l == t)
+                    .unwrap_or(false);
+            if owned {
+                continue;
+            }
+            // Owned by someone else (another bundle/skill, or a real file) →
+            // first-wins: keep theirs, skip ours, warn, keep going.
+            tracing::warn!(
+                bundle = %name,
+                member = %member,
+                link = %link.display(),
+                "bundle member leaf collides with an existing placement; first-wins — skipping this member, keeping the existing one"
+            );
+            continue;
+        }
+        make_symlink(&target, &link)?;
+    }
+    Ok(ClaudeStoreMutation {
+        kind: Kind::Bundle.as_str().to_string(),
+        name: name.to_string(),
+        scope: scope.to_string(),
+        path: canonical.to_string_lossy().to_string(),
+        link_target: None,
+    })
+}
+
+/// **WP-21 bundle removal.** Disabling a bundle drops every member skill link
+/// THIS bundle placed in the scope — and ONLY those. A member leaf whose scope
+/// link resolves into a DIFFERENT bundle/skill canonical (a first-wins collision
+/// winner from another owner) is left untouched. Idempotent on missing links.
+fn disable_bundle(store: &Path, scope_claude: &Path, name: &str) -> Result<(), String> {
+    let canonical = store_path_for(store, Kind::Bundle, name)?;
+    // Idempotent on a missing canonical: a bundle with no canonical backs no
+    // scope links, so there is nothing to remove (mirrors place_bundle's check).
+    if !canonical.exists() {
+        return Ok(());
+    }
+    // canonicalize the bundle root once so ownership checks survive symlinked
+    // store roots; fall back to the lexical path if it can't be resolved.
+    let canon_root = std::fs::canonicalize(&canonical).unwrap_or_else(|_| canonical.clone());
+    // Drive the sweep from the ON-DISK member subdirs (the truth of what this
+    // canonical actually backs), NOT the registry `members[]` — so disable
+    // provably removes every link this bundle backs even if the registry list is
+    // stale/subset.
+    let rd = match std::fs::read_dir(&canonical) {
+        Ok(rd) => rd,
+        Err(_) => return Ok(()), // vanished mid-op → nothing to remove
+    };
+    for entry in rd.flatten() {
+        if !entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false) {
+            continue;
+        }
+        let member = entry.file_name().to_string_lossy().to_string();
+        // member is a disk-sourced path segment — confine it before path use.
+        if validate_name(&member).is_err() {
+            continue;
+        }
+        let link = scope_path_for(scope_claude, Kind::Skill, &member)?;
+        if !is_under_claude_or_store(&link) {
+            return Err(format!(
+                "bundle member disable target outside .claude/store: {}",
+                link.display()
+            ));
+        }
+        // Only remove a link this bundle owns: a symlink resolving into this
+        // bundle's canonical (store/bundles/<bundle>/...). A foreign leaf
+        // (another bundle/skill) or a real file is left alone. Absent → idempotent.
+        let meta = match std::fs::symlink_metadata(&link) {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
+        if !meta.file_type().is_symlink() {
+            continue;
+        }
+        let owned = std::fs::canonicalize(&link)
+            .map(|resolved| resolved.starts_with(&canon_root))
+            .unwrap_or(false);
+        if owned {
+            remove_primitive(&link, Kind::Skill)?;
+        }
+    }
+    Ok(())
+}
+
+/// **WP-21 bundle-aware dependents scan.** A bundle's "dependents" are the scope
+/// links of its MEMBER skills (the bundle itself is never placed, so
+/// `dependent_search_dirs(Kind::Bundle)` is empty — see that arm). Scans each
+/// member subdir under the bundle canonical against the skill search dirs and
+/// unions the results. Shared by `oba_safe_delete` and `oba_dependents` so a
+/// bundle with any live member link refuses a hard-delete (the incident
+/// guardrail). Dedupes so a link counted under multiple members appears once.
+fn bundle_member_dependents(
+    _store: &Path,
+    bundle_canonical: &Path,
+    _name: &str,
+    scope_roots: &[PathBuf],
+) -> Vec<PathBuf> {
+    // DATA-LOSS GUARDRAIL: scan the WHOLE bundle canonical, NOT per registry
+    // member leaf. `scan_live_dependents` matches any link whose target == or
+    // starts_with the canonical, so scanning the bundle ROOT catches EVERY scope
+    // link resolving anywhere into store/bundles/<name>/ — independent of the
+    // registry `members[]` list. This must be drift-proof: `guarded_delete`
+    // `remove_dir_all`s the whole canonical tree, so a stale/subset `members[]`
+    // must not be able to hide a live dependent and turn a refuse into a wipe.
+    let skill_dirs = dependent_search_dirs(scope_roots, Kind::Skill);
+    crate::commands::claude_config::scan_live_dependents(bundle_canonical, &skill_dirs)
+}
+
 /// `claude_primitive_remove` core: delete the scope-local entry (link or real
 /// file/dir). Does NOT touch the store. On a store-backed symlink this is
 /// identical to disable; on a real primitive it deletes the actual file.
@@ -1990,12 +2197,14 @@ pub async fn claude_primitive_enable(
 ) -> Result<ClaudeStoreMutation, String> {
     let k = Kind::parse(&kind)?;
     validate_name(&name)?;
-    // WP-18 stub: a bundle is invisible to engines — only its member skills are
-    // placed (WP-21). It is never enabled/symlinked directly; without this guard
-    // it would fall into the `!is_file_based` merge-engine branch and bounce off
-    // with a misleading "not a JSON fragment" error.
+    // WP-21: a bundle is invisible to engines — enabling one places each of its
+    // MEMBER skills as a single cross-tool skill symlink (first-wins on a leaf
+    // collision). It is never symlinked as itself, so it routes here, away from
+    // both the file-based symlink farm and the merge engine.
     if k == Kind::Bundle {
-        return Err("bundle is placed via its member skills, not enabled directly (WP-21)".to_string());
+        let store = store_root().ok_or_else(|| "cannot resolve store root".to_string())?;
+        let scope_claude = resolve_scope_claude(&db, &scope).await?;
+        return place_bundle(&store, &scope_claude, &scope, &name);
     }
     if !k.is_file_based() {
         // hook/mcp: read the store fragment and splice it into `scope`'s
@@ -2027,10 +2236,17 @@ pub async fn claude_primitive_disable(
 ) -> Result<(), String> {
     let k = Kind::parse(&kind)?;
     validate_name(&name)?;
-    // WP-18 stub: bundles place their members, not the bundle (WP-21) — guard so
-    // disable doesn't bounce off the merge-engine branch with a misleading error.
+    // WP-21: disabling a bundle removes every member skill link THIS bundle
+    // placed in the scope (and only those — a first-wins collision winner from
+    // another owner is left intact).
     if k == Kind::Bundle {
-        return Err("bundle is placed via its member skills, not enabled directly (WP-21)".to_string());
+        let store = store_root().ok_or_else(|| "cannot resolve store root".to_string())?;
+        let scope_claude = resolve_scope_claude(&db, &scope).await?;
+        disable_bundle(&store, &scope_claude, &name)?;
+        // Clear any pin keyed on the bundle name so no dangling pin remains.
+        let pool = db.ensure_pool().await?;
+        clear_pin_for(&pool, &scope, k.as_str(), &name).await?;
+        return Ok(());
     }
     if !k.is_file_based() {
         // hook/mcp: remove the spliced block from `scope`'s settings file via
@@ -2575,13 +2791,17 @@ pub async fn oba_dependents(
     validate_name(&name)?;
     let store = store_root().ok_or_else(|| "cannot resolve store root".to_string())?;
     let (canonical, _managed) = resolve_canonical(&store, k, &name);
-    let dirs = dependent_search_dirs(&all_scope_roots(&db).await, k);
-    Ok(
+    let roots = all_scope_roots(&db).await;
+    // WP-21: a bundle is never placed as itself, so its dependents are the scope
+    // links of its MEMBER skills (scanned per member subdir). All other kinds use
+    // the canonical + the kind's own search dirs.
+    let deps = if k == Kind::Bundle {
+        bundle_member_dependents(&store, &canonical, &name, &roots)
+    } else {
+        let dirs = dependent_search_dirs(&roots, k);
         crate::commands::claude_config::scan_live_dependents(&canonical, &dirs)
-            .into_iter()
-            .map(|p| p.display().to_string())
-            .collect(),
-    )
+    };
+    Ok(deps.into_iter().map(|p| p.display().to_string()).collect())
 }
 
 /// WP-04: guarded delete of (kind, name)'s canonical master. Refuses external
@@ -2606,9 +2826,18 @@ pub async fn oba_safe_delete(
     );
     let roots = all_scope_roots(&db).await;
     tracing::info!("[oba_safe_delete] scope_roots={}", roots.len());
-    let dirs = dependent_search_dirs(&roots, k);
-    tracing::info!("[oba_safe_delete] dependent dirs={}", dirs.len());
-    let deps = crate::commands::claude_config::scan_live_dependents(&canonical, &dirs);
+    // WP-21: a bundle's dependents are its MEMBER skill scope links (the bundle
+    // itself is never placed). `dependent_search_dirs(Kind::Bundle)` is empty, so
+    // we MUST scan per member subdir — otherwise a managed bundle always reads
+    // zero dependents and gets blind-`remove_dir_all`'d out from under live
+    // member links. That is the incident guardrail for bundles.
+    let deps = if k == Kind::Bundle {
+        bundle_member_dependents(&store, &canonical, &name, &roots)
+    } else {
+        let dirs = dependent_search_dirs(&roots, k);
+        tracing::info!("[oba_safe_delete] dependent dirs={}", dirs.len());
+        crate::commands::claude_config::scan_live_dependents(&canonical, &dirs)
+    };
     tracing::info!("[oba_safe_delete] live dependents={}", deps.len());
     let outcome = guarded_delete(&canonical, k, managed, &deps)?;
     tracing::info!("[oba_safe_delete] verdict={}", outcome.verdict);
@@ -3179,6 +3408,23 @@ mod tests {
         std::fs::write(dir.join("helper.py"), "print(1)\n").unwrap();
     }
 
+    /// Seed a bundle canonical at `store/bundles/<name>/` holding one member skill
+    /// subdir per leaf (each a real dir with its own SKILL.md). WP-21 fixtures use
+    /// the disk fallback in `bundle_member_leaves` — no registry write needed.
+    fn seed_bundle(store: &Path, name: &str, members: &[&str]) {
+        let dir = store_path_for(store, Kind::Bundle, name).unwrap();
+        std::fs::create_dir_all(&dir).unwrap();
+        for m in members {
+            let md = dir.join(m);
+            std::fs::create_dir_all(&md).unwrap();
+            std::fs::write(
+                md.join("SKILL.md"),
+                format!("---\nname: {m}\ndescription: member of {name}\n---\nbody"),
+            )
+            .unwrap();
+        }
+    }
+
     // ── name validation ──────────────────────────────────────────────────
 
     #[test]
@@ -3239,6 +3485,234 @@ mod tests {
         // the bundle).
         let root = PathBuf::from("/r");
         assert!(dependent_search_dirs(&[root], Kind::Bundle).is_empty());
+    }
+
+    // ── WP-21: bundle placement / collision / disable / safe-delete ──────────
+
+    /// (a) Enabling a bundle places ALL members as scope skill symlinks, each
+    /// resolving to `store/bundles/<name>/<member>`, reachable through the link.
+    #[test]
+    fn place_bundle_places_all_members() {
+        let (base, store, scope) = fixture("bundle_enable");
+        seed_bundle(&store, "atelier", &["archetype-beat", "archetype-mix"]);
+
+        let m = place_bundle(&store, &scope, "workspace", "atelier").unwrap();
+        // Synthetic bundle-level mutation: kind=bundle, path=canonical, no link.
+        // (Intentional divergence from other kinds where `path` is the scope link
+        // — a bundle has no single scope link; its members are the placed links.)
+        assert_eq!(m.kind, "bundle");
+        assert_eq!(m.name, "atelier");
+        assert!(m.link_target.is_none());
+        assert_eq!(
+            m.path,
+            store_path_for(&store, Kind::Bundle, "atelier")
+                .unwrap()
+                .to_string_lossy()
+                .to_string(),
+            "bundle mutation.path is the canonical bundle dir (documented divergence)"
+        );
+
+        for member in ["archetype-beat", "archetype-mix"] {
+            let link = scope_path_for(&scope, Kind::Skill, member).unwrap();
+            let meta = std::fs::symlink_metadata(&link).unwrap();
+            assert!(meta.file_type().is_symlink(), "{member} placed as a symlink");
+            // Resolves into the bundle member canonical.
+            let want = store_path_for(&store, Kind::Bundle, "atelier")
+                .unwrap()
+                .join(member);
+            assert_eq!(
+                std::fs::canonicalize(&link).unwrap(),
+                std::fs::canonicalize(&want).unwrap(),
+                "{member} link resolves to store/bundles/atelier/{member}"
+            );
+            // SKILL.md reachable through the link.
+            assert!(link.join("SKILL.md").exists());
+        }
+        // Idempotent re-enable is a no-op (no clobber, no error).
+        place_bundle(&store, &scope, "workspace", "atelier").unwrap();
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    /// (b) A member-leaf collision is first-wins: a pre-existing foreign link is
+    /// left untouched, the colliding member is skipped, and the rest still place.
+    #[test]
+    fn member_collision_first_wins_no_clobber() {
+        let (base, store, scope) = fixture("bundle_collision");
+        seed_bundle(&store, "atelier", &["shared-leaf", "unique-leaf"]);
+        // A different canonical that an existing placement already points at.
+        let foreign = store.join("other-canonical");
+        std::fs::create_dir_all(&foreign).unwrap();
+        std::fs::write(foreign.join("SKILL.md"), "---\nname: shared-leaf\n---\n").unwrap();
+        // Pre-plant the foreign link at the colliding member's scope path.
+        let collide_link = scope_path_for(&scope, Kind::Skill, "shared-leaf").unwrap();
+        std::fs::create_dir_all(collide_link.parent().unwrap()).unwrap();
+        std::os::unix::fs::symlink(&foreign, &collide_link).unwrap();
+
+        // Enable still succeeds.
+        place_bundle(&store, &scope, "workspace", "atelier").unwrap();
+
+        // First-wins: the colliding link STILL points at the foreign canonical
+        // (NOT clobbered to the bundle member).
+        assert_eq!(
+            std::fs::canonicalize(&collide_link).unwrap(),
+            std::fs::canonicalize(&foreign).unwrap(),
+            "colliding leaf kept the first (foreign) owner — no clobber"
+        );
+        // The non-colliding member WAS placed into the bundle canonical.
+        let ok_link = scope_path_for(&scope, Kind::Skill, "unique-leaf").unwrap();
+        let want = store_path_for(&store, Kind::Bundle, "atelier")
+            .unwrap()
+            .join("unique-leaf");
+        assert_eq!(
+            std::fs::canonicalize(&ok_link).unwrap(),
+            std::fs::canonicalize(&want).unwrap(),
+            "the rest of the bundle still placed"
+        );
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    /// (c) Disabling a bundle removes the member links it owns — and ONLY those.
+    /// A foreign leaf (first-wins winner from another owner) survives untouched.
+    #[test]
+    fn disable_bundle_removes_own_links_only() {
+        let (base, store, scope) = fixture("bundle_disable");
+        seed_bundle(&store, "atelier", &["mine-a", "mine-b", "foreign-leaf"]);
+        // Place the whole bundle.
+        place_bundle(&store, &scope, "workspace", "atelier").unwrap();
+        // Now stage a foreign owner for `foreign-leaf`: point it elsewhere so the
+        // bundle does NOT own that link anymore.
+        let foreign = store.join("foreign-canonical");
+        std::fs::create_dir_all(&foreign).unwrap();
+        std::fs::write(foreign.join("SKILL.md"), "---\nname: foreign-leaf\n---\n").unwrap();
+        let foreign_link = scope_path_for(&scope, Kind::Skill, "foreign-leaf").unwrap();
+        make_symlink(&foreign, &foreign_link).unwrap();
+
+        disable_bundle(&store, &scope, "atelier").unwrap();
+
+        // The bundle's own member links are gone.
+        for member in ["mine-a", "mine-b"] {
+            let link = scope_path_for(&scope, Kind::Skill, member).unwrap();
+            assert!(
+                std::fs::symlink_metadata(&link).is_err(),
+                "{member} link removed by disable"
+            );
+        }
+        // The foreign link (now pointing elsewhere) is UNTOUCHED.
+        assert_eq!(
+            std::fs::canonicalize(&foreign_link).unwrap(),
+            std::fs::canonicalize(&foreign).unwrap(),
+            "foreign-owned leaf survives — disable removes only this bundle's links"
+        );
+        // The store canonical (bundle dir + members) is intact.
+        let canonical = store_path_for(&store, Kind::Bundle, "atelier").unwrap();
+        assert!(canonical.join("mine-a").join("SKILL.md").exists());
+        assert!(canonical.join("mine-b").join("SKILL.md").exists());
+        // Idempotent.
+        disable_bundle(&store, &scope, "atelier").unwrap();
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    /// (d) INCIDENT-REGRESSION: safe-deleting a bundle whose member is referenced
+    /// by a live scope link must REFUSE (no blind remove_dir_all) and leave both
+    /// the bundle canonical and the dependent link intact. This is the bundle
+    /// analogue of the groundwork data-loss incident.
+    #[test]
+    fn bundle_safe_delete_dependent_aware_incident_regression() {
+        let (base, store, scope) = fixture("bundle_safe_delete");
+        seed_bundle(&store, "atelier", &["archetype-beat", "archetype-mix"]);
+        // Place the bundle → its member links are live dependents into the
+        // bundle's member subdirs.
+        place_bundle(&store, &scope, "workspace", "atelier").unwrap();
+        let canonical = store_path_for(&store, Kind::Bundle, "atelier").unwrap();
+
+        // The scope root is the parent of `.claude`. `dependent_search_dirs` joins
+        // `.claude/skills` etc., so feed the dir holding the scope `.claude`.
+        let scope_root = scope.parent().unwrap().to_path_buf();
+        let deps = bundle_member_dependents(&store, &canonical, "atelier", &[scope_root]);
+        assert_eq!(deps.len(), 2, "both member links resolve into the bundle");
+        // Load-bearing: the CORRECT two links were found (not spurious paths) —
+        // proves the whole-canonical scan attributes dependents to this bundle.
+        assert!(
+            deps.iter().any(|p| p.ends_with("skills/archetype-beat")),
+            "archetype-beat member link found as a dependent: {deps:?}"
+        );
+        assert!(
+            deps.iter().any(|p| p.ends_with("skills/archetype-mix")),
+            "archetype-mix member link found as a dependent: {deps:?}"
+        );
+
+        // Managed bundle WITH dependents → refuse, never wipe.
+        let outcome = guarded_delete(&canonical, Kind::Bundle, /*managed=*/ true, &deps).unwrap();
+        assert_eq!(outcome.verdict, "refused_dependents");
+        assert!(!outcome.removed);
+
+        // Bundle canonical + members STILL on disk.
+        assert!(canonical.join("archetype-beat").join("SKILL.md").exists());
+        assert!(canonical.join("archetype-mix").join("SKILL.md").exists());
+        // Dependent links STILL resolve.
+        for member in ["archetype-beat", "archetype-mix"] {
+            let link = scope_path_for(&scope, Kind::Skill, member).unwrap();
+            assert!(
+                std::fs::canonicalize(&link).is_ok(),
+                "{member} dependent link must survive the refusal"
+            );
+        }
+
+        // An EXTERNAL bundle (managed:false) is likewise never wiped, even with
+        // zero dependents — same external-master guard as single skills.
+        let ext_outcome =
+            guarded_delete(&canonical, Kind::Bundle, /*managed=*/ false, &[]).unwrap();
+        assert_eq!(ext_outcome.verdict, "refused_external");
+        assert!(!ext_outcome.removed);
+        assert!(canonical.exists(), "external bundle canonical kept in place");
+
+        // With zero dependents AND managed, a hard-delete is allowed (no live
+        // member links remain): disable first, then delete proceeds.
+        disable_bundle(&store, &scope, "atelier").unwrap();
+        let deps_after = bundle_member_dependents(&store, &canonical, "atelier", &[scope.parent().unwrap().to_path_buf()]);
+        assert!(deps_after.is_empty(), "no dependents after disable");
+        let del = guarded_delete(&canonical, Kind::Bundle, /*managed=*/ true, &deps_after).unwrap();
+        assert_eq!(del.verdict, "deleted");
+        assert!(del.removed);
+        assert!(!canonical.exists(), "managed bundle with no deps is hard-deleted");
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    /// (e) Single-skill enable/disable/delete is UNCHANGED by the bundle work:
+    /// placing a bundle does not disturb an independent same-scope skill, and the
+    /// skill's own disable still drops only its own link.
+    #[test]
+    fn single_skill_unchanged_by_bundle_paths() {
+        let (base, store, scope) = fixture("skill_unchanged");
+        seed_skill(&store, "solo", "a standalone skill");
+        seed_bundle(&store, "atelier", &["member-x"]);
+
+        // Place the standalone skill, then the bundle.
+        place_primitive(&store, &scope, "workspace", Kind::Skill, "solo").unwrap();
+        place_bundle(&store, &scope, "workspace", "atelier").unwrap();
+
+        // The standalone skill link is byte-for-byte the single-skill path and
+        // resolves to store/skills/solo (NOT a bundle member).
+        let solo_link = scope_path_for(&scope, Kind::Skill, "solo").unwrap();
+        let solo_store = store_path_for(&store, Kind::Skill, "solo").unwrap();
+        assert_eq!(
+            std::fs::canonicalize(&solo_link).unwrap(),
+            std::fs::canonicalize(&solo_store).unwrap(),
+            "standalone skill still resolves to store/skills/solo"
+        );
+
+        // Disabling the bundle must NOT touch the standalone skill.
+        disable_bundle(&store, &scope, "atelier").unwrap();
+        assert_eq!(
+            std::fs::canonicalize(&solo_link).unwrap(),
+            std::fs::canonicalize(&solo_store).unwrap(),
+            "bundle disable leaves the standalone skill intact"
+        );
+        // The single-skill disable path still drops only its own link.
+        disable_core(&scope, Kind::Skill, "solo").unwrap();
+        assert!(std::fs::symlink_metadata(&solo_link).is_err());
+        assert!(solo_store.join("SKILL.md").exists(), "store skill untouched");
+        std::fs::remove_dir_all(&base).ok();
     }
 
     // ── enable creates a symlink resolving into the store ────────────────
