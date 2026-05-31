@@ -1636,7 +1636,7 @@ export async function engineLayout(): Promise<EngineLayout[]> {
 
 export type ClaudeAssetTier = 'personal' | 'workspace_pkg' | 'project' | 'project_pkg';
 
-export type ClaudeAssetKind = 'skill' | 'agent' | 'command' | 'hook' | 'mcp';
+export type ClaudeAssetKind = 'skill' | 'agent' | 'command' | 'hook' | 'mcp' | 'bundle';
 
 export interface ClaudeAssetSource {
 	tier: ClaudeAssetTier;
@@ -1771,6 +1771,14 @@ export interface ClaudeStoreEntry {
 	 *  Mirrors the `requires` field on the Rust `ClaudeStoreEntry` + the pkg
 	 *  manifest `RequiresEntry` (lockstep). */
 	requires?: RequiresEntry[];
+
+	/** Member skills shipped by a `bundle` (WP-18). A bundle is a directory
+	 *  primitive (`store/bundles/<name>/`) holding N member skill subdirs; this
+	 *  lists the members the install placed. A SIBLING of `requires`. Absent → no
+	 *  members (every non-bundle entry). Mirrors the `members` field on the Rust
+	 *  `ClaudeStoreEntry` (`#[serde(default)]`). Populated by the bundle installer
+	 *  (WP-19); WP-18 only freezes the field. */
+	members?: string[];
 
 	// ─── Registry provenance (G-SCHEMA · Ọba registry) ───────────────────────
 	// Mirrors the flattened `RegistryProvenance` on the Rust `ClaudeStoreEntry`.

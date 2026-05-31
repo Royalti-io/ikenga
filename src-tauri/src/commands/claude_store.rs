@@ -213,6 +213,16 @@ pub struct ClaudeStoreEntry {
     /// deps. Mirrors `requires?` on the `ClaudeStoreEntry` TS interface.
     #[serde(default)]
     pub requires: Vec<RequiresEntry>,
+    /// Member skills shipped by a `bundle` (WP-18). A bundle is a directory
+    /// primitive (`store/bundles/<name>/`) holding N member skill subdirs; this
+    /// list names the members the install placed. A SIBLING of `requires` with
+    /// identical serde attrs: empty by default (`#[serde(default)]`) so every
+    /// non-bundle entry (and any pre-WP-18 bundle JSON without `members`) still
+    /// deserializes unchanged. Populated by the bundle installer (WP-19); WP-18
+    /// only freezes the field + back-compat. Mirrors `members?` on the
+    /// `ClaudeStoreEntry` TS interface.
+    #[serde(default)]
+    pub members: Vec<String>,
     /// Provenance (`G-SCHEMA`), flattened inline on the wire. Defaults to a
     /// synthesized `local` entry when absent (back-compat).
     #[serde(flatten)]
@@ -237,7 +247,9 @@ impl Default for RegistryFile {
             // back-compatible — the loader does not gate on the value, and every
             // new field is `#[serde(default)]`, so a v1 `registry.json` (no
             // `requires`) still deserializes unchanged. A freshly-created registry
-            // is written at the current version.
+            // is written at the current version. WP-18 did NOT bump the version:
+            // the new `members` field is likewise additive + `#[serde(default)]`,
+            // so a v2 registry without `members` still deserializes unchanged.
             schema_version: 2,
             entries: Vec::new(),
         }
@@ -265,6 +277,13 @@ enum Kind {
     /// JSON-fragment primitives handled by the WP-03 merge engine.
     Hook,
     Mcp,
+    /// A package shipping N member skills (WP-18). Canonical lives at a DIRECTORY
+    /// `store/bundles/<name>/` holding member skill subdirs. A bundle is INVISIBLE
+    /// to engines — only its member skills get placed (WP-21) — so it is never
+    /// directly enabled/symlinked into a scope. Install/resolve/placement land in
+    /// WP-19/20/21; WP-18 freezes the schema (enum, kind-string, store path,
+    /// `members[]`) only.
+    Bundle,
 }
 
 impl Kind {
@@ -275,8 +294,9 @@ impl Kind {
             "command" => Ok(Kind::Command),
             "hook" => Ok(Kind::Hook),
             "mcp" => Ok(Kind::Mcp),
+            "bundle" => Ok(Kind::Bundle),
             _ => Err(format!(
-                "kind must be one of skill|agent|command|hook|mcp, got {s:?}"
+                "kind must be one of skill|agent|command|hook|mcp|bundle, got {s:?}"
             )),
         }
     }
@@ -288,6 +308,7 @@ impl Kind {
             Kind::Command => "command",
             Kind::Hook => "hook",
             Kind::Mcp => "mcp",
+            Kind::Bundle => "bundle",
         }
     }
 
@@ -298,20 +319,26 @@ impl Kind {
             Kind::Agent => Some("agents"),
             Kind::Skill => Some("skills"),
             Kind::Command => Some("commands"),
+            Kind::Bundle => Some("bundles"),
             Kind::Hook | Kind::Mcp => None,
         }
     }
 
     /// File-based primitives flow through the symlink farm; JSON-fragment
-    /// primitives (hook/mcp) flow through the WP-03 merge engine.
+    /// primitives (hook/mcp) flow through the WP-03 merge engine. A `bundle` is
+    /// NOT file-based in this sense — it is never symlinked into a scope as
+    /// itself; only its member skills are placed (WP-21). So it routes away from
+    /// the symlink farm and the per-engine transcode machinery via this `false`.
     fn is_file_based(self) -> bool {
         matches!(self, Kind::Agent | Kind::Skill | Kind::Command)
     }
 
-    /// A skill is a directory primitive; agents/commands are single `.md`
-    /// files.
+    /// A directory primitive's canonical store copy is a directory (not a single
+    /// `.md` file): a `skill` (`store/skills/<name>/`) or a `bundle`
+    /// (`store/bundles/<name>/`, holding member skill subdirs — WP-18).
+    /// Agents/commands are single `.md` files.
     fn is_dir_primitive(self) -> bool {
-        matches!(self, Kind::Skill)
+        matches!(self, Kind::Skill | Kind::Bundle)
     }
 }
 
@@ -354,6 +381,15 @@ fn store_path_for(store: &Path, kind: Kind, name: &str) -> Result<PathBuf, Strin
 /// On-disk path of a primitive inside a scope's `.claude/` farm dir.
 /// `scope_claude` is the `<scope>/.claude` directory.
 fn scope_path_for(scope_claude: &Path, kind: Kind, name: &str) -> Result<PathBuf, String> {
+    // A bundle is invisible to engines: it is never placed into a scope as
+    // itself — only its member skills are placed (WP-21). So there is no
+    // legitimate `<scope>/.claude/bundles/<name>` path. Error descriptively
+    // rather than hand back a bogus location.
+    if kind == Kind::Bundle {
+        return Err(
+            "bundles place their members, not the bundle itself — see WP-21".to_string(),
+        );
+    }
     let dir = kind
         .dir_name()
         .ok_or_else(|| format!("kind {} is not file-based", kind.as_str()))?;
@@ -718,6 +754,9 @@ fn list_store_kind(store: &Path, kind: Kind) -> Vec<ClaudeStoreEntry> {
             // Synthesized empty; WP-02's registry load overlays the recorded
             // `requires` (and real provenance) from store/registry.json.
             requires: Vec::new(),
+            // No bundle members on a file-walked entry (only the bundle installer
+            // records members — WP-19). Empty for all current file-based kinds.
+            members: Vec::new(),
             // Synthesized local provenance; WP-02's registry load overlays real
             // provenance from store/registry.json where present.
             provenance: RegistryProvenance::local(store_path),
@@ -1058,6 +1097,18 @@ fn import_core(
     name: &str,
     source: &Path,
 ) -> Result<ClaudeStoreEntry, String> {
+    // WP-18 stub: a bundle IS a dir primitive, so the generic `atomic_copy_dir`
+    // below would naively copy the source dir into `store/bundles/<name>` —
+    // wrong. A bundle install places its MEMBER skills, not the bundle dir
+    // (WP-19). Not reachable today (the public `claude_store_import` guards
+    // `!is_file_based` first), but guard here so a future caller can't inherit
+    // the silent-copy footgun.
+    if kind == Kind::Bundle {
+        return Err(
+            "bundle import not yet implemented (WP-19); a bundle places member skills, not the bundle dir"
+                .to_string(),
+        );
+    }
     let dest = store_path_for(store, kind, name)?;
     // Confinement: the import dest must sit inside the store root we were
     // handed. `store_path_for` builds it from `store` + validated name, so the
@@ -1093,6 +1144,9 @@ fn import_core(
         // A fresh local import declares no forward deps; the publish-time lift
         // (WP-12) is what populates `requires` for catalog/git/npx entries.
         requires: Vec::new(),
+        // A leaf import has no bundle members; only the bundle installer (WP-19)
+        // records placed members.
+        members: Vec::new(),
         // A fresh import is a shell-managed local copy in the vault.
         provenance: RegistryProvenance::local(store_path),
     })
@@ -1296,6 +1350,14 @@ fn primitive_kind_for(kind: Kind) -> Result<PrimitiveKind, String> {
             "kind {} is settings-embedded, not file-based",
             kind.as_str()
         )),
+        // A bundle never enters the per-engine file-primitive machinery: it has
+        // no single placed file/dir of its own — its member skills are placed
+        // (WP-21). Error here so a bundle can't accidentally be transcoded or
+        // farmed as if it were a leaf primitive.
+        Kind::Bundle => Err(
+            "bundle is not a file-based engine primitive; bundles place their members (WP-21)"
+                .to_string(),
+        ),
     }
 }
 
@@ -1651,7 +1713,11 @@ fn resolve_transcode_plan(
             Kind::Skill => Err(StoreError::Unsupported {
                 message: "skills are MD on every engine; no MD→TOML skill transcode".to_string(),
             }),
-            Kind::Hook | Kind::Mcp => unreachable!("file-based guard above excludes hook/mcp"),
+            // hook/mcp and bundle are all excluded by the `!is_file_based`
+            // guard at the top of this fn, so this arm is unreachable for them.
+            Kind::Hook | Kind::Mcp | Kind::Bundle => {
+                unreachable!("file-based guard above excludes hook/mcp/bundle")
+            }
         },
         // TOML → MD: BLOCKED. No reverse transcoder exists (06 §matrix). Refused
         // before any write so a blocked destination never leaves a partial file.
@@ -1874,7 +1940,9 @@ pub async fn claude_store_list(
     let mut out = Vec::new();
     for k in kinds {
         if !k.is_file_based() {
-            // hook/mcp catalogs are owned by the WP-03 merge engine.
+            // hook/mcp catalogs are owned by the WP-03 merge engine; bundle
+            // listing is deferred to a later WP (bundles surface via their
+            // member skills). Either way, skip here.
             continue;
         }
         for mut entry in list_store_kind(&store, k) {
@@ -1922,6 +1990,13 @@ pub async fn claude_primitive_enable(
 ) -> Result<ClaudeStoreMutation, String> {
     let k = Kind::parse(&kind)?;
     validate_name(&name)?;
+    // WP-18 stub: a bundle is invisible to engines — only its member skills are
+    // placed (WP-21). It is never enabled/symlinked directly; without this guard
+    // it would fall into the `!is_file_based` merge-engine branch and bounce off
+    // with a misleading "not a JSON fragment" error.
+    if k == Kind::Bundle {
+        return Err("bundle is placed via its member skills, not enabled directly (WP-21)".to_string());
+    }
     if !k.is_file_based() {
         // hook/mcp: read the store fragment and splice it into `scope`'s
         // settings file via the WP-03 merge engine. No symlink → link_target None.
@@ -1952,6 +2027,11 @@ pub async fn claude_primitive_disable(
 ) -> Result<(), String> {
     let k = Kind::parse(&kind)?;
     validate_name(&name)?;
+    // WP-18 stub: bundles place their members, not the bundle (WP-21) — guard so
+    // disable doesn't bounce off the merge-engine branch with a misleading error.
+    if k == Kind::Bundle {
+        return Err("bundle is placed via its member skills, not enabled directly (WP-21)".to_string());
+    }
     if !k.is_file_based() {
         // hook/mcp: remove the spliced block from `scope`'s settings file via
         // the merge engine. For hooks the event/file come from the fragment.
@@ -2438,6 +2518,11 @@ fn dependent_search_dirs(scope_roots: &[PathBuf], kind: Kind) -> Vec<PathBuf> {
             }
             // hook/mcp are merge-based — no symlink placements to depend on a master.
             Kind::Hook | Kind::Mcp => {}
+            // A bundle is never placed into a scope as itself — only its member
+            // skills are (WP-21) — so there are no bundle placements that could
+            // depend on the bundle master. The members' own placements are
+            // tracked under the Skill arm.
+            Kind::Bundle => {}
         }
     }
     dirs
@@ -2737,6 +2822,7 @@ mod tests {
             modified_ms: 0,
             enabled_in: vec![],
             requires: vec![],
+            members: vec![],
             provenance: RegistryProvenance {
                 source: ProvenanceSource::Git,
                 url: Some("github:obra/huashu".into()),
@@ -2794,6 +2880,7 @@ mod tests {
                     r#ref: None,
                 },
             ],
+            members: vec![],
             provenance: RegistryProvenance::local("/s/skills/studio".into()),
         };
         let v: serde_json::Value = serde_json::to_value(&e).unwrap();
@@ -2809,6 +2896,40 @@ mod tests {
             "description":null,"modifiedMs":0,"enabledIn":[]}"#;
         let le: ClaudeStoreEntry = serde_json::from_str(legacy).unwrap();
         assert!(le.requires.is_empty());
+    }
+
+    #[test]
+    fn bundle_entry_round_trips_with_members() {
+        // WP-18 (G-BUNDLE) test (a): a bundle registry/store entry with a
+        // populated `members[]` serde-round-trips; `members` rides as a SIBLING
+        // array (not nested under the flattened provenance, same as `requires`).
+        let e = ClaudeStoreEntry {
+            kind: "bundle".into(),
+            name: "studio-archetypes".into(),
+            store_path: "/s/bundles/studio-archetypes".into(),
+            description: Some("9 studio archetype skills".into()),
+            modified_ms: 0,
+            enabled_in: vec![],
+            requires: vec![],
+            members: vec!["archetype-beat".into(), "archetype-mix".into()],
+            provenance: RegistryProvenance::local("/s/bundles/studio-archetypes".into()),
+        };
+        let v: serde_json::Value = serde_json::to_value(&e).unwrap();
+        assert_eq!(v["kind"], "bundle");
+        assert_eq!(v["members"][0], "archetype-beat");
+        assert_eq!(v["members"][1], "archetype-mix");
+        // sibling of the flattened provenance, not nested under it
+        assert!(v.get("provenance").is_none());
+        let back: ClaudeStoreEntry = serde_json::from_value(v).unwrap();
+        assert_eq!(back, e);
+
+        // WP-18 test (b): a legacy entry JSON WITHOUT `members` (the pre-WP-18
+        // shape — every non-bundle entry on disk today) still parses, with
+        // `members` defaulting to [] via `#[serde(default)]`. Back-compat proof.
+        let legacy = r#"{"kind":"skill","name":"x","storePath":"/s/skills/x",
+            "description":null,"modifiedMs":0,"enabledIn":[],"requires":[]}"#;
+        let le: ClaudeStoreEntry = serde_json::from_str(legacy).unwrap();
+        assert!(le.members.is_empty(), "absent members defaults to []");
     }
 
     // ─── WP-04 — dependent-aware safe delete (incident guardrail) ─────────────
@@ -3081,6 +3202,43 @@ mod tests {
         assert!(!Kind::parse("hook").unwrap().is_file_based());
         assert!(!Kind::parse("mcp").unwrap().is_file_based());
         assert!(Kind::parse("nope").is_err());
+    }
+
+    #[test]
+    fn bundle_kind_schema_is_frozen() {
+        // WP-18 (G-BUNDLE): the Kind::Bundle schema — kind-string, dir-name,
+        // dir-primitive-ness, and the store/scope path math — is frozen here.
+        let b = Kind::parse("bundle").expect("bundle parses");
+        assert_eq!(b, Kind::Bundle);
+        assert_eq!(b.as_str(), "bundle");
+        // round-trips through the kind-string
+        assert_eq!(Kind::parse(b.as_str()).unwrap(), b);
+        // directory primitive: canonical lives at store/bundles/<name>/
+        assert_eq!(b.dir_name(), Some("bundles"));
+        assert!(b.is_dir_primitive(), "a bundle's store copy is a directory");
+        // NOT file-based: never enters the symlink farm / per-engine transcode.
+        assert!(!b.is_file_based());
+
+        // store_path_for routes to <store>/bundles/<name> (a directory leaf,
+        // no `.md` suffix because it's a dir primitive).
+        let store = PathBuf::from("/s");
+        let sp = store_path_for(&store, Kind::Bundle, "studio-archetypes").unwrap();
+        assert_eq!(sp, PathBuf::from("/s/bundles/studio-archetypes"));
+
+        // scope_path_for refuses a bundle: bundles place their members, not the
+        // bundle itself (WP-21) — a descriptive Err, never a bogus path.
+        let scope = PathBuf::from("/proj/.claude");
+        let err = scope_path_for(&scope, Kind::Bundle, "studio-archetypes").unwrap_err();
+        assert!(err.contains("WP-21"), "descriptive scope-path Err: {err}");
+
+        // primitive_kind_for refuses a bundle (it's not a file-based engine leaf).
+        let pk_err = primitive_kind_for(Kind::Bundle).unwrap_err();
+        assert!(pk_err.contains("WP-21"), "descriptive primitive-kind Err: {pk_err}");
+
+        // a bundle contributes no dependent search dirs (members are placed, not
+        // the bundle).
+        let root = PathBuf::from("/r");
+        assert!(dependent_search_dirs(&[root], Kind::Bundle).is_empty());
     }
 
     // ── enable creates a symlink resolving into the store ────────────────

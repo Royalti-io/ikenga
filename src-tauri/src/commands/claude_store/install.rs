@@ -222,7 +222,12 @@ fn locate_in_clone(root: &Path, kind: Kind, name: &str) -> Result<PathBuf, Strin
                 kind.as_str()
             ))
         }
-        _ => Err("hook/mcp are JSON-fragment primitives; install via the merge engine".to_string()),
+        Kind::Bundle => {
+            Err("bundle locate-in-clone not yet implemented (WP-19); a bundle ships member skills".to_string())
+        }
+        Kind::Hook | Kind::Mcp => {
+            Err("hook/mcp are JSON-fragment primitives; install via the merge engine".to_string())
+        }
     }
 }
 
@@ -368,6 +373,9 @@ fn build_entry(
         // primitive's `manifest.json` (the publish-time lift writes them there)
         // and recorded here so `claude_store_list` + the resolver see them.
         requires,
+        // WP-18: leaf installs record no bundle members; the bundle installer
+        // (WP-19) is the only site that populates this.
+        members: Vec::new(),
         provenance: prov,
     }
 }
@@ -718,7 +726,7 @@ pub async fn oba_set_auto_update(
 /// A catalog row the FE hands the installer so a dependency `(kind,name)` can be
 /// resolved to a fetchable `(source,url)`. Mirrors the subset of
 /// `PrimitiveCatalogEntry` (`primitives.ts`) the resolver needs.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct CatalogEntryRef {
     pub kind: String,
     pub name: String,
@@ -726,6 +734,12 @@ pub struct CatalogEntryRef {
     pub source: String,
     /// git remote URL | npx/skills spec.
     pub url: String,
+    /// Member skills a `bundle` catalog row carries (WP-18). Derived at publish
+    /// into the catalog (later WP); the bundle installer (WP-19) places these.
+    /// `#[serde(default)]` so a non-bundle / pre-WP-18 catalog row (no `members`)
+    /// still deserializes. Mirrors `members?` on the TS `PrimitiveCatalogEntry`.
+    #[serde(default)]
+    pub members: Vec<String>,
 }
 
 /// Result of a resolver-driven install: the target plus the dependency closure
@@ -1128,6 +1142,7 @@ mod tests {
             name: "child".into(),
             source: "git".into(),
             url: child_url,
+            ..Default::default()
         }];
 
         let res = install_with_deps_core(
@@ -1194,6 +1209,7 @@ mod tests {
             name: "child".into(),
             source: "git".into(),
             url: child_url,
+            ..Default::default()
         }];
 
         let res = install_with_deps_core(
@@ -1239,6 +1255,7 @@ mod tests {
             name: "child".into(),
             source: "git".into(),
             url: format!("file://{}", bad.display()),
+            ..Default::default()
         }];
 
         let err = install_with_deps_core(
@@ -1288,12 +1305,14 @@ mod tests {
                 name: "a".into(),
                 source: "git".into(),
                 url: a_url,
+                ..Default::default()
             },
             CatalogEntryRef {
                 kind: "skill".into(),
                 name: "b".into(),
                 source: "git".into(),
                 url: b_url,
+                ..Default::default()
             },
         ];
         // pkg requires only `a`; `a` transitively requires `b`.
@@ -1346,6 +1365,7 @@ mod tests {
             name: "dep".into(),
             source: "git".into(),
             url: dep_url,
+            ..Default::default()
         }];
         let pkg_requires = vec![RequiresEntry {
             kind: "skill".into(),
@@ -1887,6 +1907,7 @@ mod tests {
                     modified_ms: 0,
                     enabled_in: vec![],
                     requires: vec![],
+                    members: vec![],
                     provenance: prov,
                 },
             );

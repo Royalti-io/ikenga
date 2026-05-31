@@ -469,6 +469,7 @@ mod tests {
             modified_ms: 0,
             enabled_in: vec![],
             requires: vec![],
+            members: vec![],
             provenance: super::super::RegistryProvenance::local(
                 tmp.join("skills/groundwork").to_string_lossy().into(),
             ),

@@ -19,6 +19,10 @@ interface HealthViewProps {
 	scope: string;
 }
 
+// KIND_ORDER deliberately omits `bundle` — the WP-18 schema kind has no live
+// FE surface yet (bundles are filtered out of `claude_store_list` by the
+// is_file_based guard; bundle listing arrives in a later WP). The label map
+// stays exhaustive over ClaudeStoreKind so the union widening type-checks.
 const KIND_ORDER: ClaudeStoreKind[] = ['skill', 'agent', 'command', 'hook', 'mcp'];
 const KIND_LABEL: Record<ClaudeStoreKind, string> = {
 	skill: 'Skills',
@@ -26,6 +30,7 @@ const KIND_LABEL: Record<ClaudeStoreKind, string> = {
 	command: 'Commands',
 	hook: 'Hooks',
 	mcp: 'MCPs',
+	bundle: 'Bundles',
 };
 const STATE_ORDER: ItemState[] = ['enabled', 'linked', 'disabled', 'local', 'orphaned'];
 const STATE_LABEL: Record<ItemState, string> = {

@@ -725,6 +725,25 @@ mod tests {
     }
 
     #[test]
+    fn requires_bundle_kind_is_accepted() {
+        // WP-18 (G-BUNDLE) test (c): `RequiresEntry.kind` is a free String (not a
+        // closed enum) specifically so future kinds don't break old manifests, so
+        // a `requires` entry with kind:"bundle" parses unchanged and carries the
+        // kind through verbatim. (WP-18 locked design decision 4.)
+        let json = r#"{
+            "id": "com.ikenga.studio",
+            "name": "Studio", "version": "0.1.0", "ikenga_api": "1",
+            "requires": [
+                {"kind":"bundle","name":"studio-archetypes"}
+            ]
+        }"#;
+        let m: Manifest = serde_json::from_str(json).expect("parse");
+        assert_eq!(m.requires.len(), 1);
+        assert_eq!(m.requires[0].kind, "bundle");
+        assert_eq!(m.requires[0].name, "studio-archetypes");
+    }
+
+    #[test]
     fn requires_defaults_empty_when_absent() {
         // A pre-Phase-4 manifest (no `requires`) parses despite
         // deny_unknown_fields, with requires defaulting to empty.

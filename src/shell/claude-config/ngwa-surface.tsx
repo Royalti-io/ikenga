@@ -183,6 +183,11 @@ const UI_KIND_OF: Record<ClaudeStoreKind, NgwaKindId> = {
 	command: 'commands',
 	hook: 'hooks',
 	mcp: 'mcps',
+	// WP-18: `bundle` has no dedicated Ngwa UI surface yet (its store-map cell is
+	// later-WP work). A bundle ships member skills, so should one ever reach this
+	// map before the dedicated surface lands it groups under skills. No bundle row
+	// reaches the FE today — the backend filters them out of claude_store_list.
+	bundle: 'skills',
 };
 
 const KIND_LABEL: Record<NgwaKindId, string> = {

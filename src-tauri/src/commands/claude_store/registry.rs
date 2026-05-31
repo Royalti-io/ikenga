@@ -140,6 +140,9 @@ pub fn upsert_external(
         // An in-place external master carries no declared forward deps here;
         // requires (if any) arrive via the compiled manifest/registry record.
         requires: Vec::new(),
+        // An external master is a leaf primitive; bundle members are recorded
+        // only by the bundle installer (WP-19).
+        members: Vec::new(),
         provenance: prov,
     });
     true
@@ -216,6 +219,7 @@ mod tests {
             modified_ms: 0,
             enabled_in: vec![],
             requires: vec![],
+            members: vec![],
             provenance: prov,
         }
     }

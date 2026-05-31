@@ -46,6 +46,11 @@ export interface PrimitiveCatalogEntry {
 	 *  remains authoritative at install (it re-reads each fetched manifest);
 	 *  this field only drives the pre-install consent display. Absent → no deps. */
 	requires?: RequiresEntry[];
+	/** Member skills a `bundle` catalog row carries (WP-18). Derived at publish
+	 *  into the catalog (later WP); the bundle installer (WP-19) places these.
+	 *  Optional/default-empty so a non-bundle / pre-WP-18 catalog row (no
+	 *  `members`) still parses. Mirrors `members` on the Rust `CatalogEntryRef`. */
+	members?: string[];
 }
 
 export interface PrimitiveCatalog {
@@ -54,7 +59,17 @@ export interface PrimitiveCatalog {
 	primitives: PrimitiveCatalogEntry[];
 }
 
-const KINDS: ReadonlySet<string> = new Set(['skill', 'agent', 'command', 'hook', 'mcp']);
+const KINDS: ReadonlySet<string> = new Set([
+	'skill',
+	'agent',
+	'command',
+	'hook',
+	'mcp',
+	// WP-18: a `bundle` is a first-class kind (a package shipping N member
+	// skills). Accepted on catalog entries and in `requires[]` so a bundle row /
+	// dependency is not rejected by `parseCatalog`/`parseRequires`.
+	'bundle',
+]);
 const REQUIRE_SOURCES: ReadonlySet<string> = new Set(['git', 'npx', 'catalog', 'local']);
 
 /** Validate a catalog entry's optional `requires` array (WP-15). Mirrors the
@@ -130,6 +145,9 @@ function parseCatalog(json: unknown): PrimitiveCatalogEntry[] {
 			url: e.url,
 			publisher: typeof e.publisher === 'string' ? e.publisher : null,
 			requires: parseRequires(e.requires, i),
+			...(Array.isArray(e.members)
+				? { members: e.members.filter((m): m is string => typeof m === 'string') }
+				: {}),
 		};
 	});
 }
