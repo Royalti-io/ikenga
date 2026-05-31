@@ -371,6 +371,13 @@ async fn ensure_schema(pool: &sqlx::SqlitePool) -> Result<(), String> {
             "0039_infra_ext",
             include_str!("../../migrations/0039_infra_ext.sql"),
         ),
+        // WP-10c — make the latest_account_balances view deterministic (id DESC
+        // tie-break) for same-(txn_date,created_at) rows.
+        (
+            40,
+            "0040_finance_view_deterministic",
+            include_str!("../../migrations/0040_finance_view_deterministic.sql"),
+        ),
     ];
 
     for (id, name, sql) in migrations {
@@ -713,7 +720,7 @@ mod tests {
     /// drift fix + finance view + 14 new business tables). Keep this in lockstep
     /// with the `migrations` tuple list — it guards against a migration silently
     /// being dropped from the embedded list (a class of bug we've hit before).
-    const MIGRATION_COUNT: i64 = 39;
+    const MIGRATION_COUNT: i64 = 40;
 
     /// Schema init applies every embedded migration exactly once. The
     /// `_pa_migrations` table must end with one row per migration tuple.
