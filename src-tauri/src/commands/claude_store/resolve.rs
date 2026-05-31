@@ -337,9 +337,24 @@ mod tests {
             r#ref: None,
         }
     }
+    /// A `requires` entry with an arbitrary kind (used for bundle edges).
+    fn req_kind(kind: &str, name: &str) -> RequiresEntry {
+        RequiresEntry {
+            kind: kind.into(),
+            name: name.into(),
+            source: None,
+            r#ref: None,
+        }
+    }
     fn pref(name: &str) -> PrimitiveRef {
         PrimitiveRef {
             kind: "skill".into(),
+            name: name.into(),
+        }
+    }
+    fn pref_kind(kind: &str, name: &str) -> PrimitiveRef {
+        PrimitiveRef {
+            kind: kind.into(),
             name: name.into(),
         }
     }
@@ -447,6 +462,55 @@ mod tests {
             resolve_requires_core(&[req("not-in-graph")], &HashMap::new(), &HashSet::new())
                 .unwrap();
         assert_eq!(names(&plan), vec!["not-in-graph"]);
+    }
+
+    // ── WP-20 — bundle resolution via the pure resolver ─────────────────────
+
+    #[test]
+    fn bundle_requires_edge_is_planned_when_not_satisfied() {
+        // A pkg declares requires:[{kind:"bundle", name:"my-bundle"}].
+        // The bundle is absent → it should appear in the install plan.
+        let g: RequiresGraph = HashMap::new(); // no known children for the bundle
+        let plan =
+            resolve_requires_core(&[req_kind("bundle", "my-bundle")], &g, &HashSet::new())
+                .unwrap();
+        assert_eq!(plan.ordered.len(), 1);
+        assert_eq!(plan.ordered[0].kind, "bundle");
+        assert_eq!(plan.ordered[0].name, "my-bundle");
+        assert!(plan.already_satisfied.is_empty());
+    }
+
+    #[test]
+    fn bundle_requires_edge_is_satisfied_when_registry_record_present() {
+        // When the bundle has a registry record (collected_satisfied includes it),
+        // it must be deduped — not re-installed.
+        let satisfied: HashSet<_> =
+            [pref_kind("bundle", "my-bundle")].into_iter().collect();
+        let plan = resolve_requires_core(
+            &[req_kind("bundle", "my-bundle")],
+            &HashMap::new(),
+            &satisfied,
+        )
+        .unwrap();
+        assert!(plan.ordered.is_empty(), "already-present bundle not re-planned");
+        assert_eq!(plan.already_satisfied, vec![pref_kind("bundle", "my-bundle")]);
+    }
+
+    #[test]
+    fn bundle_and_skill_requires_together_dedup_correctly() {
+        // A pkg requires both a bundle and a standalone skill.
+        // Only the bundle is satisfied; the skill must still be planned.
+        let satisfied: HashSet<_> =
+            [pref_kind("bundle", "b1")].into_iter().collect();
+        let plan = resolve_requires_core(
+            &[req_kind("bundle", "b1"), req("skill-a")],
+            &HashMap::new(),
+            &satisfied,
+        )
+        .unwrap();
+        assert_eq!(plan.ordered.len(), 1);
+        assert_eq!(plan.ordered[0].name, "skill-a");
+        assert_eq!(plan.already_satisfied, vec![pref_kind("bundle", "b1")]);
     }
 
     #[test]

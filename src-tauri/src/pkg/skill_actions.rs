@@ -232,6 +232,12 @@ fn scan_skill_actions_dir(pkg_id: &str, skill_name: &str, skill_dir: &Path) -> V
 /// skills; a `requires:[{kind:"skill",name}]` edge points at `store/skills/<name>`,
 /// the canonical the Ọba resolver/boot-seeding installed). Returns an empty Vec
 /// for a pkg that requires no skills or whose required skills aren't installed.
+///
+/// WP-20: also handles `requires:[{kind:"bundle",name}]` — for each member dir
+/// under `store/bundles/<name>/<member>/` the member's `actions/*.md` files are
+/// scanned (reusing `scan_skill_actions_dir` per member; the reported `skill`
+/// name is the member leaf). A bundle whose canonical dir is absent contributes
+/// nothing (not an error — same lenient contract as a missing skill dir).
 pub fn list_actions_for_pkg(
     pkg_id: &str,
     requires: &[RequiresEntry],
@@ -239,14 +245,60 @@ pub fn list_actions_for_pkg(
 ) -> Vec<SkillAction> {
     let mut out = Vec::new();
     for req in requires {
-        if req.kind != "skill" {
-            continue;
+        match req.kind.as_str() {
+            "skill" => {
+                let skill_dir = store.join("skills").join(&req.name);
+                if !skill_dir.metadata().map(|m| m.is_dir()).unwrap_or(false) {
+                    continue;
+                }
+                out.extend(scan_skill_actions_dir(pkg_id, &req.name, &skill_dir));
+            }
+            "bundle" => {
+                // WP-20: expand the bundle → its member skill subdirs.
+                // Layout: store/bundles/<bundle-name>/<member>/actions/*.md
+                let bundle_dir = store.join("bundles").join(&req.name);
+                if !bundle_dir.metadata().map(|m| m.is_dir()).unwrap_or(false) {
+                    continue;
+                }
+                let rd = match std::fs::read_dir(&bundle_dir) {
+                    Ok(r) => r,
+                    Err(e) => {
+                        tracing::warn!(
+                            ?bundle_dir,
+                            error = %e,
+                            "list_actions_for_pkg: bundle dir unreadable"
+                        );
+                        continue;
+                    }
+                };
+                let mut members: Vec<(String, std::path::PathBuf)> = rd
+                    .flatten()
+                    .filter_map(|entry| {
+                        let p = entry.path();
+                        if p.metadata().map(|m| m.is_dir()).unwrap_or(false) {
+                            let name =
+                                p.file_name().and_then(|s| s.to_str()).map(|s| s.to_string())?;
+                            // skip dot-files / staging artifacts
+                            if name.starts_with('.') {
+                                return None;
+                            }
+                            Some((name, p))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                // Deterministic order: member leaf name
+                members.sort_by(|a, b| a.0.cmp(&b.0));
+                for (member_name, member_path) in members {
+                    out.extend(scan_skill_actions_dir(pkg_id, &member_name, &member_path));
+                }
+            }
+            _ => {
+                // Other kinds (agent, command, hook, mcp) carry no skill actions.
+                continue;
+            }
         }
-        let skill_dir = store.join("skills").join(&req.name);
-        if !skill_dir.metadata().map(|m| m.is_dir()).unwrap_or(false) {
-            continue;
-        }
-        out.extend(scan_skill_actions_dir(pkg_id, &req.name, &skill_dir));
     }
     out.sort_by(|a, b| a.skill.cmp(&b.skill).then(a.verb.cmp(&b.verb)));
     out
@@ -312,5 +364,171 @@ mod tests {
         let found = discover_actions("p", dir.path(), ".");
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].verb, "ok");
+    }
+
+    // ── WP-20: list_actions_for_pkg — bundle + skill requires ─────────────────
+
+    /// Build a minimal store fixture: a `store/bundles/<bundle>/<member>/actions/*.md`
+    /// tree (for bundle requires) and/or `store/skills/<name>/actions/*.md` (for
+    /// skill requires). Returns the store root path.
+    fn make_store_fixture(
+        base: &std::path::Path,
+        // (bundle_name, [(member_name, [(action_verb, ux_mode)])])
+        bundles: &[(&str, &[(&str, &[(&str, &str)])])],
+        // (skill_name, [(action_verb, ux_mode)])
+        skills: &[(&str, &[(&str, &str)])],
+    ) -> std::path::PathBuf {
+        let store = base.join("store");
+        for (bundle_name, members) in bundles {
+            for (member_name, actions) in *members {
+                let action_dir = store
+                    .join("bundles")
+                    .join(bundle_name)
+                    .join(member_name)
+                    .join("actions");
+                std::fs::create_dir_all(&action_dir).unwrap();
+                for (verb, ux_mode) in *actions {
+                    std::fs::write(
+                        action_dir.join(format!("{verb}.md")),
+                        format!("---\nname: {verb}\nux_mode: {ux_mode}\n---\nbody\n"),
+                    )
+                    .unwrap();
+                }
+            }
+        }
+        for (skill_name, actions) in skills {
+            let action_dir = store.join("skills").join(skill_name).join("actions");
+            std::fs::create_dir_all(&action_dir).unwrap();
+            for (verb, ux_mode) in *actions {
+                std::fs::write(
+                    action_dir.join(format!("{verb}.md")),
+                    format!("---\nname: {verb}\nux_mode: {ux_mode}\n---\nbody\n"),
+                )
+                .unwrap();
+            }
+        }
+        store
+    }
+
+    fn req(kind: &str, name: &str) -> RequiresEntry {
+        RequiresEntry {
+            kind: kind.into(),
+            name: name.into(),
+            source: None,
+            r#ref: None,
+        }
+    }
+
+    #[test]
+    fn list_actions_for_pkg_bundle_surfaces_all_member_actions() {
+        // (c) A requires:{kind:bundle} pkg returns the UNION of all members' actions.
+        let base = tempfile::tempdir().unwrap();
+        let store = make_store_fixture(
+            base.path(),
+            &[(
+                "atelier",
+                &[
+                    ("pa", &[("send", "confirm"), ("review", "streaming")]),
+                    ("outbound", &[("publish", "confirm")]),
+                ],
+            )],
+            &[],
+        );
+
+        let requires = vec![req("bundle", "atelier")];
+        let mut actions = list_actions_for_pkg("com.ikenga.studio", &requires, &store);
+        actions.sort_by(|a, b| a.skill.cmp(&b.skill).then(a.verb.cmp(&b.verb)));
+
+        // All 3 actions from the 2 members surfaced.
+        assert_eq!(actions.len(), 3, "union of all bundle members' actions");
+        // Skills reported as the member leaf names.
+        let skills: Vec<&str> = actions.iter().map(|a| a.skill.as_str()).collect();
+        assert!(skills.contains(&"pa"));
+        assert!(skills.contains(&"outbound"));
+        // Verbs match what was written.
+        let verbs: Vec<&str> = actions.iter().map(|a| a.verb.as_str()).collect();
+        assert!(verbs.contains(&"send"));
+        assert!(verbs.contains(&"review"));
+        assert!(verbs.contains(&"publish"));
+        // ATTRIBUTION is load-bearing: each verb is reported under its OWN member,
+        // not lumped onto the first member's name. A bug that mis-attributes the
+        // `skill` field would pass the contains-checks above but fail here.
+        assert!(actions.iter().any(|a| a.skill == "pa" && a.verb == "send"));
+        assert!(actions.iter().any(|a| a.skill == "pa" && a.verb == "review"));
+        assert!(actions.iter().any(|a| a.skill == "outbound" && a.verb == "publish"));
+    }
+
+    #[test]
+    fn list_actions_for_pkg_skill_requires_unchanged_after_wp20() {
+        // (d) A requires:{kind:skill} pkg returns the skill's actions — regression.
+        let base = tempfile::tempdir().unwrap();
+        let store = make_store_fixture(
+            base.path(),
+            &[],
+            &[("groundwork", &[("init", "confirm"), ("status", "streaming")])],
+        );
+
+        let requires = vec![req("skill", "groundwork")];
+        let actions = list_actions_for_pkg("com.ikenga.x", &requires, &store);
+        assert_eq!(actions.len(), 2, "two actions from the skill");
+        let verbs: Vec<&str> = actions.iter().map(|a| a.verb.as_str()).collect();
+        assert!(verbs.contains(&"init"));
+        assert!(verbs.contains(&"status"));
+    }
+
+    #[test]
+    fn list_actions_for_pkg_mixed_skill_and_bundle() {
+        // A pkg with BOTH a skill and a bundle require: union of actions from both.
+        let base = tempfile::tempdir().unwrap();
+        let store = make_store_fixture(
+            base.path(),
+            &[("my-bundle", &[("m1", &[("action-a", "confirm")])])],
+            &[("my-skill", &[("action-b", "streaming")])],
+        );
+
+        let requires = vec![req("bundle", "my-bundle"), req("skill", "my-skill")];
+        let mut actions = list_actions_for_pkg("com.ikenga.mixed", &requires, &store);
+        actions.sort_by(|a, b| a.verb.cmp(&b.verb));
+
+        assert_eq!(actions.len(), 2);
+        let verbs: Vec<&str> = actions.iter().map(|a| a.verb.as_str()).collect();
+        assert!(verbs.contains(&"action-a"));
+        assert!(verbs.contains(&"action-b"));
+    }
+
+    #[test]
+    fn list_actions_for_pkg_absent_bundle_contributes_nothing() {
+        // A requires:{kind:bundle} where the bundle dir is absent → empty (not an error).
+        let base = tempfile::tempdir().unwrap();
+        let store = base.path().join("store");
+        std::fs::create_dir_all(&store).unwrap();
+
+        let requires = vec![req("bundle", "ghost-bundle")];
+        let actions = list_actions_for_pkg("com.ikenga.x", &requires, &store);
+        assert!(actions.is_empty(), "absent bundle dir → empty, not error");
+    }
+
+    #[test]
+    fn list_actions_for_pkg_bundle_member_order_is_deterministic() {
+        // Actions from bundle members are returned in (skill-leaf, verb) order regardless
+        // of filesystem iteration order.
+        let base = tempfile::tempdir().unwrap();
+        let store = make_store_fixture(
+            base.path(),
+            &[(
+                "sorted-bundle",
+                &[
+                    ("zzz", &[("z-verb", "streaming")]),
+                    ("aaa", &[("a-verb", "streaming")]),
+                    ("mmm", &[("m-verb", "streaming")]),
+                ],
+            )],
+            &[],
+        );
+
+        let requires = vec![req("bundle", "sorted-bundle")];
+        let actions = list_actions_for_pkg("com.ikenga.x", &requires, &store);
+        let skills: Vec<&str> = actions.iter().map(|a| a.skill.as_str()).collect();
+        assert_eq!(skills, vec!["aaa", "mmm", "zzz"], "sorted by member leaf name");
     }
 }

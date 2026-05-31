@@ -1074,11 +1074,51 @@ fn rollback_install(store: &Path, item: &RequiresEntry) {
 /// from the catalog snapshot. Returns the dep's OWN revealed `requires` (read
 /// from its fetched manifest) so the install loop can grow the graph for
 /// transitive deps. Deps inherit catalog provenance (`from_catalog: true`).
+///
+/// WP-20: dispatches by `item.kind` — `"bundle"` routes to
+/// `install_bundle_core`; everything else routes to the existing
+/// `install_core` (single-skill/agent/command). A bundle's registry entry
+/// carries no `requires` of its own (members carry theirs; member deps are
+/// resolved at placement time by WP-21), so we return `Vec::new()` for bundles.
 fn install_dep(
     store: &Path,
     catalog: &[CatalogEntryRef],
     item: &RequiresEntry,
 ) -> Result<Vec<RequiresEntry>, String> {
+    // Production: inject the real npx skills-add edge for the bundle branch.
+    install_dep_with(store, catalog, item, &|spec, staging| {
+        npx_skills_add_all(spec, staging)
+    })
+}
+
+/// `install_dep` with the bundle skills-add edge INJECTED, so the bundle
+/// dispatch (absent-bundle install) is unit-testable offline. The single-skill
+/// path fetches from a local `file://` git repo and needs no injection, so only
+/// the bundle edge is parameterized.
+fn install_dep_with(
+    store: &Path,
+    catalog: &[CatalogEntryRef],
+    item: &RequiresEntry,
+    bundle_fetch: &dyn Fn(&str, &Path) -> Result<(), String>,
+) -> Result<Vec<RequiresEntry>, String> {
+    // WP-20: bundle dispatch — a requires:{kind:"bundle"} edge installs via
+    // the bundle path (install_bundle_core), NOT the single-skill install_core
+    // which would reject Kind::Bundle.
+    if item.kind == "bundle" {
+        let cat = catalog
+            .iter()
+            .find(|c| c.kind == item.kind && c.name == item.name)
+            .ok_or_else(|| {
+                format!(
+                    "bundle dependency {} is not in the catalog snapshot; cannot resolve its source",
+                    item.name
+                )
+            })?;
+        install_bundle_core(store, &item.name, &cat.url, true, bundle_fetch)?;
+        // A bundle carries no requires of its own (members do); no graph growth.
+        return Ok(Vec::new());
+    }
+
     let k = Kind::parse(&item.kind)?;
     let cat = catalog
         .iter()
@@ -2428,6 +2468,219 @@ mod tests {
             .join("one")
             .join("SKILL.md")
             .is_file());
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    // ─── WP-20 — resolver bundle-expansion (install_dep bundle dispatch) ──────
+    //
+    // Tests that:
+    //   (a) requires:{kind:bundle} resolves → the closure includes the bundle,
+    //       install dispatches to the bundle path, members surfaced from catalog.
+    //   (b) An already-present bundle is deduped (not re-installed).
+    //   (c) Single-skill resolution behavior is UNCHANGED (regression guard).
+
+    #[test]
+    fn already_present_bundle_is_deduped_not_reinstalled() {
+        // DoD (b): a bundle whose registry record already exists is seen as
+        // satisfied by collect_satisfied and pruned from the closure — NOT
+        // re-installed. (The fresh-dispatch path — DoD (a) — is proven by
+        // `install_dep_dispatches_absent_bundle_to_bundle_path` below, which
+        // drives `install_dep_with` against an ABSENT bundle.)
+        let base = unique_tmp("wp20_dedup_bundle");
+        let store = base.join("store");
+        std::fs::create_dir_all(&store).unwrap();
+
+        // Pre-seed the bundle (simulates what install_dep would have done on a
+        // first install).
+        let fetch =
+            |_s: &str, staging: &Path| make_bundle_staging(staging, &["alpha", "beta"]);
+        install_bundle_core(&store, "studio-archetypes", "owner/studio-arc", false, &fetch)
+            .expect("pre-seed bundle");
+
+        // The bundle record is now in the registry → collect_satisfied will include it.
+        let requires = vec![RequiresEntry {
+            kind: "bundle".into(),
+            name: "studio-archetypes".into(),
+            source: None,
+            r#ref: None,
+        }];
+        // catalog has the bundle entry (members list mirrors what was installed)
+        let catalog = vec![CatalogEntryRef {
+            kind: "bundle".into(),
+            name: "studio-archetypes".into(),
+            source: "npx".into(),
+            url: "owner/studio-arc".into(),
+            members: vec!["alpha".into(), "beta".into()],
+        }];
+
+        let (installed, already_satisfied) =
+            install_requires_closure_core(&store, &[], &requires, &catalog)
+                .expect("closure ok for already-present bundle");
+
+        // Bundle already present → deduped, NOT re-installed.
+        assert!(
+            installed.is_empty(),
+            "already-present bundle must not be re-installed; installed={installed:?}"
+        );
+        assert!(
+            already_satisfied.iter().any(|p| p.kind == "bundle" && p.name == "studio-archetypes"),
+            "already-present bundle surfaced in already_satisfied"
+        );
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn install_dep_dispatches_absent_bundle_to_bundle_path() {
+        // DoD (a): for an ABSENT requires:{kind:bundle}, install_dep must DISPATCH
+        // to the bundle path (install_bundle_core), pass the CATALOG url as the
+        // skills-add spec (not item.name), and materialize the members. Driven via
+        // the injectable `install_dep_with` so the dispatch runs offline.
+        let base = unique_tmp("wp20_bundle_dispatch");
+        let store = base.join("store");
+        std::fs::create_dir_all(&store).unwrap();
+
+        let item = RequiresEntry {
+            kind: "bundle".into(),
+            name: "studio-archetypes".into(),
+            source: None,
+            r#ref: None,
+        };
+        let catalog = vec![CatalogEntryRef {
+            kind: "bundle".into(),
+            name: "studio-archetypes".into(),
+            source: "npx".into(),
+            url: "royalti-io/studio-archetypes".into(),
+            members: vec!["alpha".into(), "beta".into()],
+        }];
+
+        // Fake skills-add edge: asserts the spec passed in is the CATALOG url
+        // (proving the dispatch reads cat.url, not item.name), then writes 2 members.
+        let fetch = |spec: &str, staging: &Path| {
+            assert_eq!(
+                spec, "royalti-io/studio-archetypes",
+                "bundle dispatch must pass the catalog url as the skills-add spec"
+            );
+            make_bundle_staging(staging, &["beta", "alpha"])
+        };
+
+        let revealed =
+            install_dep_with(&store, &catalog, &item, &fetch).expect("bundle dispatch ok");
+        assert!(revealed.is_empty(), "a bundle reveals no requires of its own");
+
+        // Members materialized under store/bundles/<name>/<member>/.
+        let bundle_dir = store_path_for(&store, Kind::Bundle, "studio-archetypes").unwrap();
+        assert!(bundle_dir.join("alpha").join("SKILL.md").is_file());
+        assert!(bundle_dir.join("beta").join("SKILL.md").is_file());
+
+        // Exactly one bundle registry record, members = sorted leaves.
+        let recs: Vec<_> = registry::load(&store)
+            .entries
+            .into_iter()
+            .filter(|e| e.kind == "bundle")
+            .collect();
+        assert_eq!(recs.len(), 1, "one bundle record after dispatch");
+        assert_eq!(recs[0].name, "studio-archetypes");
+        assert_eq!(
+            recs[0].members,
+            vec!["alpha".to_string(), "beta".to_string()],
+            "dispatch materialized + recorded the sorted member set"
+        );
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn bundle_requires_alongside_skill_requires_resolves_correctly() {
+        // A pkg requires BOTH a skill (via git) and a bundle (pre-seeded).
+        // The skill is absent → installed; the bundle is present → deduped.
+        let base = unique_tmp("wp20_mix");
+        let store = base.join("store");
+        std::fs::create_dir_all(&store).unwrap();
+
+        // Pre-seed the bundle.
+        let fetch = |_s: &str, staging: &Path| make_bundle_staging(staging, &["m1", "m2"]);
+        install_bundle_core(&store, "my-bundle", "owner/my-bundle", false, &fetch)
+            .expect("pre-seed bundle");
+
+        // The skill dep comes from a git repo.
+        let skill_url =
+            make_skill_repo_with_requires(&base, "dep-skill", "dep-skill", "[]");
+
+        let requires = vec![
+            RequiresEntry {
+                kind: "bundle".into(),
+                name: "my-bundle".into(),
+                source: None,
+                r#ref: None,
+            },
+            RequiresEntry {
+                kind: "skill".into(),
+                name: "dep-skill".into(),
+                source: None,
+                r#ref: None,
+            },
+        ];
+        let catalog = vec![
+            CatalogEntryRef {
+                kind: "bundle".into(),
+                name: "my-bundle".into(),
+                source: "npx".into(),
+                url: "owner/my-bundle".into(),
+                members: vec!["m1".into(), "m2".into()],
+            },
+            CatalogEntryRef {
+                kind: "skill".into(),
+                name: "dep-skill".into(),
+                source: "git".into(),
+                url: skill_url,
+                ..Default::default()
+            },
+        ];
+
+        let (installed, already_satisfied) =
+            install_requires_closure_core(&store, &[], &requires, &catalog)
+                .expect("closure ok");
+
+        // skill installed (absent), bundle deduped (present)
+        assert_eq!(installed.len(), 1, "only the skill dep is new");
+        assert_eq!(installed[0].name, "dep-skill");
+        assert!(
+            already_satisfied.iter().any(|p| p.kind == "bundle" && p.name == "my-bundle"),
+            "bundle deduped"
+        );
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn single_skill_resolution_unchanged_after_wp20() {
+        // Regression: the WP-20 bundle dispatch must not affect the existing
+        // single-skill closure install path. Exercises the exact same path as
+        // `pkg_requires_closure_installs_over_a_requires_list` — if that test
+        // still passes this is belt-and-suspenders.
+        let base = unique_tmp("wp20_skill_regress");
+        let store = base.join("store");
+        std::fs::create_dir_all(&store).unwrap();
+
+        let skill_url = make_skill_repo_with_requires(&base, "sk", "sk", "[]");
+        let catalog = vec![CatalogEntryRef {
+            kind: "skill".into(),
+            name: "sk".into(),
+            source: "git".into(),
+            url: skill_url,
+            ..Default::default()
+        }];
+        let requires = vec![RequiresEntry {
+            kind: "skill".into(),
+            name: "sk".into(),
+            source: None,
+            r#ref: None,
+        }];
+
+        let (installed, already_satisfied) =
+            install_requires_closure_core(&store, &[], &requires, &catalog)
+                .expect("single-skill closure ok after WP-20");
+        assert_eq!(installed.len(), 1);
+        assert_eq!(installed[0].name, "sk");
+        assert!(already_satisfied.is_empty());
         std::fs::remove_dir_all(&base).ok();
     }
 
