@@ -1,6 +1,6 @@
 {
-	"$schemaVersion": 1,
-	"updatedAt": "2026-05-28T12:00:00.000Z",
+	"$schemaVersion": 2,
+	"updatedAt": "2026-05-31T00:00:00.000Z",
 	"primitives": [
 		{
 			"kind": "skill",
@@ -18,7 +18,8 @@
 			"description": "Author a self-contained interactive HTML artifact that renders standalone and lights up with live data inside the Ikenga shell.",
 			"source": "npx",
 			"url": "royalti-io/ikenga-artifact-builder",
-			"publisher": "royalti-io"
+			"publisher": "royalti-io",
+			"requires": [{ "kind": "skill", "name": "design-language" }]
 		},
 		{
 			"kind": "skill",

@@ -21,7 +21,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { semverCompare, verifyMinisign } from '@ikenga/registry-client';
 
-import type { ClaudeStoreEntry, ClaudeStoreKind } from '@/lib/tauri-cmd';
+import type { ClaudeStoreEntry, ClaudeStoreKind, RequiresEntry } from '@/lib/tauri-cmd';
 import { PRIMITIVES_URL, REGISTRY_PUBKEY } from './client';
 import seed from './primitives-seed.json';
 
@@ -38,6 +38,14 @@ export interface PrimitiveCatalogEntry {
 	/** git remote URL | npm/skills spec. */
 	url: string;
 	publisher?: string | null;
+	/** Forward dependencies (ADR-015 §3 / WP-15) — the compiled `requires` list
+	 *  the publish-time lift writes into the published manifest and which the
+	 *  catalog generator auto-carries (the manifest is embedded in each entry).
+	 *  Carried on the catalog so the install consent surface can list "also
+	 *  installs: <dep> from <provenance>" BEFORE any fetch. The Rust resolver
+	 *  remains authoritative at install (it re-reads each fetched manifest);
+	 *  this field only drives the pre-install consent display. Absent → no deps. */
+	requires?: RequiresEntry[];
 }
 
 export interface PrimitiveCatalog {
@@ -47,6 +55,42 @@ export interface PrimitiveCatalog {
 }
 
 const KINDS: ReadonlySet<string> = new Set(['skill', 'agent', 'command', 'hook', 'mcp']);
+const REQUIRE_SOURCES: ReadonlySet<string> = new Set(['git', 'npx', 'catalog', 'local']);
+
+/** Validate a catalog entry's optional `requires` array (WP-15). Mirrors the
+ *  `RequiresEntry` shape ({kind, name, source?, ref?}); throws on a malformed
+ *  element so a verified-but-junk catalog is rejected loudly. Returns undefined
+ *  when absent (= no deps). */
+function parseRequires(raw: unknown, i: number): RequiresEntry[] | undefined {
+	if (raw === undefined || raw === null) return undefined;
+	if (!Array.isArray(raw)) {
+		throw new Error(`primitives.json: entry ${i} \`requires\` is not an array`);
+	}
+	return raw.map((r, j) => {
+		if (typeof r !== 'object' || r === null) {
+			throw new Error(`primitives.json: entry ${i} requires[${j}] is not an object`);
+		}
+		const e = r as Record<string, unknown>;
+		if (typeof e.kind !== 'string' || !KINDS.has(e.kind)) {
+			throw new Error(`primitives.json: entry ${i} requires[${j}] has invalid kind ${String(e.kind)}`);
+		}
+		if (typeof e.name !== 'string') {
+			throw new Error(`primitives.json: entry ${i} requires[${j}] missing name`);
+		}
+		if (e.source !== undefined && (typeof e.source !== 'string' || !REQUIRE_SOURCES.has(e.source))) {
+			throw new Error(`primitives.json: entry ${i} requires[${j}] has invalid source ${String(e.source)}`);
+		}
+		if (e.ref !== undefined && typeof e.ref !== 'string') {
+			throw new Error(`primitives.json: entry ${i} requires[${j}] has non-string ref`);
+		}
+		return {
+			kind: e.kind,
+			name: e.name,
+			...(e.source !== undefined ? { source: e.source as RequiresEntry['source'] } : {}),
+			...(e.ref !== undefined ? { ref: e.ref as string } : {}),
+		};
+	});
+}
 
 /** Defensive runtime validation of a fetched catalog payload (there is no Zod
  *  schema for `primitives.json` in @ikenga/contract — the pkg index has one,
@@ -85,6 +129,7 @@ function parseCatalog(json: unknown): PrimitiveCatalogEntry[] {
 			source: e.source,
 			url: e.url,
 			publisher: typeof e.publisher === 'string' ? e.publisher : null,
+			requires: parseRequires(e.requires, i),
 		};
 	});
 }
@@ -219,3 +264,88 @@ export const PRIMITIVE_STATUS_WORD: Record<PrimitiveStatus, string> = {
 	updatable: 'Update available',
 	available: 'Available',
 };
+
+// ─── Forward-dependency consent surface (WP-15) ─────────────────────────────
+// The catalog carries `requires`, so the consent dialog can list "X also
+// installs: <dep> from <provenance>" with NO extra fetch. This mirrors the Rust
+// resolver's closure shape (WP-13) but is a DISPLAY-ONLY pre-flight: the Rust
+// `oba_install_with_deps` command re-reads each fetched manifest and remains the
+// authoritative installer. We compute the closure here only to drive consent.
+
+/** How a `requires` dependency resolves for the consent surface. */
+export type ConsentResolution =
+	/** Found in the signed catalog — provenance known, trust inherited from the
+	 *  parent install's consent (no extra confirm). */
+	| 'catalog'
+	/** Not in the catalog but the `requires` entry self-pins a fetch source —
+	 *  installable, but pulls un-catalogued code → needs an explicit extra confirm. */
+	| 'pinned'
+	/** Neither in the catalog nor self-pinned — the resolver cannot fetch it;
+	 *  surfaced as a blocking warning + extra confirm. */
+	| 'unresolved';
+
+/** One row in the install consent surface — a single dependency in the closure
+ *  of the primitive the user asked to install. */
+export interface ConsentDep {
+	kind: ClaudeStoreKind;
+	name: string;
+	resolution: ConsentResolution;
+	/** Human-readable provenance for display (e.g. "npx · royalti-io/x"). */
+	provenance: string;
+	/** Already present in the local store — listed, not (re)installed. */
+	satisfied: boolean;
+	/** Requires the explicit extra confirm (non-catalog / un-pinned dep). */
+	needsExtraConfirm: boolean;
+}
+
+/** Compute the forward-dependency closure of `target` from the catalog's
+ *  `requires` edges, deduped + cycle-guarded, tagged with how each dep resolves
+ *  and whether it's already satisfied. DISPLAY-ONLY (drives the WP-15 consent
+ *  surface); the Rust resolver re-derives the closure authoritatively at install.
+ *  Direct deps lead, transitive deps (revealed only by catalogued parents)
+ *  follow. `installedKeys` = `${kind}:${name}` of the local store. */
+export function resolveCatalogClosure(
+	target: PrimitiveCatalogEntry,
+	catalog: PrimitiveCatalogEntry[],
+	installedKeys: ReadonlySet<string>
+): ConsentDep[] {
+	const catByKey = new Map<string, PrimitiveCatalogEntry>();
+	for (const c of catalog) catByKey.set(`${c.kind}:${c.name}`, c);
+
+	const out: ConsentDep[] = [];
+	const visited = new Set<string>([`${target.kind}:${target.name}`]);
+	const queue: RequiresEntry[] = [...(target.requires ?? [])];
+
+	while (queue.length) {
+		const r = queue.shift() as RequiresEntry;
+		const key = `${r.kind}:${r.name}`;
+		if (visited.has(key)) continue;
+		visited.add(key);
+
+		const cat = catByKey.get(key) ?? null;
+		let resolution: ConsentResolution;
+		let provenance: string;
+		if (cat) {
+			resolution = 'catalog';
+			provenance = `${cat.source} · ${cat.url}`;
+			// A catalogued dep can reveal its own deps (transitive closure).
+			for (const child of cat.requires ?? []) queue.push(child);
+		} else if (r.source) {
+			resolution = 'pinned';
+			provenance = `${r.source}${r.ref ? ` @ ${r.ref}` : ''} · not in catalog`;
+		} else {
+			resolution = 'unresolved';
+			provenance = 'unresolved — not in catalog and no pinned source';
+		}
+
+		out.push({
+			kind: r.kind as ClaudeStoreKind,
+			name: r.name,
+			resolution,
+			provenance,
+			satisfied: installedKeys.has(key),
+			needsExtraConfirm: resolution !== 'catalog',
+		});
+	}
+	return out;
+}

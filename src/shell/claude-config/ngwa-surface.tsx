@@ -59,8 +59,10 @@ import {
 import { obaSafeDelete, type SafeDeleteOutcome } from '@/lib/tauri-cmd';
 import {
 	mergePrimitiveView,
+	resolveCatalogClosure,
 	usePrimitiveCatalog,
 	PRIMITIVE_STATUS_WORD,
+	type ConsentDep,
 	type PrimitiveCatalogEntry,
 	type PrimitiveStatus,
 	type PrimitiveViewItem,
@@ -1034,7 +1036,7 @@ function StoreSurface({ store, isLoading, error, onEdit, projectScopes }: StoreP
 						catalogVersion={selected.catalog?.version ?? null}
 					/>
 				) : selected?.catalog ? (
-					<CatalogDetail entry={selected.catalog} catalog={catalog} />
+					<CatalogDetail entry={selected.catalog} catalog={catalog} store={store} />
 				) : allEmpty ? (
 					<div className="ccfg-empty">
 						<div className="carve">▽▽▽</div>
@@ -1114,12 +1116,46 @@ function errText(e: unknown): string {
 function CatalogDetail({
 	entry,
 	catalog,
+	store,
 }: {
 	entry: PrimitiveCatalogEntry;
 	catalog: PrimitiveCatalogEntry[];
+	store: ClaudeStoreEntry[];
 }) {
 	const install = useObaInstallWithDeps();
 	const isFileBased = entry.kind === 'skill' || entry.kind === 'agent' || entry.kind === 'command';
+
+	// WP-15 consent surface. The catalog carries `requires`, so we compute the
+	// forward-dependency closure HERE (no fetch) to show the user "also installs…"
+	// BEFORE the install. The Rust `oba_install_with_deps` resolver re-derives the
+	// closure authoritatively at install time; this is consent display only.
+	const installedKeys = useMemo(
+		() => new Set(store.map((e) => `${e.kind}:${e.name}`)),
+		[store]
+	);
+	const deps = useMemo(
+		() => resolveCatalogClosure(entry, catalog, installedKeys),
+		[entry, catalog, installedKeys]
+	);
+	// Deps that will actually be fetched (not already in the store).
+	const missingDeps = deps.filter((d) => !d.satisfied);
+	// A non-catalog / un-pinned missing dep needs an explicit extra confirm.
+	const needsExtraConfirm = missingDeps.some((d) => d.needsExtraConfirm);
+
+	// Staged install: dep-free primitives install on one click (byte-identical to
+	// the prior UX); any missing dep routes through the consent panel first.
+	const [stage, setStage] = useState<'idle' | 'consent'>('idle');
+	const [extraOk, setExtraOk] = useState(false);
+
+	function onInstallClick() {
+		if (missingDeps.length === 0) {
+			install.mutate({ entry, catalog });
+		} else {
+			setExtraOk(false);
+			setStage('consent');
+		}
+	}
+
 	return (
 		<>
 			<div className="ccfg-detail-head">
@@ -1153,6 +1189,15 @@ function CatalogDetail({
 						imported primitives use.
 					</div>
 				</div>
+				{deps.length > 0 && (
+					<Section label={`Requires (${deps.length})`}>
+						<div className="ngwa-guard-deps">
+							{deps.map((d) => (
+								<ConsentDepLine key={`${d.kind}:${d.name}`} dep={d} />
+							))}
+						</div>
+					</Section>
+				)}
 			</div>
 
 			<div className="ngwa-actions">
@@ -1160,13 +1205,13 @@ function CatalogDetail({
 					<button
 						type="button"
 						className="ngwa-btn primary"
-						disabled={!isFileBased || install.isPending}
+						disabled={!isFileBased || install.isPending || stage === 'consent'}
 						title={
 							isFileBased
 								? `Fetch ${entry.name} from its ${entry.source} source into the Ọba vault`
 								: `${entry.kind} primitives install via the merge engine, not the vault`
 						}
-						onClick={() => install.mutate({ entry, catalog })}
+						onClick={onInstallClick}
 					>
 						{install.isPending ? 'Installing…' : 'Install'}
 					</button>
@@ -1177,13 +1222,104 @@ function CatalogDetail({
 								? install.data && install.data.installed.length > 0
 									? `installed with ${install.data.installed.length} dep${install.data.installed.length === 1 ? '' : 's'} (${install.data.installed.map((d) => d.name).join(', ')}) — enable it below`
 									: 'installed — enable it in a scope below'
-								: isFileBased
-									? `fetches via ${entry.source} into the vault`
-									: 'hook/mcp install is not yet supported'}
+								: stage === 'consent'
+									? `also installs ${missingDeps.length} dependenc${missingDeps.length === 1 ? 'y' : 'ies'} — review below`
+									: isFileBased
+										? missingDeps.length > 0
+											? `also installs ${missingDeps.length} dependenc${missingDeps.length === 1 ? 'y' : 'ies'}`
+											: `fetches via ${entry.source} into the vault`
+										: 'hook/mcp install is not yet supported'}
 					</span>
 				</div>
 			</div>
+
+			{stage === 'consent' && (
+				<div className="ngwa-section ngwa-guard">
+					<div className="ngwa-guard-head">
+						<span className="ngwa-guard-icon">↓</span>
+						<span className="ngwa-guard-title">
+							Installing <code>{entry.name}</code> also installs {missingDeps.length}{' '}
+							{missingDeps.length === 1 ? 'dependency' : 'dependencies'}
+						</span>
+						<button
+							type="button"
+							className="ngwa-guard-x"
+							onClick={() => setStage('idle')}
+							aria-label="Cancel"
+						>
+							×
+						</button>
+					</div>
+					<div className="ngwa-guard-body">
+						<div className="ngwa-guard-line">
+							These resolve from <code>{entry.name}</code>'s <code>requires</code> and install under
+							the same trust as <code>{entry.name}</code>. Already-installed deps are listed but not
+							re-fetched.
+						</div>
+						<div className="ngwa-guard-deps">
+							{deps.map((d) => (
+								<ConsentDepLine key={`${d.kind}:${d.name}`} dep={d} />
+							))}
+						</div>
+						{needsExtraConfirm && (
+							<label className="ngwa-guard-choice" style={{ display: 'flex', gap: 8, alignItems: 'flex-start', cursor: 'pointer' }}>
+								<input
+									type="checkbox"
+									checked={extraOk}
+									onChange={(e) => setExtraOk(e.target.checked)}
+									style={{ marginTop: 3 }}
+								/>
+								<span className="ngwa-guard-line">
+									One or more dependencies are <b>not in the signed catalog</b> and will be fetched
+									from a self-declared source. I understand and want to install them.
+								</span>
+							</label>
+						)}
+						<div className="ngwa-acts" style={{ marginTop: 10 }}>
+							<button
+								type="button"
+								className="ngwa-btn primary"
+								disabled={install.isPending || (needsExtraConfirm && !extraOk)}
+								onClick={() => install.mutate({ entry, catalog })}
+							>
+								{install.isPending
+									? 'Installing…'
+									: `Install ${entry.name} + ${missingDeps.length} dep${missingDeps.length === 1 ? '' : 's'}`}
+							</button>
+							<button type="button" className="ngwa-btn" onClick={() => setStage('idle')}>
+								Cancel
+							</button>
+						</div>
+					</div>
+				</div>
+			)}
 		</>
+	);
+}
+
+/** One dependency row in the install consent surface (WP-15). */
+function ConsentDepLine({ dep }: { dep: ConsentDep }) {
+	return (
+		<div className="ngwa-guard-dep">
+			<span className="ngwa-guard-arrow">↳</span>
+			<code>{dep.name}</code>
+			<span className="ngwa-mtag">{dep.kind}</span>
+			<span className="ngwa-stword" style={{ textTransform: 'none', opacity: 0.7 }}>
+				{dep.satisfied ? 'already installed' : `from ${dep.provenance}`}
+			</span>
+			{!dep.satisfied && dep.resolution !== 'catalog' && (
+				<span
+					className="ngwa-ovr"
+					title={
+						dep.resolution === 'unresolved'
+							? 'Not in the catalog and no pinned source — may fail to resolve'
+							: 'Not in the signed catalog — fetched from a self-declared source'
+					}
+				>
+					{dep.resolution === 'unresolved' ? 'unresolved' : 'non-catalog'}
+				</span>
+			)}
+		</div>
 	);
 }
 
