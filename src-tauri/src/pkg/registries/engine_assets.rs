@@ -101,32 +101,35 @@ impl Registry for EngineAssetsRegistry {
     }
 
     fn register(&self, pkg: &Package) -> Result<()> {
-        // Collect (kind, rel-path) from the three optional manifest fields.
-        let blocks: [(&str, &Option<String>); 3] = [
-            ("skills", &pkg.manifest.skills),
-            ("commands", &pkg.manifest.commands),
-            ("agents", &pkg.manifest.agents),
-        ];
-
+        // WP-17 (ADR-015 decision 4): the asset-bundling MANIFEST FIELDS
+        // (`skills`/`commands`/`agents`) are retired — a pkg no longer DECLARES
+        // bundled assets. Placement now resolves the pkg's on-disk asset folders
+        // BY CONVENTION (`<pkg>/skills`, `/commands`, `/agents`) and fans them out
+        // across the per-engine adapters (the kept agnosticism engine). Post-cutover
+        // the ONLY pkg still shipping these folders is the shell builtin
+        // `com.ikenga.iyke` (its skill + 10 slash-commands) — so this preserves the
+        // iyke control-bridge behavior exactly (same `~/.claude/{skills,commands}/
+        // com-ikenga-iyke/` symlinks, same `/com-ikenga-iyke:*` namespace) without
+        // the manifest coupling. Published pkgs (e.g. studio) ship NO such folder
+        // (deleted at cutover) → they place nothing here and instead `requires`
+        // standalone Ọba primitives (resolver-driven, WP-16).
+        //
+        // NOTE: the store models commands as single `.md` files, so the iyke
+        // command GROUP can't be a single store primitive without renaming the 10
+        // slash-commands — hence the builtin stays folder-placed via the adapters
+        // rather than store-seeded (see plans/oba-registry/07-builtin-primitive-cutover.md).
         let pkg_id = pkg.manifest.id.clone();
         let pkg_slug = pkg.slug();
 
         let mut new_entries: Vec<AssetEntry> = Vec::new();
         let mut per_engine: HashMap<String, InstallReport> = HashMap::new();
 
-        // Resolve each declared block once, then fan out across all
-        // installed adapters. Resolution errors are propagated (the
-        // manifest pointed at a path we can't even find — bad pkg);
-        // per-adapter install errors are best-effort + surfaced as
-        // warnings on the per-engine InstallReport, matching mcp.rs.
-        for (kind, maybe_rel) in blocks {
-            let rel = match maybe_rel {
-                Some(r) => r,
-                None => continue,
+        for kind in ["skills", "commands", "agents"] {
+            // Convention: the pkg's on-disk `<kind>` folder. Absent ⇒ nothing to place.
+            let source = match pkg.resolve_relative(kind) {
+                Ok(p) if p.is_dir() => p,
+                _ => continue,
             };
-            let source = pkg
-                .resolve_relative(rel)
-                .with_context(|| format!("resolve `{kind}` source `{rel}`"))?;
 
             for adapter in self.adapters.iter() {
                 let engine_id = adapter.id().to_string();
@@ -134,17 +137,11 @@ impl Registry for EngineAssetsRegistry {
                     "skills" => adapter.install_skills(source.as_path(), &pkg_id, &pkg_slug),
                     "commands" => adapter.install_commands(source.as_path(), &pkg_id, &pkg_slug),
                     "agents" => adapter.install_agents(source.as_path(), &pkg_id, &pkg_slug),
-                    _ => unreachable!("blocks tuple is exhaustive"),
+                    _ => unreachable!("kinds array is exhaustive"),
                 };
                 let bucket = per_engine.entry(engine_id.clone()).or_default();
                 match result {
                     Ok(report) => {
-                        // Every `wrote` path becomes an AssetEntry so the
-                        // entries snapshot still reflects what's on disk.
-                        // `skipped` entries are not duplicated into entries
-                        // — they're an idempotent acknowledgement; the prior
-                        // install's AssetEntry is what represents the disk
-                        // state going forward.
                         for target in &report.wrote {
                             new_entries.push(AssetEntry {
                                 pkg_id: pkg_id.clone(),
@@ -158,19 +155,16 @@ impl Registry for EngineAssetsRegistry {
                     }
                     Err(e) => {
                         log::warn!(
-                            "[pkg.engine_assets] engine `{engine_id}` install `{kind}` for pkg `{pkg_id}` failed: {e:#}"
+                            "[pkg.engine_assets] engine `{engine_id}` place `{kind}` for pkg `{pkg_id}` failed: {e:#}"
                         );
                         bucket
                             .warnings
-                            .push(format!("engine `{engine_id}` install `{kind}` failed: {e}"));
+                            .push(format!("engine `{engine_id}` place `{kind}` failed: {e}"));
                     }
                 }
             }
         }
 
-        // Even if no entries were produced (no asset blocks, or every
-        // adapter errored) we still want to surface the per-engine reports
-        // so the UI can show the warnings.
         if !new_entries.is_empty() {
             self.entries
                 .write()

@@ -49,20 +49,17 @@ pub struct Manifest {
     pub targets: Vec<String>, // rust target triples, empty = host-agnostic (skill packs)
 
     // ── Capability blocks (all optional) ────────────────────────────────────
-    /// Path inside the package dir to a folder of Claude Code skills.
-    /// Installer copies to `~/.claude/skills/<pkg>/`.
-    #[serde(default)]
-    pub skills: Option<String>,
-
-    /// Path to a folder of slash-command markdown files. Copied to
-    /// `~/.claude/commands/<pkg>/`.
-    #[serde(default)]
-    pub commands: Option<String>,
-
-    /// Path to a folder of agent definitions. Copied to `~/.claude/agents/<pkg>/`.
-    #[serde(default)]
-    pub agents: Option<String>,
-
+    // NOTE (WP-17, ADR-015 decision 4): the `skills` / `commands` / `agents`
+    // asset-BUNDLING fields were HARD-RETIRED here. A pkg no longer embeds
+    // Claude-config assets; it only `requires` standalone Ọba primitives (see
+    // `requires` below). Because `Manifest` is `deny_unknown_fields`, any manifest
+    // that still declares `skills`/`commands`/`agents` now FAILS validation —
+    // the intended hard cutover (no deprecation window). The shell builtin
+    // `com.ikenga.iyke` still ships its skill + slash-command FOLDERS on disk;
+    // they are placed BY CONVENTION (not via a manifest field) through the kept
+    // per-engine adapters in `EngineAssetsRegistry::register` (see that file +
+    // plans/oba-registry/07-builtin-primitive-cutover.md for why the iyke command
+    // group stays folder-placed rather than store-seeded).
     /// MCP servers contributed by this package.
     #[serde(default)]
     pub mcp: Vec<McpServer>,
@@ -688,9 +685,6 @@ mod tests {
             kind: None,
             author: None,
             targets: vec![],
-            skills: None,
-            commands: None,
-            agents: None,
             mcp: vec![],
             sidecars: vec![],
             permissions: Permissions::default(),
@@ -737,7 +731,7 @@ mod tests {
         let json = r#"{
             "id": "com.ikenga.skill-pa",
             "name": "PA", "version": "0.1.0", "ikenga_api": "1",
-            "skills": "skills"
+            "kind": "skill"
         }"#;
         let m: Manifest = serde_json::from_str(json).expect("parse");
         assert!(m.requires.is_empty());
@@ -753,6 +747,27 @@ mod tests {
         }"#;
         let result: Result<Manifest, _> = serde_json::from_str(json);
         assert!(result.is_err(), "unknown requires field must be rejected");
+    }
+
+    #[test]
+    fn rejects_retired_bundling_fields() {
+        // WP-17 hard cutover (ADR-015 decision 4): `skills`/`commands`/`agents`
+        // asset-bundling fields are gone; `deny_unknown_fields` makes a manifest
+        // that still declares any of them FAIL validation (no deprecation window).
+        for field in ["skills", "commands", "agents"] {
+            let json = format!(
+                r#"{{
+                    "id": "com.ikenga.x",
+                    "name": "X", "version": "0.1.0", "ikenga_api": "1",
+                    "{field}": "skills"
+                }}"#
+            );
+            let result: Result<Manifest, _> = serde_json::from_str(&json);
+            assert!(
+                result.is_err(),
+                "retired bundling field `{field}` must be rejected"
+            );
+        }
     }
 
     #[test]

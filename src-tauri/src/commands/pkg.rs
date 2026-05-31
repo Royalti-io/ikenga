@@ -723,8 +723,9 @@ pub fn list_skill_actions(
         return Vec::new();
     };
     let install_path = PathBuf::from(&summary.install_path);
-    // Load the manifest to read its `skills` dir. The InstalledSummary doesn't
-    // carry it, so we read it from disk (cheap — one small JSON).
+    // WP-17: pkgs no longer bundle skills — actions are discovered by following
+    // the manifest's `requires` to the standalone skill primitives in the Ọba
+    // store. Load the manifest to read `requires` (cheap — one small JSON).
     let pkg = match crate::pkg::manifest::Package::load(&install_path) {
         Ok(p) => p,
         Err(e) => {
@@ -732,20 +733,22 @@ pub fn list_skill_actions(
             return Vec::new();
         }
     };
-    crate::pkg::skill_actions::list_actions_for_pkg(
-        &pkg_id,
-        install_path,
-        pkg.manifest.skills.as_deref(),
-    )
+    let Some(store) = crate::commands::claude_config::store_root() else {
+        return Vec::new();
+    };
+    crate::pkg::skill_actions::list_actions_for_pkg(&pkg_id, &pkg.manifest.requires, &store)
 }
 
 /// List skill actions across every installed pkg. Pkgs that fail to load or
-/// declare no `skills` dir simply contribute nothing.
+/// require no skills simply contribute nothing.
 #[tauri::command]
 pub fn list_all_skill_actions(
     kernel: State<'_, KernelState>,
 ) -> Vec<crate::pkg::skill_actions::SkillAction> {
     let installed = kernel.0.status().installed;
+    let Some(store) = crate::commands::claude_config::store_root() else {
+        return Vec::new();
+    };
     let mut out = Vec::new();
     for summary in &installed {
         let install_path = PathBuf::from(&summary.install_path);
@@ -754,8 +757,8 @@ pub fn list_all_skill_actions(
         };
         out.extend(crate::pkg::skill_actions::list_actions_for_pkg(
             &summary.id,
-            install_path,
-            pkg.manifest.skills.as_deref(),
+            &pkg.manifest.requires,
+            &store,
         ));
     }
     out

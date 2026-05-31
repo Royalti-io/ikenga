@@ -13,9 +13,11 @@
 //! Uses `serde_yaml` — already a direct dependency (frontmatter parsing for
 //! `.claude/agents`/`skills`/`commands`).
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use serde::{Deserialize, Serialize};
+
+use crate::pkg::manifest::RequiresEntry;
 
 /// A single skill action, flattened for the TS renderer (camelCase over the
 /// Tauri bridge). Mirrors the `SkillAction` interface in `src/types/pkg.ts`.
@@ -186,29 +188,7 @@ pub fn discover_actions(pkg_id: &str, pkg_root: &Path, skills_dir: &str) -> Vec<
             Some(s) => s.to_string(),
             None => continue,
         };
-        let actions_dir = skill_path.join("actions");
-        let action_entries = match std::fs::read_dir(&actions_dir) {
-            Ok(e) => e,
-            Err(_) => continue, // a skill without an actions/ dir is fine
-        };
-        for action_entry in action_entries.flatten() {
-            let action_path = action_entry.path();
-            if action_path.extension().and_then(|s| s.to_str()) != Some("md") {
-                continue;
-            }
-            // Skip non-action docs like actions/README.md.
-            if action_path
-                .file_name()
-                .and_then(|s| s.to_str())
-                .map(|n| n.eq_ignore_ascii_case("README.md"))
-                .unwrap_or(false)
-            {
-                continue;
-            }
-            if let Some(action) = parse_action_file(pkg_id, &skill_name, &action_path) {
-                out.push(action);
-            }
-        }
+        out.extend(scan_skill_actions_dir(pkg_id, &skill_name, &skill_path));
     }
 
     // Deterministic order: by skill then verb.
@@ -216,18 +196,60 @@ pub fn discover_actions(pkg_id: &str, pkg_root: &Path, skills_dir: &str) -> Vec<
     out
 }
 
-/// Resolve a pkg's on-disk root + skills dir, then discover its actions.
-/// Returns an empty Vec if the pkg isn't a skill pkg or declares no `skills`
-/// dir.
+/// Scan ONE skill directory's `actions/*.md` files into [`SkillAction`]s.
+/// `skill_dir` is the skill's own directory (containing `actions/`); for a
+/// store-resolved standalone primitive (WP-17) this is `store/skills/<name>`.
+/// A skill without an `actions/` dir contributes nothing (not an error).
+fn scan_skill_actions_dir(pkg_id: &str, skill_name: &str, skill_dir: &Path) -> Vec<SkillAction> {
+    let mut out = Vec::new();
+    let action_entries = match std::fs::read_dir(skill_dir.join("actions")) {
+        Ok(e) => e,
+        Err(_) => return out,
+    };
+    for action_entry in action_entries.flatten() {
+        let action_path = action_entry.path();
+        if action_path.extension().and_then(|s| s.to_str()) != Some("md") {
+            continue;
+        }
+        // Skip non-action docs like actions/README.md.
+        if action_path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .map(|n| n.eq_ignore_ascii_case("README.md"))
+            .unwrap_or(false)
+        {
+            continue;
+        }
+        if let Some(action) = parse_action_file(pkg_id, skill_name, &action_path) {
+            out.push(action);
+        }
+    }
+    out
+}
+
+/// Discover a pkg's skill actions by following its manifest `requires` to the
+/// standalone skill primitives in the Ọba store (WP-17 — pkgs no longer bundle
+/// skills; a `requires:[{kind:"skill",name}]` edge points at `store/skills/<name>`,
+/// the canonical the Ọba resolver/boot-seeding installed). Returns an empty Vec
+/// for a pkg that requires no skills or whose required skills aren't installed.
 pub fn list_actions_for_pkg(
     pkg_id: &str,
-    pkg_root: PathBuf,
-    skills_dir: Option<&str>,
+    requires: &[RequiresEntry],
+    store: &Path,
 ) -> Vec<SkillAction> {
-    let Some(skills_dir) = skills_dir else {
-        return Vec::new();
-    };
-    discover_actions(pkg_id, &pkg_root, skills_dir)
+    let mut out = Vec::new();
+    for req in requires {
+        if req.kind != "skill" {
+            continue;
+        }
+        let skill_dir = store.join("skills").join(&req.name);
+        if !skill_dir.metadata().map(|m| m.is_dir()).unwrap_or(false) {
+            continue;
+        }
+        out.extend(scan_skill_actions_dir(pkg_id, &req.name, &skill_dir));
+    }
+    out.sort_by(|a, b| a.skill.cmp(&b.skill).then(a.verb.cmp(&b.verb)));
+    out
 }
 
 #[cfg(test)]
