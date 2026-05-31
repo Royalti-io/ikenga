@@ -249,6 +249,10 @@ export function deriveFromQueries(inputs: DeriveInputs): DerivedPkgs {
 		}
 	}
 	const registryRows: PkgRowV2[] = registryEntries
+		// Hide dev/test fixtures + scaffolds from the default catalog. They stay
+		// installable by exact name and keep update detection (the installedRows
+		// matcher above is intentionally unfiltered).
+		.filter((e) => (e as { visibility?: string }).visibility !== 'hidden')
 		.filter((e) => !installedRows.some((r) => entryMatchesPkgId(e.name, r.id)))
 		.map((e) => {
 			const heroShot = (e as { screenshot?: string }).screenshot ?? null;
