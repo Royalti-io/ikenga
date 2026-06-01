@@ -6,7 +6,7 @@
 	"type": "module",
 	"description": "Ikenga — Tauri 2 desktop app (control plane for terminals, chat, viewer)",
 	"scripts": {
-		"changeset:version": "changeset version && node scripts/sync-version.mjs",
+		"changeset:version": "bunx changeset version && node scripts/sync-version.mjs",
 		"dev": "bun run bun:fetch && bun run iyke:bundle && bun run artifact:bundle && bun run tokens:copy && bun run iyke:mcp:build && vite",
 		"build": "bun run bun:fetch && bun run iyke:bundle && bun run artifact:bundle && bun run tokens:copy && bun run iyke:mcp:build && vite build",
 		"bun:fetch": "bash scripts/fetch-bun.sh",
@@ -109,7 +109,6 @@
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.4.13",
-		"@changesets/cli": "^2.31.0",
 		"@tailwindcss/vite": "^4.2.4",
 		"@tanstack/router-cli": "^1.166.38",
 		"@tauri-apps/cli": "^2.1.0",

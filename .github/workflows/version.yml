@@ -34,8 +34,11 @@ jobs:
         with:
           bun-version: latest
 
-      - name: Install
-        run: bun install --frozen-lockfile || bun install
+      # No project install: the shell's workspace:* deps (@ikenga/contract,
+      # @ikenga/tokens) don't resolve in a standalone clone, and the version
+      # job doesn't need them. `bun run changeset:version` self-fetches the
+      # Changesets CLI via bunx; node (for sync-version.mjs) is preinstalled
+      # on the runner. The heavy build + workspace synthesis stays in release.yml.
 
       - name: Version PR or tag-and-build
         uses: changesets/action@v1
