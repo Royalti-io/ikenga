@@ -12,7 +12,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { cluster, hierarchy, type HierarchyNode } from 'd3-hierarchy';
-import { curveBundle, lineRadial } from 'd3-shape';
+import { arc as d3arc, curveBundle, lineRadial } from 'd3-shape';
 
 import { cn } from '@/components/ui/utils';
 import type { ClaudeConfig } from '@/lib/tauri-cmd';
@@ -340,6 +340,18 @@ const BUNDLE_HUB_DEGREE = 6; // hubs at/above this degree stay labelled when zoo
 function BundleRenderer({ graph, selected, incident, onSelect, draggedRef }: RendererProps) {
 	const SIZE = 820;
 	const R = SIZE / 2 - 132;
+	// Outer kind-band arc: a thin annular segment per kind group, just beyond the
+	// node ring (R+14→R+18), padded 3° each side. Angles are degrees on the same
+	// 0=12-o'clock-clockwise convention as the cluster layout.
+	const bandArc = useMemo(
+		() =>
+			d3arc<{ a0: number; a1: number }>()
+				.innerRadius(R + 14)
+				.outerRadius(R + 18)
+				.startAngle((d) => ((d.a0 - 3) * Math.PI) / 180)
+				.endAngle((d) => ((d.a1 + 3) * Math.PI) / 180),
+		[R]
+	);
 	const svgRef = useRef<SVGSVGElement>(null);
 	const [t, setT] = useState({ k: 1, x: 0, y: 0 });
 	const dragRef = useRef<{ x: number; y: number; moved: boolean; pid: number } | null>(null);
@@ -483,23 +495,35 @@ function BundleRenderer({ graph, selected, incident, onSelect, draggedRef }: Ren
 			>
 				<g transform={`translate(${t.x},${t.y}) scale(${t.k})`}>
 					<g transform={`translate(${SIZE / 2},${SIZE / 2})`}>
-						{/* kind arcs + labels */}
+						{/* kind arcs + labels — annular band per kind (a0→a1 +3° pad),
+						    then the kind label just outside it. Angle 0 = 12-o'clock,
+						    clockwise — matches the node placement + label below. */}
 						{layout.arcs.map((arc) => {
 							const mid = (arc.a0 + arc.a1) / 2;
 							const rad = ((mid - 90) * Math.PI) / 180;
 							const lr = R + 30;
+							const band = bandArc(arc) ?? undefined;
 							return (
-								<text
-									key={arc.kind}
-									x={Math.cos(rad) * lr}
-									y={Math.sin(rad) * lr}
-									textAnchor="middle"
-									dominantBaseline="middle"
-									className="ngwa-arc-label"
-									fill={`var(--nk-${arc.kind})`}
-								>
-									{KIND_LABEL[arc.kind].toUpperCase()}
-								</text>
+								<g key={arc.kind}>
+									{band && (
+										<path
+											d={band}
+											className="ngwa-arc-band"
+											fill={`var(--nk-${arc.kind})`}
+											opacity={0.55}
+										/>
+									)}
+									<text
+										x={Math.cos(rad) * lr}
+										y={Math.sin(rad) * lr}
+										textAnchor="middle"
+										dominantBaseline="middle"
+										className="ngwa-arc-label"
+										fill={`var(--nk-${arc.kind})`}
+									>
+										{KIND_LABEL[arc.kind].toUpperCase()}
+									</text>
+								</g>
 							);
 						})}
 						{/* links */}
