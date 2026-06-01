@@ -1,0 +1,49 @@
+# Changesets versioning for the shell (private Tauri app — no npm publish).
+#
+# Flow:
+#   1. PR with your change + a changeset (`bunx changeset`).
+#   2. On merge to main, this opens/updates a "chore: version packages" PR that
+#      runs `changeset version` AND syncs the bump into tauri.conf.json +
+#      Cargo.toml + Cargo.lock (scripts/sync-version.mjs).
+#   3. Merging that PR runs the "publish" step — scripts/tag-release.sh — which
+#      pushes a `v<version>` tag. That tag triggers release.yml (the existing
+#      asset build + GitHub Release). No npm publish happens here.
+
+name: Version
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency: ${{ github.workflow }}-${{ github.ref }}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install
+        run: bun install --frozen-lockfile || bun install
+
+      - name: Version PR or tag-and-build
+        uses: changesets/action@v1
+        with:
+          version: bun run changeset:version
+          publish: bash scripts/tag-release.sh
+          createGithubReleases: false
+          title: 'chore: version packages'
+          commit: 'chore: version packages'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
