@@ -53,7 +53,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # RELEASE_PAT: used by scripts/tag-release.sh to PUSH the v* tag so it
           # triggers release.yml. A tag pushed with GITHUB_TOKEN does NOT trigger
-          # workflows (GitHub anti-recursion) — see #26. Add a PAT/fine-grained
-          # token with `contents:write` as the RELEASE_PAT secret. If unset, the
-          # tag is still pushed but release.yml must be kicked manually.
-          RELEASE_PAT: ${{ secrets.RELEASE_PAT }}
+          # workflows (GitHub anti-recursion) — see #26. Reuses the existing
+          # WORKSPACE_DEPS_PAT (already on the repo) to avoid a new secret; if
+          # that token lacks contents:write, tag-release.sh falls back to a plain
+          # push (tag lands, build kicked manually) rather than failing. Swap to
+          # a dedicated secrets.RELEASE_PAT if you'd rather separate the scopes.
+          RELEASE_PAT: ${{ secrets.WORKSPACE_DEPS_PAT }}

@@ -31,8 +31,18 @@ git tag -a "$TAG" -m "Ikenga $TAG"
 # kicked manually" behaviour (see royalti-io/ikenga#26).
 if [ -n "${RELEASE_PAT:-}" ]; then
   repo="${GITHUB_REPOSITORY:-royalti-io/ikenga}"
-  git push "https://x-access-token:${RELEASE_PAT}@github.com/${repo}.git" "$TAG"
-  echo "tag-release: pushed $TAG via RELEASE_PAT → release.yml will build assets"
+  # Try the PAT push (triggers release.yml). If the token lacks contents:write
+  # or is expired, DON'T hard-fail the publish step — fall back to a plain push
+  # so the tag still lands (build can be kicked manually). This keeps reusing a
+  # general-purpose token (e.g. WORKSPACE_DEPS_PAT) safe even if its scope is
+  # narrower than expected.
+  if git push "https://x-access-token:${RELEASE_PAT}@github.com/${repo}.git" "$TAG"; then
+    echo "tag-release: pushed $TAG via RELEASE_PAT → release.yml will build assets"
+  else
+    echo "tag-release: WARN — RELEASE_PAT push failed (token scope/expiry?) — falling back to plain push"
+    git push origin "$TAG"
+    echo "tag-release: pushed $TAG via default remote — release.yml may need a manual kick (#26)"
+  fi
 else
   git push origin "$TAG"
   echo "tag-release: pushed $TAG via default remote → release.yml build assets"
