@@ -49,4 +49,11 @@ jobs:
           title: 'chore: version packages'
           commit: 'chore: version packages'
         env:
+          # GITHUB_TOKEN: opens/commits the "version packages" PR (changesets needs it).
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # RELEASE_PAT: used by scripts/tag-release.sh to PUSH the v* tag so it
+          # triggers release.yml. A tag pushed with GITHUB_TOKEN does NOT trigger
+          # workflows (GitHub anti-recursion) — see #26. Add a PAT/fine-grained
+          # token with `contents:write` as the RELEASE_PAT secret. If unset, the
+          # tag is still pushed but release.yml must be kicked manually.
+          RELEASE_PAT: ${{ secrets.RELEASE_PAT }}

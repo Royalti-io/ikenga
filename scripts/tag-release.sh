@@ -18,5 +18,25 @@ if git rev-parse "$TAG" >/dev/null 2>&1; then
 fi
 
 git tag -a "$TAG" -m "Ikenga $TAG"
-git push origin "$TAG"
-echo "tag-release: pushed $TAG → release.yml will build assets"
+
+# Push the tag. CRITICAL: a tag pushed with the default Actions GITHUB_TOKEN
+# does NOT trigger other workflows (GitHub's anti-recursion rule), so
+# release.yml (`on: push: tags v*`) would never fire and no assets would build.
+# When RELEASE_PAT is set (a PAT/fine-grained token with contents:write, wired
+# in version.yml's env from the RELEASE_PAT secret), push over an explicit
+# token URL so the push is attributed to that token and DOES trigger release.yml.
+# Falls back to a plain `git push origin` when RELEASE_PAT is absent — that's
+# fine for a local human-creds push (which also triggers workflows), and in CI
+# without the secret it degrades to the old "tag pushed but build must be
+# kicked manually" behaviour (see royalti-io/ikenga#26).
+if [ -n "${RELEASE_PAT:-}" ]; then
+  repo="${GITHUB_REPOSITORY:-royalti-io/ikenga}"
+  git push "https://x-access-token:${RELEASE_PAT}@github.com/${repo}.git" "$TAG"
+  echo "tag-release: pushed $TAG via RELEASE_PAT → release.yml will build assets"
+else
+  git push origin "$TAG"
+  echo "tag-release: pushed $TAG via default remote → release.yml build assets"
+  echo "tag-release: NOTE — if pushed by GITHUB_TOKEN in CI, release.yml will NOT"
+  echo "tag-release:        auto-trigger (see #26). Set the RELEASE_PAT secret, or"
+  echo "tag-release:        re-push the tag with a human/PAT token to fire the build."
+fi
