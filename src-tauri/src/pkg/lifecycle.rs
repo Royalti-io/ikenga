@@ -265,6 +265,26 @@ impl SidecarSupervisor {
         }
     }
 
+    /// Wake any sidecars parked as `Blocked{RuntimeNotReady}` — called by the
+    /// post-launch bun-fetch task once bun resolves. Gated to ONLY bun-declared
+    /// children currently in the runtime-blocked state so a healthy running
+    /// mcp-iyke isn't needlessly restarted.
+    pub fn wake_runtime_blocked(&self) {
+        let handles: Vec<Arc<SupervisedSidecar>> = match self.children.read() {
+            Ok(g) => g.values().cloned().collect(),
+            Err(_) => return,
+        };
+        for h in handles {
+            if crate::runtime::is_bun_command(h.declared_command()) && h.is_blocked_runtime() {
+                log::info!(
+                    "[pkg_lifecycle] runtime ready — waking `{}` from RuntimeNotReady",
+                    h.pkg_id
+                );
+                h.restart();
+            }
+        }
+    }
+
     fn shutdown_supervised(&self, pkg_id: &str) -> Result<()> {
         let removed = {
             let mut map = self
@@ -310,12 +330,18 @@ pub enum BlockedReason {
     /// detected this in the dev-server child's stderr/stdout and emitted
     /// `pkg/notifications/port_in_use` before exiting code=2.
     PortInUse(u16),
+    /// The `bun` runtime isn't resolved/fetched yet. Mirrors `PortInUse`:
+    /// operator-/time-fixable, NOT a strike. The supervisor parks the bun
+    /// sidecar here and `SidecarSupervisor::wake_runtime_blocked()` (called
+    /// from the post-launch fetch task on success) re-spawns it.
+    RuntimeNotReady,
 }
 
 impl BlockedReason {
     fn render(&self) -> String {
         match self {
             BlockedReason::PortInUse(port) => format!("port {port} in use"),
+            BlockedReason::RuntimeNotReady => "runtime (bun) not ready".to_string(),
         }
     }
 }
@@ -543,6 +569,24 @@ impl SupervisedSidecar {
     fn request_shutdown(&self) {
         self.set_state(State::ShuttingDown);
         self.shutdown.notify_waiters();
+    }
+
+    /// The pkg's manifest-declared MCP command (e.g. `"bun"`). Used by
+    /// `wake_runtime_blocked` to find bun-declared children.
+    pub fn declared_command(&self) -> &str {
+        &self.server.command
+    }
+
+    /// True iff this sidecar is currently `Blocked{RuntimeNotReady}`. Lets the
+    /// wake path restart ONLY parked-on-runtime children, not healthy ones.
+    pub fn is_blocked_runtime(&self) -> bool {
+        matches!(
+            self.current_state(),
+            State::Blocked {
+                reason: BlockedReason::RuntimeNotReady,
+                ..
+            }
+        )
     }
 
     pub fn status_snapshot(&self) -> SidecarStatus {
@@ -931,6 +975,23 @@ impl SupervisedSidecar {
                 "shell.execute denied: pkg `{}` cannot spawn `{}`",
                 self.pkg_id,
                 self.server.command
+            ));
+        }
+
+        // Runtime-readiness gate: if this pkg spawns `bun` but bun isn't
+        // resolved/fetched yet, park as Blocked{RuntimeNotReady} (no strike)
+        // and bail. The supervisor's existing `take_blocked_signal →
+        // note_blocked` path routes the Err to State::Blocked, and
+        // `wake_runtime_blocked()` (fired by the post-launch fetch task) kicks
+        // it back to Spawning once bun lands. Mirrors the PortInUse model.
+        if crate::runtime::is_bun_command(&self.server.command) && !crate::runtime::bun_ready() {
+            *self
+                .blocked_signal
+                .lock()
+                .expect("blocked_signal poisoned") = Some(BlockedReason::RuntimeNotReady);
+            return Err(anyhow!(
+                "runtime (bun) not ready for pkg `{}`",
+                self.pkg_id
             ));
         }
 
@@ -1437,6 +1498,51 @@ mod tests {
         assert_eq!(snap.last_err.as_deref(), Some("port 3105 in use"));
         // Strike counter never advanced.
         assert_eq!(snap.restarts, 0);
+    }
+
+    #[test]
+    fn runtime_not_ready_blocks_without_strike() {
+        // Mirrors the PortInUse no-strike model: RuntimeNotReady parks the
+        // sidecar as Blocked, never advances the strike counter, and the
+        // decide_next outcome is RetryBlocked indefinitely.
+        let sidecar = SupervisedSidecar::new(
+            "x".into(),
+            McpServer {
+                name: "t".into(),
+                command: "bun".into(),
+                args: vec!["run".into(), "dist/index.js".into()],
+                env: HashMap::new(),
+                lifecycle: Some("long-lived".into()),
+                restart_when_changed: vec![],
+                auto_restart: true,
+            },
+            PathBuf::from("/tmp"),
+        );
+        for _ in 0..5 {
+            sidecar.note_blocked(BlockedReason::RuntimeNotReady);
+            match sidecar.current_state() {
+                State::Blocked { .. } => {}
+                other => panic!("expected Blocked, got {other:?}"),
+            }
+            match sidecar.decide_next() {
+                NextAction::RetryBlocked => {}
+                other => panic!("expected RetryBlocked, got {other:?}"),
+            }
+        }
+        assert!(sidecar.is_blocked_runtime());
+        assert_eq!(sidecar.declared_command(), "bun");
+        let snap = sidecar.status_snapshot();
+        assert_eq!(snap.state, "blocked");
+        assert_eq!(snap.last_err.as_deref(), Some("runtime (bun) not ready"));
+        assert_eq!(snap.restarts, 0);
+    }
+
+    #[test]
+    fn runtime_not_ready_renders_message() {
+        assert_eq!(
+            BlockedReason::RuntimeNotReady.render(),
+            "runtime (bun) not ready"
+        );
     }
 
     #[test]

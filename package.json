@@ -8,7 +8,7 @@
 	"scripts": {
 		"changeset:version": "bunx changeset version && node scripts/sync-version.mjs",
 		"dev": "bun run bun:fetch && bun run iyke:bundle && bun run artifact:bundle && bun run tokens:copy && bun run iyke:mcp:build && vite",
-		"build": "bun run bun:fetch && bun run iyke:bundle && bun run artifact:bundle && bun run tokens:copy && bun run iyke:mcp:build && vite build",
+		"build": "bun run iyke:bundle && bun run artifact:bundle && bun run tokens:copy && bun run iyke:mcp:build && vite build",
 		"bun:fetch": "bash scripts/fetch-bun.sh",
 		"iyke:bundle": "bun build src/lib/iyke/iframe-bridge.entry.ts --outfile src-tauri/resources/iyke-iframe-bridge.js --target browser --format esm --minify",
 		"artifact:bundle": "bun build src/lib/artifact/bridge.entry.ts --outfile src-tauri/resources/artifact-iframe-bridge.js --target browser --format esm --minify",

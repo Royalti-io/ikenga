@@ -9,6 +9,7 @@ import { CommandPalette, useCommandPalette } from './command-palette';
 import { TerminalHandoffPrompt } from './artifact-wizard/terminal-handoff-prompt';
 import { OpenSessionDialogHost } from '@/components/pkg/open-session-dialog-host';
 import { WizardPopRecoveryChip } from './artifact-wizard/wizard-pop-recovery-chip';
+import { RuntimeBunChip } from './runtime-bun-chip';
 import { ConnectorBanner } from './connector-banner';
 import { TrustReviewBanner } from './trust-review-banner';
 import { UpdaterBanner } from './updater-banner';
@@ -331,6 +332,7 @@ export function Workspace() {
 			<OpenSessionDialogHost />
 
 			<WizardPopRecoveryChip />
+			<RuntimeBunChip />
 		</div>
 	);
 }

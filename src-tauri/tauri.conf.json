@@ -34,8 +34,7 @@
       "nsis"
     ],
     "resources": {
-      "resources/builtin-pkgs/**/*": "builtin-pkgs/",
-      "resources/bun/**/*": "bun/"
+      "resources/builtin-pkgs/**/*": "builtin-pkgs/"
     },
     "icon": [
       "icons/32x32.png",

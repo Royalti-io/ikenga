@@ -31,6 +31,7 @@ pub mod pkg_trust;
 pub mod pkg_webview;
 pub mod projects;
 pub mod pty;
+pub mod runtime;
 pub mod screenshot;
 pub mod secrets;
 pub mod settings_kv;
@@ -124,6 +125,7 @@ pub use projects::{
 pub use pty::{
     pty_foreground, pty_foreground_snapshot, pty_kill, pty_resize, pty_spawn, pty_write,
 };
+pub use runtime::runtime_retry_bun_fetch;
 pub use screenshot::{
     screenshot_capture_done, screenshot_capture_failed, screenshot_get_config, screenshot_pane,
     screenshot_set_dir, screenshot_window, ScreenshotConfigState, ScreenshotConfigStateRef,

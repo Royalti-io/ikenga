@@ -175,6 +175,19 @@ webview2-com = "0.38"
 # then restore this [target.'cfg(target_os = "macos")'.deps] block
 # plus apply_mac_vibrancy + the set_dock_badge body in commands/desktop.rs.
 
+# Release profile — install-UX slim-down (WP-13(c)/WP-31). Rust's default
+# release build ships the symbol table (`strip = false`) and skips cross-crate
+# LTO, leaving the binary larger than it needs to be. These three knobs shrink
+# the binary across EVERY bundle target (deb/AppImage/dmg/nsis) with no
+# behaviour change — no `panic = "abort"` (keeps unwinding + catch_unwind
+# intact). The 89MB bundled bun runtime and the AppImage media framework are
+# the bigger size drivers and are addressed separately (install.sh defaults
+# Linux to the smaller .deb); this just stops the binary itself from bloating.
+[profile.release]
+strip = true        # drop the symbol table Rust emits by default
+lto = "thin"        # cross-crate inlining/dead-code elimination, modest compile cost
+codegen-units = 1   # better optimisation + dedup at the cost of compile parallelism
+
 [dev-dependencies]
 tempfile = "3"
 regex = "1"

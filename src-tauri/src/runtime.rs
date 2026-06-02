@@ -5,20 +5,32 @@
 //! `Command::new(...)`. A manifest's bare `"bun"` becomes the bundled binary;
 //! anything else (absolute paths, `./bin/foo` shell-outs) passes through.
 //!
-//! Resolution order, mirroring `lib.rs`'s builtin-pkgs lookup:
-//!   1. Debug builds: `$CARGO_MANIFEST_DIR/resources/bun/<host-target>/bun`.
+//! Resolution order (B+A hybrid, per the 2026-06-02 runtime decision):
+//!   1. Debug builds ONLY: `$CARGO_MANIFEST_DIR/resources/bun/<host-target>/bun`.
 //!      Lets `tauri dev` exercise the bundled-Bun path without a release
 //!      build, as long as `scripts/fetch-bun.sh --target <host>` has been
-//!      run once.
-//!   2. Release builds: `<resource_dir>/bun/<host-target>/bun`, populated by
-//!      `tauri.conf.json:bundle.resources` from the same source tree.
-//!   3. Last resort: bare `"bun"`, deferring to PATH lookup. Logged WARN so
-//!      we notice if dev/CI forgot to fetch the binary.
+//!      run once. This branch is FIRST and unchanged so dev never fetches.
+//!   2. `IKENGA_BUN_PATH` env override (any build) — a user-provided binary.
+//!      Skips the sha-pin check by design (trusted, operator-supplied).
+//!   3. A version-gated system `bun` on the augmented PATH (`>= BUN_VERSION`).
+//!      Skips the sha-pin check by design (trusted PATH binary).
+//!   4. A previously-fetched bun at `<app_data_dir>/bun/<target>/bun` whose
+//!      `.zip-sha256` sidecar matches the pinned zip sha.
+//!   5. None — the runtime must be fetched. `ensure_bun()` (run post-launch
+//!      from `lib.rs`, never at `init_from_app`) downloads + sha-verifies +
+//!      unzips the pinned bun release and seeds `FETCHED_BUN`.
+//!
+//! The release bundle no longer ships bun (`tauri.conf.json` dropped the
+//! `resources/bun/**/*` line); a fresh install fetches it after the window
+//! is interactive, and bun-dependent sidecars park as
+//! `BlockedReason::RuntimeNotReady` (no strike) until the fetch completes.
 
 use std::ffi::{OsStr, OsString};
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::{OnceLock, RwLock};
 
+use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Manager};
 
 /// Bun's release-asset target naming for the host we're building for. Maps
@@ -46,7 +58,37 @@ const BUN_BIN_NAME: &str = if cfg!(target_os = "windows") {
     "bun"
 };
 
+// ── Pin source-of-truth ──────────────────────────────────────────────────────
+//
+// Mirrors `scripts/fetch-bun.sh`'s `BUN_VERSION` + `expected_sha_for()` case
+// block. The `pin_table_matches_fetch_bun_script` test parses that script and
+// asserts the two stay in lockstep — a bun bump must update BOTH or the test
+// fails loudly. The per-target sha is the sha256 of the published `.zip`
+// asset (not the unzipped binary), matching the sidecar contract.
+
+/// Pinned Bun version (Bun's own `bun-vX.Y.Z` release tag, without the `bun-v`).
+pub const BUN_VERSION: &str = "1.3.14";
+
+/// Sha256 of `bun-<target>.zip` for each supported target. `None` for an
+/// unsupported host (matches `BUN_TARGET == "unsupported"`).
+pub fn bun_zip_sha256(target: &str) -> Option<&'static str> {
+    match target {
+        "linux-x64" => Some("951ee2aee855f08595aeec6225226a298d3fea83a3dcd6465c09cbccdf7e848f"),
+        "linux-aarch64" => Some("a27ffb63a8310375836e0d6f668ae17fa8d8d18b88c37c821c65331973a19a3b"),
+        "darwin-x64" => Some("4183df3374623e5bab315c547cfa0974533cd457d86b73b639f7a87974cd6633"),
+        "darwin-aarch64" => Some("d8b96221828ad6f97ac7ac0ab7e95872341af763001e8803e8267652c2652620"),
+        "windows-x64" => Some("0a0620930b6675d7ba440e81f4e0e00d3cfbe096c4b140d3fff02205e9e18922"),
+        _ => None,
+    }
+}
+
 static BUN_PATH: OnceLock<Option<PathBuf>> = OnceLock::new();
+
+/// Runtime fetched bun, seeded by `ensure_bun()` after a successful download.
+/// `BUN_PATH` is a boot-time `OnceLock` and cannot be re-set, so a separate
+/// `RwLock` carries the post-launch-fetched path. `resolve_command`,
+/// `bun_ready`, and `bun_path`-style lookups consult this as a fallback.
+static FETCHED_BUN: RwLock<Option<PathBuf>> = RwLock::new(None);
 
 /// Initialise the bundled-Bun lookup at app setup time. Idempotent.
 pub fn init_from_app(app: &AppHandle) {
@@ -79,33 +121,147 @@ fn resolve_bun_path(app: &AppHandle) -> Option<PathBuf> {
         return None;
     }
 
-    // Debug builds: prefer the source tree so `tauri dev` doesn't need a
-    // bundle round-trip after `scripts/fetch-bun.sh` populates it.
+    // (1) Debug builds: prefer the source tree FIRST so `tauri dev` doesn't
+    // need a bundle round-trip after `scripts/fetch-bun.sh` populates it, and
+    // never triggers a fetch. This branch is unchanged.
     #[cfg(debug_assertions)]
     if let Some(dev) = resolve_dev_bun_path() {
         log::info!("[runtime] bundled bun (dev): {}", dev.display());
         return Some(dev);
     }
 
-    // Release builds (and debug fallback): the Tauri-bundled resource dir.
-    if let Ok(resource_dir) = app.path().resource_dir() {
-        let bundled = resource_dir.join("bun").join(BUN_TARGET).join(BUN_BIN_NAME);
-        if bundled.is_file() {
-            log::info!(
-                "[runtime] bundled bun (resource_dir): {}",
-                bundled.display()
-            );
-            return Some(bundled);
+    // ── RELEASE resolve order (B+A hybrid) ────────────────────────────────
+
+    // (1) IKENGA_BUN_PATH env override — user-supplied binary, skips sha check.
+    if let Some(p) = std::env::var_os("IKENGA_BUN_PATH").map(PathBuf::from) {
+        if p.is_file() {
+            log::info!("[runtime] bun via IKENGA_BUN_PATH: {}", p.display());
+            return Some(p);
         }
         log::warn!(
-            "[runtime] no bundled bun at {} — run `bash scripts/fetch-bun.sh --target {BUN_TARGET}` \
-             before tauri dev/build, or sidecars relying on bun will use the system PATH copy",
-            bundled.display()
+            "[runtime] IKENGA_BUN_PATH set but not a file: {} — ignoring",
+            p.display()
         );
-    } else {
-        log::warn!("[runtime] resource_dir unavailable — bundled bun lookup skipped");
     }
+
+    // (2) Version-gated system bun on the augmented PATH. Skips sha check —
+    // a PATH/user-provided bun is trusted by design (the version gate is the
+    // only guard). Accept `>= BUN_VERSION`.
+    if let Ok(found) = which::which_in(
+        "bun",
+        Some(augmented_path()),
+        std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
+    ) {
+        if system_bun_version_ok(&found) {
+            log::info!(
+                "[runtime] system bun (>= {BUN_VERSION}): {}",
+                found.display()
+            );
+            return Some(found);
+        }
+        log::info!(
+            "[runtime] system bun at {} is older than pin {BUN_VERSION} (or unparsable) — skipping",
+            found.display()
+        );
+    }
+
+    // (3) Previously-fetched bun under app_data_dir, gated on the sidecar sha.
+    if let Some(fetched) = fetched_bun_path(app) {
+        if fetched.is_file() && fetched_sidecar_matches_pin(&fetched) {
+            log::info!("[runtime] fetched bun: {}", fetched.display());
+            return Some(fetched);
+        }
+    }
+
+    // (4) Not resolved — `ensure_bun()` must fetch (post-launch).
+    log::info!(
+        "[runtime] no bun resolved at boot — will fetch bun-v{BUN_VERSION} ({BUN_TARGET}) after launch"
+    );
     None
+}
+
+/// Run `<bun> --version` and accept only if `>= BUN_VERSION`. Any spawn or
+/// parse failure returns false (treated as "not acceptable").
+fn system_bun_version_ok(p: &Path) -> bool {
+    let out = match std::process::Command::new(p).arg("--version").output() {
+        Ok(o) => o,
+        Err(_) => return false,
+    };
+    if !out.status.success() {
+        return false;
+    }
+    let found = String::from_utf8_lossy(&out.stdout);
+    version_ge(found.trim(), BUN_VERSION)
+}
+
+/// `found >= pin` by parsing `major.minor.patch` into a tuple. Pre-release /
+/// build suffixes are ignored (only the leading `X.Y.Z` is parsed). Any parse
+/// failure returns false.
+fn version_ge(found: &str, pin: &str) -> bool {
+    fn parse(v: &str) -> Option<(u32, u32, u32)> {
+        // Tolerate a leading `v` and trailing `-canary`/`+build` noise.
+        let core = v.trim().trim_start_matches('v');
+        let core = core
+            .split(|c: char| c == '-' || c == '+' || c == ' ')
+            .next()
+            .unwrap_or(core);
+        let mut it = core.split('.');
+        let maj = it.next()?.parse::<u32>().ok()?;
+        let min = it.next()?.parse::<u32>().ok()?;
+        let pat = it.next()?.parse::<u32>().ok()?;
+        Some((maj, min, pat))
+    }
+    match (parse(found), parse(pin)) {
+        (Some(f), Some(p)) => f >= p,
+        _ => false,
+    }
+}
+
+/// `<app_data_dir>/bun` — the root under which fetched bun targets live.
+pub fn app_data_bun_dir(app: &AppHandle) -> Option<PathBuf> {
+    app.path().app_data_dir().ok().map(|d| d.join("bun"))
+}
+
+/// Where a fetched bun for this host lands: `<app_data_dir>/bun/<target>/bun`.
+/// `None` when the host target is unsupported.
+pub fn fetched_bun_path(app: &AppHandle) -> Option<PathBuf> {
+    if BUN_TARGET == "unsupported" {
+        return None;
+    }
+    app_data_bun_dir(app).map(|d| d.join(BUN_TARGET).join(BUN_BIN_NAME))
+}
+
+/// Sidecar path for a fetched bun binary: `<bin>.zip-sha256`.
+fn sidecar_path_for(bin: &Path) -> PathBuf {
+    PathBuf::from(format!("{}.zip-sha256", bin.display()))
+}
+
+/// True iff the `.zip-sha256` sidecar next to `bin` holds the pinned zip sha
+/// for the current target.
+fn fetched_sidecar_matches_pin(bin: &Path) -> bool {
+    let sidecar = sidecar_path_for(bin);
+    match (std::fs::read_to_string(&sidecar), bun_zip_sha256(BUN_TARGET)) {
+        (Ok(s), Some(pin)) => s.trim() == pin,
+        _ => false,
+    }
+}
+
+/// String-equality on the declared command — matches `resolve_command` and the
+/// shell.execute gate's `"bun"` literal. Anything else (absolute paths,
+/// `./bin/foo`) is not a bun command.
+pub fn is_bun_command(declared: &str) -> bool {
+    declared == "bun"
+}
+
+/// The post-launch-fetched bun path, if `ensure_bun()` has seeded it.
+fn fetched_runtime() -> Option<PathBuf> {
+    FETCHED_BUN.read().ok().and_then(|g| g.clone())
+}
+
+/// Whether a usable bun is resolvable — either boot-resolved (`BUN_PATH`) or
+/// post-launch-fetched (`FETCHED_BUN`). Deferred sidecars gate on this.
+pub fn bun_ready() -> bool {
+    bun_path().is_some() || fetched_runtime().is_some()
 }
 
 /// Path to the bundled bun, if `init_from_app` has run AND a binary exists.
@@ -183,12 +339,272 @@ fn build_augmented_path() -> OsString {
 /// Rewrite a manifest's `command` for spawn. Bare `"bun"` becomes the bundled
 /// binary; absolute paths and `./bin/foo` shell-outs pass through unchanged.
 pub fn resolve_command(declared: &str) -> PathBuf {
-    if declared == "bun" {
+    if is_bun_command(declared) {
         if let Some(p) = bun_path() {
             return p.to_path_buf();
         }
+        // Boot didn't resolve bun, but a post-launch fetch may have seeded it.
+        if let Some(p) = fetched_runtime() {
+            return p;
+        }
     }
     PathBuf::from(declared)
+}
+
+// ── Post-launch fetcher (ensure_bun) ─────────────────────────────────────────
+
+/// Progress narration for the bun fetch. Emitted on `runtime://bun` via the
+/// `on_progress` closure threaded from `lib.rs` / the retry command. The wire
+/// shape is hand-rolled in `to_payload()` (not a Serialize derive) so the
+/// `downloading` pct can be omitted when content-length is unknown.
+#[derive(Debug, Clone)]
+pub enum BunFetchProgress {
+    Checking,
+    Downloading { pct: u8 },
+    Verifying,
+    Ready,
+    Error { msg: String },
+}
+
+impl BunFetchProgress {
+    pub fn to_payload(&self) -> serde_json::Value {
+        match self {
+            BunFetchProgress::Checking => serde_json::json!({ "state": "checking" }),
+            BunFetchProgress::Downloading { pct } => {
+                serde_json::json!({ "state": "downloading", "pct": pct })
+            }
+            BunFetchProgress::Verifying => serde_json::json!({ "state": "verifying" }),
+            BunFetchProgress::Ready => serde_json::json!({ "state": "ready" }),
+            BunFetchProgress::Error { msg } => {
+                serde_json::json!({ "state": "error", "msg": msg })
+            }
+        }
+    }
+}
+
+/// Lowercase hex of a byte slice. Avoids pulling in the `hex` crate's encode
+/// at this site (sha2's GenericArray doesn't impl `LowerHex`); cheap + local.
+fn hex_lower(bytes: &[u8]) -> String {
+    let mut s = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        s.push_str(&format!("{b:02x}"));
+    }
+    s
+}
+
+/// Download + sha-verify + unzip the pinned bun release into
+/// `<app_data_dir>/bun/<target>/`, chmod +x (unix), write the `.zip-sha256`
+/// sidecar, and seed `FETCHED_BUN`. Emits progress via `on_progress`.
+///
+/// NEVER unzips an unverified download: a sha mismatch aborts before the unzip
+/// step. Returns the path to the installed binary on success.
+///
+/// Idempotent: if bun already resolves (`bun_ready`) or a valid fetched binary
+/// already sits on disk with a matching sidecar, returns early without
+/// re-downloading.
+pub async fn ensure_bun<F>(app: &AppHandle, on_progress: F) -> Result<PathBuf, String>
+where
+    F: Fn(BunFetchProgress) + Send + Sync,
+{
+    // Already resolvable (boot-resolved or previously fetched this session).
+    if let Some(p) = bun_path() {
+        return Ok(p.to_path_buf());
+    }
+    if let Some(p) = fetched_runtime() {
+        return Ok(p);
+    }
+
+    on_progress(BunFetchProgress::Checking);
+
+    if BUN_TARGET == "unsupported" {
+        let msg = "host target unsupported by the bun runtime fetcher".to_string();
+        on_progress(BunFetchProgress::Error { msg: msg.clone() });
+        return Err(msg);
+    }
+    let expected_sha = match bun_zip_sha256(BUN_TARGET) {
+        Some(s) => s,
+        None => {
+            let msg = format!("no pinned sha for target {BUN_TARGET}");
+            on_progress(BunFetchProgress::Error { msg: msg.clone() });
+            return Err(msg);
+        }
+    };
+
+    let dir = match app_data_bun_dir(app) {
+        Some(d) => d.join(BUN_TARGET),
+        None => {
+            let msg = "app_data_dir unavailable".to_string();
+            on_progress(BunFetchProgress::Error { msg: msg.clone() });
+            return Err(msg);
+        }
+    };
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        let msg = format!("create_dir_all {}: {e}", dir.display());
+        on_progress(BunFetchProgress::Error { msg: msg.clone() });
+        return Err(msg);
+    }
+    let bin = dir.join(BUN_BIN_NAME);
+    let sidecar = sidecar_path_for(&bin);
+
+    // Fast-path: a valid cached binary with a matching sidecar — seed + done.
+    if bin.is_file() && fetched_sidecar_matches_pin(&bin) {
+        seed_fetched(&bin);
+        on_progress(BunFetchProgress::Ready);
+        return Ok(bin);
+    }
+
+    // ── Download (streamed, with pct when content-length is known) ──────────
+    on_progress(BunFetchProgress::Downloading { pct: 0 });
+    let url = format!(
+        "https://github.com/oven-sh/bun/releases/download/bun-v{BUN_VERSION}/bun-{BUN_TARGET}.zip"
+    );
+    let resp = match reqwest::Client::new().get(&url).send().await {
+        Ok(r) => r,
+        Err(e) => {
+            let msg = format!("download request failed: {e}");
+            on_progress(BunFetchProgress::Error { msg: msg.clone() });
+            return Err(msg);
+        }
+    };
+    let resp = match resp.error_for_status() {
+        Ok(r) => r,
+        Err(e) => {
+            let msg = format!("download HTTP error: {e}");
+            on_progress(BunFetchProgress::Error { msg: msg.clone() });
+            return Err(msg);
+        }
+    };
+    let total = resp.content_length();
+    let mut bytes: Vec<u8> = match total {
+        Some(t) => Vec::with_capacity(t as usize),
+        None => Vec::new(),
+    };
+    {
+        use futures_util::StreamExt;
+        let mut stream = resp.bytes_stream();
+        let mut downloaded: u64 = 0;
+        let mut last_pct: u8 = 0;
+        while let Some(chunk) = stream.next().await {
+            let chunk = match chunk {
+                Ok(c) => c,
+                Err(e) => {
+                    let msg = format!("download stream error: {e}");
+                    on_progress(BunFetchProgress::Error { msg: msg.clone() });
+                    return Err(msg);
+                }
+            };
+            downloaded += chunk.len() as u64;
+            bytes.extend_from_slice(&chunk);
+            if let Some(t) = total {
+                if t > 0 {
+                    let pct = ((downloaded.saturating_mul(100)) / t).min(100) as u8;
+                    if pct != last_pct {
+                        last_pct = pct;
+                        on_progress(BunFetchProgress::Downloading { pct });
+                    }
+                }
+            }
+        }
+    }
+
+    // ── Verify (sha256 of the zip vs the pin) — abort before unzip on miss ──
+    on_progress(BunFetchProgress::Verifying);
+    let got = {
+        let mut hasher = Sha256::new();
+        hasher.update(&bytes);
+        hex_lower(&hasher.finalize())
+    };
+    if got != expected_sha {
+        let msg = format!(
+            "sha256 mismatch for bun-{BUN_TARGET}.zip (expected {expected_sha}, got {got})"
+        );
+        on_progress(BunFetchProgress::Error { msg: msg.clone() });
+        return Err(msg);
+    }
+
+    // ── Unzip (only after verification passes) ──────────────────────────────
+    let mut zip = match zip::ZipArchive::new(std::io::Cursor::new(&bytes)) {
+        Ok(z) => z,
+        Err(e) => {
+            let msg = format!("open zip: {e}");
+            on_progress(BunFetchProgress::Error { msg: msg.clone() });
+            return Err(msg);
+        }
+    };
+    let mut wrote = false;
+    for i in 0..zip.len() {
+        let mut entry = match zip.by_index(i) {
+            Ok(e) => e,
+            Err(e) => {
+                let msg = format!("read zip entry {i}: {e}");
+                on_progress(BunFetchProgress::Error { msg: msg.clone() });
+                return Err(msg);
+            }
+        };
+        if !entry.is_file() {
+            continue;
+        }
+        let name = entry.name().to_string();
+        let tail = name.rsplit('/').next().unwrap_or(&name);
+        if tail == BUN_BIN_NAME {
+            let mut out = match std::fs::File::create(&bin) {
+                Ok(f) => f,
+                Err(e) => {
+                    let msg = format!("create {}: {e}", bin.display());
+                    on_progress(BunFetchProgress::Error { msg: msg.clone() });
+                    return Err(msg);
+                }
+            };
+            if let Err(e) = std::io::copy(&mut entry, &mut out) {
+                let msg = format!("write bun binary: {e}");
+                on_progress(BunFetchProgress::Error { msg: msg.clone() });
+                return Err(msg);
+            }
+            if let Err(e) = out.flush() {
+                let msg = format!("flush bun binary: {e}");
+                on_progress(BunFetchProgress::Error { msg: msg.clone() });
+                return Err(msg);
+            }
+            wrote = true;
+            break;
+        }
+    }
+    if !wrote {
+        let msg = format!("no `{BUN_BIN_NAME}` found inside bun-{BUN_TARGET}.zip");
+        on_progress(BunFetchProgress::Error { msg: msg.clone() });
+        return Err(msg);
+    }
+
+    // chmod +x on unix.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Err(e) = std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)) {
+            let msg = format!("chmod +x {}: {e}", bin.display());
+            on_progress(BunFetchProgress::Error { msg: msg.clone() });
+            return Err(msg);
+        }
+    }
+
+    // Sidecar — records the verified zip sha so future boots trust this binary
+    // without re-downloading.
+    if let Err(e) = std::fs::write(&sidecar, format!("{expected_sha}\n")) {
+        let msg = format!("write sidecar {}: {e}", sidecar.display());
+        on_progress(BunFetchProgress::Error { msg: msg.clone() });
+        return Err(msg);
+    }
+
+    seed_fetched(&bin);
+    on_progress(BunFetchProgress::Ready);
+    Ok(bin)
+}
+
+/// Seed `FETCHED_BUN` so `resolve_command` / `bun_ready` pick up the binary on
+/// the deferred sidecars' next spawn.
+fn seed_fetched(bin: &Path) {
+    if let Ok(mut g) = FETCHED_BUN.write() {
+        *g = Some(bin.to_path_buf());
+    }
 }
 
 #[cfg(test)]
@@ -252,8 +668,90 @@ mod tests {
         // debug builds where fetch-bun.sh hasn't been run.
         // (Cannot assert the bundled-path branch here without an AppHandle;
         // covered by the dev-path test above when the binary is present.)
-        if bun_path().is_none() {
+        if bun_path().is_none() && fetched_runtime().is_none() {
             assert_eq!(resolve_command("bun"), PathBuf::from("bun"));
         }
+    }
+
+    #[test]
+    fn is_bun_command_only_matches_bare_bun() {
+        assert!(is_bun_command("bun"));
+        assert!(!is_bun_command("./bin/iyke-mcp"));
+        assert!(!is_bun_command("/usr/bin/node"));
+        assert!(!is_bun_command("bun.exe"));
+        assert!(!is_bun_command("uvx"));
+    }
+
+    #[test]
+    fn version_ge_compares_semver_tuples() {
+        // Pin is 1.3.14; accept equal-or-newer, reject older + unparsable.
+        assert!(version_ge("1.3.14", "1.3.14")); // equal → accept
+        assert!(version_ge("1.4.0", "1.3.14")); // newer minor
+        assert!(version_ge("2.0.0", "1.3.14")); // newer major
+        assert!(version_ge("1.3.15", "1.3.14")); // newer patch
+        assert!(!version_ge("1.3.13", "1.3.14")); // older patch
+        assert!(!version_ge("1.2.99", "1.3.14")); // older minor
+        assert!(!version_ge("garbage", "1.3.14")); // unparsable → reject
+        // Tolerate a leading `v` and pre-release suffix on the found string.
+        assert!(version_ge("v1.3.14", "1.3.14"));
+        assert!(version_ge("1.4.0-canary.1", "1.3.14"));
+    }
+
+    /// Drift guard: the Rust pin SoT (`BUN_VERSION` + `bun_zip_sha256`) must
+    /// match `scripts/fetch-bun.sh`'s `BUN_VERSION` + `expected_sha_for()`
+    /// case block for every supported target. A bun bump that updates one but
+    /// not the other fails here loudly.
+    #[test]
+    fn pin_table_matches_fetch_bun_script() {
+        let script = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../scripts/fetch-bun.sh"
+        ))
+        .expect("read fetch-bun.sh");
+
+        // BUN_VERSION="x.y.z"
+        let script_version = script
+            .lines()
+            .find_map(|l| {
+                let l = l.trim();
+                l.strip_prefix("BUN_VERSION=")
+                    .map(|v| v.trim().trim_matches('"').to_string())
+            })
+            .expect("BUN_VERSION line in fetch-bun.sh");
+        assert_eq!(
+            script_version, BUN_VERSION,
+            "BUN_VERSION drift: script={script_version} rust={BUN_VERSION}"
+        );
+
+        // Parse `    <target>)  echo "<sha>" ;;` arms.
+        for target in [
+            "linux-x64",
+            "linux-aarch64",
+            "darwin-x64",
+            "darwin-aarch64",
+            "windows-x64",
+        ] {
+            let arm = script
+                .lines()
+                .find(|l| l.trim_start().starts_with(&format!("{target})")))
+                .unwrap_or_else(|| panic!("no case arm for {target} in fetch-bun.sh"));
+            // Extract the sha between the quotes after `echo`.
+            let sha = arm
+                .split("echo")
+                .nth(1)
+                .and_then(|rest| rest.split('"').nth(1))
+                .unwrap_or_else(|| panic!("could not parse sha for {target}: {arm}"));
+            assert_eq!(
+                Some(sha),
+                bun_zip_sha256(target),
+                "sha drift for {target}: script={sha} rust={:?}",
+                bun_zip_sha256(target)
+            );
+        }
+    }
+
+    #[test]
+    fn bun_zip_sha256_unknown_target_is_none() {
+        assert!(bun_zip_sha256("plan9-risc").is_none());
     }
 }
