@@ -6,7 +6,7 @@
 	"type": "module",
 	"description": "Ikenga — Tauri 2 desktop app (control plane for terminals, chat, viewer)",
 	"scripts": {
-		"changeset:version": "bunx changeset version && node scripts/sync-version.mjs",
+		"changeset:version": "bunx @changesets/cli version && node scripts/sync-version.mjs",
 		"dev": "bun run bun:fetch && bun run iyke:bundle && bun run artifact:bundle && bun run tokens:copy && bun run iyke:mcp:build && vite",
 		"build": "bun run iyke:bundle && bun run artifact:bundle && bun run tokens:copy && bun run iyke:mcp:build && vite build",
 		"bun:fetch": "bash scripts/fetch-bun.sh",
