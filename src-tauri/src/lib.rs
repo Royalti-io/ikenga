@@ -61,7 +61,8 @@ use commands::{
     project_artifacts_walk, project_create, project_get_active, project_inventory, project_list,
     project_scaffold_claude, project_set_active, project_skills_list, project_update,
     pty_foreground, pty_foreground_snapshot, pty_kill, pty_resize, pty_spawn, pty_write,
-    screenshot_capture_done, screenshot_capture_failed, screenshot_get_config, screenshot_pane,
+    runtime_retry_bun_fetch, screenshot_capture_done, screenshot_capture_failed,
+    screenshot_get_config, screenshot_pane,
     screenshot_set_dir, screenshot_window, secrets_delete, secrets_delete_scoped, secrets_get,
     secrets_get_scoped, secrets_list_keys, secrets_list_keys_scoped, secrets_set,
     secrets_set_scoped, secrets_vault_status, set_dock_badge, settings_clear_all, settings_get,
@@ -575,6 +576,10 @@ pub fn run() {
             app.manage(KernelState(kernel));
             app.manage(PkgSettingsState(settings_reg));
             app.manage(PkgContentState(pkg_content_server));
+            // Clone for the post-launch bun-fetch task BEFORE `app.manage`
+            // consumes the Arc — the task calls `wake_runtime_blocked()` on a
+            // successful fetch to re-spawn sidecars parked on RuntimeNotReady.
+            let sup_for_bun = sidecar_supervisor.clone();
             app.manage(SidecarSupervisorState(sidecar_supervisor));
             app.manage(SidecarsRegistryState(sidecars_reg));
             app.manage(StreamingSidecarManagerState(Arc::new(
@@ -689,6 +694,35 @@ pub fn run() {
                     Err(e) => log::warn!("env-vault dump skipped: {e}"),
                 }
             });
+
+            // Post-launch bun runtime fetch (B+A hybrid). `init_from_app`
+            // never fetches — it only resolves what already exists. If bun
+            // didn't resolve at boot (fresh install, no system bun), fetch it
+            // now that the window is up. `ensure_bun` owns ALL `runtime://bun`
+            // emits via its on_progress closure; this task only wakes the
+            // RuntimeNotReady-parked sidecars on success.
+            {
+                use tauri::Emitter;
+                let app_for_bun = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    if crate::runtime::bun_ready() {
+                        return;
+                    }
+                    let app_for_emit = app_for_bun.clone();
+                    let emit = move |p: crate::runtime::BunFetchProgress| {
+                        let _ = app_for_emit.emit("runtime://bun", p.to_payload());
+                    };
+                    match crate::runtime::ensure_bun(&app_for_bun, emit).await {
+                        Ok(_) => {
+                            log::info!("[runtime] bun fetched after launch — waking deferred sidecars");
+                            sup_for_bun.wake_runtime_blocked();
+                        }
+                        Err(msg) => {
+                            log::warn!("[runtime] post-launch bun fetch failed: {msg}");
+                        }
+                    }
+                });
+            }
 
             Ok(())
         })
@@ -913,6 +947,7 @@ pub fn run() {
             pkg_dev_register,
             pkg_dev_unregister,
             pkg_dev_reload,
+            runtime_retry_bun_fetch,
             dev_bind_port,
             dev_release_port,
             // first-run wizard detection

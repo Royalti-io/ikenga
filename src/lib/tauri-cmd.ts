@@ -3898,6 +3898,34 @@ export async function projectListenActiveChanged(
 	return listen<{ id: string }>('projects:active-changed', (e) => callback(e.payload));
 }
 
+// ─── Bun runtime fetch (B+A hybrid) ───────────────────────────────────────────
+//
+// The shell no longer bundles bun; on a fresh install it's fetched after the
+// window is interactive (sha-pin-verified). The Rust side narrates progress on
+// `runtime://bun`; the floating chip in `src/shell/runtime-bun-chip.tsx`
+// listens and shows "Fetching runtime… NN%" with a Retry on error.
+
+/** Wire shape emitted on `runtime://bun` by `runtime::ensure_bun`. */
+export type RuntimeBunEvent =
+	| { state: 'checking' }
+	| { state: 'downloading'; pct: number }
+	| { state: 'verifying' }
+	| { state: 'ready' }
+	| { state: 'error'; msg: string };
+
+/** Subscribe to bun-fetch progress. */
+export async function runtimeBunListen(
+	callback: (payload: RuntimeBunEvent) => void
+): Promise<UnlistenFn> {
+	return listen<RuntimeBunEvent>('runtime://bun', (e) => callback(e.payload));
+}
+
+/** Re-trigger the bun fetch after a failure (chip Retry button). No-op if a
+ *  fetch is already in flight or bun is already resolved. */
+export async function runtimeRetryBunFetch(): Promise<void> {
+	return invoke('runtime_retry_bun_fetch');
+}
+
 // ─── Phase 0.5 background-execution spike (debug-only) ────────────────────────
 //
 // Pairs with src-tauri/src/commands/bg_spike.rs. The Rust side is gated on
