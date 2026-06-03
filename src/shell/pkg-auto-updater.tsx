@@ -12,7 +12,8 @@
 // badge + /packages "Update all" strip surface the updates instead.
 
 import { useEffect, useRef, useState } from 'react';
-import { CheckCircle2, Loader2, X } from 'lucide-react';
+import { CheckCircle2, Loader2 } from 'lucide-react';
+import { Banner } from '@/components/ui/banner';
 import { usePkgsDerived } from '@/lib/pkgs/use-derived';
 import { useUpdatePkgs, type UpdateProgress } from '@/lib/pkgs/use-update-pkgs';
 import { useShellStore } from '@/lib/shell/shell-store';
@@ -48,33 +49,19 @@ export function PkgAutoUpdater() {
 
 	if (progress) {
 		return (
-			<div className="flex items-center gap-3 border-b border-border bg-muted/50 px-4 py-2 text-sm">
-				<Loader2 className="size-4 animate-spin text-foreground" />
-				<div className="flex-1">
-					Updating <span className="font-medium">{progress.current || 'packages'}</span> (
-					{progress.done}/{progress.total})…
-				</div>
-			</div>
+			<Banner tone="info" icon={<Loader2 className="animate-spin motion-reduce:animate-none" />}>
+				Updating <span className="font-medium">{progress.current || 'packages'}</span> (
+				{progress.done}/{progress.total})…
+			</Banner>
 		);
 	}
 
 	if (doneCount && doneCount > 0) {
 		return (
-			<div className="flex items-center gap-3 border-b border-emerald-500/30 bg-emerald-500/10 px-4 py-2 text-sm">
-				<CheckCircle2 className="size-4 text-emerald-500" />
-				<div className="flex-1">
-					Updated <span className="font-medium">{doneCount}</span> package
-					{doneCount === 1 ? '' : 's'}.
-				</div>
-				<button
-					type="button"
-					onClick={() => setDoneCount(null)}
-					className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
-					aria-label="Dismiss"
-				>
-					<X className="size-3.5" />
-				</button>
-			</div>
+			<Banner tone="success" icon={<CheckCircle2 />} onDismiss={() => setDoneCount(null)}>
+				Updated <span className="font-medium">{doneCount}</span> package
+				{doneCount === 1 ? '' : 's'}.
+			</Banner>
 		);
 	}
 

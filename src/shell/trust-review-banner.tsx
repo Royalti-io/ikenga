@@ -11,6 +11,7 @@
 import { ShieldAlert } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 
+import { Banner } from '@/components/ui/banner';
 import { Button } from '@/components/ui/button';
 import { TrustReviewModal } from '@/components/pkg/trust-review-modal';
 import { pkgTrustListPending, type PkgTrustReview } from '@/lib/tauri-cmd';
@@ -44,21 +45,23 @@ export function TrustReviewBanner() {
 
 	return (
 		<>
-			<div className="flex items-center gap-3 border-b border-border bg-amber-100/40 px-4 py-2 text-sm dark:bg-amber-950/30">
-				<ShieldAlert className="size-4 text-amber-700 dark:text-amber-400" />
-				<div className="flex-1">
-					<span className="font-medium">
-						{count === 1 ? '1 package needs' : `${count} packages need`} capability review
-					</span>
-					<span className="text-muted-foreground">
-						{' '}
-						— parked until you approve or reject the changes.
-					</span>
-				</div>
-				<Button size="sm" onClick={() => setModalOpen(true)}>
-					Review
-				</Button>
-			</div>
+			<Banner
+				tone="warning"
+				icon={<ShieldAlert />}
+				actions={
+					<Button size="sm" onClick={() => setModalOpen(true)}>
+						Review
+					</Button>
+				}
+			>
+				<span className="font-medium">
+					{count === 1 ? '1 package needs' : `${count} packages need`} capability review
+				</span>
+				<span className="text-muted-foreground">
+					{' '}
+					— parked until you approve or reject the changes.
+				</span>
+			</Banner>
 			<TrustReviewModal
 				open={modalOpen}
 				onOpenChange={setModalOpen}
