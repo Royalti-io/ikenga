@@ -2,6 +2,7 @@ import type * as React from 'react';
 import type { LucideIcon } from 'lucide-react';
 
 import { cn } from '@/components/ui/utils';
+import { type ChipTone, StatusChip } from '@/components/ui/status-chip';
 
 // Shared sidebar nav vocabulary — the section-header + nav-row the activity-mode
 // sidebars render through. Consolidates the duplicated hand-rolled implementations
@@ -105,24 +106,14 @@ export function SidebarNavRow({
 	);
 }
 
-const COUNT_TONE: Record<SidebarNavBadgeTone, React.CSSProperties> = {
-	default: { borderColor: 'var(--border)', background: 'var(--bg-base)', color: 'var(--fg-muted)' },
-	attention: {
-		borderColor: 'color-mix(in srgb, var(--achievement) 40%, transparent)',
-		background: 'var(--achievement-soft)',
-		color: 'var(--achievement)',
-	},
-	warn: {
-		borderColor: 'color-mix(in srgb, var(--danger) 40%, transparent)',
-		background: 'var(--danger-soft)',
-		color: 'var(--danger)',
-	},
+// Count badge folds onto the shared StatusChip — pkgs-mode's attention/warn
+// tones map to the chip's warn (--achievement) / danger (--danger).
+const COUNT_TO_CHIP: Record<SidebarNavBadgeTone, ChipTone> = {
+	default: 'muted',
+	attention: 'warn',
+	warn: 'danger',
 };
 
 function SidebarNavCount({ count, tone }: { count: number; tone: SidebarNavBadgeTone }) {
-	return (
-		<span className="rounded-sm border px-1.5 py-px font-mono text-[10px]" style={COUNT_TONE[tone]}>
-			{count}
-		</span>
-	);
+	return <StatusChip tone={COUNT_TO_CHIP[tone]}>{count}</StatusChip>;
 }
