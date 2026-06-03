@@ -65,14 +65,30 @@ pub struct ScreenshotResult {
     pub bytes_len: usize,
 }
 
-/// Result returned across the Rust↔FE oneshot. Either the captured PNG
-/// or a structured failure (so callers can distinguish a timeout from
-/// a cross-origin iframe vs. a missing pane).
+/// Result returned across the Rust↔FE oneshot. Either the captured PNG,
+/// a structured failure (so callers can distinguish a timeout from a
+/// cross-origin iframe vs. a missing pane), or a request to capture the
+/// pane via the native window-crop path instead of the synchronous FE
+/// `modern-screenshot` clone. The FE chooses `NativeCrop` for any pane
+/// whose content fits within the viewport (no own-DOM overflow) — the
+/// common case — so the heavy main-thread DOM walk that froze/aborted
+/// WebKitGTK is avoided. `rect` is the pane's CSS-pixel bounding box
+/// relative to the webview viewport: `[x, y, w, h]`.
 #[derive(Debug, Clone)]
 pub enum CaptureOutcome {
     Ok(CaptureResult),
     Err(String),
+    NativeCrop { rect: [f64; 4] },
 }
+
+/// Whether this compositor's window-capture tool produces a PNG we can
+/// crop pixel-accurately. `gnome-screenshot --window` on mutter adds a
+/// drop-shadow margin, so the captured PNG is larger than the window and
+/// a blind crop would be offset. We probe once (compare PNG dims to the
+/// window's outer size) and cache the verdict: 0 = unknown, 1 = reliable,
+/// 2 = unreliable. When unreliable we route panes straight to the FE
+/// clone without paying the probe each time.
+static NATIVE_CROP_RELIABLE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
 
 /// Pending captures keyed by request_id. The capture helper inserts a sender,
 /// emits the request event, then awaits the receiver. The FE invokes
@@ -158,6 +174,12 @@ struct RequestPayload<'a> {
     request_id: &'a str,
     kind: &'a str,
     pane_id: Option<&'a str>,
+    /// When true the FE must use the `modern-screenshot` clone path even
+    /// for a pane that would otherwise route to native-crop. Set by the
+    /// Rust side when the native window-crop probe came back unreliable
+    /// (or when native capture failed) so a second attempt actually
+    /// produces bytes instead of looping.
+    force_fe: bool,
 }
 
 /// Core capture helper. Emits the request event, waits up to
@@ -180,16 +202,99 @@ pub async fn capture(
     // workspace DOM, which on WebKitGTK freezes the UI for minutes on a
     // non-trivial workspace (verified 2026-05-24). The native tool grabs the
     // window pixels without touching the renderer, so it can't hang the app.
-    // Pane capture stays on the FE path below: the OS has no notion of a
-    // single pane, so we must render that bounded subtree ourselves.
+    // Windows has no native path yet (`capture_region_to` is a stub), so
+    // there we fall back to the FE clone — WebView2 (Chromium) handles the
+    // full-DOM walk far better than WebKitGTK, so the freeze risk is lower.
     if matches!(kind, ScreenshotKind::Window) {
-        return capture_window_native(app, out_path).await;
+        #[cfg(not(target_os = "windows"))]
+        {
+            return capture_window_native(app, out_path).await;
+        }
+        #[cfg(target_os = "windows")]
+        {
+            let captured = emit_and_await(app, pending, kind, None, true).await?;
+            return write_capture(app, kind, None, out_path, captured).await;
+        }
     }
 
-    if pane_id.is_none() {
-        return Err(anyhow!("pane_id required for pane screenshot"));
-    }
+    let pane_id = pane_id.ok_or_else(|| anyhow!("pane_id required for pane screenshot"))?;
+    let captured = capture_pane(app, pending, pane_id).await?;
+    write_capture(app, kind, Some(pane_id), out_path, captured).await
+}
 
+/// Pane capture orchestration. Asks the FE to decide native-crop vs. FE
+/// clone (see [`CaptureOutcome::NativeCrop`]); on a native request, grabs
+/// the window natively and crops it to the pane's rect. Falls back to the
+/// FE clone when native crop is unavailable or this compositor's capture
+/// tool produces an un-croppable (shadowed) PNG.
+async fn capture_pane(
+    app: &AppHandle,
+    pending: &ScreenshotPending,
+    pane_id: &str,
+) -> Result<CaptureResult> {
+    use std::sync::atomic::Ordering;
+
+    // If we already learned native crop is unreliable here, tell the FE to
+    // clone up-front so we don't pay a doomed window-capture probe again.
+    let force_fe = NATIVE_CROP_RELIABLE.load(Ordering::Relaxed) == 2;
+
+    match emit_and_await(app, pending, ScreenshotKind::Pane, Some(pane_id), force_fe).await? {
+        CaptureOutcome::Ok(r) => Ok(r),
+        CaptureOutcome::Err(msg) => Err(anyhow!("screenshot capture failed: {msg}")),
+        CaptureOutcome::NativeCrop { rect } => {
+            match crop_pane_from_window(app, rect).await {
+                Ok(Some(cropped)) => {
+                    NATIVE_CROP_RELIABLE.store(1, Ordering::Relaxed);
+                    Ok(cropped)
+                }
+                Ok(None) => {
+                    // Geometry untrustworthy (e.g. gnome-screenshot shadow).
+                    // Remember it and ask the FE to clone instead.
+                    NATIVE_CROP_RELIABLE.store(2, Ordering::Relaxed);
+                    tracing::warn!(
+                        "native pane crop unreliable on this compositor; falling back to FE clone"
+                    );
+                    force_fe_clone(app, pending, pane_id).await
+                }
+                Err(e) => {
+                    // Native capture failed outright (no tool, Wayland
+                    // position unavailable, …). Don't poison the cache —
+                    // this can be transient — but do clone for this request.
+                    tracing::warn!("native pane crop failed ({e:#}); falling back to FE clone");
+                    force_fe_clone(app, pending, pane_id).await
+                }
+            }
+        }
+    }
+}
+
+/// Second attempt that forces the FE clone path. A `NativeCrop` response
+/// here is a protocol violation (we asked for bytes); surface it as an error
+/// rather than recursing.
+async fn force_fe_clone(
+    app: &AppHandle,
+    pending: &ScreenshotPending,
+    pane_id: &str,
+) -> Result<CaptureResult> {
+    match emit_and_await(app, pending, ScreenshotKind::Pane, Some(pane_id), true).await? {
+        CaptureOutcome::Ok(r) => Ok(r),
+        CaptureOutcome::Err(msg) => Err(anyhow!("screenshot capture failed: {msg}")),
+        CaptureOutcome::NativeCrop { .. } => {
+            Err(anyhow!("FE returned native-crop request despite force_fe"))
+        }
+    }
+}
+
+/// Emit one `screenshot://request` and await the FE's response (bytes,
+/// failure, or a native-crop request) up to [`CAPTURE_TIMEOUT`]. Cleans up
+/// the pending registry on emit failure / timeout.
+async fn emit_and_await(
+    app: &AppHandle,
+    pending: &ScreenshotPending,
+    kind: ScreenshotKind,
+    pane_id: Option<&str>,
+    force_fe: bool,
+) -> Result<CaptureOutcome> {
     let request_id = Uuid::new_v4().to_string();
     let (tx, rx) = oneshot::channel::<CaptureOutcome>();
     {
@@ -204,30 +309,35 @@ pub async fn capture(
             ScreenshotKind::Pane => "pane",
         },
         pane_id,
+        force_fe,
     };
     if let Err(e) = app.emit(REQUEST_EVENT, &payload) {
-        // Clean up registry on emit failure.
         pending.lock().await.remove(&request_id);
         return Err(anyhow!("emit screenshot request: {e}"));
     }
 
-    let captured = match tokio::time::timeout(CAPTURE_TIMEOUT, rx).await {
-        Ok(Ok(CaptureOutcome::Ok(r))) => r,
-        Ok(Ok(CaptureOutcome::Err(msg))) => {
-            return Err(anyhow!("screenshot capture failed: {msg}"));
-        }
-        Ok(Err(_)) => {
-            return Err(anyhow!("screenshot sender dropped"));
-        }
+    match tokio::time::timeout(CAPTURE_TIMEOUT, rx).await {
+        Ok(Ok(outcome)) => Ok(outcome),
+        Ok(Err(_)) => Err(anyhow!("screenshot sender dropped")),
         Err(_) => {
             pending.lock().await.remove(&request_id);
-            return Err(anyhow!(
+            Err(anyhow!(
                 "screenshot timed out after {}s",
                 CAPTURE_TIMEOUT.as_secs()
-            ));
+            ))
         }
-    };
+    }
+}
 
+/// Resolve the output path (explicit, user override, or platform default),
+/// write the PNG, and build the [`ScreenshotResult`].
+async fn write_capture(
+    app: &AppHandle,
+    kind: ScreenshotKind,
+    pane_id: Option<&str>,
+    out_path: Option<String>,
+    captured: CaptureResult,
+) -> Result<ScreenshotResult> {
     let resolved_path = match out_path {
         Some(p) => PathBuf::from(shellexpand::tilde(&p).into_owned()),
         None => {
@@ -264,10 +374,27 @@ struct ScreenRect {
     h: u32,
 }
 
-async fn capture_window_native(
-    app: &AppHandle,
-    out_path: Option<String>,
-) -> Result<ScreenshotResult> {
+/// Window geometry captured alongside the native PNG, all in physical
+/// pixels (the same units the captured PNG is in). Used to locate the
+/// webview *content* origin inside the outer-window PNG so we can crop a
+/// single pane out of it.
+#[derive(Debug, Clone, Copy)]
+struct WindowGeom {
+    /// Outer-window size (with chrome) in physical px.
+    outer_w: u32,
+    outer_h: u32,
+    /// Webview content-area top-left, as an offset from the outer-window
+    /// top-left, in physical px. Title-bar height + border width.
+    content_off_x: i32,
+    content_off_y: i32,
+    /// Device-pixel ratio (CSS px → physical px).
+    scale: f64,
+}
+
+/// Grab the outer window via the native tool and return the PNG bytes plus
+/// the geometry needed to crop a pane out of it. Shared by the window
+/// command and the pane native-crop path.
+async fn capture_window_png(app: &AppHandle) -> Result<(Vec<u8>, WindowGeom)> {
     let window = app
         .get_webview_window("main")
         .ok_or_else(|| anyhow!("main webview window not found"))?;
@@ -285,19 +412,42 @@ async fn capture_window_native(
     // without being noticeable.
     tokio::time::sleep(std::time::Duration::from_millis(80)).await;
 
-    let pos = window.outer_position().context("outer_position")?;
-    let size = window.outer_size().context("outer_size")?;
+    let outer_pos = window.outer_position().context("outer_position")?;
+    let outer_size = window.outer_size().context("outer_size")?;
+    // inner_position is the content-area top-left in screen coords; the
+    // delta from outer_position is the chrome (title bar + border) offset.
+    // If it's unavailable (some Wayland setups) we assume no chrome offset —
+    // the dimension check below will reject the crop if that guess is wrong.
+    let inner_pos = window.inner_position().unwrap_or(outer_pos);
+    let scale = window.scale_factor().unwrap_or(1.0);
+
     let rect = ScreenRect {
-        x: pos.x,
-        y: pos.y,
-        w: size.width,
-        h: size.height,
+        x: outer_pos.x,
+        y: outer_pos.y,
+        w: outer_size.width,
+        h: outer_size.height,
     };
 
     let png_bytes = tokio::task::spawn_blocking(move || capture_region_native(rect))
         .await
         .context("native capture join")?
         .context("native capture")?;
+
+    let geom = WindowGeom {
+        outer_w: outer_size.width,
+        outer_h: outer_size.height,
+        content_off_x: inner_pos.x - outer_pos.x,
+        content_off_y: inner_pos.y - outer_pos.y,
+        scale,
+    };
+    Ok((png_bytes, geom))
+}
+
+async fn capture_window_native(
+    app: &AppHandle,
+    out_path: Option<String>,
+) -> Result<ScreenshotResult> {
+    let (png_bytes, geom) = capture_window_png(app).await?;
 
     let resolved_path = match out_path {
         Some(p) => PathBuf::from(shellexpand::tilde(&p).into_owned()),
@@ -311,13 +461,91 @@ async fn capture_window_native(
     };
     write_png(&resolved_path, &png_bytes)?;
 
-    let dims = png_dimensions(&png_bytes).unwrap_or((rect.w, rect.h));
+    let dims = png_dimensions(&png_bytes).unwrap_or((geom.outer_w, geom.outer_h));
     Ok(ScreenshotResult {
         path: resolved_path.to_string_lossy().into_owned(),
         width: dims.0,
         height: dims.1,
         bytes_len: png_bytes.len(),
     })
+}
+
+/// Capture the window natively and crop it to a single pane's rect.
+///
+/// Returns `Ok(None)` when the captured PNG can't be trusted for a precise
+/// crop — specifically when its dimensions don't match the window's outer
+/// size (within a small tolerance). `gnome-screenshot --window` on mutter
+/// adds a drop-shadow margin, so the PNG is larger than the window and the
+/// content offset we computed from `inner_position`/`outer_position` would
+/// be wrong. In that case the caller falls back to the FE clone. On
+/// wlroots (grim), X11 (scrot), and macOS (screencapture) the PNG matches
+/// the window exactly and the crop is pixel-accurate.
+/// Tolerance (physical px) for matching the captured PNG to the window's
+/// outer size. Absorbs sub-pixel scale rounding; anything larger means the
+/// capture tool added a margin (gnome-screenshot shadow) and the crop
+/// offset can't be trusted.
+const CROP_DIM_TOLERANCE: i64 = 4;
+
+/// True when the captured PNG's dimensions match the outer window (within
+/// [`CROP_DIM_TOLERANCE`]), so the content-offset crop will be accurate.
+fn dims_trustworthy(geom: WindowGeom, pw: u32, ph: u32) -> bool {
+    (pw as i64 - geom.outer_w as i64).abs() <= CROP_DIM_TOLERANCE
+        && (ph as i64 - geom.outer_h as i64).abs() <= CROP_DIM_TOLERANCE
+}
+
+/// Map a pane's CSS-pixel viewport rect to a physical-pixel crop box within
+/// the outer-window PNG, clamped to the PNG bounds (a pane can sit partially
+/// past the viewport edge; we keep the visible intersection). Returns
+/// `(x, y, w, h)`; a zero `w`/`h` means the rect lands entirely outside.
+fn crop_box(geom: WindowGeom, rect: [f64; 4], pw: u32, ph: u32) -> (u32, u32, u32, u32) {
+    let s = geom.scale;
+    let cx = geom.content_off_x as f64 + rect[0] * s;
+    let cy = geom.content_off_y as f64 + rect[1] * s;
+    let cw = (rect[2] * s).round();
+    let ch = (rect[3] * s).round();
+
+    let x0 = cx.round().clamp(0.0, pw as f64) as u32;
+    let y0 = cy.round().clamp(0.0, ph as f64) as u32;
+    let x1 = (cx + cw).round().clamp(0.0, pw as f64) as u32;
+    let y1 = (cy + ch).round().clamp(0.0, ph as f64) as u32;
+    (x0, y0, x1.saturating_sub(x0), y1.saturating_sub(y0))
+}
+
+async fn crop_pane_from_window(app: &AppHandle, rect: [f64; 4]) -> Result<Option<CaptureResult>> {
+    let (png_bytes, geom) = capture_window_png(app).await?;
+
+    let (pw, ph) =
+        png_dimensions(&png_bytes).ok_or_else(|| anyhow!("native capture produced a non-PNG"))?;
+
+    // Trust check: the PNG must be the outer window, no added margin.
+    if !dims_trustworthy(geom, pw, ph) {
+        return Ok(None);
+    }
+
+    let (x0, y0, crop_w, crop_h) = crop_box(geom, rect, pw, ph);
+    if crop_w == 0 || crop_h == 0 {
+        return Err(anyhow!(
+            "pane rect {rect:?} maps to an empty region within the window capture"
+        ));
+    }
+
+    // Decode + crop off-thread; image decode/encode is CPU-bound.
+    let cropped = tokio::task::spawn_blocking(move || -> Result<CaptureResult> {
+        let img = image::load_from_memory(&png_bytes).context("decode window PNG")?;
+        let sub = image::imageops::crop_imm(&img, x0, y0, crop_w, crop_h).to_image();
+        let mut out = std::io::Cursor::new(Vec::new());
+        sub.write_to(&mut out, image::ImageFormat::Png)
+            .context("encode cropped PNG")?;
+        Ok(CaptureResult {
+            png_bytes: out.into_inner(),
+            width: crop_w,
+            height: crop_h,
+        })
+    })
+    .await
+    .context("crop join")??;
+
+    Ok(Some(cropped))
 }
 
 fn capture_region_native(rect: ScreenRect) -> Result<Vec<u8>> {
@@ -591,6 +819,32 @@ pub async fn screenshot_capture_failed(
     Ok(())
 }
 
+#[derive(Deserialize)]
+pub struct CaptureNativeCropArgs {
+    pub request_id: String,
+    /// Pane bounding box in CSS px, relative to the webview viewport:
+    /// `[x, y, w, h]`.
+    pub rect: [f64; 4],
+}
+
+/// FE callback for the native-crop path. The FE decided this pane fits in
+/// the viewport (no own-DOM overflow) and reports its rect instead of
+/// running the heavy `modern-screenshot` clone; the Rust side captures the
+/// window natively and crops to `rect`. Resolves the pending oneshot with
+/// [`CaptureOutcome::NativeCrop`].
+#[tauri::command]
+pub async fn screenshot_capture_native_crop(
+    pending: State<'_, ScreenshotPending>,
+    args: CaptureNativeCropArgs,
+) -> Result<(), String> {
+    let mut map = pending.inner().lock().await;
+    let Some(tx) = map.remove(&args.request_id) else {
+        return Err(format!("no pending capture for {}", args.request_id));
+    };
+    let _ = tx.send(CaptureOutcome::NativeCrop { rect: args.rect });
+    Ok(())
+}
+
 // ─── Config commands ──────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize)]
@@ -669,6 +923,61 @@ mod tests {
         assert!(!name.contains('/'));
         assert!(!name.contains(':'));
         assert!(!name.contains('\\'));
+    }
+
+    fn geom(outer_w: u32, outer_h: u32, off_x: i32, off_y: i32, scale: f64) -> WindowGeom {
+        WindowGeom {
+            outer_w,
+            outer_h,
+            content_off_x: off_x,
+            content_off_y: off_y,
+            scale,
+        }
+    }
+
+    #[test]
+    fn dims_trustworthy_exact_and_within_tolerance() {
+        let g = geom(1920, 1080, 0, 0, 1.0);
+        assert!(dims_trustworthy(g, 1920, 1080));
+        assert!(dims_trustworthy(g, 1923, 1078)); // within ±4
+    }
+
+    #[test]
+    fn dims_untrustworthy_when_shadow_margin_added() {
+        // gnome-screenshot --window adds ~10px of drop shadow each side.
+        let g = geom(1920, 1080, 0, 0, 1.0);
+        assert!(!dims_trustworthy(g, 1940, 1100));
+    }
+
+    #[test]
+    fn crop_box_offsets_by_chrome_and_scale() {
+        // 30px title bar, no side border, scale 1. Pane at (10,20) sized 100x50.
+        let g = geom(1000, 800, 0, 30, 1.0);
+        let (x, y, w, h) = crop_box(g, [10.0, 20.0, 100.0, 50.0], 1000, 800);
+        assert_eq!((x, y, w, h), (10, 50, 100, 50));
+    }
+
+    #[test]
+    fn crop_box_applies_devicepixel_scale() {
+        let g = geom(2000, 1600, 0, 60, 2.0);
+        // CSS rect *2 (physical) + 60px chrome offset on y.
+        let (x, y, w, h) = crop_box(g, [10.0, 20.0, 100.0, 50.0], 2000, 1600);
+        assert_eq!((x, y, w, h), (20, 100, 200, 100));
+    }
+
+    #[test]
+    fn crop_box_clamps_pane_past_viewport_edge() {
+        let g = geom(1000, 800, 0, 0, 1.0);
+        // Pane starts at x=950, 100px wide → clamps to the 50px visible strip.
+        let (x, _y, w, _h) = crop_box(g, [950.0, 0.0, 100.0, 40.0], 1000, 800);
+        assert_eq!((x, w), (950, 50));
+    }
+
+    #[test]
+    fn crop_box_zero_area_when_fully_offscreen() {
+        let g = geom(1000, 800, 0, 0, 1.0);
+        let (_x, _y, w, h) = crop_box(g, [2000.0, 2000.0, 100.0, 100.0], 1000, 800);
+        assert!(w == 0 || h == 0);
     }
 
     #[test]

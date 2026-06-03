@@ -2965,6 +2965,7 @@ dependencies = [
  "futures-util",
  "glob",
  "hex",
+ "image",
  "include_dir",
  "libc",
  "log",

@@ -159,13 +159,54 @@ export function captureWindow(): Promise<CaptureOutput> {
 	return captureToPng(document.documentElement);
 }
 
+/** Resolve a pane element by `data-pane-id`, or `null` if not mounted. */
+export function findPaneElement(paneId: string): HTMLElement | null {
+	return document.querySelector<HTMLElement>(`[data-pane-id="${cssEscape(paneId)}"]`);
+}
+
 /** Capture a single pane by `data-pane-id`. Throws if the pane isn't
  *  mounted — the caller should treat that as a 404. */
 export function capturePane(paneId: string): Promise<CaptureOutput> {
-	const el = document.querySelector<HTMLElement>(`[data-pane-id="${cssEscape(paneId)}"]`);
+	const el = findPaneElement(paneId);
 	if (!el) throw new Error(`pane not found: ${paneId}`);
 	return captureToPng(el);
 }
+
+// True when the pane element's *own* DOM scrolls beyond its box — i.e. there
+// is content above/below or left/right of the visible area that a native
+// window-crop (which only sees on-screen pixels) would miss. Artifact panes
+// scroll *inside* a same-origin iframe, not the pane element itself, and
+// modern-screenshot only renders the iframe's visible box anyway — so those
+// report `false` and correctly route to the cheap native crop. The 8px slop
+// absorbs sub-pixel layout rounding.
+export function paneHasOwnOverflow(el: HTMLElement): boolean {
+	return el.scrollHeight > el.clientHeight + 8 || el.scrollWidth > el.clientWidth + 8;
+}
+
+// Count elements in the subtree that the FE clone would have to walk,
+// including same-origin iframe documents (cross-origin frames are pruned by
+// `isUnwalkableIframe` and don't count). This is the cost proxy for the
+// synchronous `getComputedStyle`-per-node clone that can stall — and on
+// WebKitGTK abort — the renderer.
+export function subtreeNodeCount(el: HTMLElement): number {
+	let n = el.getElementsByTagName('*').length;
+	const frames = el.getElementsByTagName('iframe');
+	for (let i = 0; i < frames.length; i++) {
+		try {
+			const doc = frames[i].contentDocument;
+			if (doc) n += doc.getElementsByTagName('*').length;
+		} catch {
+			// cross-origin — not walked, not counted.
+		}
+	}
+	return n;
+}
+
+// Hard ceiling on FE-clone subtree size. Above this we refuse to attempt the
+// synchronous clone (which would risk a renderer abort) and return a clean
+// error instead. Set well above any real artifact — a normal heavy board is
+// a few thousand nodes — so this only catches pathological/runaway DOMs.
+export const FE_CLONE_NODE_CEILING = 50_000;
 
 // Tiny base64 encoder for binary buffers — `btoa` chokes on non-Latin1
 // bytes, and PNG has plenty. Done in 32KB chunks so we don't blow the

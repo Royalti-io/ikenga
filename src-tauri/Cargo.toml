@@ -47,6 +47,10 @@ tauri-plugin-process = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 base64 = "0.22"
+# Decode the native window-capture PNG and crop it to a single pane's screen
+# rect (commands/screenshot.rs). Already in the lockfile transitively; pinned
+# here so the pane native-crop path has it directly. PNG-only to stay lean.
+image = { version = "0.25", default-features = false, features = ["png"] }
 portable-pty = "0.8"
 uuid = { version = "1", features = ["v4"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "net", "fs", "process", "io-util"] }

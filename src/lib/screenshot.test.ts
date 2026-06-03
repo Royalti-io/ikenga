@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { clampScale, isUnwalkableIframe, MAX_CAPTURE_PIXELS } from './screenshot';
+import { clampScale, isUnwalkableIframe, MAX_CAPTURE_PIXELS, subtreeNodeCount } from './screenshot';
 
 function setDpr(dpr: number) {
 	Object.defineProperty(window, 'devicePixelRatio', {
@@ -79,5 +79,41 @@ describe('isUnwalkableIframe', () => {
 			},
 		} as unknown as Element;
 		expect(isUnwalkableIframe(iframe)).toBe(true);
+	});
+});
+
+describe('subtreeNodeCount', () => {
+	it('counts descendant elements', () => {
+		const root = document.createElement('div');
+		root.innerHTML = '<p><span>a</span></p><p>b</p>';
+		// p, span, p  → 3 (text nodes are not elements)
+		expect(subtreeNodeCount(root)).toBe(3);
+	});
+
+	it('adds same-origin iframe document nodes', () => {
+		const root = document.createElement('div');
+		const iframe = document.createElement('iframe');
+		const doc = document.implementation.createHTMLDocument('x');
+		doc.body.innerHTML = '<section><b></b></section>';
+		// Fake a reachable contentDocument (jsdom iframes aren't navigated).
+		Object.defineProperty(iframe, 'contentDocument', { value: doc, configurable: true });
+		root.appendChild(iframe);
+		// iframe element (1) + doc: html, head, title, body, section, b (6).
+		expect(subtreeNodeCount(root)).toBe(1 + doc.getElementsByTagName('*').length);
+		expect(subtreeNodeCount(root)).toBeGreaterThan(1);
+	});
+
+	it('skips cross-origin iframes without throwing', () => {
+		const root = document.createElement('div');
+		const iframe = document.createElement('iframe');
+		Object.defineProperty(iframe, 'contentDocument', {
+			get() {
+				throw new DOMException('cross-origin', 'SecurityError');
+			},
+			configurable: true,
+		});
+		root.appendChild(iframe);
+		expect(() => subtreeNodeCount(root)).not.toThrow();
+		expect(subtreeNodeCount(root)).toBe(1); // just the iframe element
 	});
 });
