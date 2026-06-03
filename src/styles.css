@@ -331,3 +331,24 @@ body {
 	border: 1px solid var(--rule, hsl(var(--border)));
 	border-radius: 2px;
 }
+
+/* ---------------------------------------------------------------------------
+ * Global reduced-motion safety-net.
+ *
+ * Honors `prefers-reduced-motion: reduce` across the chrome — the token-driven
+ * transitions (theme/density swaps, hover states) and the bespoke keyframes
+ * (iyke-shimmer, ikenga-ember-pulse / .streaming-edge). A single OS setting
+ * calms the whole shell so individual components don't each have to guard.
+ * Landed by the shell-design-system quality gate (motion foundation part's
+ * forward requirement; mirrors atelier's app-kit/00-base.css global block).
+ * ------------------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.01ms !important;
+		scroll-behavior: auto !important;
+	}
+}
