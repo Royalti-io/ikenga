@@ -1,0 +1,546 @@
+/* approve-gate-panel — pattern-glue CSS for the run-then-pause draft-review surface.
+ *
+ * Ported from the locked design pane plans/atelier/designs/atelier-approve-gate.html (D-04).
+ * The app-kit component classes (.btn*, .ob-actions*, .ob-chip*, .atelier-state*) are imported
+ * once here so they ship with this panel's CSS chunk rather than polluting the shell's chrome
+ * styles.css — the bare app-kit classes only match elements that use them (atelier surfaces),
+ * so there is no collision with the shadcn-based chrome. The app-kit's 00-base resets duplicate
+ * what shell styles.css already sets (same token values), so the import is benign globally.
+ *
+ * Everything below is the PATTERN-GLUE layer (the .ob-* split/list/row/detail/quick-edit
+ * structure that wires the composed components together). It is intentionally NOT lifted into a
+ * shared app-kit partial — it has no reuse beyond this surface (per the approve-gate part doc). */
+
+@import "@ikenga/tokens/app-kit.css";
+
+/* === Approval split (the resizable master-detail shell) ===================== */
+.ob-split {
+	--list-w: 420px;
+	display: grid;
+	grid-template-columns: minmax(320px, var(--list-w)) 4px minmax(480px, 1fr);
+	height: 100%;
+	overflow: hidden;
+}
+
+/* === Left column — the draft queue ========================================= */
+.ob-list {
+	overflow-y: auto;
+	background: var(--bg-surface);
+}
+
+.ob-toolbar {
+	padding: var(--row-pad-y) var(--space-3);
+	border-bottom: 1px solid var(--border-soft);
+	background: var(--bg-surface);
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	flex-wrap: wrap;
+	position: sticky;
+	top: 0;
+	z-index: 5;
+}
+.ob-toolbar-title {
+	font-family: var(--font-display);
+	font-weight: 500;
+	font-size: var(--text-h3);
+	color: var(--fg);
+}
+.ob-toolbar-meta {
+	font-family: var(--font-mono);
+	font-size: 10px;
+	color: var(--fg-faint);
+	letter-spacing: 0.04em;
+}
+.ob-toolbar-spacer {
+	flex: 1;
+}
+
+.ob-filters {
+	display: flex;
+	gap: 4px;
+	flex-wrap: wrap;
+	padding: 0 var(--space-3) var(--space-2);
+	border-bottom: 1px solid var(--border-soft);
+	background: var(--bg-surface);
+	position: sticky;
+	top: 38px;
+	z-index: 4;
+}
+.ob-filter {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-1);
+	background: var(--bg-base);
+	border: 1px solid var(--border-soft);
+	border-radius: var(--radius-pill);
+	padding: 3px var(--space-2);
+	font-size: 11px;
+	color: var(--fg-muted);
+	cursor: pointer;
+}
+.ob-filter.is-on {
+	color: var(--tint-fg-active, var(--primary));
+	border-color: var(--tint-fg-active, var(--primary));
+	background: color-mix(in srgb, var(--tint-fg-active, var(--primary)) 14%, transparent);
+}
+
+/* Bulk action bar (appears when ≥1 row checked) */
+.ob-bulk {
+	padding: var(--space-2) var(--space-3);
+	background: color-mix(in srgb, var(--tint-fg-active, var(--primary)) 12%, var(--bg-surface));
+	border-bottom: 1px solid var(--tint-fg-active, var(--primary));
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	font-size: var(--text-body-sm);
+	color: var(--fg);
+}
+.ob-bulk-count {
+	font-family: var(--font-mono);
+	font-size: 11px;
+	color: var(--tint-fg-active, var(--primary));
+	letter-spacing: 0.04em;
+}
+.ob-bulk-spacer {
+	flex: 1;
+}
+
+/* Time-horizon section labels (sticky within the list scroll) */
+.ob-section {
+	padding: var(--space-2) var(--space-3);
+	font-family: var(--font-mono);
+	font-size: 10px;
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+	color: var(--fg-faint);
+	background: var(--bg-sunken);
+	border-bottom: 1px solid var(--border-soft);
+	display: flex;
+	align-items: baseline;
+	gap: var(--space-2);
+	position: sticky;
+	top: 70px;
+	z-index: 3;
+}
+.ob-section-count {
+	color: var(--fg-muted);
+	font-weight: 400;
+}
+
+/* Draft row */
+.ob-row {
+	padding: calc(var(--row-pad-y) + 2px) var(--space-3);
+	border-bottom: 1px solid var(--border-soft);
+	cursor: pointer;
+	display: grid;
+	grid-template-columns: 16px 4px 1fr;
+	gap: var(--space-2);
+	align-items: start;
+	transition: background var(--motion-fast) var(--ease-calm);
+}
+.ob-row:hover {
+	background: var(--bg-raised);
+}
+.ob-row.is-selected {
+	background: var(--bg-raised);
+}
+.ob-row:focus-visible {
+	outline: 2px solid var(--tint-fg-active, var(--primary));
+	outline-offset: -2px;
+}
+
+.ob-row-check {
+	width: 14px;
+	height: 14px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-xs);
+	background: var(--bg-base);
+	margin-top: 2px;
+	flex-shrink: 0;
+	opacity: 0;
+	transition: opacity var(--motion-fast) var(--ease-calm);
+	cursor: pointer;
+	display: grid;
+	place-items: center;
+	padding: 0;
+}
+.ob-row:hover .ob-row-check,
+.ob-row.is-checked .ob-row-check {
+	opacity: 1;
+}
+.ob-row-check svg {
+	width: 10px;
+	height: 10px;
+	color: var(--primary-fg);
+	opacity: 0;
+}
+.ob-row.is-checked .ob-row-check {
+	background: var(--tint-fg-active, var(--primary));
+	border-color: var(--tint-fg-active, var(--primary));
+}
+.ob-row.is-checked .ob-row-check svg {
+	opacity: 1;
+}
+.ob-row-check:focus-visible {
+	outline: 2px solid var(--tint-fg-active, var(--primary));
+	outline-offset: 1px;
+	opacity: 1;
+}
+
+.ob-row-tick {
+	width: 4px;
+	align-self: stretch;
+}
+.ob-row.status-awaiting .ob-row-tick {
+	background: var(--tint-fg-active, var(--primary));
+	border-radius: 2px;
+}
+.ob-row.status-edited .ob-row-tick {
+	background: var(--achievement);
+	border-radius: 2px;
+}
+.ob-row.status-overdue .ob-row-tick {
+	background: var(--danger);
+	border-radius: 2px;
+}
+
+.ob-row-meta {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: var(--space-2);
+	margin-bottom: 2px;
+}
+.ob-row-to {
+	font-size: var(--text-body-sm);
+	font-weight: 500;
+	color: var(--fg);
+}
+.ob-row-time {
+	font-family: var(--font-mono);
+	font-size: 10.5px;
+	color: var(--fg-faint);
+	flex-shrink: 0;
+}
+.ob-row-time.is-overdue {
+	color: var(--danger);
+}
+.ob-row-time.is-today {
+	color: var(--achievement);
+}
+.ob-row-subject {
+	font-size: var(--text-body-sm);
+	color: var(--fg);
+	line-height: 1.35;
+	margin-bottom: 4px;
+	overflow: hidden;
+	display: -webkit-box;
+	-webkit-line-clamp: 1;
+	line-clamp: 1;
+	-webkit-box-orient: vertical;
+}
+.ob-row-preview {
+	font-size: var(--text-caption);
+	color: var(--fg-muted);
+	line-height: 1.45;
+	overflow: hidden;
+	display: -webkit-box;
+	-webkit-line-clamp: 2;
+	line-clamp: 2;
+	-webkit-box-orient: vertical;
+	margin-bottom: var(--space-2);
+}
+.ob-row-chips {
+	display: flex;
+	gap: 4px;
+	flex-wrap: wrap;
+	align-items: center;
+}
+
+/* === Divider (resizable seam) ============================================== */
+.ob-divider {
+	background: var(--border-soft);
+	cursor: col-resize;
+	position: relative;
+	transition: background var(--motion-fast) var(--ease-calm);
+}
+.ob-divider:hover,
+.ob-divider.is-dragging {
+	background: var(--tint-fg-active, var(--primary));
+}
+.ob-divider:focus-visible {
+	outline: 2px solid var(--tint-fg-active, var(--primary));
+	outline-offset: 1px;
+}
+.ob-divider::after {
+	content: "";
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	left: -4px;
+	right: -4px;
+}
+.ob-split.is-resizing {
+	user-select: none;
+}
+.ob-split.is-resizing,
+.ob-split.is-resizing * {
+	/* biome-ignore lint/complexity/noImportantStyles: must beat every child's own cursor during a drag */
+	cursor: col-resize !important;
+}
+
+/* === Right column — the draft editor ======================================= */
+.ob-detail {
+	overflow-y: auto;
+	background: var(--bg-surface);
+	container-type: inline-size;
+	container-name: ob-detail;
+	display: flex;
+	flex-direction: column;
+}
+
+.ob-detail-toolbar {
+	padding: var(--row-pad-y) var(--space-3);
+	border-bottom: 1px solid var(--border-soft);
+	background: var(--bg-sunken);
+	display: flex;
+	align-items: center;
+	gap: var(--space-1);
+	position: sticky;
+	top: 0;
+	z-index: 5;
+}
+.ob-detail-toolbar-spacer {
+	flex: 1;
+}
+.ob-detail-toolbar-meta {
+	font-family: var(--font-mono);
+	font-size: 10.5px;
+	color: var(--fg-faint);
+	letter-spacing: 0.04em;
+	margin-right: var(--space-2);
+}
+
+.ob-detail-body {
+	padding: var(--space-6) var(--space-8);
+	max-width: 820px;
+	margin: 0 auto;
+	width: 100%;
+	flex: 1;
+}
+
+.ob-detail-head {
+	padding-bottom: var(--space-4);
+	margin-bottom: var(--space-5);
+	border-bottom: 1px solid var(--border-soft);
+}
+.ob-detail-to-row {
+	display: flex;
+	align-items: center;
+	gap: var(--space-3);
+	margin-bottom: var(--space-3);
+}
+.ob-detail-to-name {
+	font-weight: 600;
+	font-size: var(--text-body);
+	color: var(--fg);
+}
+.ob-detail-to-addr {
+	font-family: var(--font-mono);
+	font-size: var(--text-micro);
+	color: var(--fg-muted);
+}
+.ob-detail-to-from {
+	margin-left: auto;
+	text-align: right;
+	font-family: var(--font-mono);
+	font-size: var(--text-micro);
+	color: var(--fg-faint);
+	line-height: 1.5;
+}
+.ob-detail-to-from span {
+	color: var(--fg-muted);
+}
+.ob-detail-meta {
+	display: flex;
+	gap: 6px;
+	flex-wrap: wrap;
+	align-items: center;
+	margin-top: var(--space-3);
+}
+
+/* Editable subject (borderless, dashed underline on hover/focus) */
+.ob-edit-subject {
+	width: 100%;
+	font-family: var(--font-display);
+	font-weight: 500;
+	font-size: 26px;
+	line-height: 1.18;
+	letter-spacing: -0.012em;
+	color: var(--fg);
+	background: transparent;
+	border: 0;
+	border-bottom: 1px dashed transparent;
+	padding: 4px 0;
+	outline: none;
+	transition: border-color var(--motion-fast) var(--ease-calm);
+}
+.ob-edit-subject:hover {
+	border-bottom-color: var(--border-soft);
+}
+.ob-edit-subject:focus {
+	border-bottom-color: var(--tint-fg-active, var(--primary));
+}
+
+/* Sequence-context callout (only when the draft is part of a sequence) */
+.ob-seq-callout {
+	margin-top: var(--space-4);
+	padding: var(--space-3);
+	border: 1px solid color-mix(in srgb, var(--tint-fg-active, var(--primary)) 30%, var(--border));
+	background: color-mix(in srgb, var(--tint-fg-active, var(--primary)) 8%, transparent);
+	border-radius: var(--radius-md);
+	font-size: var(--text-caption);
+	color: var(--fg-muted);
+	line-height: 1.55;
+}
+.ob-seq-callout strong {
+	color: var(--tint-fg-active, var(--primary));
+	font-weight: 600;
+}
+.ob-seq-callout svg {
+	width: 12px;
+	height: 12px;
+	vertical-align: -1.5px;
+	margin-right: 4px;
+	color: var(--tint-fg-active, var(--primary));
+}
+.ob-seq-callout-actions {
+	margin-top: var(--space-2);
+	display: flex;
+	gap: var(--space-2);
+}
+
+/* Quick-edit body box */
+.ob-quick-edit {
+	margin-top: var(--space-5);
+	background: var(--bg-sunken);
+	border: 1px solid var(--border-soft);
+	border-radius: var(--radius-md);
+	padding: var(--space-3);
+}
+.ob-quick-edit-head {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	margin-bottom: var(--space-2);
+	font-family: var(--font-mono);
+	font-size: 10px;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+	color: var(--fg-faint);
+}
+.ob-quick-edit-head svg {
+	width: 12px;
+	height: 12px;
+	color: var(--tint-fg-active, var(--primary));
+}
+.ob-quick-edit-head-meta {
+	margin-left: auto;
+}
+.ob-quick-edit textarea {
+	width: 100%;
+	background: transparent;
+	border: 0;
+	color: var(--fg);
+	font-family: inherit;
+	font-size: var(--text-body);
+	line-height: 1.6;
+	outline: none;
+	resize: vertical;
+	min-height: 240px;
+}
+.ob-quick-edit textarea::placeholder {
+	color: var(--fg-faint);
+}
+.ob-quick-edit-foot {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	margin-top: var(--space-2);
+	padding-top: var(--space-2);
+	border-top: 1px solid var(--border-soft);
+	font-family: var(--font-mono);
+	font-size: 10px;
+	color: var(--fg-faint);
+	letter-spacing: 0.04em;
+}
+.ob-quick-edit-foot kbd {
+	background: var(--bg-base);
+	border: 1px solid var(--border-soft);
+	border-radius: var(--radius-xs);
+	padding: 1px 5px;
+}
+.ob-quick-edit-foot .saved {
+	margin-left: auto;
+	color: var(--achievement);
+}
+
+/* Recipient avatar — workspace-tint gradient (pattern-glue override of .avatar) */
+.ob-avatar {
+	width: 32px;
+	height: 32px;
+	border-radius: 50%;
+	background: linear-gradient(
+		135deg,
+		color-mix(in srgb, var(--tint-fg-active, var(--primary)) 30%, transparent),
+		var(--tint-fg-active, var(--primary))
+	);
+	display: grid;
+	place-items: center;
+	font-family: var(--font-display);
+	font-weight: 500;
+	font-size: 13px;
+	color: var(--fg);
+	flex-shrink: 0;
+}
+
+/* Undo toast (10s window after Approve & Send). The shell toast component is not
+ * built yet; this inline banner runs the countdown for the fixture harness. */
+.ob-undo-toast {
+	position: absolute;
+	left: 50%;
+	bottom: var(--space-4);
+	transform: translateX(-50%);
+	display: flex;
+	align-items: center;
+	gap: var(--space-3);
+	padding: var(--space-2) var(--space-4);
+	background: var(--bg-raised);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-pill);
+	box-shadow: var(--shadow-3);
+	font-size: var(--text-body-sm);
+	color: var(--fg);
+	z-index: 20;
+}
+.ob-undo-toast-count {
+	font-family: var(--font-mono);
+	color: var(--fg-faint);
+}
+
+.ob-surface {
+	height: 100%;
+	position: relative;
+}
+
+/* Pattern-glue reduced-motion: the app-kit 00-base global block already covers this,
+ * but keep an explicit guard for these transitions per the part's motion spec. */
+@media (prefers-reduced-motion: reduce) {
+	.ob-row,
+	.ob-divider,
+	.ob-row-check,
+	.ob-edit-subject {
+		transition: none;
+	}
+}
