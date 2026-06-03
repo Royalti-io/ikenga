@@ -387,38 +387,52 @@ struct WindowGeom {
     /// top-left, in physical px. Title-bar height + border width.
     content_off_x: i32,
     content_off_y: i32,
+    /// True iff `content_off_*` came from a real `inner_position()` (not the
+    /// `outer_position` fallback). When false we don't actually know the
+    /// chrome offset, so the crop must NOT be trusted (see `crop_box` caller).
+    content_offset_known: bool,
     /// Device-pixel ratio (CSS px → physical px).
     scale: f64,
 }
 
 /// Grab the outer window via the native tool and return the PNG bytes plus
 /// the geometry needed to crop a pane out of it. Shared by the window
-/// command and the pane native-crop path.
-async fn capture_window_png(app: &AppHandle) -> Result<(Vec<u8>, WindowGeom)> {
+/// command (`focus_window = true`) and the pane native-crop path
+/// (`focus_window = false`).
+///
+/// `focus_window` exists because `gnome-screenshot --window` on mutter grabs
+/// the *focused* window, so the window-screenshot command focuses Ikenga
+/// first. The pane crop path passes `false`: coordinate-based tools (grim,
+/// scrot, screencapture) don't need focus, and on the gnome `-w` path a crop
+/// would fail the dimension trust check and fall back to the FE clone anyway
+/// — so stealing focus there would be a pointless flicker on every pane
+/// screenshot (pane capture was historically focus-independent).
+async fn capture_window_png(app: &AppHandle, focus_window: bool) -> Result<(Vec<u8>, WindowGeom)> {
     let window = app
         .get_webview_window("main")
         .ok_or_else(|| anyhow!("main webview window not found"))?;
 
-    // Some platforms' screenshot tools (notably `gnome-screenshot --window`
-    // on mutter) capture the *focused* window. When iyke is invoked from
-    // a terminal, the terminal has focus — so we must focus the Ikenga
-    // window first. The brief focus-steal is the trade-off; the user can
-    // alt-tab back. On X11 + Wayland-with-grim this is a no-op (we use
-    // explicit window coordinates), but the focus call is harmless there
-    // so we always do it.
-    let _ = window.set_focus();
-    // Give the compositor a tick to actually move focus before the
-    // capture tool reads "focused window". 80ms is enough on mutter
-    // without being noticeable.
-    tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+    if focus_window {
+        // When iyke is invoked from a terminal, the terminal has focus — so
+        // we focus the Ikenga window first for the `gnome-screenshot -w`
+        // path. The brief focus-steal is the trade-off; the user can alt-tab
+        // back. Harmless on coordinate-based tools (we pass explicit coords).
+        let _ = window.set_focus();
+        // Give the compositor a tick to actually move focus before the
+        // capture tool reads "focused window". 80ms is enough on mutter.
+        tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+    }
 
     let outer_pos = window.outer_position().context("outer_position")?;
     let outer_size = window.outer_size().context("outer_size")?;
-    // inner_position is the content-area top-left in screen coords; the
-    // delta from outer_position is the chrome (title bar + border) offset.
-    // If it's unavailable (some Wayland setups) we assume no chrome offset —
-    // the dimension check below will reject the crop if that guess is wrong.
-    let inner_pos = window.inner_position().unwrap_or(outer_pos);
+    // inner_position is the content-area top-left in screen coords; the delta
+    // from outer_position is the chrome (title bar + border) offset. If it's
+    // unavailable (some Wayland setups) we fall back to outer_pos but record
+    // `content_offset_known = false` so the crop is rejected — we can't crop
+    // a chromed window accurately without knowing where the content begins.
+    let inner_pos_res = window.inner_position();
+    let content_offset_known = inner_pos_res.is_ok();
+    let inner_pos = inner_pos_res.unwrap_or(outer_pos);
     let scale = window.scale_factor().unwrap_or(1.0);
 
     let rect = ScreenRect {
@@ -438,6 +452,7 @@ async fn capture_window_png(app: &AppHandle) -> Result<(Vec<u8>, WindowGeom)> {
         outer_h: outer_size.height,
         content_off_x: inner_pos.x - outer_pos.x,
         content_off_y: inner_pos.y - outer_pos.y,
+        content_offset_known,
         scale,
     };
     Ok((png_bytes, geom))
@@ -447,7 +462,8 @@ async fn capture_window_native(
     app: &AppHandle,
     out_path: Option<String>,
 ) -> Result<ScreenshotResult> {
-    let (png_bytes, geom) = capture_window_png(app).await?;
+    // Window capture uses gnome-screenshot -w on mutter → focus Ikenga first.
+    let (png_bytes, geom) = capture_window_png(app, true).await?;
 
     let resolved_path = match out_path {
         Some(p) => PathBuf::from(shellexpand::tilde(&p).into_owned()),
@@ -470,19 +486,9 @@ async fn capture_window_native(
     })
 }
 
-/// Capture the window natively and crop it to a single pane's rect.
-///
-/// Returns `Ok(None)` when the captured PNG can't be trusted for a precise
-/// crop — specifically when its dimensions don't match the window's outer
-/// size (within a small tolerance). `gnome-screenshot --window` on mutter
-/// adds a drop-shadow margin, so the PNG is larger than the window and the
-/// content offset we computed from `inner_position`/`outer_position` would
-/// be wrong. In that case the caller falls back to the FE clone. On
-/// wlroots (grim), X11 (scrot), and macOS (screencapture) the PNG matches
-/// the window exactly and the crop is pixel-accurate.
 /// Tolerance (physical px) for matching the captured PNG to the window's
 /// outer size. Absorbs sub-pixel scale rounding; anything larger means the
-/// capture tool added a margin (gnome-screenshot shadow) and the crop
+/// capture tool added a margin or grabbed the wrong surface, so the crop
 /// offset can't be trusted.
 const CROP_DIM_TOLERANCE: i64 = 4;
 
@@ -511,14 +517,28 @@ fn crop_box(geom: WindowGeom, rect: [f64; 4], pw: u32, ph: u32) -> (u32, u32, u3
     (x0, y0, x1.saturating_sub(x0), y1.saturating_sub(y0))
 }
 
+/// Capture the window natively and crop it to a single pane's rect.
+///
+/// Returns `Ok(None)` when the capture can't be trusted for a precise crop,
+/// so the caller falls back to the FE clone. Two ways that happens:
+///   * the PNG dimensions don't match the window's outer size (e.g. a tool
+///     that adds a margin, or `gnome-screenshot -w` grabbing the wrong/unfocused
+///     surface — we pass `focus_window = false`); or
+///   * `inner_position()` was unavailable, so we don't actually know the
+///     chrome offset (`content_offset_known == false`) and a chromed window
+///     would be cropped at the wrong vertical origin.
+/// On wlroots (grim), X11 (scrot), and macOS (screencapture) with real
+/// window positions the PNG matches the window exactly and the crop is
+/// pixel-accurate.
 async fn crop_pane_from_window(app: &AppHandle, rect: [f64; 4]) -> Result<Option<CaptureResult>> {
-    let (png_bytes, geom) = capture_window_png(app).await?;
+    let (png_bytes, geom) = capture_window_png(app, false).await?;
 
     let (pw, ph) =
         png_dimensions(&png_bytes).ok_or_else(|| anyhow!("native capture produced a non-PNG"))?;
 
-    // Trust check: the PNG must be the outer window, no added margin.
-    if !dims_trustworthy(geom, pw, ph) {
+    // Trust check: the PNG must be the outer window (no added margin / right
+    // surface) AND we must actually know where the content begins.
+    if !dims_trustworthy(geom, pw, ph) || !geom.content_offset_known {
         return Ok(None);
     }
 
@@ -931,6 +951,7 @@ mod tests {
             outer_h,
             content_off_x: off_x,
             content_off_y: off_y,
+            content_offset_known: true,
             scale,
         }
     }
@@ -947,6 +968,17 @@ mod tests {
         // gnome-screenshot --window adds ~10px of drop shadow each side.
         let g = geom(1920, 1080, 0, 0, 1.0);
         assert!(!dims_trustworthy(g, 1940, 1100));
+    }
+
+    #[test]
+    fn crop_rejected_when_content_offset_unknown() {
+        // inner_position() unavailable → content_offset_known = false → the
+        // crop must be rejected even if the PNG dims match the window, because
+        // we don't know where the chrome ends and the content begins.
+        let mut g = geom(1000, 800, 0, 0, 1.0);
+        g.content_offset_known = false;
+        assert!(dims_trustworthy(g, 1000, 800)); // dims alone would pass…
+        assert!(!g.content_offset_known); // …but the caller also gates on this
     }
 
     #[test]
