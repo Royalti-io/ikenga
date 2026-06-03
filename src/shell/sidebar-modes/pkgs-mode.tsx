@@ -24,8 +24,8 @@ import {
 
 import { useShallow } from 'zustand/react/shallow';
 
-import { cn } from '@/components/ui/utils';
 import { findLeaf } from '@/lib/panes/pane-reducer';
+import { SidebarNav, SidebarNavRow, SidebarNavSection } from './_nav';
 import { usePaneStore } from '@/lib/panes/pane-store';
 import { usePkgsDerived } from '@/lib/pkgs/use-derived';
 import { useUpdater } from '@/lib/updater/use-updater';
@@ -186,49 +186,22 @@ export function PkgsMode() {
 	}
 
 	return (
-		<div className="h-full overflow-y-auto py-2">
+		<SidebarNav ariaLabel="Packages navigation">
 			{NAV.map((sec) => (
-				<div key={sec.label} className="mb-3">
-					<div className="px-4 pb-1 pt-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
-						{sec.label}
-					</div>
-					<ul className="flex flex-col">
-						{sec.items.map((item) => {
-							const active = isActive(item);
-							return (
-								<li key={`${item.to}-${item.filter ?? ''}-${item.label}`}>
-									<button
-										type="button"
-										onClick={() => go(item)}
-										className={cn(
-											'flex w-full items-center gap-3 px-4 py-1.5 text-left text-sm transition-colors',
-											'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
-											active && 'bg-accent text-accent-foreground font-medium'
-										)}
-									>
-										<item.Icon className="h-4 w-4 shrink-0" />
-										<span className="flex-1 truncate">{item.label}</span>
-										{typeof item.count === 'number' && item.count > 0 && (
-											<span
-												className={cn(
-													'rounded-sm border px-1.5 py-px font-mono text-[10px]',
-													item.tone === 'attention'
-														? 'border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400'
-														: item.tone === 'warn'
-															? 'border-red-500/40 bg-red-500/10 text-red-500'
-															: 'border-border bg-background text-muted-foreground'
-												)}
-											>
-												{item.count}
-											</span>
-										)}
-									</button>
-								</li>
-							);
-						})}
-					</ul>
-				</div>
+				<SidebarNavSection key={sec.label} label={sec.label}>
+					{sec.items.map((item) => (
+						<SidebarNavRow
+							key={`${item.to}-${item.filter ?? ''}-${item.label}`}
+							icon={item.Icon}
+							label={item.label}
+							active={isActive(item)}
+							count={item.count}
+							tone={item.tone ?? 'default'}
+							onSelect={() => go(item)}
+						/>
+					))}
+				</SidebarNavSection>
 			))}
-		</div>
+		</SidebarNav>
 	);
 }

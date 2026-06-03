@@ -22,8 +22,8 @@ import {
 	type LucideIcon,
 } from 'lucide-react';
 
-import { cn } from '@/components/ui/utils';
 import { usePkgMenuStore, type PkgMenuItem } from '@/lib/pkg/pkg-menu-store';
+import { SidebarNav, SidebarNavRow, SidebarNavSection } from './_nav';
 
 // Stable empty-array sentinel — used by the menu selector when no menu has
 // been published for this pkg yet. Without this, `?? []` returns a fresh
@@ -78,57 +78,32 @@ export function PkgMode({ pkgId }: { pkgId: string }) {
 	}
 
 	return (
-		<div className="h-full overflow-y-auto py-2">
+		<SidebarNav ariaLabel="Package menu">
 			{groups.map((g, gi) => (
-				<div
+				<SidebarNavSection
 					key={g.section ?? `__implicit_${gi}`}
-					className={cn(gi > 0 && 'mt-3 border-t border-border/40 pt-3')}
+					label={g.section ?? undefined}
+					className={gi > 0 ? 'border-t border-border/40 pt-3' : undefined}
 				>
-					{g.section && (
-						<div className="px-4 pb-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70">
-							{g.section}
-						</div>
-					)}
-					<ul className="flex flex-col">
-						{g.items.map((item) => {
-							const Icon = iconFor(item.icon);
-							// Pkg-driven `active` wins; otherwise fall back to the
-							// store's last-clicked feature. Disabled items never
-							// highlight and never fire a click.
-							const isActive = item.disabled
-								? false
-								: (item.active ?? item.id === activeFeature);
-							return (
-								<li key={item.id}>
-									<button
-										type="button"
-										disabled={item.disabled}
-										aria-disabled={item.disabled}
-										onClick={
-											item.disabled ? undefined : () => setActiveFeature(pkgId, item.id)
-										}
-										className={cn(
-											'flex w-full items-center gap-3 px-4 py-1.5 text-left text-sm transition-colors',
-											'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
-											isActive && 'bg-accent text-accent-foreground font-medium',
-											item.disabled && 'pointer-events-none opacity-40 hover:bg-transparent'
-										)}
-									>
-										<Icon className="h-4 w-4 shrink-0" />
-										<span className="flex-1 truncate">{item.label}</span>
-										{item.badge != null && item.badge !== '' && (
-											<span className="ml-auto rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium">
-												{item.badge}
-											</span>
-										)}
-									</button>
-								</li>
-							);
-						})}
-					</ul>
-				</div>
+					{g.items.map((item) => {
+						// Pkg-driven `active` wins; otherwise fall back to the store's
+						// last-clicked feature. Disabled items never highlight / fire.
+						const isActive = item.disabled ? false : (item.active ?? item.id === activeFeature);
+						return (
+							<SidebarNavRow
+								key={item.id}
+								icon={iconFor(item.icon)}
+								label={item.label}
+								active={isActive}
+								disabled={item.disabled}
+								badge={item.badge}
+								onSelect={() => setActiveFeature(pkgId, item.id)}
+							/>
+						);
+					})}
+				</SidebarNavSection>
 			))}
-		</div>
+		</SidebarNav>
 	);
 }
 
