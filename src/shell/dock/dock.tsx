@@ -9,6 +9,7 @@ import {
 	Terminal as TerminalIcon,
 } from 'lucide-react';
 import { type PaneView } from '@/lib/panes/types';
+import { FeedbackState } from '@/components/ui/feedback-state';
 import { useDockStore, DOCK_MIN_WIDTH, DOCK_MAX_WIDTH } from './dock-store';
 import { useDragState } from '@/lib/panes/drag-state';
 import { usePaneStore } from '@/lib/panes/pane-store';
@@ -479,32 +480,38 @@ function DockEmpty({
 	onSeedTerminal: () => void;
 }) {
 	return (
-		<div className="flex h-full flex-col items-center justify-center gap-3 px-4 text-center text-sm text-muted-foreground">
-			<p>The dock is empty.</p>
-			<p className="text-xs">
-				Drag tabs in from any pane, or
-				<br />
-				seed a new session.
-			</p>
-			<div className="flex gap-2">
-				<button
-					type="button"
-					onClick={onSeedChat}
-					className="rounded border px-3 py-1 text-xs hover:bg-card"
-					style={{ borderColor: 'var(--border)' }}
-				>
-					New chat
-				</button>
-				<button
-					type="button"
-					onClick={onSeedTerminal}
-					className="rounded border px-3 py-1 text-xs hover:bg-card"
-					style={{ borderColor: 'var(--border)' }}
-				>
-					New terminal
-				</button>
-			</div>
-		</div>
+		<FeedbackState
+			variant="empty"
+			fill
+			heading="The dock is empty."
+			body={
+				<>
+					Drag tabs in from any pane, or
+					<br />
+					seed a new session.
+				</>
+			}
+			action={
+				<>
+					<button
+						type="button"
+						onClick={onSeedChat}
+						className="rounded border px-3 py-1 text-xs hover:bg-card"
+						style={{ borderColor: 'var(--border)' }}
+					>
+						New chat
+					</button>
+					<button
+						type="button"
+						onClick={onSeedTerminal}
+						className="rounded border px-3 py-1 text-xs hover:bg-card"
+						style={{ borderColor: 'var(--border)' }}
+					>
+						New terminal
+					</button>
+				</>
+			}
+		/>
 	);
 }
 

@@ -14,6 +14,7 @@ import { useMemo } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { ExternalLink } from 'lucide-react';
 import { findToolPairById, useChatStore } from '@/chat';
+import { FeedbackState } from '@/components/ui/feedback-state';
 import { ToolRendererDispatch } from '@/chat/ui/tool-renderers';
 
 interface ToolOutputViewProps {
@@ -34,9 +35,11 @@ export function ToolOutputView({ threadId, toolUseId }: ToolOutputViewProps) {
 
 	if (!pair) {
 		return (
-			<div className="flex h-full items-center justify-center px-4 py-8 text-center font-mono text-[11px] uppercase tracking-wider text-[var(--chip-carve)]">
-				tool call not found in this thread · viewer stale
-			</div>
+			<FeedbackState
+				variant="stale"
+				fill
+				body="tool call not found in this thread · viewer stale"
+			/>
 		);
 	}
 

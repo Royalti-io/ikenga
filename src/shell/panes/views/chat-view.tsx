@@ -1,5 +1,6 @@
-import { AlertCircle, Loader2, MessageSquare } from 'lucide-react';
+import { MessageSquare } from 'lucide-react';
 import { AdapterSwitcher, Composer, Thread, useThread } from '@/chat';
+import { FeedbackState } from '@/components/ui/feedback-state';
 
 interface ChatViewProps {
 	/** Stable thread id (frontend-minted uuid). For back-compat with v1
@@ -10,15 +11,17 @@ interface ChatViewProps {
 export function ChatView({ sessionId }: ChatViewProps) {
 	if (!sessionId) {
 		return (
-			<div className="flex h-full w-full items-center justify-center bg-muted/20 p-6">
-				<div className="max-w-sm text-center">
-					<MessageSquare className="mx-auto mb-3 h-8 w-8 text-muted-foreground" />
-					<div className="text-sm font-medium text-foreground">No chat selected</div>
-					<div className="mt-1 text-xs text-muted-foreground">
+			<FeedbackState
+				variant="empty"
+				fill
+				icon={MessageSquare}
+				heading="No chat selected"
+				body={
+					<>
 						Open a chat from the dock + menu or use <span className="font-mono">⌘⇧N</span>.
-					</div>
-				</div>
-			</div>
+					</>
+				}
+			/>
 		);
 	}
 	return <ChatViewBody threadId={sessionId} />;
@@ -36,15 +39,9 @@ function ChatViewBody({ threadId }: { threadId: string }) {
 				<AdapterSwitcher />
 			</div>
 			{loading ? (
-				<div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-					<Loader2 className="mr-2 h-4 w-4 animate-spin" />
-					Loading…
-				</div>
+				<FeedbackState variant="loading" fill heading="Loading…" />
 			) : error ? (
-				<div className="m-3 flex items-start gap-2 rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
-					<AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-					<span>{error}</span>
-				</div>
+				<FeedbackState variant="error" fill heading="Chat error" body={error} />
 			) : (
 				<>
 					<Thread threadId={threadId} className="flex-1" />

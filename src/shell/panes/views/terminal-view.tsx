@@ -7,6 +7,7 @@
 
 import { ExternalLink, Undo2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { FeedbackState } from '@/components/ui/feedback-state';
 import { SingleTerminal } from '@/terminal/single-terminal';
 import { useTerminalStore, type TerminalTab } from '@/terminal/session-store';
 import { usePaneStore } from '@/lib/panes/pane-store';
@@ -53,24 +54,33 @@ function StudioOwnedPlaceholder({
 }: StudioOwnedPlaceholderProps) {
 	const filename = artifactPath.split('/').filter(Boolean).pop() ?? artifactPath;
 	return (
-		<div className="flex h-full w-full flex-col items-center justify-center gap-3 p-6 text-center">
-			<div className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-				In Studio · pane {paneId.slice(0, 6)}
-			</div>
-			<div className="text-sm text-foreground">{tab.title}</div>
-			<div className="font-mono text-[11px] text-muted-foreground" title={artifactPath}>
-				attached to {filename}
-			</div>
-			<div className="mt-2 flex items-center gap-2">
-				<Button size="sm" variant="outline" onClick={onOpenStudio} className="h-7 px-3 text-xs">
-					<ExternalLink className="mr-1 h-3 w-3" />
-					Open Studio
-				</Button>
-				<Button size="sm" onClick={onReclaim} className="h-7 px-3 text-xs">
-					<Undo2 className="mr-1 h-3 w-3" />
-					Reclaim
-				</Button>
-			</div>
-		</div>
+		<FeedbackState
+			variant="empty"
+			fill
+			icon={ExternalLink}
+			heading={tab.title}
+			body={
+				<span className="flex flex-col items-center gap-1">
+					<span className="font-mono text-[10px] uppercase tracking-[0.14em]">
+						In Studio · pane {paneId.slice(0, 6)}
+					</span>
+					<span className="font-mono text-[11px]" title={artifactPath}>
+						attached to {filename}
+					</span>
+				</span>
+			}
+			action={
+				<>
+					<Button size="sm" variant="outline" onClick={onOpenStudio} className="h-7 px-3 text-xs">
+						<ExternalLink className="mr-1 h-3 w-3" />
+						Open Studio
+					</Button>
+					<Button size="sm" onClick={onReclaim} className="h-7 px-3 text-xs">
+						<Undo2 className="mr-1 h-3 w-3" />
+						Reclaim
+					</Button>
+				</>
+			}
+		/>
 	);
 }

@@ -1,17 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, createFileRoute, useNavigate, useSearch } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import {
-	AlertCircle,
-	FolderKanban,
-	Loader2,
-	MessageSquare,
-	Plus,
-	Search,
-	Terminal,
-} from 'lucide-react';
+import { FolderKanban, Loader2, MessageSquare, Plus, Search, Terminal } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
+import { FeedbackState } from '@/components/ui/feedback-state';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { chatThreadsByProjectQueryOptions, type ChatThreadSummary } from '@/lib/queries/sessions';
 import { useShellStore } from '@/lib/shell/shell-store';
@@ -286,26 +279,23 @@ function SessionsPage() {
 				</div>
 
 				<div style={{ flex: 1, overflowY: 'auto' }}>
-					{isLoading && (
-						<div className="flex items-center gap-2 p-5 text-sm text-muted-foreground">
-							<Loader2 className="h-4 w-4 animate-spin" />
-							Loading threads…
-						</div>
-					)}
+					{isLoading && <FeedbackState variant="loading" fill heading="Loading threads…" />}
 					{error instanceof Error && (
-						<div className="m-5 flex items-start gap-2 rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
-							<AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-							<div>
-								<p className="font-medium">Failed to list sessions</p>
-								<p className="text-xs opacity-80">{error.message}</p>
-							</div>
-						</div>
+						<FeedbackState
+							variant="error"
+							fill
+							heading="Failed to list sessions"
+							body={error.message}
+						/>
 					)}
 					{data && filtered.length === 0 && !isLoading && (
-						<div className="m-5 flex h-32 items-center justify-center rounded-md border border-dashed text-sm text-muted-foreground">
-							<MessageSquare className="mr-2 h-4 w-4" />
-							No sessions match.
-						</div>
+						<FeedbackState
+							variant="empty"
+							fill
+							dashed
+							icon={MessageSquare}
+							heading="No sessions match."
+						/>
 					)}
 					{filtered.length > 0 && (
 						<>
