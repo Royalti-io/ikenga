@@ -62,7 +62,7 @@ use commands::{
     project_scaffold_claude, project_set_active, project_skills_list, project_update,
     pty_foreground, pty_foreground_snapshot, pty_kill, pty_resize, pty_spawn, pty_write,
     runtime_retry_bun_fetch, screenshot_capture_done, screenshot_capture_failed,
-    screenshot_get_config, screenshot_pane,
+    screenshot_capture_native_crop, screenshot_get_config, screenshot_pane,
     screenshot_set_dir, screenshot_window, secrets_delete, secrets_delete_scoped, secrets_get,
     secrets_get_scoped, secrets_list_keys, secrets_list_keys_scoped, secrets_set,
     secrets_set_scoped, secrets_vault_status, set_dock_badge, settings_clear_all, settings_get,
@@ -912,6 +912,7 @@ pub fn run() {
             screenshot_pane,
             screenshot_capture_done,
             screenshot_capture_failed,
+            screenshot_capture_native_crop,
             screenshot_get_config,
             screenshot_set_dir,
             // spike: dynamic ACL verification (delete after kernel lands)
@@ -1118,7 +1119,9 @@ fn register_screenshot_shortcuts(app: &tauri::AppHandle) {
         (Shortcut::new(Some(mods), Code::KeyP), "screenshot:pane"),
     ] {
         if let Err(e) = app.global_shortcut().register(sc) {
-            log::warn!("{label} shortcut not registered (continuing): {e}");
+            // `log::` macros are dropped in this crate (no log→tracing
+            // bridge); use tracing so the warning actually emits.
+            tracing::warn!("{label} shortcut not registered (continuing): {e}");
         }
     }
 }
@@ -1232,7 +1235,10 @@ fn run_screenshot_cli(cmd: ScreenshotCli) -> i32 {
     let req = ureq::post(&url)
         .set("Authorization", &format!("Bearer {}", cf.token))
         .set("Content-Type", "application/json")
-        .timeout(std::time::Duration::from_secs(15));
+        // A pane FE-clone can take >15s on a heavy artifact; keep this
+        // comfortably above the in-app CAPTURE_TIMEOUT (60s) so the CLI
+        // reports the real result instead of a false client-side timeout.
+        .timeout(std::time::Duration::from_secs(70));
     match req.send_json(body) {
         Ok(resp) => {
             let body = resp.into_string().unwrap_or_default();

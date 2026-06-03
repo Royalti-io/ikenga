@@ -127,9 +127,9 @@ pub use pty::{
 };
 pub use runtime::runtime_retry_bun_fetch;
 pub use screenshot::{
-    screenshot_capture_done, screenshot_capture_failed, screenshot_get_config, screenshot_pane,
-    screenshot_set_dir, screenshot_window, ScreenshotConfigState, ScreenshotConfigStateRef,
-    ScreenshotPending, ScreenshotResult,
+    screenshot_capture_done, screenshot_capture_failed, screenshot_capture_native_crop,
+    screenshot_get_config, screenshot_pane, screenshot_set_dir, screenshot_window,
+    ScreenshotConfigState, ScreenshotConfigStateRef, ScreenshotPending, ScreenshotResult,
 };
 pub use secrets::{
     secrets_delete, secrets_delete_scoped, secrets_get, secrets_get_scoped, secrets_list_keys,
