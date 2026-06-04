@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { fuzzyMatchSection, slugifySectionId, usePinsStore } from '@/lib/shell/pins-store';
 import { useShellStore } from '@/lib/shell/shell-store';
+import { CommandRow, type CommandRowProps } from '@/components/ui/command-row';
 
 export type PaletteMode = 'all' | 'views' | 'switcher' | 'projects';
 
@@ -471,30 +472,10 @@ function iconForView(view: PaneView): typeof Inbox {
 	}
 }
 
-interface PaletteItemProps {
-	onSelect: () => void;
-	Icon: typeof Inbox;
-	label: string;
-	shortcut?: string;
-	detail?: string;
-}
-
-function PaletteItem({ onSelect, Icon, label, shortcut, detail }: PaletteItemProps) {
-	return (
-		<Command.Item
-			onSelect={onSelect}
-			className="flex cursor-pointer items-center gap-3 rounded-md px-3 py-2 text-sm aria-selected:bg-accent aria-selected:text-accent-foreground"
-		>
-			<Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
-			<span className="flex-1 truncate">{label}</span>
-			{detail && <span className="shrink-0 text-[10px] text-muted-foreground">{detail}</span>}
-			{shortcut && (
-				<kbd className="rounded border border-border bg-muted px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground">
-					{shortcut}
-				</kbd>
-			)}
-		</Command.Item>
-	);
+// ⌘K palette rows share the consolidated `CommandRow` (size `md`); this thin
+// alias just binds the size so the many call sites above stay terse.
+function PaletteItem(props: Omit<CommandRowProps, 'size' | 'as'>) {
+	return <CommandRow size="md" {...props} />;
 }
 
 interface PaletteState {

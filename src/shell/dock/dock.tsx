@@ -9,6 +9,7 @@ import {
 	Terminal as TerminalIcon,
 } from 'lucide-react';
 import { type PaneView } from '@/lib/panes/types';
+import { CommandRow } from '@/components/ui/command-row';
 import { FeedbackState } from '@/components/ui/feedback-state';
 import { IconButton } from '@/components/ui/icon-button';
 import { useDockStore, DOCK_MIN_WIDTH, DOCK_MAX_WIDTH } from './dock-store';
@@ -447,6 +448,10 @@ function DockAddButton({ onAdd }: { onAdd: (view: PaneView) => void }) {
 	);
 }
 
+// Dock `+` menu rows share the consolidated `CommandRow` (size `sm`, rendered
+// as a `<button role="menuitem">` for the `role="menu"` container). This gains
+// the focus-visible ring the hand-rolled button lacked; the dropdown's keyboard
+// roving-tabindex remains a known dock-level gap (see command-row.md §4).
 function DockMenuItem({
 	Icon,
 	label,
@@ -456,17 +461,7 @@ function DockMenuItem({
 	label: string;
 	onClick: () => void;
 }) {
-	return (
-		<button
-			type="button"
-			role="menuitem"
-			onClick={onClick}
-			className="flex w-full items-center gap-2 px-2 py-1.5 text-left text-xs hover:bg-accent hover:text-accent-foreground"
-		>
-			<Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-			<span className="flex-1 truncate">{label}</span>
-		</button>
-	);
+	return <CommandRow size="sm" as="menuitem" Icon={Icon} label={label} onSelect={onClick} />;
 }
 
 function DockEmpty({

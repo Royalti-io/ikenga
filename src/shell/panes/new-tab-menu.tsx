@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Command } from 'cmdk';
-import { Plus, Terminal as TerminalIcon, MessageSquare, Hash } from 'lucide-react';
+import { Terminal as TerminalIcon, MessageSquare, Hash } from 'lucide-react';
+import { CommandRow, type CommandRowProps } from '@/components/ui/command-row';
 import type { LeafNode, PaneView } from '@/lib/panes/types';
 import { usePaneStore } from '@/lib/panes/pane-store';
 import { createTerminalSession } from '@/terminal/single-terminal';
@@ -137,30 +138,10 @@ export function NewTabMenu({ leaf, open, onClose, anchor }: NewTabMenuProps) {
 	);
 }
 
-interface MenuItemProps {
-	onSelect: () => void;
-	Icon: typeof Plus;
-	label: string;
-	shortcut?: string;
-	detail?: string;
-}
-
-function MenuItem({ onSelect, Icon, label, shortcut, detail }: MenuItemProps) {
-	return (
-		<Command.Item
-			onSelect={onSelect}
-			className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-xs aria-selected:bg-accent aria-selected:text-accent-foreground"
-		>
-			<Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-			<span className="flex-1 truncate">{label}</span>
-			{detail && <span className="ml-2 truncate text-[10px] text-muted-foreground">{detail}</span>}
-			{shortcut && (
-				<kbd className="ml-2 shrink-0 rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
-					{shortcut}
-				</kbd>
-			)}
-		</Command.Item>
-	);
+// New-tab rows share the consolidated `CommandRow` (size `sm`); thin alias
+// binds the size so the call sites above stay terse.
+function MenuItem(props: Omit<CommandRowProps, 'size' | 'as'>) {
+	return <CommandRow size="sm" {...props} />;
 }
 
 export function useAnchorRect(open: boolean, ref: React.RefObject<HTMLElement | null>) {
