@@ -43,6 +43,11 @@
 .ses-section-tab:hover {
 	color: var(--fg-muted);
 }
+.ses-section-tab:focus-visible {
+	outline: 2px solid var(--primary);
+	outline-offset: -2px;
+	border-radius: 2px;
+}
 .ses-section-tab.is-on {
 	color: var(--fg);
 	border-bottom-color: var(--tint-fg-active, var(--primary));
@@ -344,6 +349,11 @@
 	color: var(--fg);
 	text-decoration: underline;
 }
+.ses-back-link:focus-visible {
+	outline: 2px solid var(--primary);
+	outline-offset: 2px;
+	border-radius: 2px;
+}
 .ses-back-link svg {
 	width: 12px;
 	height: 12px;
@@ -431,6 +441,10 @@
 }
 .ses-agent-row:hover {
 	background: var(--bg-raised);
+}
+.ses-agent-row:focus-visible {
+	outline: 2px solid var(--primary);
+	outline-offset: -2px;
 }
 .ses-agent-row.is-on {
 	background: var(--bg-raised);

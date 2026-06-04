@@ -57,8 +57,17 @@ function SessionRow({
 		navigate({ to: '/sessions/$sessionId', params: { sessionId: thread.id } });
 	}
 
+	function handleRowKeyDown(e: React.KeyboardEvent<HTMLTableRowElement>) {
+		if (e.target !== e.currentTarget) return;
+		if (e.key === 'Enter' || e.key === ' ') {
+			e.preventDefault();
+			if (badgeCount > 0) onClearBadge();
+			navigate({ to: '/sessions/$sessionId', params: { sessionId: thread.id } });
+		}
+	}
+
 	return (
-		<tr onClick={handleRowClick}>
+		<tr onClick={handleRowClick} tabIndex={0} onKeyDown={handleRowKeyDown}>
 			<td>
 				<div className="title-cell" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
 					{projectColor && (
@@ -231,6 +240,7 @@ function SessionsPage() {
 						<PopoverContent align="start" className="w-64 p-1">
 							<button
 								type="button"
+								aria-pressed={includeAll}
 								onClick={() => setIncludeAll(true)}
 								className={`flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-xs hover:bg-accent ${includeAll ? 'bg-accent/50' : ''}`}
 							>
@@ -244,6 +254,7 @@ function SessionsPage() {
 									<button
 										key={p.id}
 										type="button"
+										aria-pressed={!includeAll && p.id === activeProjectId}
 										onClick={() => setIncludeAll(false)}
 										className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-accent ${!includeAll && p.id === activeProjectId ? 'bg-accent/50' : ''}`}
 									>
@@ -265,8 +276,9 @@ function SessionsPage() {
 						</PopoverContent>
 					</Popover>
 					<div className="input-search-wrap">
-						<Search />
+						<Search aria-hidden />
 						<input
+							aria-label="Search sessions"
 							type="text"
 							value={searchTerm}
 							onChange={(e) => setSearch(e.target.value)}
@@ -274,7 +286,7 @@ function SessionsPage() {
 						/>
 					</div>
 					<div className="spacer" />
-					<span className="label">
+					<span className="label" aria-live="polite" aria-atomic="true">
 						{filtered.length} of {data?.length ?? 0}
 					</span>
 				</div>
@@ -304,9 +316,13 @@ function SessionsPage() {
 								<table className="ses-table">
 									<thead>
 										<tr>
-											<th>Title</th>
-											<th style={{ width: 280 }}>Working dir</th>
-											<th style={{ width: 140 }}>Last activity</th>
+											<th scope="col">Title</th>
+											<th scope="col" style={{ width: 280 }}>
+												Working dir
+											</th>
+											<th scope="col" style={{ width: 140 }}>
+												Last activity
+											</th>
 										</tr>
 									</thead>
 									<tbody>

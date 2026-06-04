@@ -1,15 +1,9 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import {
-	AlertCircle,
-	FolderKanban,
-	Loader2,
-	MessageSquare,
-	Plus,
-	SquareTerminal,
-} from 'lucide-react';
+import { FolderKanban, MessageSquare, Plus, SquareTerminal } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
+import { FeedbackState } from '@/components/ui/feedback-state';
 import { ListRow, UnreadBadge } from '@/components/ui/list-row';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/components/ui/utils';
@@ -126,6 +120,7 @@ export function SessionsMode() {
 						<PopoverContent align="end" className="w-56 p-1">
 							<button
 								type="button"
+								aria-pressed={includeAll}
 								onClick={() => setIncludeAll(true)}
 								className={cn(
 									'flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-xs hover:bg-accent',
@@ -142,6 +137,7 @@ export function SessionsMode() {
 									<button
 										key={p.id}
 										type="button"
+										aria-pressed={!includeAll && p.id === activeProjectId}
 										onClick={() => setIncludeAll(false)}
 										className={cn(
 											'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-accent',
@@ -192,32 +188,22 @@ export function SessionsMode() {
 			</div>
 
 			<div className="flex-1 overflow-auto">
-				{isLoading && (
-					<div className="flex items-center gap-2 px-3 py-3 text-xs text-muted-foreground">
-						<Loader2 className="h-3 w-3 animate-spin" />
-						Loading…
-					</div>
-				)}
+				{isLoading && <FeedbackState variant="loading" heading="Loading…" />}
 				{error instanceof Error && (
-					<div className="m-3 flex items-start gap-1.5 rounded-md border border-destructive/40 bg-destructive/10 p-2 text-[11px] text-destructive">
-						<AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
-						<div className="min-w-0">
-							<div className="font-medium">Failed to load</div>
-							<div className="truncate opacity-80" title={error.message}>
-								{error.message}
-							</div>
-						</div>
-					</div>
+					<FeedbackState variant="error" heading="Failed to load" body={error.message} />
 				)}
 				{data && data.length === 0 && !isLoading && (
-					<div className="flex flex-col items-center justify-center gap-2 px-4 py-8 text-center">
-						<MessageSquare className="h-6 w-6 text-muted-foreground/40" />
-						<div className="text-xs text-muted-foreground">No sessions yet</div>
-						<Button size="sm" variant="ghost" onClick={() => setNewDialogOpen(true)}>
-							<Plus className="h-3 w-3" />
-							New session
-						</Button>
-					</div>
+					<FeedbackState
+						variant="empty"
+						icon={MessageSquare}
+						heading="No sessions yet"
+						action={
+							<Button size="sm" variant="ghost" onClick={() => setNewDialogOpen(true)}>
+								<Plus className="h-3 w-3" />
+								New session
+							</Button>
+						}
+					/>
 				)}
 				{data && data.length > 0 && (
 					<div className="flex flex-col py-1">

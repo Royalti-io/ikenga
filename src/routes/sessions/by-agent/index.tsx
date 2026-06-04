@@ -55,7 +55,7 @@ function ByAgentIndex() {
 							to="/sessions/by-agent/$agent"
 							params={{ agent: a.name }}
 							className={cn('ses-agent-row')}
-							activeProps={{ className: 'ses-agent-row is-on' }}
+							activeProps={{ className: 'ses-agent-row is-on', 'aria-current': 'page' as const }}
 						>
 							<div style={{ minWidth: 0 }}>
 								<div className="name">

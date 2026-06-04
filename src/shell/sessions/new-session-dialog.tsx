@@ -314,7 +314,8 @@ export function NewSessionDialog({
 									set default →
 								</button>
 							</div>
-							<div className="flex flex-wrap gap-1.5">
+							{/* biome-ignore lint/a11y/useSemanticElements: a labelled ARIA group of toggle <button>s (the engine picker), not a form <fieldset>. */}
+							<div role="group" aria-label="Engine" className="flex flex-wrap gap-1.5">
 								{engineCatalog.map((eng) => {
 									const active = eng.id === engineId;
 									const clickable = eng.installed || active;
@@ -323,6 +324,7 @@ export function NewSessionDialog({
 										<button
 											key={eng.id}
 											type="button"
+											aria-pressed={active}
 											disabled={!clickable}
 											onClick={() => clickable && setEngineId(eng.id)}
 											title={

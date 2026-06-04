@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, createFileRoute, redirect, useNavigate } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertCircle, ArrowLeft, FolderKanban, Loader2, Terminal } from 'lucide-react';
+import { ArrowLeft, FolderKanban, Loader2, Terminal } from 'lucide-react';
+import { FeedbackState } from '@/components/ui/feedback-state';
 
 import { detectAgentSlug, sessionsListQueryOptions } from '@/lib/queries/sessions';
 import { shortPath, loadHome } from '@/lib/home';
@@ -301,13 +302,12 @@ function SessionDetailPage() {
 					</div>
 				)}
 				{error && (
-					<div className="m-4 flex items-start gap-2 rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
-						<AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-						<div>
-							<p className="font-medium">Failed to load session</p>
-							<p className="text-xs opacity-80">{error}</p>
-						</div>
-					</div>
+					<FeedbackState
+						variant="error"
+						fill
+						heading="Failed to load session"
+						body={typeof error === 'string' ? error : String(error)}
+					/>
 				)}
 				{!loading && !error && (
 					<>
