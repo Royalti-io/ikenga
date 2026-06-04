@@ -28,7 +28,7 @@ export function AppMode() {
 	return (
 		<SidebarNav ariaLabel="App navigation">
 			{NAV_GROUPS.map((group) => (
-				<SidebarNavSection key={group.label ?? 'home'} label={group.label}>
+				<SidebarNavSection key={group.label ?? 'home'} label={group.label ?? undefined}>
 					{group.items.map(({ to, label, Icon }) => {
 						const isActive =
 							activePath === null
