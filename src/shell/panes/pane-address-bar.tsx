@@ -11,6 +11,7 @@
 import { ArrowLeft, ArrowRight, Pin as PinGlyph, RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { cn } from '@/components/ui/utils';
+import { IconButton } from '@/components/ui/icon-button';
 import { Input } from '@/components/ui/input';
 import { formatPaneAddressForDisplay, parsePaneAddress } from '@/lib/panes/pane-address';
 import { resolveArtifactAddress } from '@/lib/panes/pane-address-resolver';
@@ -91,20 +92,20 @@ export function PaneAddressBar({ paneId, view }: PaneAddressBarProps) {
 
 	return (
 		<div className="flex shrink-0 items-center gap-0.5 border-b border-border bg-background px-1.5 py-1">
-			<NavButton onClick={() => back()} disabled={!canGoBack} title="Back" aria-label="Back">
+			<IconButton onClick={() => back()} disabled={!canGoBack} title="Back" aria-label="Back">
 				<ArrowLeft className="h-3.5 w-3.5" />
-			</NavButton>
-			<NavButton
+			</IconButton>
+			<IconButton
 				onClick={() => forward()}
 				disabled={!canGoForward}
 				title="Forward"
 				aria-label="Forward"
 			>
 				<ArrowRight className="h-3.5 w-3.5" />
-			</NavButton>
-			<NavButton onClick={() => bumpKey()} title="Refresh" aria-label="Refresh pane">
+			</IconButton>
+			<IconButton onClick={() => bumpKey()} title="Refresh" aria-label="Refresh pane">
 				<RefreshCw className="h-3.5 w-3.5" />
-			</NavButton>
+			</IconButton>
 			<Input
 				ref={inputRef}
 				type="text"
@@ -134,7 +135,7 @@ export function PaneAddressBar({ paneId, view }: PaneAddressBarProps) {
 			/>
 			{view.kind === 'artifact' && (
 				<>
-					<NavButton
+					<IconButton
 						onClick={() => setPinDialogOpen(true)}
 						disabled={pinForCurrentPath !== null}
 						title={
@@ -147,7 +148,7 @@ export function PaneAddressBar({ paneId, view }: PaneAddressBarProps) {
 						<PinGlyph
 							className={cn('h-3.5 w-3.5', pinForCurrentPath && 'fill-current text-amber-500')}
 						/>
-					</NavButton>
+					</IconButton>
 					<PinArtifactDialog
 						open={pinDialogOpen}
 						onOpenChange={setPinDialogOpen}
@@ -156,33 +157,5 @@ export function PaneAddressBar({ paneId, view }: PaneAddressBarProps) {
 				</>
 			)}
 		</div>
-	);
-}
-
-interface NavButtonProps {
-	onClick: () => void;
-	disabled?: boolean;
-	title: string;
-	'aria-label': string;
-	children: React.ReactNode;
-}
-
-function NavButton({ onClick, disabled, title, children, ...rest }: NavButtonProps) {
-	return (
-		<button
-			type="button"
-			onClick={onClick}
-			disabled={disabled}
-			title={title}
-			aria-label={rest['aria-label']}
-			className={cn(
-				'flex h-6 w-6 items-center justify-center rounded',
-				'text-muted-foreground transition-colors',
-				'hover:bg-accent hover:text-accent-foreground',
-				'disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent'
-			)}
-		>
-			{children}
-		</button>
 	);
 }

@@ -22,6 +22,7 @@ import {
 	X,
 } from 'lucide-react';
 import { cn } from '@/components/ui/utils';
+import { IconButton } from '@/components/ui/icon-button';
 import {
 	commentList,
 	commentRoute,
@@ -1055,23 +1056,23 @@ function StudioChrome({
 				/>
 			)}
 			<span className="ml-auto flex items-center gap-0.5">
-				<ChromeButton
+				<IconButton
 					onClick={onCommentModeToggle}
 					active={commentMode}
 					title="Comment mode — click an element to annotate"
 					aria-label="Toggle comment mode"
 				>
 					<SquareDashedMousePointer className="h-3.5 w-3.5" />
-				</ChromeButton>
-				<ChromeButton
+				</IconButton>
+				<IconButton
 					onClick={onTextEditModeToggle}
 					active={textEditMode}
 					title="Text-edit mode — click an element to edit its text"
 					aria-label="Toggle text-edit mode"
 				>
 					<Pencil className="h-3.5 w-3.5" />
-				</ChromeButton>
-				<ChromeButton
+				</IconButton>
+				<IconButton
 					onClick={onPinToggle}
 					active={pinSuggested}
 					disabled={!manifest}
@@ -1079,10 +1080,10 @@ function StudioChrome({
 					aria-label="Toggle pin suggested"
 				>
 					<PinGlyph className={cn('h-3.5 w-3.5', pinSuggested && 'fill-current text-amber-500')} />
-				</ChromeButton>
-				<ChromeButton onClick={onPromote} title="Promote to folder…" aria-label="Promote to folder">
+				</IconButton>
+				<IconButton onClick={onPromote} title="Promote to folder…" aria-label="Promote to folder">
 					<FolderTree className="h-3.5 w-3.5" />
-				</ChromeButton>
+				</IconButton>
 				{attachedTerminalId ? (
 					<TerminalChip
 						tabId={attachedTerminalId}
@@ -1101,7 +1102,7 @@ function StudioChrome({
 						}}
 					/>
 				)}
-				<ChromeButton
+				<IconButton
 					onClick={onSinkOpen}
 					active={sink !== 'inherit'}
 					title={`Pin routing: ${sink}`}
@@ -1109,68 +1110,24 @@ function StudioChrome({
 					data-studio-sink-anchor
 				>
 					<SinkIcon className="h-3.5 w-3.5" />
-				</ChromeButton>
-				<ChromeButton
+				</IconButton>
+				<IconButton
 					onClick={onSave}
 					disabled={!dirty}
 					title={dirty ? 'Save (⌘S)' : 'Saved'}
 					aria-label="Save artifact"
 				>
 					<Save className="h-3.5 w-3.5" />
-				</ChromeButton>
-				<ChromeButton
+				</IconButton>
+				<IconButton
 					onClick={onClose}
 					title="Close Studio (back to preview)"
 					aria-label="Close Studio"
 				>
 					<X className="h-3.5 w-3.5" />
-				</ChromeButton>
+				</IconButton>
 			</span>
 		</div>
-	);
-}
-
-type ChromeButtonProps = {
-	onClick: () => void;
-	active?: boolean;
-	disabled?: boolean;
-	title?: string;
-	'aria-label': string;
-	children: React.ReactNode;
-} & {
-	// Allow arbitrary data-* attributes so callers (e.g., the sink-popover
-	// anchor) can mark the underlying <button> for later DOM lookup. Typed
-	// loosely because TypeScript can't express "any key prefixed with
-	// data-" cleanly.
-	[k: `data-${string}`]: string | boolean | undefined;
-};
-
-function ChromeButton({ onClick, active, disabled, title, children, ...rest }: ChromeButtonProps) {
-	// Forward any data-* attributes onto the <button> so they end up in the
-	// DOM. Excludes aria-label which we render explicitly below.
-	const dataAttrs: Record<string, string | boolean> = {};
-	for (const [k, v] of Object.entries(rest)) {
-		if (k.startsWith('data-') && v !== undefined) dataAttrs[k] = v;
-	}
-	return (
-		<button
-			type="button"
-			onClick={onClick}
-			disabled={disabled}
-			title={title}
-			aria-label={rest['aria-label']}
-			aria-pressed={active}
-			{...dataAttrs}
-			className={cn(
-				'flex h-6 w-6 items-center justify-center rounded transition-colors',
-				active
-					? 'bg-accent text-accent-foreground'
-					: 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
-				'disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent'
-			)}
-		>
-			{children}
-		</button>
 	);
 }
 

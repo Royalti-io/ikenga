@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { type PaneView } from '@/lib/panes/types';
 import { FeedbackState } from '@/components/ui/feedback-state';
+import { IconButton } from '@/components/ui/icon-button';
 import { useDockStore, DOCK_MIN_WIDTH, DOCK_MAX_WIDTH } from './dock-store';
 import { useDragState } from '@/lib/panes/drag-state';
 import { usePaneStore } from '@/lib/panes/pane-store';
@@ -270,15 +271,13 @@ export function Dock() {
 					style={{ borderColor: 'var(--border-soft)' }}
 				>
 					<DockAddButton onAdd={addTab} />
-					<button
-						type="button"
+					<IconButton
 						onClick={() => setState('collapsed')}
 						title="Collapse dock"
 						aria-label="Collapse dock"
-						className="grid h-6 w-6 place-items-center rounded-sm text-muted-foreground hover:bg-card"
 					>
 						<ChevronRight className="h-3.5 w-3.5" />
-					</button>
+					</IconButton>
 				</div>
 			</div>
 			<div className="relative flex-1 overflow-hidden" style={{ background: 'var(--bg-base)' }}>
@@ -410,18 +409,16 @@ function DockAddButton({ onAdd }: { onAdd: (view: PaneView) => void }) {
 
 	return (
 		<div className="relative">
-			<button
+			<IconButton
 				ref={btnRef}
-				type="button"
 				onClick={() => setOpen((v) => !v)}
 				title="New tab"
 				aria-label="New tab"
 				aria-haspopup="menu"
 				aria-expanded={open}
-				className="grid h-6 w-6 place-items-center rounded-sm text-muted-foreground hover:bg-card"
 			>
 				<Plus className="h-3.5 w-3.5" />
-			</button>
+			</IconButton>
 			{open && (
 				<div
 					ref={menuRef}
