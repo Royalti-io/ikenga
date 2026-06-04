@@ -11,6 +11,7 @@ import {
 	DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { Segmented } from '@/components/ui/segmented';
 import { mintThreadId, useChatActions, useChatStore } from '@/chat';
 import { createThread } from '@/chat';
 import { defaultChatAdapterId } from '@/chat/default-adapter';
@@ -273,22 +274,26 @@ export function NewSessionDialog({
 								))}
 						</select>
 					</div>
-					<div className="grid grid-cols-2 gap-2">
-						<ModeChoice
-							active={mode === 'chat'}
-							onClick={() => setMode('chat')}
-							Icon={MessageSquare}
-							label="Chat"
-							detail="streaming, in-app"
-						/>
-						<ModeChoice
-							active={mode === 'terminal'}
-							onClick={() => setMode('terminal')}
-							Icon={Terminal}
-							label="Terminal"
-							detail="PTY, claude TUI"
-						/>
-					</div>
+					<Segmented
+						variant="card"
+						ariaLabel="Session mode"
+						value={mode}
+						onValueChange={(id) => setMode(id as Mode)}
+						items={[
+							{
+								id: 'chat',
+								label: 'Chat',
+								icon: <MessageSquare className="h-3.5 w-3.5" />,
+								detail: 'streaming, in-app',
+							},
+							{
+								id: 'terminal',
+								label: 'Terminal',
+								icon: <Terminal className="h-3.5 w-3.5" />,
+								detail: 'PTY, claude TUI',
+							},
+						]}
+					/>
 
 					{mode === 'chat' && (
 						<div className="space-y-1.5">
@@ -398,37 +403,6 @@ export function NewSessionDialog({
 				</DialogFooter>
 			</DialogContent>
 		</Dialog>
-	);
-}
-
-function ModeChoice({
-	active,
-	onClick,
-	Icon,
-	label,
-	detail,
-}: {
-	active: boolean;
-	onClick: () => void;
-	Icon: typeof MessageSquare;
-	label: string;
-	detail: string;
-}) {
-	return (
-		<button
-			type="button"
-			onClick={onClick}
-			className={
-				'flex flex-col items-start gap-1 rounded-md border px-3 py-2 text-left transition-colors ' +
-				(active ? 'border-primary bg-primary/5' : 'border-input bg-background hover:bg-accent')
-			}
-		>
-			<div className="flex items-center gap-2 text-sm font-medium">
-				<Icon className="h-3.5 w-3.5" />
-				{label}
-			</div>
-			<span className="text-[11px] text-muted-foreground">{detail}</span>
-		</button>
 	);
 }
 
