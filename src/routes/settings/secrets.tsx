@@ -23,7 +23,7 @@ import {
 	Plus,
 	Trash2,
 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -35,6 +35,7 @@ import {
 	DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { StatusChip } from '@/components/ui/status-chip';
 import { cn } from '@/components/ui/utils';
 import {
 	useDeleteScopedSecret,
@@ -95,16 +96,9 @@ function SecretsPage() {
 				<span>
 					Settings · <span className="font-semibold text-foreground">Secrets</span>
 				</span>
-				<span
-					className={cn(
-						'ml-auto inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-medium',
-						vaultAvailable
-							? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
-							: 'border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300'
-					)}
-				>
+				<StatusChip tone={vaultAvailable ? 'live' : 'danger'} dot className="ml-auto">
 					Vault {vaultAvailable ? 'available' : 'unavailable'}
-				</span>
+				</StatusChip>
 			</div>
 
 			<div className="flex-1 overflow-y-auto px-6 py-6">
@@ -118,26 +112,7 @@ function SecretsPage() {
 						</p>
 					</header>
 
-					<div className="flex items-center gap-1 rounded-md border border-border bg-card p-1">
-						<TabButton
-							active={tab === 'workspace'}
-							onClick={() => setTab('workspace')}
-							icon={<Layers className="h-3.5 w-3.5" />}
-							label="Workspace"
-						/>
-						<TabButton
-							active={tab === 'project'}
-							onClick={() => setTab('project')}
-							icon={<FolderKanban className="h-3.5 w-3.5" />}
-							label="Project"
-						/>
-						<TabButton
-							active={tab === 'pkg'}
-							onClick={() => setTab('pkg')}
-							icon={<Package className="h-3.5 w-3.5" />}
-							label="Pkg"
-						/>
-					</div>
+					<ScopeTabList tab={tab} onTabChange={setTab} />
 
 					{tab === 'project' && (
 						<div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -230,31 +205,76 @@ function SecretsPage() {
 	);
 }
 
-function TabButton({
-	active,
-	onClick,
-	icon,
-	label,
-}: {
-	active: boolean;
-	onClick: () => void;
-	icon: React.ReactNode;
-	label: string;
-}) {
+const TAB_ITEMS: Array<{ kind: TabKind; label: string; icon: ReactNode }> = [
+	{ kind: 'workspace', label: 'Workspace', icon: <Layers className="h-3.5 w-3.5" /> },
+	{ kind: 'project', label: 'Project', icon: <FolderKanban className="h-3.5 w-3.5" /> },
+	{ kind: 'pkg', label: 'Pkg', icon: <Package className="h-3.5 w-3.5" /> },
+];
+
+/** Accessible tab strip for the three secret scopes (role=tablist + roving keyboard). */
+function ScopeTabList({ tab, onTabChange }: { tab: TabKind; onTabChange: (t: TabKind) => void }) {
+	const listRef = useRef<HTMLDivElement | null>(null);
+
+	const focusTab = useCallback((kind: TabKind) => {
+		requestAnimationFrame(() => {
+			listRef.current?.querySelector<HTMLElement>(`[data-tab="${kind}"]`)?.focus();
+		});
+	}, []);
+
+	const onKeyDown = useCallback(
+		(e: KeyboardEvent<HTMLDivElement>) => {
+			if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
+			const pos = TAB_ITEMS.findIndex((i) => i.kind === tab);
+			let next = pos;
+			if (e.key === 'ArrowRight') next = Math.min(pos + 1, TAB_ITEMS.length - 1);
+			else if (e.key === 'ArrowLeft') next = Math.max(pos - 1, 0);
+			else if (e.key === 'Home') next = 0;
+			else if (e.key === 'End') next = TAB_ITEMS.length - 1;
+			const target = TAB_ITEMS[next];
+			if (!target || target.kind === tab) {
+				e.preventDefault();
+				return;
+			}
+			e.preventDefault();
+			onTabChange(target.kind);
+			focusTab(target.kind);
+		},
+		[tab, onTabChange, focusTab]
+	);
+
 	return (
-		<button
-			type="button"
-			onClick={onClick}
-			className={cn(
-				'inline-flex items-center gap-1.5 rounded px-3 py-1 text-xs font-medium transition-colors',
-				active
-					? 'bg-accent text-accent-foreground'
-					: 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
-			)}
+		<div
+			ref={listRef}
+			role="tablist"
+			aria-label="Secret scope"
+			onKeyDown={onKeyDown}
+			className="flex items-center gap-1 rounded-md border border-border bg-card p-1"
 		>
-			{icon}
-			{label}
-		</button>
+			{TAB_ITEMS.map((item) => {
+				const active = tab === item.kind;
+				return (
+					<button
+						key={item.kind}
+						type="button"
+						role="tab"
+						aria-selected={active}
+						data-tab={item.kind}
+						tabIndex={active ? 0 : -1}
+						onClick={() => onTabChange(item.kind)}
+						className={cn(
+							'inline-flex items-center gap-1.5 rounded px-3 py-1 text-xs font-medium transition-colors',
+							'outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary',
+							active
+								? 'bg-accent text-accent-foreground'
+								: 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
+						)}
+					>
+						{item.icon}
+						{item.label}
+					</button>
+				);
+			})}
+		</div>
 	);
 }
 
@@ -299,10 +319,17 @@ function SecretRow({
 					className="h-6 px-2 text-[11px]"
 					onClick={reveal}
 					disabled={busy}
+					aria-label={revealed === null ? `Reveal value for ${name}` : `Hide value for ${name}`}
 				>
 					{revealed === null ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
 				</Button>
-				<Button variant="ghost" size="sm" className="h-6 px-2 text-[11px]" onClick={onEdit}>
+				<Button
+					variant="ghost"
+					size="sm"
+					className="h-6 px-2 text-[11px]"
+					onClick={onEdit}
+					aria-label={`Edit secret ${name}`}
+				>
 					<Pencil className="h-3 w-3" />
 				</Button>
 				<Button
@@ -317,6 +344,7 @@ function SecretRow({
 						);
 					}}
 					disabled={delMut.isPending}
+					aria-label={`Delete secret ${name}`}
 				>
 					<Trash2 className="h-3 w-3" />
 				</Button>
@@ -387,7 +415,9 @@ function SecretDialog({
 						/>
 					</div>
 					{setMut.error && (
-						<p className="text-xs text-red-700">{(setMut.error as Error).message}</p>
+						<p role="alert" className="text-xs text-red-700">
+							{(setMut.error as Error).message}
+						</p>
 					)}
 				</div>
 				<DialogFooter>

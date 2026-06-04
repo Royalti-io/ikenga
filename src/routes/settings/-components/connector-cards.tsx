@@ -10,6 +10,7 @@ import { useMemo, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { StatusChip, type ChipTone } from '@/components/ui/status-chip';
 import { cn } from '@/components/ui/utils';
 import {
 	type ConnectorDef,
@@ -153,6 +154,8 @@ function ConnectorCard({ connector, requiredBy, status, onSaved }: ConnectorCard
 		}
 	};
 
+	const formId = `connector-form-${connector.id}`;
+
 	return (
 		<div className="px-4 py-3" data-testid={`connector-card-${connector.id}`} data-status={status}>
 			<div className="flex items-center justify-between gap-3">
@@ -168,6 +171,8 @@ function ConnectorCard({ connector, requiredBy, status, onSaved }: ConnectorCard
 						size="sm"
 						variant={open ? 'ghost' : 'default'}
 						onClick={() => setOpen((v) => !v)}
+						aria-expanded={open}
+						aria-controls={formId}
 						data-testid={`connector-card-toggle-${connector.id}`}
 					>
 						{open ? 'Hide' : status === 'configured' ? 'Edit' : 'Configure'}
@@ -176,6 +181,7 @@ function ConnectorCard({ connector, requiredBy, status, onSaved }: ConnectorCard
 			</div>
 			{open && (
 				<div
+					id={formId}
 					className="mt-3 space-y-3 rounded-md border bg-[var(--bg-base)] p-3"
 					style={{ borderColor: 'var(--border-soft)' }}
 				>
@@ -192,6 +198,7 @@ function ConnectorCard({ connector, requiredBy, status, onSaved }: ConnectorCard
 					))}
 					{testResult && (
 						<div
+							role={testResult.ok ? 'status' : 'alert'}
 							className={cn(
 								'rounded border px-3 py-2 text-xs',
 								testResult.ok
@@ -206,6 +213,7 @@ function ConnectorCard({ connector, requiredBy, status, onSaved }: ConnectorCard
 					)}
 					{saveError && (
 						<div
+							role="alert"
 							className="rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-700 dark:text-red-300"
 							data-testid={`connector-card-error-${connector.id}`}
 						>
@@ -275,37 +283,21 @@ function FieldRow({ field, value, onChange, disabled, testIdPrefix }: FieldRowPr
 }
 
 function StatusPill({ status }: { status: ConnectorStatus }) {
-	const palette: Record<ConnectorStatus, { bg: string; fg: string; label: string }> = {
-		configured: {
-			bg: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
-			fg: '',
-			label: 'configured',
-		},
-		partial: {
-			bg: 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300',
-			fg: '',
-			label: 'partial',
-		},
-		invalid: {
-			bg: 'border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300',
-			fg: '',
-			label: 'invalid',
-		},
-		not_configured: {
-			bg: 'border-border bg-muted text-muted-foreground',
-			fg: '',
-			label: 'not configured',
-		},
+	const toneMap: Record<ConnectorStatus, ChipTone> = {
+		configured: 'live',
+		partial: 'warn',
+		invalid: 'danger',
+		not_configured: 'muted',
 	};
-	const c = palette[status];
+	const labelMap: Record<ConnectorStatus, string> = {
+		configured: 'configured',
+		partial: 'partial',
+		invalid: 'invalid',
+		not_configured: 'not configured',
+	};
 	return (
-		<span
-			className={cn(
-				'inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-medium',
-				c.bg
-			)}
-		>
-			{c.label}
-		</span>
+		<StatusChip tone={toneMap[status]} dot>
+			{labelMap[status]}
+		</StatusChip>
 	);
 }

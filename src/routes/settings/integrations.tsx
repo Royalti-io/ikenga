@@ -4,8 +4,9 @@ import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { CheckCircle2, Copy, XCircle } from 'lucide-react';
 import { useState } from 'react';
 
+import { FeedbackState } from '@/components/ui/feedback-state';
 import { Input } from '@/components/ui/input';
-import { cn } from '@/components/ui/utils';
+import { StatusChip } from '@/components/ui/status-chip';
 import { vaultKeysQueryOptions, vaultStatusQueryOptions } from '@/lib/queries/secrets';
 import { iykeMcpInfo } from '@/lib/tauri-cmd';
 
@@ -36,22 +37,9 @@ function IntegrationsPage() {
 				<span>
 					Settings · <span className="font-semibold text-foreground">Integrations</span>
 				</span>
-				<span
-					className={cn(
-						'ml-auto inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-medium',
-						connected > 0
-							? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
-							: 'border-border bg-muted text-muted-foreground'
-					)}
-				>
-					<span
-						className={cn(
-							'h-1.5 w-1.5 rounded-full',
-							connected > 0 ? 'bg-emerald-500' : 'bg-muted-foreground'
-						)}
-					/>
+				<StatusChip tone={connected > 0 ? 'live' : 'muted'} dot className="ml-auto">
 					{connected} connected
-				</span>
+				</StatusChip>
 			</div>
 
 			<div className="flex-1 overflow-y-auto px-6 py-6">
@@ -100,21 +88,12 @@ function IntegrationsPage() {
 							label="Anon key"
 							desc="Managed in API keys below as VITE_SUPABASE_ANON_KEY — same value, single source."
 						>
-							<span
-								className={cn(
-									'inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-medium',
-									supabaseAnonPresent
-										? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
-										: 'border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300'
-								)}
+							<StatusChip
+								tone={supabaseAnonPresent ? 'live' : 'danger'}
+								icon={supabaseAnonPresent ? CheckCircle2 : XCircle}
 							>
-								{supabaseAnonPresent ? (
-									<CheckCircle2 className="h-3 w-3" />
-								) : (
-									<XCircle className="h-3 w-3" />
-								)}
 								{supabaseAnonPresent ? 'In vault' : 'Not set'}
-							</span>
+							</StatusChip>
 						</SettingRow>
 					</SettingGroup>
 
@@ -141,15 +120,19 @@ function IykeMcpSection() {
 	const [copied, setCopied] = useState<null | 'path' | 'json'>(null);
 
 	if (info.isLoading) {
-		return <div className="px-4 py-3 text-xs text-muted-foreground">Resolving binary path…</div>;
+		return (
+			<FeedbackState variant="loading" body="Resolving binary path…" className="min-h-0 py-4" />
+		);
 	}
 
 	const data = info.data;
 	if (!data || !data.path) {
 		return (
-			<div className="px-4 py-3 text-xs text-muted-foreground">
-				Could not resolve resource directory. Check that the app is running from a normal install.
-			</div>
+			<FeedbackState
+				variant="error"
+				body="Could not resolve resource directory. Check that the app is running from a normal install."
+				className="min-h-0 py-4"
+			/>
 		);
 	}
 
@@ -182,19 +165,14 @@ function IykeMcpSection() {
 				label="Status"
 				desc="Bundled with the shell. While Ikenga is running, any MCP client configured against the binary path below can drive the desktop."
 			>
-				<span
-					className={cn(
-						'inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-medium',
-						data.present
-							? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
-							: 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300'
-					)}
+				<StatusChip
+					tone={data.present ? 'live' : 'warn'}
+					icon={data.present ? CheckCircle2 : XCircle}
 				>
-					{data.present ? <CheckCircle2 className="h-3 w-3" /> : <XCircle className="h-3 w-3" />}
 					{data.present
 						? `Bundled (${data.source})`
 						: 'Build pending — run `bun run iyke:mcp:build`'}
-				</span>
+				</StatusChip>
 			</SettingRow>
 
 			<SettingRow label="Binary path" desc="Absolute path on disk. Stable across shell relaunches.">

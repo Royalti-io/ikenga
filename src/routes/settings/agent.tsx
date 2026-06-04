@@ -8,12 +8,13 @@
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { open as openExternal } from '@tauri-apps/plugin-shell';
-import { Bot, Pencil, RotateCcw } from 'lucide-react';
+import { AlertTriangle, Bot, Pencil, RotateCcw } from 'lucide-react';
 
+import { Banner } from '@/components/ui/banner';
 import { Button } from '@/components/ui/button';
-import { cn } from '@/components/ui/utils';
-import { type DetectedAgent, detectAgents } from '@/lib/tauri-cmd';
+import { StatusChip } from '@/components/ui/status-chip';
 import { useShellStore } from '@/lib/shell/shell-store';
+import { type DetectedAgent, detectAgents } from '@/lib/tauri-cmd';
 
 import { SettingGroup } from './-components/setting-group';
 import { SettingRow } from './-components/setting-row';
@@ -155,29 +156,30 @@ function AgentSettingsPage() {
 					</SettingGroup>
 
 					{authed === false && live && (
-						<div
-							className="rounded-md border p-4"
-							style={{
-								borderColor: 'var(--warning, var(--border-strong))',
-								background: 'var(--warning-soft, var(--bg-surface))',
-							}}
+						<Banner
+							tone="warning"
+							icon={<AlertTriangle />}
+							role="alert"
+							className="rounded-md border"
+							actions={
+								live.auth_hint?.startsWith('http') ? (
+									<button
+										type="button"
+										onClick={() => void openExternal(live.auth_hint!).catch(() => {})}
+										className="text-xs underline-offset-2 hover:underline"
+										style={{ color: 'var(--primary)' }}
+									>
+										Open docs →
+									</button>
+								) : undefined
+							}
 						>
 							<div className="text-[13px] font-semibold">{live.display} isn't signed in</div>
 							<div className="mt-1 text-xs" style={{ color: 'var(--fg-muted)' }}>
 								{live.auth_hint ??
 									'Run the agent CLI once to authenticate, or set the relevant API key in your environment.'}
 							</div>
-							{live.auth_hint?.startsWith('http') && (
-								<button
-									type="button"
-									onClick={() => void openExternal(live.auth_hint!).catch(() => {})}
-									className="mt-2 text-xs underline-offset-2 hover:underline"
-									style={{ color: 'var(--primary)' }}
-								>
-									Open docs →
-								</button>
-							)}
-						</div>
+						</Banner>
 					)}
 				</div>
 			</div>
@@ -187,37 +189,23 @@ function AgentSettingsPage() {
 
 function AuthBadge({ authed, loading }: { authed: boolean | null; loading: boolean }) {
 	if (loading && authed == null) {
-		return (
-			<span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-				Checking…
-			</span>
-		);
+		return <StatusChip tone="muted">Checking…</StatusChip>;
 	}
 	if (authed === true) {
 		return (
-			<span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-300">
-				<span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+			<StatusChip tone="live" dot>
 				Signed in
-			</span>
+			</StatusChip>
 		);
 	}
 	if (authed === false) {
 		return (
-			<span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300">
-				<span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+			<StatusChip tone="warn" dot>
 				Auth required
-			</span>
+			</StatusChip>
 		);
 	}
-	return (
-		<span
-			className={cn(
-				'inline-flex items-center gap-1.5 rounded-full border border-border bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground'
-			)}
-		>
-			Unknown
-		</span>
-	);
+	return <StatusChip tone="muted">Unknown</StatusChip>;
 }
 
 export const Route = createFileRoute('/settings/agent')({

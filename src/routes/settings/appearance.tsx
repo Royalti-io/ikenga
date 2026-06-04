@@ -2,7 +2,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { confirm as confirmDialog } from '@tauri-apps/plugin-dialog';
 import Database from '@tauri-apps/plugin-sql';
 import { Monitor, Moon, RotateCcw, Sun } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
 	loadUserTurnVariant,
@@ -14,6 +14,7 @@ import {
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { StatusChip } from '@/components/ui/status-chip';
 import { Switch } from '@/components/ui/switch';
 import { cn } from '@/components/ui/utils';
 import {
@@ -108,10 +109,9 @@ function AppearancePage() {
 				<span>
 					Settings · <span className="font-semibold text-foreground">Appearance</span>
 				</span>
-				<span className="ml-auto inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-300">
-					<span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+				<StatusChip tone="live" dot className="ml-auto">
 					Saved
-				</span>
+				</StatusChip>
 			</div>
 
 			<div className="flex-1 overflow-y-auto px-6 py-6">
@@ -156,6 +156,7 @@ function AppearancePage() {
 							<SegmentedControl<IkengaMode>
 								value={mode}
 								onChange={setMode}
+								ariaLabel="Mode"
 								items={[
 									{ value: 'light', label: 'Light', Icon: Sun },
 									{ value: 'dark', label: 'Dark', Icon: Moon },
@@ -176,6 +177,7 @@ function AppearancePage() {
 							<SegmentedControl<IkengaDensity>
 								value={density}
 								onChange={setDensity}
+								ariaLabel="Density"
 								items={DENSITIES.map((d) => ({
 									value: d.value,
 									label: d.label,
@@ -191,10 +193,14 @@ function AppearancePage() {
 							label="Reading width"
 							desc="Caps the email reader, settings panes and any prose surface. Default 64ch."
 						>
+							<span id="stub-desc-reading-width" className="sr-only">
+								Coming soon — this control is not yet active.
+							</span>
 							<Input
 								type="text"
 								defaultValue="64ch"
 								disabled
+								aria-describedby="stub-desc-reading-width"
 								className="h-8 w-28 font-mono text-xs"
 							/>
 						</SettingRow>
@@ -203,7 +209,10 @@ function AppearancePage() {
 							label="Reduce motion"
 							desc="Drop pane transitions, sheet animations, and the dock collapse curl. Honours prefers-reduced-motion by default."
 						>
-							<Switch disabled />
+							<span id="stub-desc-reduce-motion" className="sr-only">
+								Coming soon — this control is not yet active.
+							</span>
+							<Switch disabled aria-describedby="stub-desc-reduce-motion" />
 						</SettingRow>
 					</SettingGroup>
 
@@ -216,6 +225,7 @@ function AppearancePage() {
 							<SegmentedControl<IkengaTintStrength>
 								value={tintStrength}
 								onChange={setTintStrength}
+								ariaLabel="Tint strength"
 								items={TINTS.map((t) => ({ value: t.value, label: t.label }))}
 							/>
 						</SettingRow>
@@ -230,10 +240,14 @@ function AppearancePage() {
 							label="Activity bar width"
 							desc="The left rail with workspace icons. Default 56px."
 						>
+							<span id="stub-desc-activity-bar-width" className="sr-only">
+								Coming soon — this control is not yet active.
+							</span>
 							<Input
 								type="text"
 								defaultValue="56px"
 								disabled
+								aria-describedby="stub-desc-activity-bar-width"
 								className="h-8 w-28 font-mono text-xs"
 							/>
 						</SettingRow>
@@ -242,8 +256,12 @@ function AppearancePage() {
 							label="Sidebar default"
 							desc="Whether the sidebar starts open or collapsed when you switch workspaces."
 						>
+							<span id="stub-desc-sidebar-default" className="sr-only">
+								Coming soon — this control is not yet active.
+							</span>
 							<select
 								disabled
+								aria-describedby="stub-desc-sidebar-default"
 								className="h-8 rounded-md border border-border bg-background px-2 text-xs disabled:opacity-50"
 							>
 								<option>open</option>
@@ -256,8 +274,12 @@ function AppearancePage() {
 							label="Dock pane default"
 							desc="The bottom pane on a fresh window — terminal, chat, viewer, or off."
 						>
+							<span id="stub-desc-dock-pane-default" className="sr-only">
+								Coming soon — this control is not yet active.
+							</span>
 							<select
 								disabled
+								aria-describedby="stub-desc-dock-pane-default"
 								className="h-8 rounded-md border border-border bg-background px-2 text-xs disabled:opacity-50"
 							>
 								<option>Terminal</option>
@@ -331,8 +353,10 @@ function UserTurnVariantCard({
 			type="button"
 			onClick={onSelect}
 			title={description}
+			aria-pressed={active}
 			className={cn(
 				'group flex cursor-pointer flex-col overflow-hidden rounded-md border bg-card text-left transition-colors',
+				'outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary',
 				active
 					? 'border-primary shadow-[inset_0_0_0_1px_var(--primary)]'
 					: 'border-border-soft hover:border-foreground/20'
@@ -434,8 +458,10 @@ function ThemeCard({
 		<button
 			type="button"
 			onClick={onSelect}
+			aria-pressed={active}
 			className={cn(
 				'group flex cursor-pointer flex-col overflow-hidden rounded-md border bg-card text-left transition-colors',
+				'outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary',
 				active
 					? 'border-primary shadow-[inset_0_0_0_1px_var(--primary)]'
 					: 'border-border-soft hover:border-foreground/20'
@@ -504,14 +530,52 @@ function SegmentedControl<T extends string>({
 	value,
 	onChange,
 	items,
+	ariaLabel,
 }: {
 	value: T;
 	onChange: (v: T) => void;
 	items: SegmentedItem<T>[];
+	/** Accessible group label (WCAG 4.1.2). */
+	ariaLabel?: string;
 }) {
+	const groupRef = useRef<HTMLDivElement | null>(null);
+
+	const enabled = items.filter((i) => !i.disabled);
+
+	const focusItem = useCallback((val: string) => {
+		requestAnimationFrame(() => {
+			groupRef.current?.querySelector<HTMLElement>(`[data-seg-val="${val}"]`)?.focus();
+		});
+	}, []);
+
+	const onKeyDown = useCallback(
+		(e: React.KeyboardEvent<HTMLDivElement>) => {
+			if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
+			if (enabled.length === 0) return;
+			const pos = enabled.findIndex((i) => i.value === value);
+			let next = pos;
+			if (e.key === 'ArrowRight') next = pos < 0 ? 0 : Math.min(pos + 1, enabled.length - 1);
+			else if (e.key === 'ArrowLeft') next = pos < 0 ? 0 : Math.max(pos - 1, 0);
+			else if (e.key === 'Home') next = 0;
+			else if (e.key === 'End') next = enabled.length - 1;
+			const target = enabled[next];
+			if (!target || target.value === value) {
+				e.preventDefault();
+				return;
+			}
+			e.preventDefault();
+			onChange(target.value);
+			focusItem(target.value);
+		},
+		[enabled, value, onChange, focusItem]
+	);
+
 	return (
 		<div
+			ref={groupRef}
 			role="group"
+			aria-label={ariaLabel}
+			onKeyDown={onKeyDown}
 			className="inline-flex items-center gap-0.5 rounded-md border border-border p-0.5"
 			style={{ background: 'var(--bg-base)' }}
 		>
@@ -524,9 +588,12 @@ function SegmentedControl<T extends string>({
 						type="button"
 						disabled={item.disabled}
 						title={item.title}
+						aria-pressed={active}
+						data-seg-val={item.value}
 						onClick={() => !item.disabled && onChange(item.value)}
 						className={cn(
 							'inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs transition-colors',
+							'outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary',
 							active
 								? 'bg-card text-foreground shadow-sm'
 								: 'text-muted-foreground hover:text-foreground',
