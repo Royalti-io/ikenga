@@ -8,11 +8,12 @@
 // Chat-only. The Phase 1 `Chat | Pins` tab pair has been replaced with
 // Chat + a slide-in pin overlay (active pin or "inbox" button opens it).
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Inbox, Settings, X } from 'lucide-react';
 import { cn } from '@/components/ui/utils';
+import { useFocusTrap } from '@/lib/a11y/focus';
 import { StudioFolderChat } from '@/shell/artifact-studio/studio-folder-chat';
 import {
 	commentList,
@@ -733,10 +734,12 @@ function GridCell({
 }: GridCellProps) {
 	return (
 		<>
-			<div
+			<button
+				type="button"
 				onClick={() => onOpen(entry)}
+				aria-label={entry.name}
 				className={
-					'group relative flex cursor-pointer flex-col overflow-hidden rounded border border-border bg-background transition-colors hover:border-foreground/40 ' +
+					'group relative flex w-full flex-col overflow-hidden rounded border border-border bg-background text-left transition-colors hover:border-foreground/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset ' +
 					(isVariant ? 'bg-muted/30' : '')
 				}
 				style={{ height: 240 }}
@@ -792,7 +795,7 @@ function GridCell({
 						</button>
 					)}
 				</div>
-			</div>
+			</button>
 			{isExpanded && childDirPath && (
 				<GridStackChildren
 					dirPath={childDirPath}
@@ -882,8 +885,9 @@ function PinDot({ pin, numbering, onClick, onAltClick }: PinDotProps) {
 					onClick();
 				}
 			}}
-			className={`absolute flex h-4 w-4 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-background font-mono text-[9px] font-bold shadow ${tone} ${muted}`}
+			className={`absolute flex h-4 w-4 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-background font-mono text-[9px] font-bold shadow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset ${tone} ${muted}`}
 			style={{ left: `${x * 100}%`, top: `${y * 100}%` }}
+			aria-label={`Pin ${numbering}: ${pin.text} (${pin.selector})`}
 			title={`${pin.selector} — ${pin.text}\n(⌥-click to override sink)`}
 		>
 			{numbering}
@@ -898,6 +902,9 @@ interface OverridePopoverProps {
 }
 
 function OverridePopover({ anchor, onPick, onClose }: OverridePopoverProps) {
+	const containerRef = useRef<HTMLDivElement>(null);
+	useFocusTrap(containerRef, { enabled: true, initialFocusSelector: 'button' });
+
 	useEffect(() => {
 		const onKey = (e: KeyboardEvent) => {
 			if (e.key === 'Escape') onClose();
@@ -920,7 +927,11 @@ function OverridePopover({ anchor, onPick, onClose }: OverridePopoverProps) {
 
 	return (
 		<div
+			ref={containerRef}
 			data-override-popover
+			role="dialog"
+			aria-modal="true"
+			aria-label="Override routing sink"
 			className="fixed z-50 -translate-x-1/2 rounded border border-border bg-background shadow-lg"
 			style={{ left: anchor.x, top: anchor.y, minWidth: 180 }}
 		>
@@ -956,6 +967,8 @@ interface FolderSettingsModalProps {
 
 function FolderSettingsModal({ path, settings, onClose, onChanged }: FolderSettingsModalProps) {
 	const navigateFocused = usePaneStore((s) => s.navigateFocused);
+	const panelRef = useRef<HTMLDivElement>(null);
+	useFocusTrap(panelRef, { enabled: true });
 
 	useEffect(() => {
 		const onKey = (e: KeyboardEvent) => {
@@ -982,12 +995,19 @@ function FolderSettingsModal({ path, settings, onClose, onChanged }: FolderSetti
 			}}
 		>
 			<div
+				ref={panelRef}
+				role="dialog"
+				aria-modal="true"
+				aria-labelledby="folder-settings-title"
 				className="w-[440px] max-w-[90vw] overflow-hidden rounded border border-border bg-background shadow-xl"
 				onMouseDown={(e) => e.stopPropagation()}
 			>
 				<div className="flex items-center justify-between border-b border-border px-4 py-2.5">
 					<div>
-						<div className="text-xs font-semibold uppercase tracking-[0.18em] text-foreground">
+						<div
+							id="folder-settings-title"
+							className="text-xs font-semibold uppercase tracking-[0.18em] text-foreground"
+						>
 							Folder settings
 						</div>
 						<div className="mt-0.5 font-mono text-[10px] text-muted-foreground">{path}</div>
@@ -1257,7 +1277,7 @@ function GridSidebarInbox({
 			<div className="border-b border-border px-4 py-1.5 font-mono text-[9px] uppercase tracking-[0.14em] text-muted-foreground">
 				Pin → {claudePty ? 'Terminal claude' : 'Side-pane Chat (fallback)'}
 			</div>
-			<div className="flex-1 overflow-y-auto">
+			<div role="list" className="flex-1 overflow-y-auto">
 				{rows.map((row) => (
 					<InboxRowItem
 						key={row.pin.id}
@@ -1290,11 +1310,19 @@ function InboxRowItem({ row, isActive, onClick, onResolve }: InboxRowItemProps) 
 	const muted = pin.status === 'resolved' ? 'opacity-50' : '';
 	const artifactName = pin.artifactPath.split('/').pop() ?? pin.artifactPath;
 	return (
-		<button
-			type="button"
+		// biome-ignore lint/a11y/useSemanticElements: the whole row is a div[role=button] (it hosts a nested resolve <button> — a <button> can't nest in a <button>).
+		<div
+			role="button"
 			onClick={onClick}
+			onKeyDown={(e) => {
+				if (e.key === 'Enter' || e.key === ' ') {
+					e.preventDefault();
+					onClick();
+				}
+			}}
+			tabIndex={0}
 			className={
-				'group grid w-full grid-cols-[20px_1fr_auto] items-start gap-2 border-b border-border/40 px-3 py-2 text-left transition-colors hover:bg-foreground/5 ' +
+				'group grid w-full cursor-pointer grid-cols-[20px_1fr_auto] items-start gap-2 border-b border-border/40 px-3 py-2 text-left transition-colors hover:bg-foreground/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset ' +
 				(isActive ? 'bg-foreground/10' : '')
 			}
 		>
@@ -1314,20 +1342,19 @@ function InboxRowItem({ row, isActive, onClick, onResolve }: InboxRowItemProps) 
 				<div className="mt-0.5 truncate text-xs text-foreground">{pin.text}</div>
 			</div>
 			{pin.status !== 'resolved' && (
-				<span
-					role="button"
-					tabIndex={-1}
+				<button
+					type="button"
 					onClick={(e) => {
 						e.stopPropagation();
 						onResolve();
 					}}
-					className="invisible self-center rounded border border-[var(--live)] px-1.5 py-0.5 font-mono text-[8px] font-bold uppercase tracking-[0.10em] text-[var(--live)] hover:bg-[var(--live)]/10 group-hover:visible"
-					title="Mark resolved"
+					aria-label="Mark resolved"
+					className="invisible self-center rounded border border-[var(--live)] px-1.5 py-0.5 font-mono text-[8px] font-bold uppercase tracking-[0.10em] text-[var(--live)] hover:bg-[var(--live)]/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset group-hover:visible"
 				>
 					✓
-				</span>
+				</button>
 			)}
-		</button>
+		</div>
 	);
 }
 

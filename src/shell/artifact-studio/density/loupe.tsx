@@ -8,6 +8,7 @@
 // surface Chat-only rails per the unified plan).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useFocusTrap } from '@/lib/a11y/focus';
 import { createPortal } from 'react-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
@@ -561,7 +562,7 @@ function LoupePinOverlay({
 		async (pin: Comment) => {
 			const ts = useTerminalStore.getState();
 			let preferredPtyId: string | null = null;
-			let overrideSink: ReturnType<typeof studioSinkToRouteOverride> = undefined;
+			let overrideSink: ReturnType<typeof studioSinkToRouteOverride>;
 
 			if (attachedTerminalId) {
 				// Embedded-terminal mode: pins route to the attached PTY,
@@ -671,10 +672,11 @@ function LoupePinDot({
 				onClick();
 			}}
 			className={cn(
-				'pointer-events-auto absolute flex h-5 w-5 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-background font-mono text-[10px] font-bold shadow transition-transform hover:scale-110',
+				'pointer-events-auto absolute flex h-5 w-5 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-background font-mono text-[10px] font-bold shadow transition-transform hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
 				tone
 			)}
 			style={{ left: `${x}px`, top: `${y}px` }}
+			aria-label={`Pin ${numbering}: ${pin.text} (${pin.selector})`}
 			title={`${pin.selector} — ${pin.text}`}
 		>
 			{numbering}
@@ -716,6 +718,8 @@ const POPOVER_WIDTH_PX = 288; // matches w-72
 const POPOVER_MARGIN_PX = 8;
 const POPOVER_EST_HEIGHT_PX = 220;
 
+const PIN_REVIEW_HEADER_ID = 'pin-review-popover-header';
+
 function PinReviewPopover({
 	pin,
 	screenAnchor,
@@ -731,6 +735,9 @@ function PinReviewPopover({
 	onRoute: () => void;
 	onResolve: () => void;
 }) {
+	const containerRef = useRef<HTMLDivElement>(null);
+	useFocusTrap(containerRef, { enabled: true, initialFocusSelector: 'button' });
+
 	const [screenshotUrl, setScreenshotUrl] = useState<string | null>(null);
 
 	// Close on Escape / outside click.
@@ -809,12 +816,19 @@ function PinReviewPopover({
 
 	return (
 		<div
+			ref={containerRef}
 			data-pin-review-popover
+			role="dialog"
+			aria-modal="true"
+			aria-labelledby={PIN_REVIEW_HEADER_ID}
 			className="pointer-events-auto z-50 w-72 rounded border border-border bg-background shadow-xl"
 			style={style}
 		>
 			<div className="flex items-center justify-between border-b border-border px-2.5 py-1.5">
-				<span className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
+				<span
+					id={PIN_REVIEW_HEADER_ID}
+					className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground"
+				>
 					Pin #{pin.id} · {pin.status}
 				</span>
 				<button
