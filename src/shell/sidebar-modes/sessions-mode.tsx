@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
+import { ListRow, UnreadBadge } from '@/components/ui/list-row';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/components/ui/utils';
 import { shortPath } from '@/lib/home';
@@ -49,42 +50,27 @@ function ThreadRow({ thread, projectColor, badgeCount, onSelect }: ThreadRowProp
 	const subtitle = thread.cwd ? shortPath(thread.cwd) : '';
 
 	return (
-		<button
-			type="button"
-			onClick={() => onSelect(thread)}
+		<ListRow
+			size="md"
+			onActivate={() => onSelect(thread)}
 			title={`${title}${subtitle ? `\n${subtitle}` : ''}`}
-			className={cn(
-				'group/row flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors',
-				'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
-			)}
-		>
-			{projectColor ? (
-				<span
-					aria-hidden
-					className="h-2 w-2 shrink-0 rounded-full"
-					style={{ background: projectColor }}
-				/>
-			) : (
-				<span aria-hidden className="h-2 w-2 shrink-0" />
-			)}
-			<div className="flex min-w-0 flex-1 flex-col">
-				<span className="truncate text-xs font-medium text-foreground">{title}</span>
-				{subtitle && (
-					<span className="truncate text-[10px] text-muted-foreground/80">{subtitle}</span>
-				)}
-			</div>
-			{badgeCount > 0 && (
-				<span
-					aria-label={`${badgeCount} unread`}
-					className="grid h-4 min-w-4 shrink-0 place-items-center rounded-full bg-[var(--accent,#f59e0b)] px-1 text-[9px] font-semibold leading-none text-white"
-				>
-					{badgeCount > 9 ? '9+' : badgeCount}
-				</span>
-			)}
-			<span className="shrink-0 text-[10px] text-muted-foreground tabular-nums">
-				{formatRelative(thread.updated_at)}
-			</span>
-		</button>
+			aria-label={badgeCount > 0 ? `${title}, ${badgeCount} unread` : title}
+			icon={
+				projectColor ? (
+					<span
+						aria-hidden
+						className="h-2 w-2 shrink-0 rounded-full"
+						style={{ background: projectColor }}
+					/>
+				) : (
+					<span aria-hidden className="h-2 w-2 shrink-0" />
+				)
+			}
+			name={title}
+			subtitle={subtitle || undefined}
+			badge={<UnreadBadge count={badgeCount} />}
+			timestamp={formatRelative(thread.updated_at)}
+		/>
 	);
 }
 

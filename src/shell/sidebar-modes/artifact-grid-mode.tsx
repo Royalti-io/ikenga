@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 
+import { ListRow, RowAction } from '@/components/ui/list-row';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/components/ui/utils';
 import { findLeaf } from '@/lib/panes/pane-reducer';
@@ -288,28 +289,22 @@ function RecentRow({
 }) {
 	const name = recent.path.replace(/\/+$/, '').replace(/^.+\//, '') || recent.path;
 	return (
-		<li className="group/recent flex items-center">
-			<button
-				type="button"
-				onClick={onOpen}
-				className="flex flex-1 min-w-0 items-center gap-2 px-4 py-1.5 text-left text-sm text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+		<li>
+			<ListRow
+				size="lg"
+				onActivate={onOpen}
 				title={recent.path}
-			>
-				<Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
-				<span className="flex-1 min-w-0 truncate">{name}</span>
-				<span className="shrink-0 font-mono text-[10px] text-muted-foreground/70">
-					{relativeOpenedAt(recent.openedAtMs)}
-				</span>
-			</button>
-			<button
-				type="button"
-				onClick={onDrop}
-				title="Remove from recents"
-				aria-label="Remove from recents"
-				className="invisible mr-2 rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground group-hover/recent:visible"
-			>
-				<Trash2 className="h-3 w-3" />
-			</button>
+				icon={<Folder className="h-4 w-4 shrink-0 text-muted-foreground" />}
+				name={name}
+				timestamp={relativeOpenedAt(recent.openedAtMs)}
+				actions={
+					<RowAction
+						icon={<Trash2 className="h-3 w-3" />}
+						label="Remove from recents"
+						onClick={onDrop}
+					/>
+				}
+			/>
 		</li>
 	);
 }
@@ -328,28 +323,22 @@ function RecentArtifactRow({
 		.replace(/^.+\//, '')
 		.replace(/\.html?$/i, '');
 	return (
-		<li className="group/recent flex items-center">
-			<button
-				type="button"
-				onClick={onOpen}
-				className="flex flex-1 min-w-0 items-center gap-2 px-4 py-1.5 text-left text-sm text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+		<li>
+			<ListRow
+				size="lg"
+				onActivate={onOpen}
 				title={artifact.path}
-			>
-				<FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
-				<span className="flex-1 min-w-0 truncate">{name}</span>
-				<span className="shrink-0 font-mono text-[10px] text-muted-foreground/70">
-					{relativeOpenedAt(artifact.openedAtMs)}
-				</span>
-			</button>
-			<button
-				type="button"
-				onClick={onDrop}
-				title="Remove from recents"
-				aria-label="Remove from recents"
-				className="invisible mr-2 rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground group-hover/recent:visible"
-			>
-				<Trash2 className="h-3 w-3" />
-			</button>
+				icon={<FileText className="h-4 w-4 shrink-0 text-muted-foreground" />}
+				name={name}
+				timestamp={relativeOpenedAt(artifact.openedAtMs)}
+				actions={
+					<RowAction
+						icon={<Trash2 className="h-3 w-3" />}
+						label="Remove from recents"
+						onClick={onDrop}
+					/>
+				}
+			/>
 		</li>
 	);
 }

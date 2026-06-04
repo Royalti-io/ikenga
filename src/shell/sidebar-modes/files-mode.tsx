@@ -22,6 +22,7 @@ import { fsList, fsRename, fsSearch, fsTrash, type FileEntry } from '@/lib/tauri
 import { createTerminalSession } from '@/terminal/single-terminal';
 import { openArtifactGrid } from '@/lib/shell/artifact-grid-recents';
 import { queryKeys } from '@/lib/query-keys';
+import { ListRow, RowAction } from '@/components/ui/list-row';
 import { cn } from '@/components/ui/utils';
 import {
 	ContextMenu,
@@ -226,18 +227,14 @@ function TreeNode({ entry, depth, filter }: TreeNodeProps) {
 		}
 	}, [entry.path, entry.name, prune, qc]);
 
-	const handleRefresh = useCallback(
-		(e: React.MouseEvent) => {
-			e.stopPropagation();
-			if (!entry.isDir) return;
-			if (!expanded) {
-				toggle(entry.path);
-				return;
-			}
-			void qc.invalidateQueries({ queryKey: queryKeys.fs.list(entry.path) });
-		},
-		[entry.isDir, entry.path, expanded, toggle, qc]
-	);
+	const handleRefresh = useCallback(() => {
+		if (!entry.isDir) return;
+		if (!expanded) {
+			toggle(entry.path);
+			return;
+		}
+		void qc.invalidateQueries({ queryKey: queryKeys.fs.list(entry.path) });
+	}, [entry.isDir, entry.path, expanded, toggle, qc]);
 
 	const children = childrenQuery.data;
 	const error = childrenQuery.error
@@ -255,97 +252,76 @@ function TreeNode({ entry, depth, filter }: TreeNodeProps) {
 		<div>
 			<ContextMenu>
 				<ContextMenuTrigger asChild>
-					<div
+					<ListRow
 						ref={rowRef}
-						className={cn(
-							'group/row relative flex w-max min-w-full items-center text-xs transition-colors',
-							'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
-							isSelected && 'bg-accent text-accent-foreground font-medium'
-						)}
+						size="sm"
+						selected={isSelected}
+						onActivate={handleClick}
+						indent={Math.min(depth, 10) * 12 + 8}
+						title={entry.path}
+						className="w-max min-w-full gap-1"
+						actions={
+							!renaming && (
+								<div className="absolute right-1 top-1/2 hidden -translate-y-1/2 items-center gap-0.5 rounded bg-accent pl-1 group-hover/row:flex group-focus-within/row:flex">
+									{entry.isDir && (
+										<RowAction
+											icon={<RefreshCw className="h-3 w-3" />}
+											label="Refresh"
+											onClick={handleRefresh}
+										/>
+									)}
+									<RowAction
+										icon={<Pencil className="h-3 w-3" />}
+										label="Rename"
+										onClick={startRename}
+									/>
+									<RowAction
+										icon={<Trash2 className="h-3 w-3" />}
+										label="Move to trash"
+										onClick={() => void handleDelete()}
+										danger
+									/>
+								</div>
+							)
+						}
 					>
-						<button
-							type="button"
-							onClick={handleClick}
-							className="flex flex-1 items-center gap-1 whitespace-nowrap px-2 py-1 text-left"
-							style={{ paddingLeft: `${Math.min(depth, 10) * 12 + 8}px` }}
-							title={entry.path}
-						>
-							{entry.isDir ? (
-								expanded ? (
-									<ChevronDown className="h-3 w-3 shrink-0" />
-								) : (
-									<ChevronRight className="h-3 w-3 shrink-0" />
-								)
+						{entry.isDir ? (
+							expanded ? (
+								<ChevronDown className="h-3 w-3 shrink-0" />
 							) : (
-								<span className="h-3 w-3 shrink-0" aria-hidden />
-							)}
-							{entry.isDir ? (
-								<Folder className="h-3.5 w-3.5 shrink-0" />
-							) : (
-								<FileText className="h-3.5 w-3.5 shrink-0" />
-							)}
-							{renaming ? (
-								<input
-									ref={renameInputRef}
-									value={renameValue}
-									onChange={(e) => setRenameValue(e.target.value)}
-									onClick={(e) => e.stopPropagation()}
-									onKeyDown={(e) => {
-										if (e.key === 'Enter') {
-											e.preventDefault();
-											void commitRename();
-										} else if (e.key === 'Escape') {
-											e.preventDefault();
-											setRenaming(false);
-										}
-									}}
-									onBlur={() => void commitRename()}
-									className="w-full min-w-0 rounded border border-border bg-background px-1 py-0 text-xs text-foreground outline-none focus:border-ring"
-								/>
-							) : (
-								<span className="whitespace-nowrap">{entry.name}</span>
-							)}
-						</button>
-						{!renaming && (
-							<div className="absolute right-1 top-1/2 hidden -translate-y-1/2 items-center gap-0.5 rounded bg-accent pl-1 group-hover/row:flex">
-								{entry.isDir && (
-									<button
-										type="button"
-										onClick={handleRefresh}
-										className="rounded p-0.5 text-muted-foreground hover:bg-background hover:text-foreground"
-										title="Refresh"
-										aria-label="Refresh"
-									>
-										<RefreshCw className="h-3 w-3" />
-									</button>
-								)}
-								<button
-									type="button"
-									onClick={(e) => {
-										e.stopPropagation();
-										startRename();
-									}}
-									className="rounded p-0.5 text-muted-foreground hover:bg-background hover:text-foreground"
-									title="Rename"
-									aria-label="Rename"
-								>
-									<Pencil className="h-3 w-3" />
-								</button>
-								<button
-									type="button"
-									onClick={(e) => {
-										e.stopPropagation();
-										void handleDelete();
-									}}
-									className="rounded p-0.5 text-muted-foreground hover:bg-background hover:text-destructive"
-									title="Move to trash"
-									aria-label="Move to trash"
-								>
-									<Trash2 className="h-3 w-3" />
-								</button>
-							</div>
+								<ChevronRight className="h-3 w-3 shrink-0" />
+							)
+						) : (
+							<span className="h-3 w-3 shrink-0" aria-hidden />
 						)}
-					</div>
+						{entry.isDir ? (
+							<Folder className="h-3.5 w-3.5 shrink-0" />
+						) : (
+							<FileText className="h-3.5 w-3.5 shrink-0" />
+						)}
+						{renaming ? (
+							<input
+								ref={renameInputRef}
+								value={renameValue}
+								onChange={(e) => setRenameValue(e.target.value)}
+								onClick={(e) => e.stopPropagation()}
+								onKeyDown={(e) => {
+									e.stopPropagation();
+									if (e.key === 'Enter') {
+										e.preventDefault();
+										void commitRename();
+									} else if (e.key === 'Escape') {
+										e.preventDefault();
+										setRenaming(false);
+									}
+								}}
+								onBlur={() => void commitRename()}
+								className="w-full min-w-0 rounded border border-border bg-background px-1 py-0 text-xs text-foreground outline-none focus:border-ring"
+							/>
+						) : (
+							<span className="flex-1 whitespace-nowrap">{entry.name}</span>
+						)}
+					</ListRow>
 				</ContextMenuTrigger>
 				<ContextMenuContent>
 					{!entry.isDir && (
@@ -392,6 +368,7 @@ function TreeNode({ entry, depth, filter }: TreeNodeProps) {
 			</ContextMenu>
 			{actionError && (
 				<div
+					role="alert"
 					className="flex items-start gap-1 px-2 py-1 text-xs text-destructive"
 					style={{ paddingLeft: `${Math.min(depth, 10) * 12 + 8}px` }}
 				>
@@ -405,6 +382,7 @@ function TreeNode({ entry, depth, filter }: TreeNodeProps) {
 				<div>
 					{error && (
 						<div
+							role="alert"
 							className="flex items-start gap-1 px-2 py-1 text-xs text-destructive"
 							style={{ paddingLeft: `${Math.min(depth + 1, 10) * 12 + 8}px` }}
 						>
@@ -692,12 +670,16 @@ export function FilesMode() {
 	// not retroactively jump to an already-open file — only genuine opens after
 	// mount trigger a reveal.
 	const revealRequest = usePaneStore((s) => s.revealRequest);
-	const lastRevealNonce = useRef<number | null>(usePaneStore.getState().revealRequest?.nonce ?? null);
+	const lastRevealNonce = useRef<number | null>(
+		usePaneStore.getState().revealRequest?.nonce ?? null
+	);
 	useEffect(() => {
 		if (!revealRequest || lastRevealNonce.current === revealRequest.nonce) return;
 		lastRevealNonce.current = revealRequest.nonce;
 		const { path } = revealRequest;
-		const root = fileRoots.find((r) => path === r || path.startsWith(r.endsWith('/') ? r : `${r}/`));
+		const root = fileRoots.find(
+			(r) => path === r || path.startsWith(r.endsWith('/') ? r : `${r}/`)
+		);
 		if (!root) return;
 		// Ancestor dirs strictly between the root and the file. The root section's
 		// expansion is governed by `expandedRoot`, and its direct children render
