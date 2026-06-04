@@ -13,6 +13,7 @@ import { useEffect, useState } from 'react';
 import { Download, RefreshCw } from 'lucide-react';
 import type { UnlistenFn } from '@tauri-apps/api/event';
 
+import { FloatingToastChip } from '@/components/ui/floating-toast-chip';
 import { type RuntimeBunEvent, runtimeBunListen, runtimeRetryBunFetch } from '@/lib/tauri-cmd';
 
 export function RuntimeBunChip() {
@@ -57,24 +58,20 @@ export function RuntimeBunChip() {
 	const isError = ev.state === 'error';
 
 	return (
-		<div
-			className="pointer-events-none fixed inset-x-0 top-2 z-40 flex justify-center"
-			role="status"
-		>
-			<div className="pointer-events-auto flex max-w-md items-center gap-2 rounded-md border border-amber-500/40 bg-background/95 px-3 py-1.5 text-xs shadow-lg backdrop-blur">
-				<Download className="h-3 w-3 text-muted-foreground" />
-				<span className="text-foreground">{label}</span>
-				{isError && (
-					<button
-						type="button"
-						onClick={() => void runtimeRetryBunFetch()}
-						className="flex items-center gap-1 rounded border border-border bg-background px-2 py-0.5 text-foreground hover:bg-accent"
-					>
-						<RefreshCw className="h-3 w-3" />
-						<span>Retry</span>
-					</button>
-				)}
-			</div>
-		</div>
+		<FloatingToastChip
+			variant={isError ? 'error' : 'progress'}
+			anchor="viewport-top"
+			icon={<Download className="h-3 w-3" />}
+			label={label}
+			action={
+				isError
+					? {
+							label: 'Retry',
+							icon: <RefreshCw className="h-3 w-3" />,
+							onClick: () => void runtimeRetryBunFetch(),
+						}
+					: undefined
+			}
+		/>
 	);
 }

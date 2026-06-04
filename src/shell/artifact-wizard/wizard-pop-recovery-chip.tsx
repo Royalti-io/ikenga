@@ -13,8 +13,9 @@
 // possibly-wrong file on a pane they're not focused on).
 
 import { useEffect } from 'react';
-import { FolderOpen, X } from 'lucide-react';
+import { FolderOpen } from 'lucide-react';
 
+import { FloatingToastChip } from '@/components/ui/floating-toast-chip';
 import { usePaneStore } from '@/lib/panes/pane-store';
 import { useWizardPopStore } from '@/shell/artifact-wizard/pop-recovery-store';
 
@@ -55,31 +56,20 @@ export function WizardPopRecoveryChip() {
 	}
 
 	return (
-		<div
-			className="pointer-events-none fixed inset-x-0 top-2 z-40 flex justify-center"
-			role="status"
-		>
-			<div className="pointer-events-auto flex max-w-md items-center gap-2 rounded-md border border-amber-500/40 bg-background/95 px-3 py-1.5 text-xs shadow-lg backdrop-blur">
+		<FloatingToastChip
+			variant="notice"
+			anchor="viewport-top"
+			label={
 				<span className="text-muted-foreground">
 					Opened <code className="font-mono text-foreground">{fileName}</code>. Wrong file?
 				</span>
-				<button
-					type="button"
-					onClick={openFolder}
-					className="flex items-center gap-1 rounded border border-border bg-background px-2 py-0.5 text-foreground hover:bg-accent"
-				>
-					<FolderOpen className="h-3 w-3" />
-					<span>Open {folderName}/</span>
-				</button>
-				<button
-					type="button"
-					onClick={() => dismiss(record.paneId)}
-					className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-					aria-label="Dismiss"
-				>
-					<X className="h-3 w-3" />
-				</button>
-			</div>
-		</div>
+			}
+			action={{
+				label: `Open ${folderName}/`,
+				icon: <FolderOpen className="h-3 w-3" />,
+				onClick: openFolder,
+			}}
+			onDismiss={() => dismiss(record.paneId)}
+		/>
 	);
 }

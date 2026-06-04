@@ -19,6 +19,7 @@ import {
 	SheetHeader,
 	SheetTitle,
 } from '@/components/ui/sheet';
+import { floatingChipPill } from '@/components/ui/floating-toast-chip';
 import { iykeFetch } from '@/lib/iyke/client';
 import {
 	useIykeActivity,
@@ -76,18 +77,19 @@ export function PaneIykeOverlay({ paneId }: PaneIykeOverlayProps) {
 						setLogsOpen(true);
 					}}
 					aria-label={`iyke ${KIND_LABEL[top.kind]} on this pane — open logs`}
+					// Shares the consolidated pill shape (`floatingChipPill`) with the
+					// viewport toast chips — same border/radius/blur + the focus-visible
+					// ring; the whole pill is the click target, so it keeps its bespoke
+					// content (ping dot + kind label + overflow) rather than the prop API.
 					className={cn(
-						'pointer-events-auto absolute right-1.5 top-1.5',
-						'flex items-center gap-1.5',
-						'rounded-md border border-border bg-background/80 px-1.5 py-0.5',
-						'text-[10px] font-medium leading-none text-foreground/80',
-						'shadow-sm backdrop-blur',
-						'hover:bg-background hover:text-foreground'
+						'absolute right-1.5 top-1.5 text-foreground/80 hover:bg-background hover:text-foreground',
+						floatingChipPill('pane-corner', true)
 					)}
+					style={{ borderColor: 'var(--border)' }}
 					title="iyke is acting on this pane — click to view logs"
 				>
 					<span className="relative inline-block h-1.5 w-1.5">
-						<span className="absolute inset-0 animate-ping rounded-full bg-foreground/50" />
+						<span className="absolute inset-0 animate-ping rounded-full bg-foreground/50 motion-reduce:animate-none" />
 						<span className="absolute inset-0 rounded-full bg-foreground/80" />
 					</span>
 					<span>iyke · {KIND_LABEL[top.kind]}</span>
