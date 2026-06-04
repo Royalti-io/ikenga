@@ -206,9 +206,18 @@ body {
 }
 
 [data-panel-resize-handle-enabled="true"]:hover,
-[data-panel-resize-handle-enabled="true"][data-resize-handle-active="true"] {
+[data-panel-resize-handle-enabled="true"][data-resize-handle-active="pointer"],
+[data-panel-resize-handle-enabled="true"][data-resize-handle-active="keyboard"] {
 	background: var(--primary);
 	opacity: 0.4;
+}
+
+/* Keyboard focus ring — react-resizable-panels sets tabIndex=0 on the handle
+   but ships no focus style; without this the keyboard-resize affordance is
+   invisible (WCAG 2.4.11). */
+[data-panel-resize-handle-enabled="true"]:focus-visible {
+	outline: 2px solid var(--ring);
+	outline-offset: 0;
 }
 
 [data-panel-group-direction="horizontal"] > [data-panel-resize-handle-enabled="true"] {

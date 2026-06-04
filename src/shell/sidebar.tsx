@@ -60,7 +60,8 @@ export function Sidebar() {
 	}
 
 	return (
-		<div
+		<nav
+			aria-label={`${title} sidebar`}
 			className="flex h-full flex-col border-r border-border bg-card"
 			// Workspace-tinted gradient on the head, fading into surface (shell.css §sidebar-head).
 			style={{
@@ -88,6 +89,6 @@ export function Sidebar() {
 				</span>
 			</div>
 			<div className="flex-1 overflow-hidden">{body}</div>
-		</div>
+		</nav>
 	);
 }

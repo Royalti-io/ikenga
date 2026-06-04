@@ -278,7 +278,11 @@ export function Workspace() {
 
 	if (!initialSizes) {
 		return (
-			<div className="flex h-screen w-screen items-center justify-center bg-background text-sm text-muted-foreground">
+			<div
+				role="status"
+				aria-live="polite"
+				className="flex h-screen w-screen items-center justify-center bg-background text-sm text-muted-foreground"
+			>
 				Loading workspace…
 			</div>
 		);
@@ -309,7 +313,10 @@ export function Workspace() {
 							>
 								<Sidebar />
 							</Panel>
-							<PanelResizeHandle data-panel-resize-handle-enabled="true" />
+							<PanelResizeHandle
+								data-panel-resize-handle-enabled="true"
+								aria-label="Resize sidebar"
+							/>
 						</>
 					)}
 
