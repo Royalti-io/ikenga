@@ -415,30 +415,40 @@ function ProjectsGroup({ onClose }: { onClose: () => void }) {
 		<>
 			<Command.Group heading="Projects" className="text-xs text-muted-foreground">
 				{sorted.map((p) => (
-					<Command.Item
+					<PaletteItem
 						key={p.id}
 						value={`${p.display_name} ${p.id} ${p.description ?? ''}`}
 						onSelect={() => pick(p.id)}
-						className="flex cursor-pointer items-center gap-3 rounded-md px-3 py-2 text-sm aria-selected:bg-accent aria-selected:text-accent-foreground"
-					>
-						<span
-							aria-hidden
-							className="inline-block h-3 w-3 shrink-0 rounded-full border border-border"
-							style={{ background: p.color ?? '#7c7c7c' }}
-						/>
-						{p.icon ? (
-							<span className="leading-none">{p.icon}</span>
-						) : (
-							<FolderKanban className="h-4 w-4 shrink-0 text-muted-foreground" />
-						)}
-						<span className="flex-1 truncate">{p.display_name}</span>
-						{p.id === activeProjectId && (
-							<span className="shrink-0 text-[10px] uppercase text-muted-foreground">Active</span>
-						)}
-						{p.archived_at != null && (
-							<span className="shrink-0 text-[10px] uppercase text-muted-foreground">Archived</span>
-						)}
-					</Command.Item>
+						leading={
+							<>
+								<span
+									aria-hidden
+									className="inline-block h-3 w-3 shrink-0 rounded-full border border-border"
+									style={{ background: p.color ?? 'var(--fg-faint)' }}
+								/>
+								{p.icon ? (
+									<span className="leading-none">{p.icon}</span>
+								) : (
+									<FolderKanban className="h-4 w-4 shrink-0 text-muted-foreground" />
+								)}
+							</>
+						}
+						label={p.display_name}
+						trailing={
+							<>
+								{p.id === activeProjectId && (
+									<span className="shrink-0 text-[10px] uppercase text-muted-foreground">
+										Active
+									</span>
+								)}
+								{p.archived_at != null && (
+									<span className="shrink-0 text-[10px] uppercase text-muted-foreground">
+										Archived
+									</span>
+								)}
+							</>
+						}
+					/>
 				))}
 				{sorted.length === 0 && (
 					<div className="px-3 py-3 text-xs text-muted-foreground">No projects loaded.</div>

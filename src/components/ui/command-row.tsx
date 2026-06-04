@@ -26,12 +26,20 @@ export function ShortcutChip({ className, children, ...props }: React.ComponentP
 
 export interface CommandRowProps {
 	onSelect: () => void;
-	Icon: LucideIcon;
+	/** Leading Lucide icon. Optional when `leading` is supplied instead. */
+	Icon?: LucideIcon;
+	/** Custom leading content (e.g. a colour dot + emoji); overrides `Icon`. */
+	leading?: React.ReactNode;
 	label: string;
 	/** Rendered as a trailing `<kbd>`; `aria-hidden` (the label carries the name). */
 	shortcut?: string;
 	/** Muted trailing annotation (path, "(focused)", "streaming Claude", …). */
 	detail?: string;
+	/** Custom trailing content (status pills) rendered after detail/shortcut. */
+	trailing?: React.ReactNode;
+	/** cmdk search key (forwarded to `Command.Item value`; ignored for menuitem).
+	 *  Defaults to the text content (label) when omitted. */
+	value?: string;
 	disabled?: boolean;
 	/** `md` = ⌘K palette (text-sm / icon 16). `sm` = new-tab + dock (text-xs / icon 14). */
 	size?: 'md' | 'sm';
@@ -58,9 +66,12 @@ const SIZES = {
 export function CommandRow({
 	onSelect,
 	Icon,
+	leading,
 	label,
 	shortcut,
 	detail,
+	trailing,
+	value,
 	disabled,
 	size = 'md',
 	as = 'command-item',
@@ -69,12 +80,16 @@ export function CommandRow({
 	const sz = SIZES[size];
 	const inner = (
 		<>
-			<Icon className={cn(sz.icon, 'shrink-0 text-muted-foreground')} aria-hidden="true" />
+			{leading ??
+				(Icon && (
+					<Icon className={cn(sz.icon, 'shrink-0 text-muted-foreground')} aria-hidden="true" />
+				))}
 			<span className="flex-1 truncate">{label}</span>
 			{detail && (
 				<span className="shrink-0 truncate text-[10px] text-muted-foreground">{detail}</span>
 			)}
 			{shortcut && <ShortcutChip aria-hidden="true">{shortcut}</ShortcutChip>}
+			{trailing}
 		</>
 	);
 
@@ -106,6 +121,7 @@ export function CommandRow({
 
 	return (
 		<Command.Item
+			value={value}
 			onSelect={onSelect}
 			disabled={disabled}
 			className={cn(

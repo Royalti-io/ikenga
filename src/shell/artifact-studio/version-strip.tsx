@@ -282,7 +282,7 @@ export function VersionStrip({ paneId, path }: VersionStripProps) {
 									'rounded-full px-1.5 text-[9px]',
 									(pins?.open ?? 0) > 0
 										? 'bg-destructive/15 text-destructive'
-										: 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
+										: 'bg-[var(--achievement)]/15 text-[var(--achievement)]'
 								)}
 							>
 								{totalOpen}

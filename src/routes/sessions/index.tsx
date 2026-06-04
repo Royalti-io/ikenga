@@ -89,6 +89,7 @@ function SessionRow({
 					{badgeCount > 0 && (
 						<span
 							className="thread-badge"
+							role="img"
 							title={`${badgeCount} unread notification${badgeCount === 1 ? '' : 's'}`}
 							aria-label={`${badgeCount} unread`}
 							style={{
@@ -98,8 +99,8 @@ function SessionRow({
 								marginLeft: 6,
 								padding: '0 6px',
 								borderRadius: 10,
-								background: 'var(--accent, #f59e0b)',
-								color: 'var(--accent-fg, #fff)',
+								background: 'var(--achievement)',
+								color: 'var(--achievement-soft)',
 								fontSize: 10,
 								fontWeight: 600,
 								lineHeight: '16px',
