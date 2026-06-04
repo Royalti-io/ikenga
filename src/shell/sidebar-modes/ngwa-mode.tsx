@@ -292,6 +292,7 @@ export function NgwaMode() {
 							<button
 								type="button"
 								data-surface={id}
+								aria-current={isActive ? 'page' : undefined}
 								onClick={() => navigateFocused(buildHref({ surface: id }))}
 								className={cn(
 									'relative flex w-full items-center gap-3 px-4 py-1.5 text-left text-sm transition-colors',
@@ -350,6 +351,7 @@ export function NgwaMode() {
 								<button
 									type="button"
 									data-scope={id}
+									aria-current={isActive ? 'page' : undefined}
 									onClick={() => navigateFocused(buildHref({ scope: id }))}
 									className={cn(
 										'relative flex w-full items-center gap-3 px-4 py-1.5 text-left text-sm transition-colors',
@@ -475,6 +477,7 @@ export function NgwaMode() {
 								<button
 									type="button"
 									data-kind={id}
+									aria-current={isActive ? 'page' : undefined}
 									disabled={kindDisabled}
 									onClick={() => navigateFocused(buildHref({ kind: id }))}
 									className={cn(
@@ -515,6 +518,7 @@ export function NgwaMode() {
 						<button
 							type="button"
 							data-runtime-mcps
+							aria-current={onRuntimeMcps ? 'page' : undefined}
 							onClick={() => navigateFocused(RUNTIME_MCPS_ROUTE)}
 							className={cn(
 								'relative flex w-full items-center gap-3 px-4 py-1.5 text-left text-sm transition-colors',

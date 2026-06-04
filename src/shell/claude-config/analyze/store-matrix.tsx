@@ -24,6 +24,9 @@ export function StoreMatrix({ model }: { model: StoreModel }) {
 		<div className="ngwa-matrix-wrap">
 			<div className="ngwa-matrix-scroll">
 				<table className="ngwa-matrix">
+					<caption className="sr-only">
+						Ọba presence matrix — {totals.rows} entries × {totals.scopes} scopes
+					</caption>
 					<thead>
 						<tr>
 							<th className="ngwa-mx-corner">Ọba entry ↓ / scope →</th>

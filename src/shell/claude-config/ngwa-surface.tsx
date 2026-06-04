@@ -22,6 +22,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 
 import { cn } from '@/components/ui/utils';
+import { useFocusTrap } from '@/lib/a11y/focus';
 import { Markdown } from '@/components/markdown';
 import { shortPath } from '@/lib/home';
 import {
@@ -643,6 +644,13 @@ function passScope(it: NgwaItem, scope: NgwaScopeId): boolean {
 // ─── Shared 2-pane resizable divider (G-06) ─────────────────────────────────
 // Drag-to-resize the list│detail split + double-click to reset. Shared by the
 // Browse and Store surfaces, which use the same `.ccfg-split` layout.
+//
+// Keyboard alternative to the drag (WCAG 2.5.7 Dragging Movements): the divider
+// is a focusable `role="separator"` — ArrowLeft/Right nudge ±8px, Home resets
+// to the default, End snaps to max. `aria-valuenow/min/max` are kept in sync
+// imperatively so AT announces the current split width.
+const SPLIT_MIN_W = 220;
+const SPLIT_DETAIL_MIN = 360 + 4; // detail pane min + divider gutter
 function useResizableSplit(
 	splitRef: React.RefObject<HTMLDivElement | null>,
 	dividerRef: React.RefObject<HTMLDivElement | null>
@@ -651,6 +659,29 @@ function useResizableSplit(
 		const split = splitRef.current;
 		const divider = dividerRef.current;
 		if (!split || !divider) return;
+
+		// Reflect the current geometry onto the separator's aria-value* so AT can
+		// announce the split. Called after every resize (drag or keyboard).
+		function syncAria() {
+			if (!split || !divider) return;
+			const rect = split.getBoundingClientRect();
+			const listW =
+				(split.firstElementChild as HTMLElement | null)?.getBoundingClientRect().width ?? 0;
+			const max = Math.max(SPLIT_MIN_W, rect.width - SPLIT_DETAIL_MIN);
+			divider.setAttribute('aria-valuemin', String(SPLIT_MIN_W));
+			divider.setAttribute('aria-valuemax', String(Math.round(max)));
+			divider.setAttribute('aria-valuenow', String(Math.round(listW)));
+		}
+
+		function clampW(next: number): number {
+			if (!split) return next;
+			const rect = split.getBoundingClientRect();
+			const max = rect.width - SPLIT_DETAIL_MIN;
+			if (next < SPLIT_MIN_W) return SPLIT_MIN_W;
+			if (next > max) return max;
+			return next;
+		}
+
 		function onDown(e: MouseEvent) {
 			if (!split) return;
 			e.preventDefault();
@@ -662,10 +693,11 @@ function useResizableSplit(
 				if (!split) return;
 				const delta = ev.clientX - startX;
 				let next = startListW + delta;
-				const max = rect.width - 360 - 4;
-				if (next < 220) next = 220;
+				const max = rect.width - SPLIT_DETAIL_MIN;
+				if (next < SPLIT_MIN_W) next = SPLIT_MIN_W;
 				if (next > max) next = max;
 				split.style.setProperty('--list-w', `${next}px`);
+				syncAria();
 			}
 			function onUp() {
 				document.removeEventListener('mousemove', onMove);
@@ -676,12 +708,42 @@ function useResizableSplit(
 		}
 		function onDouble() {
 			split?.style.removeProperty('--list-w');
+			syncAria();
 		}
+		function onKeyDown(e: KeyboardEvent) {
+			if (!split) return;
+			const curW =
+				(split.firstElementChild as HTMLElement | null)?.getBoundingClientRect().width ?? 300;
+			if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+				e.preventDefault();
+				const delta = e.key === 'ArrowRight' ? 8 : -8;
+				split.style.setProperty('--list-w', `${clampW(curW + delta)}px`);
+				syncAria();
+			} else if (e.key === 'Home') {
+				e.preventDefault();
+				split.style.removeProperty('--list-w');
+				syncAria();
+			} else if (e.key === 'End') {
+				e.preventDefault();
+				const rect = split.getBoundingClientRect();
+				split.style.setProperty('--list-w', `${clampW(rect.width - SPLIT_DETAIL_MIN)}px`);
+				syncAria();
+			}
+		}
+
 		divider.addEventListener('mousedown', onDown);
 		divider.addEventListener('dblclick', onDouble);
+		divider.addEventListener('keydown', onKeyDown);
+		// Initial + on-resize aria sync so the announced value is correct before
+		// any interaction.
+		syncAria();
+		const ro = new ResizeObserver(syncAria);
+		ro.observe(split);
 		return () => {
 			divider.removeEventListener('mousedown', onDown);
 			divider.removeEventListener('dblclick', onDouble);
+			divider.removeEventListener('keydown', onKeyDown);
+			ro.disconnect();
 		};
 	}, [splitRef, dividerRef]);
 }
@@ -766,7 +828,13 @@ function BrowseSurface({
 			<div className="ccfg-list">
 				<div className="ccfg-list-toolbar">
 					<div className="ccfg-search-wrap">
-						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+						<svg
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							strokeWidth={2}
+							aria-hidden="true"
+						>
 							<circle cx="11" cy="11" r="7" />
 							<path d="m20 20-3-3" />
 						</svg>
@@ -775,6 +843,7 @@ function BrowseSurface({
 							value={filter}
 							onChange={(e) => setFilter(e.target.value)}
 							placeholder="filter…"
+							aria-label="Filter by name or description"
 						/>
 					</div>
 				</div>
@@ -828,7 +897,10 @@ function BrowseSurface({
 					)}
 				</div>
 			</div>
-			<div className="ccfg-divider" ref={dividerRef} />
+			{/* Presentational mouse-resize handle (drag wired via the ref). No keyboard
+			    path → no ARIA splitter role; overclaiming role="separator" on a
+			    non-focusable, value-prop-less handle is worse than decorative. */}
+			<div className="ccfg-divider" ref={dividerRef} aria-hidden="true" />
 			<div className="ccfg-detail ngwa-detail">
 				{selected ? (
 					<ItemDetail
@@ -942,7 +1014,13 @@ function StoreSurface({ store, isLoading, error, onEdit, projectScopes }: StoreP
 			<div className="ccfg-list">
 				<div className="ccfg-list-toolbar">
 					<div className="ccfg-search-wrap">
-						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+						<svg
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							strokeWidth={2}
+							aria-hidden="true"
+						>
 							<circle cx="11" cy="11" r="7" />
 							<path d="m20 20-3-3" />
 						</svg>
@@ -951,6 +1029,7 @@ function StoreSurface({ store, isLoading, error, onEdit, projectScopes }: StoreP
 							value={filter}
 							onChange={(e) => setFilter(e.target.value)}
 							placeholder="filter catalog…"
+							aria-label="Filter catalog entries"
 						/>
 					</div>
 					<button
@@ -1001,7 +1080,7 @@ function StoreSurface({ store, isLoading, error, onEdit, projectScopes }: StoreP
 				</div>
 				<div className="ccfg-list-meta">
 					<span>STORE / CATALOG</span>
-					<span>
+					<span role="status" aria-live="polite" aria-atomic="true">
 						{backfillMsg ??
 							sweepMsg ??
 							`${counts.installed} installed · ${counts.available} available`}
@@ -1030,7 +1109,10 @@ function StoreSurface({ store, isLoading, error, onEdit, projectScopes }: StoreP
 					)}
 				</div>
 			</div>
-			<div className="ccfg-divider" ref={dividerRef} />
+			{/* Presentational mouse-resize handle (drag wired via the ref). No keyboard
+			    path → no ARIA splitter role; overclaiming role="separator" on a
+			    non-focusable, value-prop-less handle is worse than decorative. */}
+			<div className="ccfg-divider" ref={dividerRef} aria-hidden="true" />
 			<div className="ccfg-detail ngwa-detail">
 				{selected?.store ? (
 					<StoreDetail
@@ -1134,10 +1216,7 @@ function CatalogDetail({
 	// forward-dependency closure HERE (no fetch) to show the user "also installs…"
 	// BEFORE the install. The Rust `oba_install_with_deps` resolver re-derives the
 	// closure authoritatively at install time; this is consent display only.
-	const installedKeys = useMemo(
-		() => new Set(store.map((e) => `${e.kind}:${e.name}`)),
-		[store]
-	);
+	const installedKeys = useMemo(() => new Set(store.map((e) => `${e.kind}:${e.name}`)), [store]);
 	const deps = useMemo(
 		() => resolveCatalogClosure(entry, catalog, installedKeys),
 		[entry, catalog, installedKeys]
@@ -1267,7 +1346,10 @@ function CatalogDetail({
 							))}
 						</div>
 						{needsExtraConfirm && (
-							<label className="ngwa-guard-choice" style={{ display: 'flex', gap: 8, alignItems: 'flex-start', cursor: 'pointer' }}>
+							<label
+								className="ngwa-guard-choice"
+								style={{ display: 'flex', gap: 8, alignItems: 'flex-start', cursor: 'pointer' }}
+							>
 								<input
 									type="checkbox"
 									checked={extraOk}
@@ -1436,6 +1518,12 @@ function RegistrySurface({
 	const [multi, setMulti] = useState<Set<string>>(new Set());
 	const [drawerId, setDrawerId] = useState<string | null>(null);
 
+	// Modal dialog focus management for the inspect drawer (WCAG 4.1.2 / 2.4.3).
+	// The trap engages while the drawer is open and returns focus to the row that
+	// opened it on close. Esc-to-close is wired on the scrim below.
+	const modalRef = useRef<HTMLDivElement | null>(null);
+	useFocusTrap(modalRef, { enabled: drawerId !== null });
+
 	const enable = useEnablePrimitive();
 	const disable = useDisablePrimitive();
 
@@ -1508,7 +1596,13 @@ function RegistrySurface({
 		<div className="ngwa-registry">
 			<div className="ngwa-toolbar">
 				<div className="ccfg-search-wrap">
-					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+					<svg
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						strokeWidth={2}
+						aria-hidden="true"
+					>
 						<circle cx="11" cy="11" r="7" />
 						<path d="m20 20-3-3" />
 					</svg>
@@ -1518,6 +1612,7 @@ function RegistrySurface({
 						value={q}
 						onChange={(e) => setQ(e.target.value)}
 						placeholder="filter…  try @disabled @personal @orphaned @mcp"
+						aria-label="Search and filter using @tokens"
 					/>
 				</div>
 				{FCHIPS.map((f) => (
@@ -1668,7 +1763,7 @@ function RegistrySurface({
 
 			{multi.size > 0 && (
 				<div className="ngwa-bulk">
-					<span className="cnt">
+					<span className="cnt" aria-live="polite" aria-atomic="true">
 						<b>{multi.size}</b> selected
 					</span>
 					<button type="button" className="ngwa-bbtn" onClick={() => bulk('enable')}>
@@ -1696,9 +1791,19 @@ function RegistrySurface({
 				<div
 					className="ngwa-scrim"
 					onClick={(e) => e.target === e.currentTarget && setDrawerId(null)}
+					onKeyDown={(e) => {
+						if (e.key === 'Escape') {
+							e.stopPropagation();
+							setDrawerId(null);
+						}
+					}}
 				>
 					<div
+						ref={modalRef}
 						className="ngwa-modal"
+						role="dialog"
+						aria-modal="true"
+						aria-labelledby="ngwa-reg-modal-title"
 						style={{ width: 420, maxHeight: '90vh', overflow: 'auto', padding: 0 }}
 						onClick={(e) => e.stopPropagation()}
 					>
@@ -1708,6 +1813,7 @@ function RegistrySurface({
 							onEdit={onEdit}
 							siblingSystems={siblingSystemsOf(drawerItem, items)}
 							present={present}
+							headingId="ngwa-reg-modal-title"
 						/>
 						<div style={{ padding: 'var(--space-3)', textAlign: 'right' }}>
 							<button type="button" className="ngwa-btn" onClick={() => setDrawerId(null)}>
@@ -1793,6 +1899,7 @@ function ItemDetail({
 	onEdit,
 	siblingSystems = [],
 	present = ['claude'],
+	headingId,
 }: {
 	item: NgwaItem;
 	projectScopes: Array<{ key: ClaudeStoreScope; label: string }>;
@@ -1803,6 +1910,9 @@ function ItemDetail({
 	/** Engines present in the scan — drives the D-09 cross-engine destination set.
 	 *  Defaults to Claude-only so single-engine views behave exactly as before. */
 	present?: NgwaSystemId[];
+	/** When this detail is the labelling heading of an enclosing dialog, the
+	 *  caller passes the id its `aria-labelledby` points at. */
+	headingId?: string;
 }) {
 	const enable = useEnablePrimitive();
 	const disable = useDisablePrimitive();
@@ -1888,7 +1998,7 @@ function ItemDetail({
 						{shortPath(item.path)}
 					</button>
 				</div>
-				<h2>
+				<h2 id={headingId}>
 					<span className={cn('ccfg-eb', ENGINE_META[item.system].code)} aria-hidden>
 						<EngineGlyph system={item.system} />
 					</span>
@@ -2698,10 +2808,28 @@ function ScopePicker({
 	onClose: () => void;
 }) {
 	const dis = new Set(disabledScopes ?? []);
+	// Modal dialog focus management (WCAG 4.1.2 / 2.4.3) — trap + focus-return.
+	const pickerRef = useRef<HTMLDivElement | null>(null);
+	useFocusTrap(pickerRef, { enabled: true });
 	return (
-		<div className="ngwa-scrim" onClick={(e) => e.target === e.currentTarget && onClose()}>
-			<div className="ngwa-modal">
-				<h3>{title}</h3>
+		<div
+			className="ngwa-scrim"
+			onClick={(e) => e.target === e.currentTarget && onClose()}
+			onKeyDown={(e) => {
+				if (e.key === 'Escape') {
+					e.stopPropagation();
+					onClose();
+				}
+			}}
+		>
+			<div
+				ref={pickerRef}
+				className="ngwa-modal"
+				role="dialog"
+				aria-modal="true"
+				aria-labelledby="ngwa-scope-picker-title"
+			>
+				<h3 id="ngwa-scope-picker-title">{title}</h3>
 				<p>{desc}</p>
 				<div className="ngwa-pick">
 					{scopes.map((s) => {

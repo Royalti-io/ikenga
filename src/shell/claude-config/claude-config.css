@@ -105,6 +105,11 @@
 .ccfg-divider:hover {
 	background: var(--tint-fg-active, var(--primary));
 }
+.ccfg-divider:focus-visible {
+	outline: 2px solid var(--tint-ngwa-fg, var(--primary));
+	outline-offset: -1px;
+	background: var(--tint-fg-active, var(--primary));
+}
 .ccfg-detail {
 	background: var(--bg-base);
 	overflow-y: auto;
@@ -133,6 +138,10 @@
 	color: var(--fg);
 	font-family: inherit;
 	font-size: 11px;
+}
+.ccfg-search:focus-visible {
+	outline: 2px solid var(--tint-ngwa-fg, var(--primary));
+	outline-offset: 1px;
 }
 .ccfg-search-wrap {
 	position: relative;
@@ -186,6 +195,10 @@
 }
 .ccfg-row:hover {
 	background: var(--bg-raised);
+}
+.ccfg-row:focus-visible {
+	outline: 2px solid var(--tint-ngwa-fg, var(--primary));
+	outline-offset: -2px;
 }
 .ccfg-row.is-on {
 	background: var(--bg-raised);
@@ -866,6 +879,10 @@ button.ccfg-tree-row.dir:hover {
 .ngwa-guard-input:focus {
 	border-color: var(--tint-ngwa-fg);
 }
+.ngwa-guard-input:focus-visible {
+	outline: 2px solid var(--tint-ngwa-fg, var(--primary));
+	outline-offset: 1px;
+}
 .ngwa-guard-relinkresult {
 	font-family: var(--font-mono);
 	font-size: 10.5px;
@@ -1254,8 +1271,8 @@ button.ccfg-tree-row.dir:hover {
 	margin-right: 4px;
 }
 .ngwa-sw {
-	width: 32px;
-	height: 17px;
+	width: 36px;
+	height: 20px;
 	border-radius: var(--radius-pill);
 	background: var(--bg-sunken);
 	border: 1px solid var(--border);
@@ -1267,10 +1284,10 @@ button.ccfg-tree-row.dir:hover {
 .ngwa-sw::after {
 	content: "";
 	position: absolute;
-	top: 1px;
-	left: 1px;
-	width: 13px;
-	height: 13px;
+	top: 2px;
+	left: 2px;
+	width: 14px;
+	height: 14px;
 	border-radius: 50%;
 	background: var(--fg-faint);
 	transition: var(--motion-fast);
@@ -1280,8 +1297,14 @@ button.ccfg-tree-row.dir:hover {
 	border-color: var(--systemic);
 }
 .ngwa-sw.on::after {
-	left: 16px;
+	left: 18px;
 	background: var(--systemic);
+}
+/* WCAG 2.4.7 — keyboard focus ring on the toggle knob (it's a role="button"
+   span driven from JS). Mouse users don't see it (:focus-visible). */
+.ngwa-sw:focus-visible {
+	outline: 2px solid var(--tint-ngwa-fg, var(--primary));
+	outline-offset: 2px;
 }
 .ngwa-btn {
 	border: 1px solid var(--border);
@@ -1293,6 +1316,10 @@ button.ccfg-tree-row.dir:hover {
 }
 .ngwa-btn:hover {
 	border-color: var(--border-strong);
+}
+.ngwa-btn:focus-visible {
+	outline: 2px solid var(--tint-ngwa-fg, var(--primary));
+	outline-offset: 2px;
 }
 .ngwa-btn:disabled {
 	opacity: 0.5;
@@ -2194,6 +2221,10 @@ button.ccfg-tree-row.dir:hover {
 .ngwa-graph-search:focus {
 	border-color: color-mix(in srgb, var(--tint-fg-active, var(--primary)) 40%, var(--border));
 }
+.ngwa-graph-search:focus-visible {
+	outline: 2px solid var(--tint-ngwa-fg, var(--primary));
+	outline-offset: 1px;
+}
 .ngwa-graph-search::placeholder {
 	color: var(--fg-faint);
 }
@@ -2245,6 +2276,10 @@ button.ccfg-tree-row.dir:hover {
 }
 .ngwa-graph-select:focus {
 	border-color: color-mix(in srgb, var(--tint-fg-active, var(--primary)) 40%, var(--border));
+}
+.ngwa-graph-select:focus-visible {
+	outline: 2px solid var(--tint-ngwa-fg, var(--primary));
+	outline-offset: 1px;
 }
 
 /* force constellation labels */

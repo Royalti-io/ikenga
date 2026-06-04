@@ -51,6 +51,9 @@ export function StoreMap({ items, store }: StoreMapProps) {
 				</select>
 				<div className="ngwa-graph-spacer" />
 			</div>
+			{/* The matrix is a semantic <table> with a <caption> (its accessible
+			    name/description) — do NOT wrap it in role="img", which would hide
+			    the table's rows/headers from assistive tech. */}
 			<div className="ngwa-graph-stage" style={{ background: 'var(--bg-base)' }}>
 				<StoreMatrix model={model} />
 			</div>

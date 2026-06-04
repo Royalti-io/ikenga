@@ -206,10 +206,20 @@ export function GraphForce({ graph, selected, incident, onSelect, draggedRef }: 
 		};
 	}, [graph]);
 
-	// Re-style on selection change (no rebuild / relayout).
+	// Re-style on selection change (no rebuild / relayout). selected/incident are
+	// intentional triggers (refresh() re-reads them) — not "unnecessary" deps.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: triggers, by design.
 	useEffect(() => {
 		api.current?.refresh();
 	}, [selected, incident]);
 
-	return <svg ref={svgRef} className="ngwa-graph-svg" style={{ cursor: 'grab' }} />;
+	return (
+		<svg
+			ref={svgRef}
+			className="ngwa-graph-svg"
+			role="img"
+			aria-label={`Capability graph — ${graph.nodes.length} nodes, ${graph.edges.length} links, force layout`}
+			style={{ cursor: 'grab' }}
+		/>
+	);
 }

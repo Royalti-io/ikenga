@@ -19,9 +19,10 @@
 // result. The drawer is finalized against WP-24's real command later; the wire
 // shape (`NgwaCopyDestination` / `NgwaCopyBatchResult`) is the frozen contract.
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 
 import { cn } from '@/components/ui/utils';
+import { useFocusTrap } from '@/lib/a11y/focus';
 import type { ClaudeAgent, ClaudeCommand, ClaudeSkill, ClaudeStoreScope } from '@/lib/tauri-cmd';
 import {
 	useCrossEngineCopy,
@@ -255,6 +256,12 @@ export function WriteTranscodeDrawer({
 	const copy = useCrossEngineCopy();
 	const [result, setResult] = useState<NgwaCopyBatchResult | null>(null);
 
+	// Modal dialog semantics (WCAG 4.1.2 / 2.4.3): trap Tab inside the drawer
+	// while open and return focus to the trigger on close. Esc-to-close is wired
+	// on the aside below (the trap stays escapable — WCAG 2.1.2).
+	const drawerRef = useRef<HTMLElement | null>(null);
+	useFocusTrap(drawerRef, { enabled: true });
+
 	const dests = useMemo(
 		() => buildDestinations(item, present, projectScopes),
 		[item, present, projectScopes]
@@ -315,10 +322,24 @@ export function WriteTranscodeDrawer({
 
 	return (
 		<>
+			{/* biome-ignore lint/a11y/noStaticElementInteractions: mouse-dismiss backdrop; the keyboard path is the dialog's Esc handler + × button + focus-trap below. */}
+			{/* biome-ignore lint/a11y/useKeyWithClickEvents: same — backdrop click is a sighted-mouse convenience, not a keyboard control. */}
 			<div className="ngwa-dr-scrim show" onClick={onClose} />
-			<aside className="ngwa-dr show" role="dialog" aria-label={`Copy ${item.name}`}>
+			<aside
+				ref={drawerRef}
+				className="ngwa-dr show"
+				role="dialog"
+				aria-modal="true"
+				aria-labelledby="ngwa-dr-title"
+				onKeyDown={(e) => {
+					if (e.key === 'Escape') {
+						e.stopPropagation();
+						onClose();
+					}
+				}}
+			>
 				<div className="ngwa-dr-head">
-					<h3>Copy “{item.name}”</h3>
+					<h3 id="ngwa-dr-title">Copy “{item.name}”</h3>
 					<button type="button" className="x" onClick={onClose} aria-label="Close">
 						✕
 					</button>
@@ -328,6 +349,12 @@ export function WriteTranscodeDrawer({
 					<div className="ngwa-dr-sect">
 						<div className="ngwa-dr-label">Destinations — pick any</div>
 						<div className="ngwa-dlist">
+							{/* WCAG 1.3.1 — a persistent, AT-reachable description for the
+							    blocked (TOML→Markdown) rows, referenced via aria-describedby
+							    instead of a pointer-only `title`. */}
+							<span id="ngwa-blocked-desc" className="sr-only">
+								{BLOCKED_TOOLTIP}
+							</span>
 							{dests.map((d) => {
 								const on = selected.has(d.key);
 								const blocked = d.mode === 'blocked';
@@ -341,7 +368,7 @@ export function WriteTranscodeDrawer({
 											d.isSource && 'src',
 											blocked && 'blocked'
 										)}
-										title={blocked ? BLOCKED_TOOLTIP : undefined}
+										aria-describedby={blocked ? 'ngwa-blocked-desc' : undefined}
 										onClick={(e) => {
 											e.preventDefault();
 											toggle(d);

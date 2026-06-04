@@ -37,7 +37,9 @@ export function GraphDag({ graph, selected, incident, onSelect, draggedRef }: Re
 		for (const n of graph.nodes) {
 			g.setNode(n.id, { width: approxW(n.label, n.kind === 'command'), height: NODE_H });
 		}
-		graph.edges.forEach((e, i) => g.setEdge(e.source, e.target, {}, `e${i}`));
+		graph.edges.forEach((e, i) => {
+			g.setEdge(e.source, e.target, {}, `e${i}`);
+		});
 		dagre.layout(g);
 		const nodes = graph.nodes.map((n) => {
 			const p = g.node(n.id);
@@ -91,7 +93,13 @@ export function GraphDag({ graph, selected, incident, onSelect, draggedRef }: Re
 
 	return (
 		<>
-			<svg ref={svgRef} className="ngwa-graph-svg" style={{ cursor: 'grab' }}>
+			<svg
+				ref={svgRef}
+				className="ngwa-graph-svg"
+				role="img"
+				aria-label={`Capability graph — ${graph.nodes.length} nodes, ${graph.edges.length} links, layered DAG layout`}
+				style={{ cursor: 'grab' }}
+			>
 				<defs>
 					<marker id="dag-arr" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
 						<path d="M0,0L0,6L6,3z" fill="var(--border-strong)" />
@@ -116,6 +124,7 @@ export function GraphDag({ graph, selected, incident, onSelect, draggedRef }: Re
 					{layout.nodes.map(({ node, x, y, w }) => {
 						const isSel = selected === node.id;
 						return (
+							// biome-ignore lint/a11y/noStaticElementInteractions: the SVG is role="img" with a descriptive aria-label (the AT path); these <g> nodes are a sighted-mouse convenience inside that image, not an independent interactive control.
 							<g
 								key={node.id}
 								transform={`translate(${x - w / 2},${y - NODE_H / 2})`}

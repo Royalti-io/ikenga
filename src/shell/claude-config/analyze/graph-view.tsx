@@ -322,7 +322,83 @@ export function GraphView({ config, scope }: GraphViewProps) {
 					<GraphDetailCard node={selNode} graph={view} nodeById={nodeById} />
 				)}
 			</div>
+
+			{/* WCAG 1.1.1 / 2.1.1 — a keyboard-reachable, screen-reader-only list of
+			    every graph node. The SVG stages are mouse-/pointer-driven; this list
+			    is the equivalent keyboard path: Tab into it, ↑/↓ (or Home/End) move
+			    between nodes, Enter / Space selects (opening the detail card and
+			    isolating the node), exactly as clicking a node in the stage does. */}
+			{view.nodes.length > 0 && (
+				<GraphNodeKeyboardList nodes={view.nodes} selected={selected} onSelect={setSelected} />
+			)}
 		</div>
+	);
+}
+
+// ─── Keyboard node navigation (Phase B · gap #5) ──────────────────────────────
+// A visually-hidden roving-tabindex list mirroring the SVG node set. One <button>
+// per node; ↑/↓/Home/End move the roving focus, Enter/Space select. Selecting a
+// node drives the same `setSelected` the pointer path uses.
+function GraphNodeKeyboardList({
+	nodes,
+	selected,
+	onSelect,
+}: {
+	nodes: GraphNode[];
+	selected: string | null;
+	onSelect: (id: string) => void;
+}) {
+	const listRef = useRef<HTMLOListElement>(null);
+	// The roving tabindex anchor: the selected node, else the first.
+	const activeIdx = Math.max(
+		0,
+		nodes.findIndex((n) => n.id === selected)
+	);
+
+	const focusItem = useCallback((i: number) => {
+		requestAnimationFrame(() => {
+			listRef.current?.querySelector<HTMLButtonElement>(`button[data-node-index="${i}"]`)?.focus();
+		});
+	}, []);
+
+	const onKeyDown = useCallback(
+		(e: React.KeyboardEvent<HTMLOListElement>) => {
+			const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-node-index]');
+			if (!btn) return;
+			const idx = Number(btn.dataset.nodeIndex);
+			if (Number.isNaN(idx)) return;
+			if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+				e.preventDefault();
+				const to = idx + (e.key === 'ArrowDown' ? 1 : -1);
+				if (to < 0 || to >= nodes.length) return;
+				focusItem(to);
+			} else if (e.key === 'Home') {
+				e.preventDefault();
+				focusItem(0);
+			} else if (e.key === 'End') {
+				e.preventDefault();
+				focusItem(nodes.length - 1);
+			}
+		},
+		[nodes.length, focusItem]
+	);
+
+	return (
+		<ol ref={listRef} className="sr-only" aria-label="Graph nodes" onKeyDown={onKeyDown}>
+			{nodes.map((n, i) => (
+				<li key={n.id}>
+					<button
+						type="button"
+						data-node-index={i}
+						tabIndex={i === activeIdx ? 0 : -1}
+						aria-pressed={selected === n.id}
+						onClick={() => onSelect(n.id)}
+					>
+						{n.label} — {KIND_LABEL[n.kind]}, {n.degreeOut + n.degreeIn} connections
+					</button>
+				</li>
+			))}
+		</ol>
 	);
 }
 
@@ -485,6 +561,8 @@ function BundleRenderer({ graph, selected, incident, onSelect, draggedRef }: Ren
 			<svg
 				ref={svgRef}
 				className="ngwa-graph-svg"
+				role="img"
+				aria-label={`Capability graph — ${graph.nodes.length} nodes, ${graph.edges.length} links, bundle layout`}
 				viewBox={`0 0 ${SIZE} ${SIZE}`}
 				preserveAspectRatio="xMidYMid meet"
 				style={{ cursor: dragRef.current ? 'grabbing' : 'grab', touchAction: 'none' }}
