@@ -10,6 +10,7 @@ import { ArrowUp, Loader2 } from 'lucide-react';
 import { useNavigate } from '@tanstack/react-router';
 import { Banner } from '@/components/ui/banner';
 import { Button } from '@/components/ui/button';
+import { FeedbackState } from '@/components/ui/feedback-state';
 import type { PkgRowV2 } from '@/lib/pkgs/use-derived';
 import { usePkgsDerived } from '@/lib/pkgs/use-derived';
 import { useUpdatePkgs, type UpdateProgress } from '@/lib/pkgs/use-update-pkgs';
@@ -164,9 +165,9 @@ export function PkgsSurface({ initialFilter = 'all', initialInstallTab }: PkgsSu
 							onClick={updateAll}
 						>
 							{updatePkgs.isPending ? (
-								<Loader2 className="mr-1.5 size-3.5 animate-spin" />
+								<Loader2 aria-hidden="true" className="mr-1.5 size-3.5 animate-spin" />
 							) : (
-								<ArrowUp className="mr-1.5 size-3.5" />
+								<ArrowUp aria-hidden="true" className="mr-1.5 size-3.5" />
 							)}
 							{updatePkgs.isPending ? 'Updating…' : 'Update all'}
 						</Button>
@@ -190,23 +191,31 @@ export function PkgsSurface({ initialFilter = 'all', initialInstallTab }: PkgsSu
 			)}
 			<div className="flex-1 overflow-y-auto px-6 py-5">
 				{d.error && (
-					<p className="mb-4 rounded border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-						{d.error}
-					</p>
+					<FeedbackState
+						variant="error"
+						fill
+						heading="Kernel error"
+						body={d.error}
+						className="mb-4 min-h-0"
+					/>
 				)}
 				{d.isLoading && !d.installed.length && (
-					<p className="text-sm text-muted-foreground">Loading kernel status…</p>
+					<FeedbackState variant="loading" fill heading="Loading kernel status…" />
 				)}
 				{!d.isLoading && !visible.length && (
-					<p className="text-sm text-muted-foreground">
-						{query
-							? `No packages match "${query}".`
-							: filter === 'updates'
-								? 'Nothing to update.'
-								: filter === 'review'
-									? 'Nothing needs review.'
-									: 'No packages installed.'}
-					</p>
+					<FeedbackState
+						variant="empty"
+						fill
+						heading={
+							query
+								? `No packages match "${query}".`
+								: filter === 'updates'
+									? 'Nothing to update.'
+									: filter === 'review'
+										? 'Nothing needs review.'
+										: 'No packages installed.'
+						}
+					/>
 				)}
 				<div className="space-y-6">
 					{Object.entries(groups).map(([label, rows]) => (

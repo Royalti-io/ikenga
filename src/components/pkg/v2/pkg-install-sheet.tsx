@@ -11,7 +11,7 @@
 // with the signature/integrity guarantees baked in.
 
 import { Plus, X } from 'lucide-react';
-import { useState } from 'react';
+import { useCallback, useRef, useState, type KeyboardEvent } from 'react';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { cn } from '@/components/ui/utils';
@@ -29,6 +29,45 @@ import {
 import { PkgScreenshotCarousel } from './pkg-screenshots';
 
 type InstallTab = 'manifest-url' | 'local-path' | 'registry';
+
+// Local horizontal roving-tablist keyboard handler for the generic install tab
+// bar. Mirrors the shell <TabStrip> convention (data-tab-index + [role="tab"])
+// but stays local to this screen rather than widening that file's exports.
+function useRovingTabs(count: number, onSwitch: (idx: number) => void) {
+	const containerRef = useRef<HTMLDivElement | null>(null);
+	const focusTab = useCallback((i: number) => {
+		requestAnimationFrame(() => {
+			containerRef.current
+				?.querySelector<HTMLElement>(`[role="tab"][data-tab-index="${i}"]`)
+				?.focus();
+		});
+	}, []);
+	const onKeyDown = useCallback(
+		(e: KeyboardEvent<HTMLDivElement>) => {
+			const tabEl = (e.target as HTMLElement).closest<HTMLElement>('[role="tab"]');
+			if (!tabEl || !containerRef.current?.contains(tabEl)) return;
+			const idx = Number(tabEl.dataset.tabIndex);
+			if (Number.isNaN(idx)) return;
+			if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+				const to = idx + (e.key === 'ArrowRight' ? 1 : -1);
+				if (to < 0 || to >= count) return;
+				e.preventDefault();
+				onSwitch(to);
+				focusTab(to);
+			} else if (e.key === 'Home') {
+				e.preventDefault();
+				onSwitch(0);
+				focusTab(0);
+			} else if (e.key === 'End') {
+				e.preventDefault();
+				onSwitch(count - 1);
+				focusTab(count - 1);
+			}
+		},
+		[count, onSwitch, focusTab]
+	);
+	return { containerRef, onKeyDown };
+}
 
 interface InstallProgress {
 	done: number;
@@ -57,6 +96,8 @@ export function PkgInstallSheet({
 }) {
 	const qc = useQueryClient();
 	const [tab, setTab] = useState<InstallTab>(defaultTab);
+	const genericTabs: InstallTab[] = ['manifest-url', 'local-path', 'registry'];
+	const tabRoving = useRovingTabs(genericTabs.length, (i) => setTab(genericTabs[i]));
 	const [path, setPath] = useState('');
 	const [url, setUrl] = useState('');
 	const [installError, setInstallError] = useState<string | null>(null);
@@ -131,7 +172,6 @@ export function PkgInstallSheet({
 			<SheetContent
 				side="right"
 				className="flex w-full flex-col gap-0 border-l border-border !bg-background p-0 text-foreground sm:max-w-[560px]"
-				onOpenAutoFocus={(e) => e.preventDefault()}
 			>
 				<div className="flex items-center gap-3 border-b border-border bg-muted/40 p-4">
 					<div className="grid h-9 w-9 place-items-center rounded-sm border border-border bg-background text-primary">
@@ -260,29 +300,50 @@ export function PkgInstallSheet({
 					</>
 				) : (
 					<>
-						<div className="flex gap-0 border-b border-border bg-muted/40 px-5">
-							{(['manifest-url', 'local-path', 'registry'] as InstallTab[]).map((id) => (
-								<button
-									key={id}
-									type="button"
-									onClick={() => setTab(id)}
-									className={cn(
-										'border-b-2 px-3 py-2.5 text-sm font-medium transition-colors',
-										tab === id
-											? 'border-primary text-foreground'
-											: 'border-transparent text-muted-foreground hover:text-foreground'
-									)}
-								>
-									{id === 'manifest-url'
-										? 'Manifest URL'
-										: id === 'local-path'
-											? 'Local path'
-											: 'Registry'}
-								</button>
-							))}
+						<div
+							ref={tabRoving.containerRef}
+							role="tablist"
+							aria-label="Install source"
+							onKeyDown={tabRoving.onKeyDown}
+							className="flex gap-0 border-b border-border bg-muted/40 px-5"
+						>
+							{genericTabs.map((id, i) => {
+								const selected = tab === id;
+								return (
+									<button
+										key={id}
+										type="button"
+										role="tab"
+										id={`install-tab-${id}`}
+										aria-selected={selected}
+										aria-controls="install-tab-panel"
+										data-tab-index={i}
+										tabIndex={selected ? 0 : -1}
+										onClick={() => setTab(id)}
+										className={cn(
+											'border-b-2 px-3 py-2.5 text-sm font-medium transition-colors',
+											'outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
+											selected
+												? 'border-primary text-foreground'
+												: 'border-transparent text-muted-foreground hover:text-foreground'
+										)}
+									>
+										{id === 'manifest-url'
+											? 'Manifest URL'
+											: id === 'local-path'
+												? 'Local path'
+												: 'Registry'}
+									</button>
+								);
+							})}
 						</div>
 
-						<div className="flex-1 space-y-5 overflow-y-auto p-5">
+						<div
+							role="tabpanel"
+							id="install-tab-panel"
+							aria-labelledby={`install-tab-${tab}`}
+							className="flex-1 space-y-5 overflow-y-auto p-5"
+						>
 							{tab === 'manifest-url' && (
 								<section className="space-y-2">
 									<label className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground/70">
@@ -390,23 +451,35 @@ function RegistryStatus({
 }) {
 	if (indexError) {
 		return (
-			<span className="font-mono text-[10.5px] text-destructive">
+			<span role="alert" aria-live="assertive" className="font-mono text-[10.5px] text-destructive">
 				registry unreachable: {indexError.message}
 			</span>
 		);
 	}
 	if (detailError) {
 		return (
-			<span className="font-mono text-[10.5px] text-destructive">
+			<span role="alert" aria-live="assertive" className="font-mono text-[10.5px] text-destructive">
 				detail failed: {detailError.message}
 			</span>
 		);
 	}
 	if (detailLoading) {
-		return <span className="font-mono text-[10.5px] text-muted-foreground">resolving plan…</span>;
+		return (
+			<span
+				role="status"
+				aria-live="polite"
+				className="font-mono text-[10.5px] text-muted-foreground"
+			>
+				resolving plan…
+			</span>
+		);
 	}
 	return (
-		<span className="font-mono text-[10.5px] text-muted-foreground">
+		<span
+			role="status"
+			aria-live="polite"
+			className="font-mono text-[10.5px] text-muted-foreground"
+		>
 			signature verified · ready
 		</span>
 	);

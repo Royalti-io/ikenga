@@ -1,8 +1,14 @@
 // Pkg row (medium variant) used by the catalog body across v2 surfaces.
 // Clicking the row opens the loupe (handled by parent via onOpen).
+//
+// biome-ignore-all lint/a11y/useSemanticElements: the row is a div[role=button] on
+// purpose (it hosts nested action <button>s — Install/Review — and a <button>
+// can't nest in a <button>, the tab-strip/list-row lesson); the group wrapper is
+// a labelled div[role=group] (a group of pkg rows, not a form fieldset). Neither
+// maps to a semantic HTML element.
 
 import { ArrowUp, ExternalLink, Plus, Settings, Shield } from 'lucide-react';
-import type { MouseEvent } from 'react';
+import type { KeyboardEvent, MouseEvent } from 'react';
 import type { PkgRowV2 } from '@/lib/pkgs/use-derived';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/components/ui/utils';
@@ -27,11 +33,26 @@ export function PkgRow({ row, onOpen, onInstall, onUpdate, onReviewTrust }: PkgR
 		fn?.(row);
 	};
 
+	const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+		// Only act when the row itself is focused — keystrokes inside the
+		// action-button strip (or any nested control) should reach that control.
+		if (e.target !== e.currentTarget) return;
+		if (e.key === 'Enter' || e.key === ' ') {
+			e.preventDefault();
+			onOpen(row);
+		}
+	};
+
 	return (
 		<div
+			role="button"
+			tabIndex={0}
 			onClick={() => onOpen(row)}
+			onKeyDown={onKeyDown}
+			aria-label={`${row.name} (${row.id})`}
 			className={cn(
 				'group grid cursor-pointer grid-cols-[88px_1fr_auto] items-center gap-4 rounded-md border bg-card px-3 py-2 transition-colors hover:bg-accent',
+				'outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
 				isRegistry && 'border-dashed bg-transparent hover:bg-accent/40',
 				isOutdated && 'border-[var(--achievement)]/30',
 				(needsTrust || row.violations.length > 0) && 'border-destructive/30',
@@ -136,7 +157,7 @@ export function PkgGroup({
 }) {
 	if (!rows.length) return null;
 	return (
-		<div className="space-y-1.5">
+		<div role="group" aria-label={label} className="space-y-1.5">
 			<div className="mb-2 flex items-center gap-3">
 				<span className="font-mono text-[10.5px] uppercase tracking-wider text-muted-foreground/70">
 					{label}
@@ -144,16 +165,19 @@ export function PkgGroup({
 				<span className="h-px flex-1 bg-border" />
 				<span className="font-mono text-[10px] text-muted-foreground">{rows.length}</span>
 			</div>
-			{rows.map((row) => (
-				<PkgRow
-					key={row.id}
-					row={row}
-					onOpen={onOpen}
-					onInstall={onInstall}
-					onUpdate={onUpdate}
-					onReviewTrust={onReviewTrust}
-				/>
-			))}
+			<ul className="m-0 list-none space-y-1.5 p-0">
+				{rows.map((row) => (
+					<li key={row.id}>
+						<PkgRow
+							row={row}
+							onOpen={onOpen}
+							onInstall={onInstall}
+							onUpdate={onUpdate}
+							onReviewTrust={onReviewTrust}
+						/>
+					</li>
+				))}
+			</ul>
 		</div>
 	);
 }

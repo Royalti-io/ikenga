@@ -35,6 +35,7 @@ export function PkgsTitlebar({
 						value={query ?? ''}
 						onChange={(e) => onQueryChange(e.target.value)}
 						placeholder="Filter by name, id, route…"
+						aria-label="Filter packages by name, id, or route"
 						className="h-7 w-full rounded-sm border border-border bg-background pl-8 pr-2 text-sm outline-none focus:border-primary"
 					/>
 				</div>

@@ -15,7 +15,7 @@ import {
 	Shield,
 	X,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
@@ -63,14 +63,18 @@ export function PkgLoupe({
 			<SheetContent
 				side="right"
 				className="flex w-full flex-col gap-0 border-l border-border !bg-background p-0 text-foreground sm:max-w-[560px]"
-				onOpenAutoFocus={(e) => e.preventDefault()}
 			>
 				{row ? (
 					<>
 						<PkgScreenshotHero row={row} />
 						<LoupeHead row={row} onClose={() => onOpenChange(false)} />
 						<LoupeTabs row={row} tab={tab} onTab={setTab} />
-						<div className="flex-1 overflow-y-auto p-5">
+						<div
+							role="tabpanel"
+							id={`loupe-panel-${tab}`}
+							aria-labelledby={`loupe-tab-${tab}`}
+							className="flex-1 overflow-y-auto p-5"
+						>
 							{tab === 'overview' && <TabOverview row={row} />}
 							{tab === 'permissions' && <TabPermissions row={row} />}
 							{tab === 'trust' && <TabTrust row={row} />}
@@ -117,6 +121,47 @@ function LoupeHead({ row, onClose }: { row: PkgRowV2; onClose: () => void }) {
 	);
 }
 
+// Local horizontal roving-tablist keyboard handler for the bespoke tab bars in
+// this sheet (loupe detail + generic install). Mirrors the convention used by
+// the shell's <TabStrip> (data-tab-index + [role="tab"]) but stays local so we
+// don't widen that file's export surface for two screen-specific strips.
+// ←/→ switch, Home/End jump; DOM focus moves to the destination tab next frame.
+function useRovingTabs(count: number, onSwitch: (idx: number) => void) {
+	const containerRef = useRef<HTMLDivElement | null>(null);
+	const focusTab = useCallback((i: number) => {
+		requestAnimationFrame(() => {
+			containerRef.current
+				?.querySelector<HTMLElement>(`[role="tab"][data-tab-index="${i}"]`)
+				?.focus();
+		});
+	}, []);
+	const onKeyDown = useCallback(
+		(e: React.KeyboardEvent<HTMLDivElement>) => {
+			const tabEl = (e.target as HTMLElement).closest<HTMLElement>('[role="tab"]');
+			if (!tabEl || !containerRef.current?.contains(tabEl)) return;
+			const idx = Number(tabEl.dataset.tabIndex);
+			if (Number.isNaN(idx)) return;
+			if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+				const to = idx + (e.key === 'ArrowRight' ? 1 : -1);
+				if (to < 0 || to >= count) return;
+				e.preventDefault();
+				onSwitch(to);
+				focusTab(to);
+			} else if (e.key === 'Home') {
+				e.preventDefault();
+				onSwitch(0);
+				focusTab(0);
+			} else if (e.key === 'End') {
+				e.preventDefault();
+				onSwitch(count - 1);
+				focusTab(count - 1);
+			}
+		},
+		[count, onSwitch, focusTab]
+	);
+	return { containerRef, onKeyDown };
+}
+
 function LoupeTabs({
 	row,
 	tab,
@@ -133,27 +178,46 @@ function LoupeTabs({
 		{ id: 'settings', label: 'Settings' },
 		{ id: 'manifest', label: 'Manifest' },
 	];
+	const { containerRef, onKeyDown } = useRovingTabs(items.length, (i) => onTab(items[i].id));
 	return (
-		<div className="flex gap-0 border-b border-border bg-muted/40 px-5">
-			{items.map((it) => (
-				<button
-					key={it.id}
-					type="button"
-					onClick={() => onTab(it.id)}
-					className={cn(
-						'border-b-2 px-3 py-2.5 text-sm font-medium transition-colors',
-						tab === it.id
-							? 'border-primary text-foreground'
-							: 'border-transparent text-muted-foreground hover:text-foreground'
-					)}
-				>
-					{it.label}
-					{typeof it.count === 'number' && (
-						<span className="ml-1 font-mono text-[10px] text-muted-foreground/70">{it.count}</span>
-					)}
-					{it.pending && <span className="ml-1 text-[11px] text-destructive">· pending</span>}
-				</button>
-			))}
+		<div
+			ref={containerRef}
+			role="tablist"
+			aria-label="Package detail"
+			onKeyDown={onKeyDown}
+			className="flex gap-0 border-b border-border bg-muted/40 px-5"
+		>
+			{items.map((it, i) => {
+				const selected = tab === it.id;
+				return (
+					<button
+						key={it.id}
+						type="button"
+						role="tab"
+						id={`loupe-tab-${it.id}`}
+						aria-selected={selected}
+						aria-controls={`loupe-panel-${it.id}`}
+						data-tab-index={i}
+						tabIndex={selected ? 0 : -1}
+						onClick={() => onTab(it.id)}
+						className={cn(
+							'border-b-2 px-3 py-2.5 text-sm font-medium transition-colors',
+							'outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
+							selected
+								? 'border-primary text-foreground'
+								: 'border-transparent text-muted-foreground hover:text-foreground'
+						)}
+					>
+						{it.label}
+						{typeof it.count === 'number' && (
+							<span className="ml-1 font-mono text-[10px] text-muted-foreground/70">
+								{it.count}
+							</span>
+						)}
+						{it.pending && <span className="ml-1 text-[11px] text-destructive">· pending</span>}
+					</button>
+				);
+			})}
 		</div>
 	);
 }
