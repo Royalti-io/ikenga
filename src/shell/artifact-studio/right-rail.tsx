@@ -16,7 +16,7 @@
 
 import { useMemo, useState, type ReactNode } from 'react';
 import { Code as CodeIcon, MessageSquare, Settings as ManifestIcon, TreePine } from 'lucide-react';
-import { cn } from '@/components/ui/utils';
+import { TabStrip, Tab } from '@/components/ui/tab-strip';
 
 export type RightRailTab = 'chat' | 'code' | 'dom' | 'manifest';
 
@@ -84,55 +84,28 @@ export function RightRail({
 
 	return (
 		<div className="flex h-full min-h-0 flex-col border-l border-border bg-background">
-			<div
-				role="tablist"
-				className="flex shrink-0 items-stretch border-b border-border bg-muted/20"
+			<TabStrip
+				label="Studio views"
+				className="shrink-0 border-b border-border bg-muted/20"
+				activeIdx={visible.indexOf(active)}
+				count={visible.length}
+				onSwitch={(i) => onChangeTab(visible[i])}
 			>
-				{visible.map((t) => (
-					<RailTabButton
+				{visible.map((t, i) => (
+					<Tab
 						key={t}
+						index={i}
 						active={active === t}
-						onClick={() => onChangeTab(t)}
-						icon={glyphFor(t)}
 						label={labelFor(t)}
+						glyph={glyphFor(t)}
+						variant="rail"
+						className="border-r border-border px-3 py-2"
+						onActivate={() => onChangeTab(t)}
 					/>
 				))}
-			</div>
+			</TabStrip>
 			<div className="flex-1 min-h-0 overflow-hidden">{slot}</div>
 		</div>
-	);
-}
-
-interface RailTabButtonProps {
-	active: boolean;
-	onClick: () => void;
-	icon: ReactNode;
-	label: string;
-}
-
-function RailTabButton({ active, onClick, icon, label }: RailTabButtonProps) {
-	return (
-		<button
-			type="button"
-			role="tab"
-			aria-selected={active}
-			onClick={onClick}
-			className={cn(
-				'flex items-center gap-1.5 border-r border-border border-b-2 px-3 py-2 text-[10px] uppercase tracking-wider transition-colors motion-reduce:transition-none',
-				'outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
-				active
-					? 'bg-background text-foreground'
-					: 'border-b-transparent text-muted-foreground hover:bg-muted/30 hover:text-foreground'
-			)}
-			// Active underline follows the shell's one tab-underline source
-			// (`--tab-ws` → `--primary`); the rail has no workspace tint, so it
-			// resolves to `--primary` and tracks Dusk Wood — replaces the old
-			// hardcoded `amber-600`/`amber-400` token-bypass.
-			style={active ? { borderBottomColor: 'var(--tab-ws, var(--primary))' } : undefined}
-		>
-			{icon}
-			<span className="font-mono">{label}</span>
-		</button>
 	);
 }
 

@@ -3,15 +3,14 @@ import {
 	ChevronLeft,
 	ChevronRight,
 	Plus,
-	X,
-	Pin,
 	MessageSquare,
 	Terminal as TerminalIcon,
 } from 'lucide-react';
-import { type PaneView } from '@/lib/panes/types';
+import type { PaneView } from '@/lib/panes/types';
 import { CommandRow } from '@/components/ui/command-row';
 import { FeedbackState } from '@/components/ui/feedback-state';
 import { IconButton } from '@/components/ui/icon-button';
+import { TabStrip, Tab, TabRail, RailTab } from '@/components/ui/tab-strip';
 import { useDockStore, DOCK_MIN_WIDTH, DOCK_MAX_WIDTH } from './dock-store';
 import { useDragState } from '@/lib/panes/drag-state';
 import { usePaneStore } from '@/lib/panes/pane-store';
@@ -108,69 +107,55 @@ export function Dock() {
 				}}
 				onDrop={handleExternalDrop}
 			>
-				<div
-					role="tablist"
-					aria-orientation="vertical"
-					aria-label="Dock tabs"
-					className="flex flex-col items-center gap-1 px-1"
+				<TabRail
+					label="Dock tabs"
+					className="px-1"
+					activeIdx={activeIdx}
+					count={tabs.length}
+					onSwitch={switchTab}
 				>
 					{tabs.map((tab, idx) => {
 						const ws = viewWorkspace(tab);
 						const isActive = idx === activeIdx;
 						const isPinned = Boolean(tab.pinned);
 						return (
-							<button
+							<RailTab
 								key={`${idx}-${tab.kind}`}
-								type="button"
-								role="tab"
-								aria-selected={isActive}
-								draggable={!isPinned}
-								onDragStart={(e) => {
-									if (isPinned) {
-										e.preventDefault();
-										return;
-									}
-									e.dataTransfer.effectAllowed = 'move';
-									e.dataTransfer.setData('application/x-dock-tab', `${idx}`);
-									useDragState.getState().startDock(idx);
-								}}
-								onDragEnd={() => useDragState.getState().end()}
-								onClick={() => {
+								index={idx}
+								active={isActive}
+								ws={ws}
+								label={viewLabel(tab)}
+								glyph={<DockTabIcon view={tab} />}
+								onActivate={() => {
 									switchTab(idx);
 									setState('expanded');
 								}}
-								title={viewLabel(tab)}
-								aria-label={viewLabel(tab)}
-								className={cn(
-									'relative grid h-7 w-7 place-items-center rounded-sm transition-colors motion-reduce:transition-none',
-									'outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
-									'hover:bg-card'
-								)}
-								style={{
-									color: isActive ? `var(--tint-${ws}-fg)` : 'var(--fg-faint)',
+								draggable={!isPinned}
+								dragHandlers={{
+									onDragStart: (e) => {
+										if (isPinned) {
+											e.preventDefault();
+											return;
+										}
+										e.dataTransfer.effectAllowed = 'move';
+										e.dataTransfer.setData('application/x-dock-tab', `${idx}`);
+										useDragState.getState().startDock(idx);
+									},
+									onDragEnd: () => useDragState.getState().end(),
 								}}
-							>
-								{isActive && (
-									<span
-										aria-hidden="true"
-										className="absolute -right-1 top-1.5 bottom-1.5 w-0.5 rounded-l"
-										style={{ background: `var(--tint-${ws}-fg)` }}
-									/>
-								)}
-								<DockTabIcon view={tab} />
-							</button>
+							/>
 						);
 					})}
-					<button
-						type="button"
-						onClick={() => setState('expanded')}
-						title="Expand dock"
-						aria-label="Expand dock"
-						className="grid h-7 w-7 place-items-center rounded-sm text-muted-foreground hover:bg-card"
-					>
-						<ChevronLeft className="h-3.5 w-3.5" />
-					</button>
-				</div>
+				</TabRail>
+				<button
+					type="button"
+					onClick={() => setState('expanded')}
+					title="Expand dock"
+					aria-label="Expand dock"
+					className="mx-auto mt-1 grid size-7 place-items-center rounded-sm text-muted-foreground hover:bg-card"
+				>
+					<ChevronLeft className="h-3.5 w-3.5" />
+				</button>
 			</aside>
 		);
 	}
@@ -205,81 +190,52 @@ export function Dock() {
 				onDragLeave={() => setDropHover(false)}
 				onDrop={handleExternalDrop}
 			>
-				<div
-					role="tablist"
-					aria-label="Dock tabs"
-					className={cn(
-						'ikenga-tab-strip flex flex-1 items-stretch gap-1 overflow-x-auto px-2',
-						dropHover && 'bg-primary/10'
-					)}
-					data-tabstrip-mixed={tabs.length > 1 ? 'true' : 'false'}
+				<TabStrip
+					label="Dock tabs"
+					className={cn('flex-1 gap-1 px-2', dropHover && 'bg-primary/10')}
+					activeIdx={activeIdx}
+					count={tabs.length}
+					onSwitch={switchTab}
+					mixed={tabs.length > 1}
 				>
 					{tabs.map((tab, idx) => {
 						const ws = viewWorkspace(tab);
 						const isActive = idx === activeIdx;
 						const isPinned = Boolean(tab.pinned);
 						return (
-							<button
+							<Tab
 								key={`${idx}-${tab.kind}`}
-								type="button"
-								role="tab"
-								aria-selected={isActive}
-								draggable={!isPinned}
-								onDragStart={(e) => {
-									if (isPinned) {
-										e.preventDefault();
-										return;
-									}
-									e.dataTransfer.effectAllowed = 'move';
-									e.dataTransfer.setData('application/x-dock-tab', `${idx}`);
-									useDragState.getState().startDock(idx);
-								}}
-								onDragEnd={() => useDragState.getState().end()}
-								data-ws={ws}
-								data-active={isActive ? 'true' : 'false'}
-								onClick={() => switchTab(idx)}
-								onAuxClick={(e) => {
-									if (e.button === 1 && !isPinned) {
-										e.preventDefault();
-										closeTab(idx);
-									}
-								}}
-								className={cn(
-									'group relative flex shrink-0 items-center gap-2 px-3 text-xs',
-									'transition-colors motion-reduce:transition-none',
-									'outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset'
-								)}
-								style={{
-									color: isActive ? 'var(--fg)' : 'var(--fg-faint)',
-									background: isActive ? 'var(--bg-base)' : 'transparent',
-								}}
+								index={idx}
+								active={isActive}
+								ws={ws}
+								glyph={<DockTabIcon view={tab} />}
+								label={viewLabel(tab)}
+								labelClassName="capitalize"
 								title={viewLabel(tab)}
-							>
-								<DockTabIcon view={tab} />
-								<span className="truncate capitalize">{viewLabel(tab)}</span>
-								{isPinned && <Pin className="h-2.5 w-2.5 -rotate-45" />}
-								{!isPinned && (
-									<span
-										role="button"
-										tabIndex={-1}
-										aria-label="Close dock tab"
-										onClick={(e) => {
-											e.stopPropagation();
-											closeTab(idx);
-										}}
-										className="grid h-3.5 w-3.5 place-items-center rounded-sm opacity-0 group-hover:opacity-100 hover:bg-card"
-										onAuxClick={(e) => {
-											e.stopPropagation();
-											togglePinned(idx);
-										}}
-									>
-										<X className="h-2.5 w-2.5" />
-									</span>
-								)}
-							</button>
+								className="px-3"
+								pinned={isPinned}
+								closable={!isPinned}
+								onActivate={() => switchTab(idx)}
+								onClose={() => closeTab(idx)}
+								onTogglePin={() => togglePinned(idx)}
+								onMiddleClick={!isPinned ? () => closeTab(idx) : undefined}
+								draggable={!isPinned}
+								dragHandlers={{
+									onDragStart: (e) => {
+										if (isPinned) {
+											e.preventDefault();
+											return;
+										}
+										e.dataTransfer.effectAllowed = 'move';
+										e.dataTransfer.setData('application/x-dock-tab', `${idx}`);
+										useDragState.getState().startDock(idx);
+									},
+									onDragEnd: () => useDragState.getState().end(),
+								}}
+							/>
 						);
 					})}
-				</div>
+				</TabStrip>
 				<div
 					className="flex shrink-0 items-center gap-1 border-l px-1"
 					style={{ borderColor: 'var(--border-soft)' }}
