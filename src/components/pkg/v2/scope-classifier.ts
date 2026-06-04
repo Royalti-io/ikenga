@@ -30,8 +30,10 @@ export function classifyScope(scope: string): ScopeClass {
 	return { risk: 'low', label: 'Unclassified' };
 }
 
+// Risk band → semantic token (not hardcoded red/amber/emerald — those stayed
+// cool-base on a Dusk Wood flip). high→danger, med→achievement, low→live.
 export function riskColor(risk: ScopeRisk): string {
-	if (risk === 'high') return 'text-red-500';
-	if (risk === 'med') return 'text-amber-500';
-	return 'text-emerald-500';
+	if (risk === 'high') return 'text-destructive';
+	if (risk === 'med') return 'text-[var(--achievement)]';
+	return 'text-[var(--live)]';
 }

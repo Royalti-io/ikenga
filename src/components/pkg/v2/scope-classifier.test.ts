@@ -77,13 +77,13 @@ describe('classifyScope', () => {
 });
 
 describe('riskColor', () => {
-	it('returns red for high', () => {
-		expect(riskColor('high')).toBe('text-red-500');
+	it('returns the danger token for high', () => {
+		expect(riskColor('high')).toBe('text-destructive');
 	});
-	it('returns amber for med', () => {
-		expect(riskColor('med')).toBe('text-amber-500');
+	it('returns the achievement token for med', () => {
+		expect(riskColor('med')).toBe('text-[var(--achievement)]');
 	});
-	it('returns emerald for low', () => {
-		expect(riskColor('low')).toBe('text-emerald-500');
+	it('returns the live token for low', () => {
+		expect(riskColor('low')).toBe('text-[var(--live)]');
 	});
 });

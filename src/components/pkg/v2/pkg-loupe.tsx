@@ -151,7 +151,7 @@ function LoupeTabs({
 					{typeof it.count === 'number' && (
 						<span className="ml-1 font-mono text-[10px] text-muted-foreground/70">{it.count}</span>
 					)}
-					{it.pending && <span className="ml-1 text-[11px] text-red-500">· pending</span>}
+					{it.pending && <span className="ml-1 text-[11px] text-destructive">· pending</span>}
 				</button>
 			))}
 		</div>
@@ -200,7 +200,7 @@ function LoupeFoot({
 					</Button>
 					<Button
 						size="sm"
-						className="bg-amber-500 text-amber-950 hover:bg-amber-500/90"
+						className="bg-[var(--achievement)] text-[var(--achievement-soft)] hover:bg-[var(--achievement)]/90"
 						onClick={() => onUpdate?.(row)}
 					>
 						<ArrowUp className="mr-1.5 h-3.5 w-3.5" />
@@ -215,7 +215,7 @@ function LoupeFoot({
 					<Button
 						size="sm"
 						variant="outline"
-						className="border-red-500/40 text-red-500 hover:bg-red-500/10"
+						className="border-destructive/40 text-destructive hover:bg-destructive/10"
 						disabled={grantMut.isPending}
 						onClick={() => grantMut.mutate()}
 					>
@@ -229,7 +229,7 @@ function LoupeFoot({
 						<Button
 							size="sm"
 							variant="ghost"
-							className="text-muted-foreground hover:bg-red-500/10 hover:text-red-500"
+							className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
 							onClick={() => onUninstall(row)}
 						>
 							<Ban className="mr-1.5 h-3.5 w-3.5" />
@@ -362,10 +362,10 @@ function TabPermissions({ row }: { row: PkgRowV2 }) {
 									className={cn(
 										'rounded-sm border px-1.5 py-0.5 font-mono text-[10px] uppercase',
 										c.risk === 'high'
-											? 'border-red-500/40 bg-red-500/10 text-red-500'
+											? 'border-destructive/40 bg-destructive/10 text-destructive'
 											: c.risk === 'med'
-												? 'border-amber-500/40 bg-amber-500/10 text-amber-500'
-												: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-500'
+												? 'border-[var(--achievement)]/40 bg-[var(--achievement)]/10 text-[var(--achievement)]'
+												: 'border-[var(--live)]/30 bg-[var(--live)]/10 text-[var(--live)]'
 									)}
 								>
 									risk: {c.risk}
@@ -381,9 +381,9 @@ function TabPermissions({ row }: { row: PkgRowV2 }) {
 					{row.violations.map((v) => (
 						<div
 							key={v.id}
-							className="space-y-1 rounded-sm border border-red-500/30 bg-red-500/5 px-3 py-2"
+							className="space-y-1 rounded-sm border border-destructive/30 bg-destructive/5 px-3 py-2"
 						>
-							<div className="text-sm font-medium text-red-500">
+							<div className="text-sm font-medium text-destructive">
 								Denied:{' '}
 								<code className="rounded-sm bg-background px-1 py-0.5 text-foreground">
 									{v.scope_kind}
@@ -454,7 +454,7 @@ function TabTrust({ row }: { row: PkgRowV2 }) {
 						<Button
 							size="sm"
 							variant="ghost"
-							className="mt-1 text-muted-foreground hover:bg-red-500/10 hover:text-red-500"
+							className="mt-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
 							disabled={revokeMut.isPending}
 							onClick={() => revokeMut.mutate()}
 						>
@@ -485,7 +485,7 @@ function TabTrust({ row }: { row: PkgRowV2 }) {
 						</div>
 					)}
 					{row.violations.map((v) => (
-						<div key={v.id} className="text-red-500">
+						<div key={v.id} className="text-destructive">
 							<Dot tone="danger" />{' '}
 							<span className="ml-2">
 								{new Date(v.occurred_at * 1000).toISOString().slice(0, 10)} · attempted{' '}
@@ -515,7 +515,7 @@ function TabSettings({ row }: { row: PkgRowV2 }) {
 	}
 	if (settings.error) {
 		return (
-			<p className="text-sm text-red-500">
+			<p className="text-sm text-destructive">
 				Failed to load settings: {(settings.error as Error).message}
 			</p>
 		);
@@ -566,7 +566,9 @@ function SettingField({
 					onClick={() => onChange(!current)}
 					className={cn(
 						'inline-flex h-7 items-center rounded-sm border px-2 font-mono text-xs',
-						current ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-500' : 'border-border'
+						current
+							? 'border-[var(--live)]/40 bg-[var(--live)]/15 text-[var(--live)]'
+							: 'border-border'
 					)}
 				>
 					{current ? '☑ on' : '☐ off'}
@@ -800,7 +802,7 @@ function EngineInstallCard({ row }: { row: EngineInstallRow }) {
 								{row.engineId}
 							</code>
 							{warnings.length > 0 && (
-								<span className="rounded-sm border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 font-mono text-[10px] uppercase text-amber-500">
+								<span className="rounded-sm border border-[var(--achievement)]/40 bg-[var(--achievement)]/10 px-1.5 py-0.5 font-mono text-[10px] uppercase text-[var(--achievement)]">
 									{warnings.length} warning{warnings.length === 1 ? '' : 's'}
 								</span>
 							)}
@@ -868,7 +870,10 @@ function EngineInstallCard({ row }: { row: EngineInstallRow }) {
 						{warnings.length > 0 && (
 							<EngineDetailGroup label="Warnings" tone="warn">
 								{warnings.map((w) => (
-									<li key={`warn-${w}`} className="text-[11.5px] leading-relaxed text-amber-500">
+									<li
+										key={`warn-${w}`}
+										className="text-[11.5px] leading-relaxed text-[var(--achievement)]"
+									>
 										{w}
 									</li>
 								))}
@@ -895,7 +900,7 @@ function EngineDetailGroup({
 			<div
 				className={cn(
 					'font-mono text-[10px] uppercase tracking-wider',
-					tone === 'warn' ? 'text-amber-500/80' : 'text-muted-foreground/70'
+					tone === 'warn' ? 'text-[var(--achievement)]/80' : 'text-muted-foreground/70'
 				)}
 			>
 				{label}
@@ -935,7 +940,7 @@ function TrustCallout({ row }: { row: PkgRowV2 }) {
 		note = `Bumped from v${change.prior_version}. Added: ${change.added.join(', ') || '(none)'}. Re-approve before enabling.`;
 	}
 	return (
-		<div className="space-y-1 rounded-sm border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-500">
+		<div className="space-y-1 rounded-sm border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
 			<div className="font-medium">Trust review needed</div>
 			<p className="text-[12.5px] leading-relaxed">{note}</p>
 		</div>
@@ -945,7 +950,7 @@ function TrustCallout({ row }: { row: PkgRowV2 }) {
 function ViolationCallout({ row }: { row: PkgRowV2 }) {
 	const v = row.violations[0];
 	return (
-		<div className="space-y-1 rounded-sm border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-500">
+		<div className="space-y-1 rounded-sm border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
 			<div className="font-medium">Permission violation</div>
 			<p className="text-[12.5px] leading-relaxed">
 				Attempted{' '}

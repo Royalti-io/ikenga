@@ -204,7 +204,7 @@ export function PkgInstallSheet({
 														className={cn(
 															'rounded-sm border px-1.5 py-0.5 font-mono text-[10px]',
 															warn
-																? 'border-red-500/40 bg-red-500/10 text-red-500'
+																? 'border-destructive/40 bg-destructive/10 text-destructive'
 																: 'border-primary/30 bg-primary/10 text-primary'
 														)}
 													>
@@ -217,7 +217,7 @@ export function PkgInstallSheet({
 								</section>
 							)}
 							{pkg.scopes.some((s) => /^fs:write/.test(s)) && (
-								<div className="space-y-1 rounded-sm border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-500">
+								<div className="space-y-1 rounded-sm border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
 									<div className="font-medium">Review write scopes</div>
 									<p className="text-[12.5px] leading-relaxed">
 										This pkg requests write access to{' '}
@@ -230,7 +230,7 @@ export function PkgInstallSheet({
 								</div>
 							)}
 							{installError && (
-								<div className="rounded-sm border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-500">
+								<div className="rounded-sm border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
 									Install failed: {installError}
 								</div>
 							)}
@@ -390,14 +390,14 @@ function RegistryStatus({
 }) {
 	if (indexError) {
 		return (
-			<span className="font-mono text-[10.5px] text-red-500">
+			<span className="font-mono text-[10.5px] text-destructive">
 				registry unreachable: {indexError.message}
 			</span>
 		);
 	}
 	if (detailError) {
 		return (
-			<span className="font-mono text-[10.5px] text-red-500">
+			<span className="font-mono text-[10.5px] text-destructive">
 				detail failed: {detailError.message}
 			</span>
 		);

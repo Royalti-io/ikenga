@@ -14,7 +14,7 @@ export function PkgsTrustBanner({ d, onReview }: { d: DerivedPkgs; onReview?: ()
 	if (violationCount)
 		bits.push(`${violationCount} permission violation${violationCount === 1 ? '' : 's'}`);
 	return (
-		<div className="flex items-center gap-3 border-b border-red-500/30 bg-red-500/10 px-6 py-2 text-sm text-red-500">
+		<div className="flex items-center gap-3 border-b border-destructive/30 bg-destructive/10 px-6 py-2 text-sm text-destructive">
 			<AlertTriangle className="h-4 w-4 shrink-0" />
 			<span>{bits.join(' · ')}</span>
 			<span className="flex-1" />
@@ -22,7 +22,7 @@ export function PkgsTrustBanner({ d, onReview }: { d: DerivedPkgs; onReview?: ()
 				<Button
 					size="sm"
 					variant="outline"
-					className="h-7 border-red-500/40 text-red-500 hover:bg-red-500/15"
+					className="h-7 border-destructive/40 text-destructive hover:bg-destructive/15"
 					onClick={onReview}
 				>
 					Review →

@@ -33,8 +33,8 @@ export function PkgRow({ row, onOpen, onInstall, onUpdate, onReviewTrust }: PkgR
 			className={cn(
 				'group grid cursor-pointer grid-cols-[88px_1fr_auto] items-center gap-4 rounded-md border bg-card px-3 py-2 transition-colors hover:bg-accent',
 				isRegistry && 'border-dashed bg-transparent hover:bg-accent/40',
-				isOutdated && 'border-amber-500/30',
-				(needsTrust || row.violations.length > 0) && 'border-red-500/30',
+				isOutdated && 'border-[var(--achievement)]/30',
+				(needsTrust || row.violations.length > 0) && 'border-destructive/30',
 				!row.enabled && row.origin !== 'registry' && 'opacity-60'
 			)}
 			data-pkg-id={row.id}
@@ -71,7 +71,7 @@ export function PkgRow({ row, onOpen, onInstall, onUpdate, onReviewTrust }: PkgR
 						<Button
 							size="sm"
 							variant="outline"
-							className="h-7 gap-1.5 border-amber-500/40 text-amber-600 hover:bg-amber-500/10 dark:text-amber-400"
+							className="h-7 gap-1.5 border-[var(--achievement)]/40 text-[var(--achievement)] hover:bg-[var(--achievement)]/10"
 							onClick={stopThenRun(onUpdate)}
 						>
 							<ArrowUp className="h-3.5 w-3.5" />
@@ -91,7 +91,7 @@ export function PkgRow({ row, onOpen, onInstall, onUpdate, onReviewTrust }: PkgR
 					<Button
 						size="sm"
 						variant="outline"
-						className="h-7 gap-1.5 border-red-500/40 text-red-500 hover:bg-red-500/10"
+						className="h-7 gap-1.5 border-destructive/40 text-destructive hover:bg-destructive/10"
 						onClick={stopThenRun(onReviewTrust)}
 					>
 						<Shield className="h-3.5 w-3.5" />

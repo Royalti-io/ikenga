@@ -151,8 +151,8 @@ export function PkgsSurface({ initialFilter = 'all', initialInstallTab }: PkgsSu
 				}}
 			/>
 			{d.updates.length > 0 && (
-				<div className="flex items-center gap-3 border-b border-amber-500/30 bg-amber-500/10 px-6 py-2.5 text-sm">
-					<ArrowUp className="size-4 text-amber-500" />
+				<div className="flex items-center gap-3 border-b border-[var(--achievement)]/30 bg-[var(--achievement)]/10 px-6 py-2.5 text-sm">
+					<ArrowUp className="size-4 text-[var(--achievement)]" />
 					<div className="flex-1">
 						<span className="font-medium">
 							{d.updates.length} package{d.updates.length === 1 ? '' : 's'}
@@ -171,7 +171,7 @@ export function PkgsSurface({ initialFilter = 'all', initialInstallTab }: PkgsSu
 					</div>
 					<Button
 						size="sm"
-						className="bg-amber-500 text-amber-950 hover:bg-amber-500/90"
+						className="bg-[var(--achievement)] text-[var(--achievement-soft)] hover:bg-[var(--achievement)]/90"
 						disabled={updatePkgs.isPending}
 						onClick={updateAll}
 					>
@@ -186,7 +186,7 @@ export function PkgsSurface({ initialFilter = 'all', initialInstallTab }: PkgsSu
 			)}
 			<div className="flex-1 overflow-y-auto px-6 py-5">
 				{d.error && (
-					<p className="mb-4 rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-300">
+					<p className="mb-4 rounded border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
 						{d.error}
 					</p>
 				)}
