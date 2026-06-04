@@ -1,10 +1,11 @@
-// Renders the SidecarSupervisor's per-pkg status. Yellow Blocked badge for
-// operator-fixable failures (today: port-in-use); Restart button kicks the
-// supervisor for any non-running entry.
+// Renders the SidecarSupervisor's per-pkg status via the shared StatusChip
+// (semantic tones — warn for the operator-fixable Blocked case, e.g.
+// port-in-use); Restart button kicks the supervisor for any non-running entry.
 
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 
 import { pkgKernelStatus, pkgSupervisorRestart } from '@/lib/tauri-cmd';
+import { StatusChip, type ChipTone } from '@/components/ui/status-chip';
 
 interface SidecarEntry {
 	pkg_id: string;
@@ -23,18 +24,21 @@ interface SidecarSnapshot {
 
 export const KERNEL_STATUS_QUERY_KEY = ['pkg-kernel-status'] as const;
 
-function badgeClasses(state: string): string {
+// Supervisor state → the shared StatusChip tone vocabulary (semantic tokens,
+// not hardcoded green/yellow/orange/red). running=live, blocked=warn (the
+// operator-fixable case), crashed/parked=danger (the label text disambiguates
+// the two non-recoverable states), spawning/unknown=muted.
+function stateTone(state: string): ChipTone {
 	switch (state) {
 		case 'running':
-			return 'bg-green-100 text-green-800 border-green-300';
+			return 'live';
 		case 'blocked':
-			return 'bg-yellow-100 text-yellow-800 border-yellow-300';
+			return 'warn';
 		case 'crashed':
-			return 'bg-orange-100 text-orange-800 border-orange-300';
 		case 'parked':
-			return 'bg-red-100 text-red-800 border-red-300';
+			return 'danger';
 		default:
-			return 'bg-gray-100 text-gray-700 border-gray-300';
+			return 'muted';
 	}
 }
 
@@ -50,14 +54,14 @@ export function PkgKernelStatus() {
 		onSettled: () => qc.invalidateQueries({ queryKey: KERNEL_STATUS_QUERY_KEY }),
 	});
 
-	if (isLoading) return <div className="text-sm text-gray-500">loading kernel status…</div>;
-	if (error) return <div className="text-sm text-red-600">error: {String(error)}</div>;
+	if (isLoading) return <div className="text-sm text-muted-foreground">loading kernel status…</div>;
+	if (error) return <div className="text-sm text-destructive">error: {String(error)}</div>;
 
 	const supervisor = (data?.registries?.sidecar_supervisor ?? {}) as SidecarSnapshot;
 	const entries = supervisor.entries ?? [];
 
 	if (entries.length === 0) {
-		return <div className="text-sm text-gray-500">no supervised sidecars</div>;
+		return <div className="text-sm text-muted-foreground">no supervised sidecars</div>;
 	}
 
 	return (
@@ -67,23 +71,21 @@ export function PkgKernelStatus() {
 				return (
 					<div
 						key={e.pkg_id}
-						className="flex items-center justify-between rounded-md border border-gray-200 px-3 py-2"
+						className="flex items-center justify-between rounded-md border border-border px-3 py-2"
 						data-pkg-id={e.pkg_id}
 						data-state={e.state}
 					>
 						<div className="flex items-center gap-3">
-							<span
-								className={`rounded-full border px-2 py-0.5 text-xs font-medium ${badgeClasses(
-									e.state
-								)}`}
-							>
+							<StatusChip tone={stateTone(e.state)}>
 								{e.state === 'blocked' && e.last_err ? `Blocked: ${e.last_err}` : e.state}
-							</span>
+							</StatusChip>
 							<span className="font-mono text-sm">{e.pkg_id}</span>
-							{e.pid !== null && <span className="text-xs text-gray-500">pid {e.pid}</span>}
-							{e.uptime_s !== null && <span className="text-xs text-gray-500">{e.uptime_s}s</span>}
+							{e.pid !== null && <span className="text-xs text-muted-foreground">pid {e.pid}</span>}
+							{e.uptime_s !== null && (
+								<span className="text-xs text-muted-foreground">{e.uptime_s}s</span>
+							)}
 							{e.state !== 'blocked' && e.last_err && (
-								<span className="text-xs text-gray-500">{e.last_err}</span>
+								<span className="text-xs text-muted-foreground">{e.last_err}</span>
 							)}
 						</div>
 						{restartable && (
@@ -91,7 +93,7 @@ export function PkgKernelStatus() {
 								type="button"
 								onClick={() => restart.mutate(e.pkg_id)}
 								disabled={restart.isPending}
-								className="rounded border border-gray-300 px-2 py-1 text-xs hover:bg-gray-50 disabled:opacity-50"
+								className="rounded border border-border px-2 py-1 text-xs hover:bg-muted disabled:opacity-50"
 							>
 								Restart
 							</button>

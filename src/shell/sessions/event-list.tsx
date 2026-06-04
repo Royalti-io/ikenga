@@ -132,14 +132,18 @@ function EventRow({ event }: { event: ChatEvent }) {
 
 type Tone = 'assistant' | 'tool' | 'tool-result' | 'artifact' | 'info' | 'muted' | 'error';
 
+// Per-kind row wash. Semantic tokens at low alpha (theme-reactive) replace the
+// hardcoded amber/emerald/violet/red Tailwind tints, which stayed cool-base on
+// a Dusk Wood flip. tool→achievement, tool-result→live, artifact→agent,
+// error→danger; the wash is kept faint so it reads as a tint, not a fill.
 const TONE_CLASS: Record<Tone, string> = {
 	assistant: 'bg-background',
-	tool: 'bg-amber-50/30 dark:bg-amber-950/10',
-	'tool-result': 'bg-emerald-50/30 dark:bg-emerald-950/10',
-	artifact: 'bg-violet-50/30 dark:bg-violet-950/10',
+	tool: 'bg-[var(--achievement)]/10',
+	'tool-result': 'bg-[var(--live)]/10',
+	artifact: 'bg-[var(--agent)]/10',
 	info: 'bg-muted/20',
 	muted: 'bg-background',
-	error: 'bg-red-50/40 dark:bg-red-950/10',
+	error: 'bg-[var(--danger)]/10',
 };
 
 function Row({
