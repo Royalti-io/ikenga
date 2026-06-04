@@ -13,6 +13,7 @@ import { open as openExternal } from '@tauri-apps/plugin-shell';
 
 import { LoreTerm } from '@/components/lore/lore-term';
 import { Button } from '@/components/ui/button';
+import { FeedbackState } from '@/components/ui/feedback-state';
 import { Input } from '@/components/ui/input';
 import { quoteOfTheDay } from '@/lib/lore';
 import { useShellStore } from '@/lib/shell/shell-store';
@@ -156,26 +157,30 @@ export function WelcomeBody({ onContinue }: WelcomeBodyProps) {
 				</div>
 
 				{isLoading && (
-					<div
-						className="rounded-md border p-4 text-sm"
-						style={{ borderColor: 'var(--border-soft)', color: 'var(--fg-muted)' }}
-						data-testid="preflight-loading"
-					>
-						Detecting system…
+					<div data-testid="preflight-loading">
+						<FeedbackState
+							variant="loading"
+							heading="Detecting system…"
+							fill={false}
+							className="min-h-0 py-4"
+						/>
 					</div>
 				)}
 
 				{isError && (
-					<div
-						className="rounded-md border p-4 text-sm"
-						style={{
-							borderColor: 'var(--danger)',
-							color: 'var(--fg)',
-							background: 'var(--danger-soft)',
-						}}
-						data-testid="preflight-error"
-					>
-						Detection failed: {String((error as Error)?.message ?? error)}
+					<div data-testid="preflight-error">
+						<FeedbackState
+							variant="error"
+							heading="Detection failed"
+							body={String((error as Error)?.message ?? error)}
+							action={
+								<Button size="sm" onClick={() => void refetch()}>
+									Retry
+								</Button>
+							}
+							fill={false}
+							className="min-h-0 py-4"
+						/>
 					</div>
 				)}
 

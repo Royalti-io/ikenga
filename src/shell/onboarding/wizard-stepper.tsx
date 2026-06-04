@@ -16,7 +16,7 @@
 // skip, payload, setPayload, record }` — but step bodies are STUBS in
 // Phase 3 (Phase 4 fills them).
 
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 
 import {
@@ -26,6 +26,7 @@ import {
 	useShellStore,
 } from '@/lib/shell/shell-store';
 import { Button } from '@/components/ui/button';
+import { StatusChip } from '@/components/ui/status-chip';
 import { cn } from '@/components/ui/utils';
 
 import { useOnboardingStep } from './use-onboarding-step';
@@ -83,6 +84,10 @@ export function WizardStepper<P = unknown>({ stepId, children }: WizardStepperPr
 	const isLast = myIndex === ONBOARDING_STEPS.length - 1;
 	const progressPct = ((myIndex + 1) / ONBOARDING_STEPS.length) * 100;
 
+	// Ref for the body container — used to move focus on step transitions
+	// so screen readers announce the new step content (WCAG 2.4.3).
+	const bodyRef = useRef<HTMLDivElement>(null);
+
 	// On mount of each step, ensure the store's activeIndex matches the URL
 	// (the user may have navigated via the address bar / settings link).
 	// Idempotent — guarded against re-entry by the equality check.
@@ -94,6 +99,14 @@ export function WizardStepper<P = unknown>({ stepId, children }: WizardStepperPr
 		// action is idempotent so this is safe on every effect run.
 		startOnboarding(mode);
 	}, [myIndex, activeIndex, setActiveIndex, startOnboarding, mode]);
+
+	// Move focus to the step body on every step transition so screen readers
+	// announce the new step content (WCAG 2.4.3 Focus Order).
+	// Keyed on myIndex — fires whenever the step mounts/changes.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: myIndex is the intentional trigger, not an unused dep.
+	useEffect(() => {
+		bodyRef.current?.focus();
+	}, [myIndex]);
 
 	const goNext = useMemo(
 		() => () => {
@@ -177,7 +190,7 @@ export function WizardStepper<P = unknown>({ stepId, children }: WizardStepperPr
 			>
 				<div
 					data-testid="wizard-progress-fill"
-					className="h-full transition-[width] duration-300 ease-out"
+					className="h-full transition-[width] duration-300 ease-out motion-reduce:transition-none"
 					style={{ width: `${progressPct}%`, background: 'var(--primary)' }}
 				/>
 			</div>
@@ -203,6 +216,7 @@ export function WizardStepper<P = unknown>({ stepId, children }: WizardStepperPr
 					data-testid="wizard-step-label"
 					className="text-xs"
 					style={{ color: 'var(--fg-muted)' }}
+					aria-current="step"
 				>
 					Step{' '}
 					<span className="font-semibold" style={{ color: 'var(--fg)' }}>
@@ -210,21 +224,25 @@ export function WizardStepper<P = unknown>({ stepId, children }: WizardStepperPr
 					</span>{' '}
 					of {ONBOARDING_STEPS.length} · {STEP_LABELS[stepId]}
 					{mode === 'edit' && (
-						<span
-							className="ml-3 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider"
-							style={{
-								background: 'var(--info-soft)',
-								color: 'var(--info)',
-							}}
-						>
+						<StatusChip tone="info" className="ml-3">
 							Edit
-						</span>
+						</StatusChip>
 					)}
 				</div>
 			</header>
 
 			{/* ── Body — step bodies render here. ────────────────────── */}
-			<div className="min-h-0 flex-1 overflow-auto px-16 py-10">{children(childArgs)}</div>
+			{/* tabIndex={-1} + ref={bodyRef} so focus moves here on each step
+			    transition, letting screen readers announce the new step content
+			    (WCAG 2.4.3). The element is intentionally not in the Tab order
+			    (tabIndex=-1) — focus is only placed programmatically. */}
+			<div
+				ref={bodyRef}
+				tabIndex={-1}
+				className="min-h-0 flex-1 overflow-auto px-16 py-10 focus-visible:outline-none"
+			>
+				{children(childArgs)}
+			</div>
 
 			{/* ── Footer — Skip / Back / Continue ─────────────────────── */}
 			<footer

@@ -16,6 +16,7 @@ import { open as openExternal } from '@tauri-apps/plugin-shell';
 
 import { LoreTerm } from '@/components/lore/lore-term';
 import { Button } from '@/components/ui/button';
+import { StatusChip } from '@/components/ui/status-chip';
 import { cn } from '@/components/ui/utils';
 import { type DetectedAgent, pkgInstallFromRegistry, pkgKernelStatus } from '@/lib/tauri-cmd';
 import {
@@ -397,6 +398,7 @@ export function AgentBody({ onContinue }: AgentBodyProps) {
 			</div>
 			{offlineError && (
 				<div
+					role="alert"
 					className="mt-3 rounded-md border p-3 text-xs"
 					style={{
 						borderColor: 'var(--danger)',
@@ -605,46 +607,25 @@ function SkeletonRow() {
 function StatusPill({ entry }: { entry: AgentDetectEntry }) {
 	if (entry.status === 'pending') {
 		return (
-			<span
-				className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium"
-				style={{ background: 'var(--bg-raised)', color: 'var(--fg-faint)' }}
-				data-testid="status-pill"
-				data-status="pending"
-			>
-				<span
-					className="h-1.5 w-1.5 animate-pulse rounded-full"
-					style={{ background: 'var(--fg-faint)' }}
-					aria-hidden="true"
-				/>
-				Scanning…
+			<span data-testid="status-pill" data-status="pending">
+				<StatusChip tone="faint" dot className="animate-pulse">
+					Scanning…
+				</StatusChip>
 			</span>
 		);
 	}
 	if (entry.status === 'detected') {
 		return (
-			<span
-				className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium"
-				style={{ background: 'var(--success-soft, var(--bg-raised))', color: 'var(--success)' }}
-				data-testid="status-pill"
-				data-status="detected"
-			>
-				<span
-					className="h-1.5 w-1.5 rounded-full"
-					style={{ background: 'var(--success)' }}
-					aria-hidden="true"
-				/>
-				Detected
+			<span data-testid="status-pill" data-status="detected">
+				<StatusChip tone="live" dot>
+					Detected
+				</StatusChip>
 			</span>
 		);
 	}
 	return (
-		<span
-			className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium"
-			style={{ background: 'var(--bg-raised)', color: 'var(--fg-faint)' }}
-			data-testid="status-pill"
-			data-status="missing"
-		>
-			Not on PATH
+		<span data-testid="status-pill" data-status="missing">
+			<StatusChip tone="faint">Not on PATH</StatusChip>
 		</span>
 	);
 }
@@ -662,27 +643,10 @@ function Pill({ children }: { children: React.ReactNode }) {
 
 function AuthPill({ authed }: { authed: boolean | null }) {
 	if (authed === true) {
-		return (
-			<span
-				className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium"
-				style={{ background: 'var(--success-soft, var(--bg-raised))', color: 'var(--success)' }}
-			>
-				signed in
-			</span>
-		);
+		return <StatusChip tone="live">signed in</StatusChip>;
 	}
 	if (authed === false) {
-		return (
-			<span
-				className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium"
-				style={{
-					background: 'var(--warning-soft, var(--bg-raised))',
-					color: 'var(--warning, var(--fg-muted))',
-				}}
-			>
-				auth required
-			</span>
-		);
+		return <StatusChip tone="warn">auth required</StatusChip>;
 	}
 	return null;
 }

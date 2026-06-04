@@ -19,6 +19,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { LoreTerm } from '@/components/lore/lore-term';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { type ChipTone, StatusChip } from '@/components/ui/status-chip';
 import {
 	CONNECTOR_REGISTRY,
 	type ConnectorDef,
@@ -183,7 +184,7 @@ export function ConnectorsBody({ onContinue, onSkip }: ConnectorsBodyProps) {
 				>
 					Connectors
 				</div>
-				<ol className="space-y-1">
+				<ol className="space-y-1" aria-busy={statuses.isLoading ? true : undefined}>
 					{requirements.map((req, idx) => {
 						const status =
 							configuredSet.has(req.connectorId) || skippedSet.has(req.connectorId)
@@ -197,6 +198,7 @@ export function ConnectorsBody({ onContinue, onSkip }: ConnectorsBodyProps) {
 								index={idx + 1}
 								requirement={req}
 								status={status}
+								isLoading={statuses.isLoading}
 							/>
 						);
 					})}
@@ -265,9 +267,13 @@ interface SubstepItemProps {
 	index: number;
 	requirement: ConnectorRequirement;
 	status: ConnectorStatus | 'skipped';
+	/** True while the initial status query is in flight — shows a skeleton
+	 *  to avoid connectors rendering as 'not_configured' before the check
+	 *  resolves (Nielsen H1 Visibility of System Status). */
+	isLoading?: boolean;
 }
 
-function SubstepItem({ index, requirement, status }: SubstepItemProps) {
+function SubstepItem({ index, requirement, status, isLoading }: SubstepItemProps) {
 	const def = findConnector(requirement.connectorId);
 	const done = status === 'configured' || status === 'skipped';
 	return (
@@ -300,9 +306,17 @@ function SubstepItem({ index, requirement, status }: SubstepItemProps) {
 			>
 				{done ? (status === 'configured' ? '✓' : '–') : index}
 			</span>
-			<span style={{ color: done ? 'var(--fg-muted)' : 'var(--fg)' }}>
-				{def?.display ?? requirement.connectorId}
-			</span>
+			{isLoading && !done ? (
+				<span
+					className="block h-2.5 flex-1 animate-pulse rounded"
+					style={{ background: 'var(--bg-raised)' }}
+					aria-hidden="true"
+				/>
+			) : (
+				<span style={{ color: done ? 'var(--fg-muted)' : 'var(--fg)' }}>
+					{def?.display ?? requirement.connectorId}
+				</span>
+			)}
 		</li>
 	);
 }
@@ -492,6 +506,7 @@ function ConnectorSection({
 
 			{saveError && (
 				<div
+					role="alert"
 					className="mt-5 rounded-md border p-3 text-xs"
 					style={{
 						borderColor: 'var(--danger, var(--border-strong))',
@@ -538,38 +553,19 @@ function ConnectorSection({
 }
 
 function StatusBadge({ status }: { status: ConnectorStatus | 'skipped' }) {
-	const palette: Record<ConnectorStatus | 'skipped', { bg: string; fg: string; label: string }> = {
-		configured: {
-			bg: 'var(--success-soft, var(--bg-raised))',
-			fg: 'var(--success, var(--fg))',
-			label: 'configured',
-		},
-		partial: {
-			bg: 'var(--warning-soft, var(--bg-raised))',
-			fg: 'var(--warning, var(--fg))',
-			label: 'partial',
-		},
-		invalid: {
-			bg: 'var(--danger-soft, var(--bg-raised))',
-			fg: 'var(--danger, var(--fg))',
-			label: 'invalid',
-		},
-		not_configured: {
-			bg: 'var(--bg-raised)',
-			fg: 'var(--fg-faint)',
-			label: 'not configured',
-		},
-		skipped: { bg: 'var(--bg-raised)', fg: 'var(--fg-faint)', label: 'skipped' },
+	const toneMap: Record<ConnectorStatus | 'skipped', { tone: ChipTone; label: string }> = {
+		configured: { tone: 'live', label: 'configured' },
+		partial: { tone: 'warn', label: 'partial' },
+		invalid: { tone: 'danger', label: 'invalid' },
+		not_configured: { tone: 'faint', label: 'not configured' },
+		skipped: { tone: 'faint', label: 'skipped' },
 	};
-	const c = palette[status];
+	const { tone, label } = toneMap[status];
 	return (
-		<span
-			className="inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-medium"
-			style={{ background: c.bg, color: c.fg }}
-			data-testid="connector-status-badge"
-		>
-			<span className="h-1.5 w-1.5 rounded-full" style={{ background: c.fg }} aria-hidden="true" />
-			{c.label}
+		<span data-testid="connector-status-badge">
+			<StatusChip tone={tone} dot>
+				{label}
+			</StatusChip>
 		</span>
 	);
 }
