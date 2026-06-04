@@ -559,7 +559,7 @@ function RightRail({
 							<span
 								className={cn(
 									'font-mono text-[9px]',
-									hasActivePin ? 'text-amber-700 dark:text-amber-400' : 'text-muted-foreground'
+									hasActivePin ? 'text-[var(--achievement)]' : 'text-muted-foreground'
 								)}
 							>
 								{badge}
@@ -628,7 +628,7 @@ function GridChrome({
 				<span>
 					{claudePty ? (
 						<>
-							<span className="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-emerald-500" />
+							<span className="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-[var(--live)]" />
 							claude · {claudePty.ptyId.slice(0, 6)}
 						</>
 					) : (
@@ -786,7 +786,7 @@ function GridCell({
 								e.stopPropagation();
 								onToggleStack();
 							}}
-							className="cursor-pointer text-emerald-600 hover:text-foreground"
+							className="cursor-pointer text-[var(--live)] hover:text-foreground"
 						>
 							{isExpanded ? '− collapse' : '+ var ▾'}
 						</button>
@@ -864,10 +864,10 @@ interface PinDotProps {
 function PinDot({ pin, numbering, onClick, onAltClick }: PinDotProps) {
 	const tone =
 		pin.status === 'open'
-			? 'bg-red-600 text-white'
+			? 'bg-destructive text-white'
 			: pin.status === 'in_progress'
-				? 'bg-amber-500 text-white'
-				: 'bg-emerald-700 text-white';
+				? 'bg-[var(--achievement)] text-[var(--achievement-soft)]'
+				: 'bg-[var(--live)] text-white';
 	const muted = pin.status === 'resolved' ? 'opacity-40' : '';
 	const x = pin.positionX ?? 0.5;
 	const y = pin.positionY ?? 0.5;
@@ -1176,15 +1176,15 @@ function GridSidebar({ activePin, claudePty, onResolve }: GridSidebarProps) {
 					click any comment pin on the left to dispatch it to{' '}
 					{claudePty ? (
 						<>
-							your active <span className="text-amber-700">claude</span> PTY (term{' '}
+							your active <span className="text-[var(--achievement)]">claude</span> PTY (term{' '}
 							{claudePty.ptyId.slice(0, 6)}); claude reads the full payload via{' '}
-							<span className="text-amber-700">mcp-iyke.read_pin</span>.
+							<span className="text-[var(--achievement)]">mcp-iyke.read_pin</span>.
 						</>
 					) : (
 						<>
-							the side-pane <span className="text-amber-700">Chat</span> thread. Run{' '}
-							<span className="text-amber-700">claude</span> in a terminal pane to switch routing to
-							the terminal sink.
+							the side-pane <span className="text-[var(--achievement)]">Chat</span> thread. Run{' '}
+							<span className="text-[var(--achievement)]">claude</span> in a terminal pane to switch
+							routing to the terminal sink.
 						</>
 					)}
 				</div>
@@ -1214,7 +1214,7 @@ function GridSidebar({ activePin, claudePty, onResolve }: GridSidebarProps) {
 							<button
 								type="button"
 								onClick={() => onResolve(activePin.pin.id)}
-								className="mt-3 w-full rounded border border-emerald-700 bg-emerald-700/10 py-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-emerald-800 hover:bg-emerald-700/20"
+								className="mt-3 w-full rounded border border-[var(--live)] bg-[var(--live)]/10 py-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--live)] hover:bg-[var(--live)]/20"
 							>
 								Resolve pin
 							</button>
@@ -1283,10 +1283,10 @@ function InboxRowItem({ row, isActive, onClick, onResolve }: InboxRowItemProps) 
 	const { pin, numbering } = row;
 	const tone =
 		pin.status === 'open'
-			? 'bg-red-600 text-white'
+			? 'bg-destructive text-white'
 			: pin.status === 'in_progress'
-				? 'bg-amber-500 text-white'
-				: 'bg-emerald-700 text-white';
+				? 'bg-[var(--achievement)] text-[var(--achievement-soft)]'
+				: 'bg-[var(--live)] text-white';
 	const muted = pin.status === 'resolved' ? 'opacity-50' : '';
 	const artifactName = pin.artifactPath.split('/').pop() ?? pin.artifactPath;
 	return (
@@ -1321,7 +1321,7 @@ function InboxRowItem({ row, isActive, onClick, onResolve }: InboxRowItemProps) 
 						e.stopPropagation();
 						onResolve();
 					}}
-					className="invisible self-center rounded border border-emerald-700 px-1.5 py-0.5 font-mono text-[8px] font-bold uppercase tracking-[0.10em] text-emerald-800 hover:bg-emerald-700/10 group-hover:visible"
+					className="invisible self-center rounded border border-[var(--live)] px-1.5 py-0.5 font-mono text-[8px] font-bold uppercase tracking-[0.10em] text-[var(--live)] hover:bg-[var(--live)]/10 group-hover:visible"
 					title="Mark resolved"
 				>
 					✓
@@ -1350,7 +1350,7 @@ function Row({
 			<span
 				className={
 					highlight
-						? 'text-amber-700 font-mono'
+						? 'text-[var(--achievement)] font-mono'
 						: muted
 							? 'text-muted-foreground'
 							: 'text-foreground'

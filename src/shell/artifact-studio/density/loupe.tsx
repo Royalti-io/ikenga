@@ -659,10 +659,10 @@ function LoupePinDot({
 }) {
 	const tone =
 		pin.status === 'open'
-			? 'bg-red-600 text-white'
+			? 'bg-destructive text-white'
 			: pin.status === 'in_progress'
-				? 'bg-amber-500 text-white'
-				: 'bg-emerald-700 text-white';
+				? 'bg-[var(--achievement)] text-[var(--achievement-soft)]'
+				: 'bg-[var(--live)] text-white';
 	return (
 		<button
 			type="button"
@@ -853,7 +853,7 @@ function PinReviewPopover({
 					<button
 						type="button"
 						onClick={onResolve}
-						className="flex-1 rounded border border-emerald-700 bg-emerald-700/10 px-2 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.10em] text-emerald-800 hover:bg-emerald-700/20"
+						className="flex-1 rounded border border-[var(--live)] bg-[var(--live)]/10 px-2 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.10em] text-[var(--live)] hover:bg-[var(--live)]/20"
 					>
 						Resolve
 					</button>
@@ -960,7 +960,7 @@ function DomInspector({ paneId, path }: { paneId: string; path: string }) {
 					value={filter}
 					onChange={(e) => onFilterChange(e.target.value)}
 					placeholder="filter (role / name / value)…"
-					className="flex-1 rounded border border-border bg-background px-1.5 py-0.5 font-mono text-[10px] placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-amber-500/50"
+					className="flex-1 rounded border border-border bg-background px-1.5 py-0.5 font-mono text-[10px] placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring/50"
 				/>
 				<button
 					type="button"
@@ -1049,7 +1049,7 @@ function StudioChrome({
 			<span className="font-medium text-foreground">{name}</span>
 			{dirty && (
 				<span
-					className="h-1.5 w-1.5 rounded-full bg-amber-500"
+					className="h-1.5 w-1.5 rounded-full bg-[var(--achievement)]"
 					title="Unsaved changes — press ⌘S"
 					role="status"
 					aria-label="Unsaved changes"
@@ -1079,7 +1079,9 @@ function StudioChrome({
 					title={pinSuggested ? 'Pin suggested (on)' : 'Pin suggested (off)'}
 					aria-label="Toggle pin suggested"
 				>
-					<PinGlyph className={cn('h-3.5 w-3.5', pinSuggested && 'fill-current text-amber-500')} />
+					<PinGlyph
+						className={cn('h-3.5 w-3.5', pinSuggested && 'fill-current text-[var(--achievement)]')}
+					/>
 				</IconButton>
 				<IconButton onClick={onPromote} title="Promote to folder…" aria-label="Promote to folder">
 					<FolderTree className="h-3.5 w-3.5" />
