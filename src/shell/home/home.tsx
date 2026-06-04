@@ -66,67 +66,67 @@ function quickAgentTag(s: SessionSummary): string {
 
 const Icons = {
 	clock: (
-		<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+		<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden={true}>
 			<circle cx="12" cy="12" r="9" />
 			<path d="M12 7v5l3 3" />
 		</svg>
 	),
 	sessions: (
-		<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+		<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden={true}>
 			<path d="M4 6h16M4 12h10M4 18h6" />
 		</svg>
 	),
 	quick: (
-		<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+		<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden={true}>
 			<polyline points="9 11 12 14 22 4" />
 			<path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
 		</svg>
 	),
 	pad: (
-		<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+		<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden={true}>
 			<path d="M4 4h12l4 4v12H4z" />
 			<polyline points="14 4 14 8 20 8" />
 		</svg>
 	),
 	tasks: (
-		<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+		<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden={true}>
 			<rect x="4" y="4" width="16" height="16" rx="2" />
 			<polyline points="8 12 11 15 16 9" />
 		</svg>
 	),
 	mail: (
-		<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+		<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden={true}>
 			<rect x="3" y="5" width="18" height="14" rx="2" />
 			<polyline points="3 7 12 13 21 7" />
 		</svg>
 	),
 	studio: (
-		<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+		<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden={true}>
 			<rect x="3" y="5" width="18" height="14" rx="2" />
 			<polyline points="9 9 15 12 9 15" />
 		</svg>
 	),
 	finance: (
-		<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+		<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden={true}>
 			<polyline points="3 17 9 11 13 15 21 7" />
 			<polyline points="14 7 21 7 21 14" />
 		</svg>
 	),
 	cron: (
-		<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+		<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden={true}>
 			<circle cx="12" cy="12" r="9" />
 			<line x1="12" y1="6" x2="12" y2="12" />
 			<line x1="12" y1="12" x2="16" y2="14" />
 		</svg>
 	),
 	agents: (
-		<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+		<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden={true}>
 			<circle cx="12" cy="9" r="3" />
 			<path d="M6 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2" />
 		</svg>
 	),
 	recenter: (
-		<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+		<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden={true}>
 			<polyline points="9 14 4 14 4 9" />
 			<polyline points="15 10 20 10 20 15" />
 			<polyline points="20 4 14 10" />
@@ -134,7 +134,7 @@ const Icons = {
 		</svg>
 	),
 	edit: (
-		<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+		<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden={true}>
 			<path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25z" />
 		</svg>
 	),
@@ -232,6 +232,14 @@ const MOCK_COMMANDS = [
 
 // ───────────────────────── widget bodies ─────────────────────────
 
+// Status dot. The colour carries the state (live/warm/danger/agent), so the
+// span also gets an accessible label + role="img" — colour alone fails WCAG
+// 1.4.1 Use of Color. `cls` is the dotCls()/dot() modifier; `label` the
+// human-readable state ('Live', 'Warm', 'Idle', …).
+function DotSpan({ cls, label }: { cls: string; label: string }) {
+	return <span className={`w-dot ${cls}`.trim()} role="img" aria-label={label} />;
+}
+
 function GreetingBody({ name }: { name: string }) {
 	const [now, setNow] = useState(() => new Date());
 	useEffect(() => {
@@ -325,7 +333,10 @@ function SessionsBody() {
 				const title = (s.title?.trim() || s.sessionId.slice(0, 8)).replace(/^\/\S+\s*/, '');
 				return (
 					<div className="w-row" key={s.sessionId}>
-						<span className={`w-dot ${dotCls(st)}`} />
+						<DotSpan
+							cls={dotCls(st)}
+							label={st === 'live' ? 'Live' : st === 'warm' ? 'Warm' : 'Idle'}
+						/>
 						<span className="w-label">
 							<span className="w-agent-tag">{quickAgentTag(s)}</span>
 							{title}
@@ -401,7 +412,10 @@ function TasksBody() {
 		<>
 			{MOCK_TASKS.map((t) => (
 				<div className="w-row" key={t.id}>
-					<span className={`w-dot ${dot(t.priority)}`} />
+					<DotSpan
+						cls={dot(t.priority)}
+						label={t.priority === 'high' ? 'High priority' : 'Normal priority'}
+					/>
 					<span className="w-label">{t.title}</span>
 					<span className="w-meta">{t.due}</span>
 				</div>
@@ -416,7 +430,10 @@ function InboxBody() {
 		<>
 			{MOCK_INBOX.map((m) => (
 				<div className="w-row" key={m.id}>
-					<span className={`w-dot ${dot(m.sev)}`} />
+					<DotSpan
+						cls={dot(m.sev)}
+						label={m.sev === 'warn' ? 'Warning' : m.sev === 'danger' ? 'Urgent' : 'Info'}
+					/>
 					<span className="w-label">
 						{m.from} · {m.subject}
 					</span>
@@ -432,7 +449,10 @@ function BoardsBody() {
 		<>
 			{MOCK_BOARDS.map((b) => (
 				<div className="w-row" key={b.id}>
-					<span className={`w-dot ${b.state === 'active' ? 'agent' : ''}`} />
+					<DotSpan
+						cls={b.state === 'active' ? 'agent' : ''}
+						label={b.state === 'active' ? 'Active' : 'Paused'}
+					/>
 					<span className="w-label">{b.name}</span>
 					<span className="w-meta">{b.frames} frames</span>
 				</div>
@@ -468,14 +488,23 @@ function FinanceBody() {
 			<div className="figure">
 				${(wtd / 1000).toFixed(1)}k <em>+{change}%</em>
 			</div>
-			<svg className="spark" viewBox="0 0 400 32" preserveAspectRatio="none">
+			<svg
+				className="spark"
+				viewBox="0 0 400 32"
+				preserveAspectRatio="none"
+				role="img"
+				aria-label={`Revenue sparkline: Mon to today, ${(wtd / 1000).toFixed(1)}k USD, ${change > 0 ? '+' : ''}${change}%`}
+			>
+				{/* role="img" + aria-label on the svg makes it a leaf in the a11y
+				    tree, so these polylines are already presentational — no
+				    per-child aria-hidden needed (and Biome flags it as unsafe). */}
 				<polyline
 					points={pts}
 					fill="none"
 					stroke="var(--achievement, hsl(42,78%,54%))"
 					strokeWidth="1.6"
 				/>
-				<polyline points={`${pts} 400,32 0,32`} fill="hsla(42, 78%, 54%, 0.14)" />
+				<polyline points={`${pts} 400,32 0,32`} fill="var(--achievement-soft)" />
 			</svg>
 		</>
 	);
@@ -547,10 +576,7 @@ function toRecord(layout: WidgetPlacement[]): Record<ItemId, Placement> {
 	return rec;
 }
 
-function applyRecord(
-	layout: WidgetPlacement[],
-	rec: Record<ItemId, Placement>
-): WidgetPlacement[] {
+function applyRecord(layout: WidgetPlacement[], rec: Record<ItemId, Placement>): WidgetPlacement[] {
 	return layout.map((w) => {
 		const p = rec[w.id as ItemId];
 		return p ? { ...w, x: p.x, y: p.y, w: p.w, h: p.h } : w;
@@ -633,6 +659,7 @@ export function Home() {
 			editMode={editMode}
 			selectedId={selectedId}
 			gridSnap={12}
+			ariaLabel="Home canvas"
 			renderItem={renderItem}
 			onLayoutChange={(rec) => setLayout((L) => applyRecord(L, rec))}
 			onViewportChange={setViewport}
@@ -644,7 +671,8 @@ export function Home() {
 					App · <b>Home</b>
 				</div>
 				<div className="hint">
-					<span className="kbd">space</span> drag · <span className="kbd">dbl-click</span> re-fit
+					<span className="kbd">space</span> drag · <span className="kbd">↑↓←→</span> pan ·{' '}
+					<span className="kbd">+/-</span> zoom · <span className="kbd">dbl-click</span> re-fit
 				</div>
 				<button className="btn" type="button" onClick={() => canvasHandle.current?.autoFit(true)}>
 					{Icons.recenter}
@@ -653,6 +681,7 @@ export function Home() {
 				<button
 					className={`btn${editMode ? ' is-primary' : ''}`}
 					type="button"
+					aria-pressed={editMode}
 					onClick={() => {
 						setEditMode((v) => !v);
 						setSelectedId(null);
@@ -663,7 +692,12 @@ export function Home() {
 				</button>
 			</div>
 
-			<aside className="home-palette" onClick={(e) => e.stopPropagation()}>
+			<aside
+				className="home-palette"
+				aria-label="Widget palette"
+				aria-hidden={!editMode}
+				onClick={(e) => e.stopPropagation()}
+			>
 				<div className="head">
 					<div className="ptag">Customize</div>
 					<h3>Widget palette</h3>
