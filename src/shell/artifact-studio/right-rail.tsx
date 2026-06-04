@@ -118,11 +118,17 @@ function RailTabButton({ active, onClick, icon, label }: RailTabButtonProps) {
 			aria-selected={active}
 			onClick={onClick}
 			className={cn(
-				'flex items-center gap-1.5 border-r border-border px-3 py-2 text-[10px] uppercase tracking-wider transition-colors',
+				'flex items-center gap-1.5 border-r border-border border-b-2 px-3 py-2 text-[10px] uppercase tracking-wider transition-colors motion-reduce:transition-none',
+				'outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
 				active
-					? 'border-b-2 border-b-amber-600 bg-background text-foreground dark:border-b-amber-400'
-					: 'border-b-2 border-b-transparent text-muted-foreground hover:bg-muted/30 hover:text-foreground'
+					? 'bg-background text-foreground'
+					: 'border-b-transparent text-muted-foreground hover:bg-muted/30 hover:text-foreground'
 			)}
+			// Active underline follows the shell's one tab-underline source
+			// (`--tab-ws` → `--primary`); the rail has no workspace tint, so it
+			// resolves to `--primary` and tracks Dusk Wood — replaces the old
+			// hardcoded `amber-600`/`amber-400` token-bypass.
+			style={active ? { borderBottomColor: 'var(--tab-ws, var(--primary))' } : undefined}
 		>
 			{icon}
 			<span className="font-mono">{label}</span>

@@ -80,6 +80,8 @@ export function PaneTabStrip({ leaf, isFocused }: PaneTabStripProps) {
 		>
 			<div
 				ref={scrollerRef}
+				role="tablist"
+				aria-label="Open tabs"
 				className="flex flex-1 items-stretch overflow-x-auto [&::-webkit-scrollbar]:hidden"
 				style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
 			>
@@ -90,6 +92,8 @@ export function PaneTabStrip({ leaf, isFocused }: PaneTabStripProps) {
 					return (
 						<button
 							type="button"
+							role="tab"
+							aria-selected={isActive}
 							key={`${idx}-${tab.kind}`}
 							ref={isActive ? activeTabRef : undefined}
 							data-ws={ws}
@@ -158,7 +162,8 @@ export function PaneTabStrip({ leaf, isFocused }: PaneTabStripProps) {
 								}
 							}}
 							className={cn(
-								'group relative flex shrink-0 items-center gap-2 border-r border-border text-xs transition-colors',
+								'group relative flex shrink-0 items-center gap-2 border-r border-border text-xs transition-colors motion-reduce:transition-none',
+								'outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
 								isPinned ? 'min-w-[32px] max-w-[140px] px-2' : 'min-w-[120px] max-w-[180px] px-3',
 								isActive
 									? 'bg-background text-foreground'

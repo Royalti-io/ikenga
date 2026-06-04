@@ -108,7 +108,12 @@ export function Dock() {
 				}}
 				onDrop={handleExternalDrop}
 			>
-				<div className="flex flex-col items-center gap-1 px-1">
+				<div
+					role="tablist"
+					aria-orientation="vertical"
+					aria-label="Dock tabs"
+					className="flex flex-col items-center gap-1 px-1"
+				>
 					{tabs.map((tab, idx) => {
 						const ws = viewWorkspace(tab);
 						const isActive = idx === activeIdx;
@@ -117,6 +122,8 @@ export function Dock() {
 							<button
 								key={`${idx}-${tab.kind}`}
 								type="button"
+								role="tab"
+								aria-selected={isActive}
 								draggable={!isPinned}
 								onDragStart={(e) => {
 									if (isPinned) {
@@ -135,7 +142,8 @@ export function Dock() {
 								title={viewLabel(tab)}
 								aria-label={viewLabel(tab)}
 								className={cn(
-									'relative grid h-7 w-7 place-items-center rounded-sm transition-colors',
+									'relative grid h-7 w-7 place-items-center rounded-sm transition-colors motion-reduce:transition-none',
+									'outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
 									'hover:bg-card'
 								)}
 								style={{
@@ -198,6 +206,8 @@ export function Dock() {
 				onDrop={handleExternalDrop}
 			>
 				<div
+					role="tablist"
+					aria-label="Dock tabs"
 					className={cn(
 						'ikenga-tab-strip flex flex-1 items-stretch gap-1 overflow-x-auto px-2',
 						dropHover && 'bg-primary/10'
@@ -212,6 +222,8 @@ export function Dock() {
 							<button
 								key={`${idx}-${tab.kind}`}
 								type="button"
+								role="tab"
+								aria-selected={isActive}
 								draggable={!isPinned}
 								onDragStart={(e) => {
 									if (isPinned) {
@@ -234,7 +246,8 @@ export function Dock() {
 								}}
 								className={cn(
 									'group relative flex shrink-0 items-center gap-2 px-3 text-xs',
-									'transition-colors'
+									'transition-colors motion-reduce:transition-none',
+									'outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset'
 								)}
 								style={{
 									color: isActive ? 'var(--fg)' : 'var(--fg-faint)',
