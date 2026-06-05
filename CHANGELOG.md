@@ -1,5 +1,11 @@
 # ikenga-desktop
 
+## 0.2.5
+
+### Patch Changes
+
+- eb6d578: Fix the pkg update flow: updates are only offered for registry-source installs (builtins update with the shell; dev/local installs are a working tree), one failing pkg no longer silently aborts the rest of the batch, and failures now surface in danger banners on /packages and the auto-updater. Release manifests now include a `linux-x86_64-deb` entry so deb-installed shells can self-update (they previously downloaded the AppImage and rejected it after the progress bar completed).
+
 ## 0.2.4
 
 ### Patch Changes
