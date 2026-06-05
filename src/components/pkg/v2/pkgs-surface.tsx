@@ -6,14 +6,18 @@
 // + per-pkg detail.
 
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowUp, Loader2 } from 'lucide-react';
+import { AlertTriangle, ArrowUp, Loader2 } from 'lucide-react';
 import { useNavigate } from '@tanstack/react-router';
 import { Banner } from '@/components/ui/banner';
 import { Button } from '@/components/ui/button';
 import { FeedbackState } from '@/components/ui/feedback-state';
 import type { PkgRowV2 } from '@/lib/pkgs/use-derived';
 import { usePkgsDerived } from '@/lib/pkgs/use-derived';
-import { useUpdatePkgs, type UpdateProgress } from '@/lib/pkgs/use-update-pkgs';
+import {
+	useUpdatePkgs,
+	type UpdateFailure,
+	type UpdateProgress,
+} from '@/lib/pkgs/use-update-pkgs';
 import { PkgGroup } from './pkg-row';
 import { PkgInstallSheet } from './pkg-install-sheet';
 import { PkgLoupe, type LoupeTab } from './pkg-loupe';
@@ -125,11 +129,22 @@ export function PkgsSurface({ initialFilter = 'all', initialInstallTab }: PkgsSu
 
 	const updatePkgs = useUpdatePkgs();
 	const [updateAllProgress, setUpdateAllProgress] = useState<UpdateProgress | null>(null);
+	const [updateFailures, setUpdateFailures] = useState<UpdateFailure[]>([]);
 	const updateAll = () => {
 		if (!d.updates.length || updatePkgs.isPending) return;
+		setUpdateFailures([]);
 		updatePkgs.mutate(
 			{ rows: d.updates, onProgress: setUpdateAllProgress },
-			{ onSettled: () => setUpdateAllProgress(null) }
+			{
+				onSuccess: (res) => setUpdateFailures(res.failed),
+				// A thrown mutation (e.g. registry index unavailable) bypasses the
+				// per-row failure list — surface it instead of swallowing it.
+				onError: (e) =>
+					setUpdateFailures([
+						{ id: '*', name: 'Update all', error: e instanceof Error ? e.message : String(e) },
+					]),
+				onSettled: () => setUpdateAllProgress(null),
+			}
 		);
 	};
 
@@ -187,6 +202,22 @@ export function PkgsSurface({ initialFilter = 'all', initialInstallTab }: PkgsSu
 							{updateAllProgress.total})…
 						</span>
 					)}
+				</Banner>
+			)}
+			{updateFailures.length > 0 && (
+				<Banner
+					tone="danger"
+					icon={<AlertTriangle />}
+					className="px-6 py-2.5"
+					onDismiss={() => setUpdateFailures([])}
+				>
+					<span className="font-medium">
+						{updateFailures.length} update{updateFailures.length === 1 ? '' : 's'} failed
+					</span>
+					<span className="text-muted-foreground">
+						{' '}
+						— {updateFailures.map((f) => `${f.name}: ${f.error}`).join(' · ')}
+					</span>
 				</Banner>
 			)}
 			<div className="flex-1 overflow-y-auto px-6 py-5">

@@ -29,8 +29,14 @@ export function useUpdatesAvailable(): number {
 	// the manifest id. Today we don't have an id→registry-name mapping in the
 	// index, so we walk linearly — fine at our pkg count. When the index
 	// grows beyond ~50 entries this should switch to a precomputed Map.
+	//
+	// Registry-source installs only — must mirror the filter in
+	// use-derived.ts so the badge count matches the /packages update strip
+	// (builtins update with the shell; dev/local installs are a working tree
+	// the registry can't update in place).
 	let count = 0;
 	for (const installedPkg of installed) {
+		if (installedPkg.source?.kind !== 'registry') continue;
 		const entry = index.pkgs.find((p) => entryMatchesPkgId(p.name, installedPkg.id));
 		if (!entry) continue;
 		if (semverCompare(installedPkg.version, entry.latest) < 0) {

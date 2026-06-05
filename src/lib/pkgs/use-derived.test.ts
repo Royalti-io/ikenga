@@ -211,9 +211,17 @@ describe('deriveFromQueries', () => {
 	});
 
 	describe('update detection', () => {
+		const registrySource = {
+			kind: 'registry',
+			url: 'https://registry.npmjs.org/x.tgz',
+			publisher_key: null,
+		} as const;
+
 		it('fills latest when registry has a newer version', () => {
 			const d = deriveFromQueries({
-				statusData: { installed: [makeInstalled('com.test.x', { version: '0.1.0' })] },
+				statusData: {
+					installed: [makeInstalled('com.test.x', { version: '0.1.0', source: registrySource })],
+				},
 				registryEntries: [makeRegistryEntry('com.test.x', { latest: '0.2.0' })],
 			});
 			expect(d.installed[0]?.latest).toBe('0.2.0');
@@ -222,7 +230,9 @@ describe('deriveFromQueries', () => {
 
 		it('leaves latest null when registry matches', () => {
 			const d = deriveFromQueries({
-				statusData: { installed: [makeInstalled('com.test.x', { version: '0.2.0' })] },
+				statusData: {
+					installed: [makeInstalled('com.test.x', { version: '0.2.0', source: registrySource })],
+				},
 				registryEntries: [makeRegistryEntry('com.test.x', { latest: '0.2.0' })],
 			});
 			expect(d.installed[0]?.latest).toBeNull();
@@ -231,7 +241,7 @@ describe('deriveFromQueries', () => {
 
 		it('leaves latest null when registry entry is missing', () => {
 			const d = deriveFromQueries({
-				statusData: { installed: [makeInstalled('com.test.x')] },
+				statusData: { installed: [makeInstalled('com.test.x', { source: registrySource })] },
 				registryEntries: [],
 			});
 			expect(d.installed[0]?.latest).toBeNull();
@@ -244,7 +254,12 @@ describe('deriveFromQueries', () => {
 			// equality, which is the bug that double-listed installed pkgs.
 			const d = deriveFromQueries({
 				statusData: {
-					installed: [makeInstalled('com.ikenga.engine-claude-code', { version: '0.1.0' })],
+					installed: [
+						makeInstalled('com.ikenga.engine-claude-code', {
+							version: '0.1.0',
+							source: registrySource,
+						}),
+					],
 				},
 				registryEntries: [
 					makeRegistryEntry('@ikenga/pkg-engine-claude-code', { latest: '0.2.0' }),
@@ -252,6 +267,34 @@ describe('deriveFromQueries', () => {
 			});
 			expect(d.installed[0]?.latest).toBe('0.2.0');
 			expect(d.updates).toHaveLength(1);
+		});
+
+		it('never offers updates for non-registry sources (builtin / local / dev)', () => {
+			// Builtins ship with the shell, and dev/local installs point at a
+			// working tree — the kernel refuses a same-id install at a different
+			// path, so offering these updates aborted the whole batch.
+			const d = deriveFromQueries({
+				statusData: {
+					installed: [
+						makeInstalled('com.ikenga.mcp-iyke', {
+							version: '0.1.0',
+							source: { kind: 'builtin' },
+						}),
+						makeInstalled('com.ikenga.suite', {
+							version: '0.1.0',
+							source: { kind: 'local', path: '/home/dev/ikenga-pkgs/packages/apps/suite' },
+						}),
+					],
+				},
+				registryEntries: [
+					makeRegistryEntry('@ikenga/mcp-iyke', { latest: '0.2.1' }),
+					makeRegistryEntry('@ikenga/pkg-suite', { latest: '0.3.0' }),
+				],
+			});
+			expect(d.updates).toHaveLength(0);
+			expect(d.installed.map((r) => r.latest)).toEqual([null, null]);
+			// They still dedupe out of the "Available in registry" group.
+			expect(d.registry).toHaveLength(0);
 		});
 	});
 

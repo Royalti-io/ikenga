@@ -12,10 +12,14 @@
 // badge + /packages "Update all" strip surface the updates instead.
 
 import { useEffect, useRef, useState } from 'react';
-import { CheckCircle2, Loader2 } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Loader2 } from 'lucide-react';
 import { Banner } from '@/components/ui/banner';
 import { usePkgsDerived } from '@/lib/pkgs/use-derived';
-import { useUpdatePkgs, type UpdateProgress } from '@/lib/pkgs/use-update-pkgs';
+import {
+	useUpdatePkgs,
+	type UpdateFailure,
+	type UpdateProgress,
+} from '@/lib/pkgs/use-update-pkgs';
 import { useShellStore } from '@/lib/shell/shell-store';
 
 export function PkgAutoUpdater() {
@@ -29,6 +33,7 @@ export function PkgAutoUpdater() {
 	const attempted = useRef<Set<string>>(new Set());
 	const [progress, setProgress] = useState<UpdateProgress | null>(null);
 	const [doneCount, setDoneCount] = useState<number | null>(null);
+	const [failures, setFailures] = useState<UpdateFailure[]>([]);
 
 	useEffect(() => {
 		if (!autoCheck || !autoInstallPkgs) return;
@@ -39,8 +44,9 @@ export function PkgAutoUpdater() {
 		updatePkgs.mutate(
 			{ rows: fresh, onProgress: setProgress },
 			{
-				onSuccess: (n) => {
-					if (n > 0) setDoneCount(n);
+				onSuccess: (res) => {
+					if (res.updated > 0) setDoneCount(res.updated);
+					if (res.failed.length) setFailures(res.failed);
 				},
 				onSettled: () => setProgress(null),
 			}
@@ -52,6 +58,27 @@ export function PkgAutoUpdater() {
 			<Banner tone="info" icon={<Loader2 className="animate-spin motion-reduce:animate-none" />}>
 				Updating <span className="font-medium">{progress.current || 'packages'}</span> (
 				{progress.done}/{progress.total})…
+			</Banner>
+		);
+	}
+
+	// Failures outrank the success strip — they used to be swallowed entirely,
+	// which read as "the update ran and nothing happened".
+	if (failures.length > 0) {
+		return (
+			<Banner tone="danger" icon={<AlertTriangle />} onDismiss={() => setFailures([])}>
+				{doneCount ? (
+					<span>
+						Updated <span className="font-medium">{doneCount}</span>,{' '}
+					</span>
+				) : null}
+				<span className="font-medium">
+					{failures.length} package{failures.length === 1 ? '' : 's'} failed to update
+				</span>
+				<span className="text-muted-foreground">
+					{' '}
+					— {failures.map((f) => `${f.name}: ${f.error}`).join(' · ')}
+				</span>
 			</Banner>
 		);
 	}

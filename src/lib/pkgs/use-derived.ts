@@ -238,7 +238,14 @@ export function deriveFromQueries(inputs: DeriveInputs): DerivedPkgs {
 	// the two so installed pkgs are deduped from the "Available in registry"
 	// group and their available-update version is detected. Same matcher the
 	// activity-bar badge uses, so both surfaces agree.
+	//
+	// Updates are only offered for registry-source installs. Builtins ship
+	// with the shell (they update on app update), and dev/local installs point
+	// at a working tree the registry must not clobber — and the kernel refuses
+	// a same-id install at a different path anyway ("already installed from …
+	// — uninstall first"), which used to abort the whole batch silently.
 	for (const row of installedRows) {
+		if (row.installed?.source.kind !== 'registry') continue;
 		const match = registryEntries.find((e) => entryMatchesPkgId(e.name, row.id));
 		if (match && match.latest && semverCompare(row.version, match.latest) < 0) {
 			row.latest = match.latest;

@@ -28,6 +28,22 @@ export interface UpdatePkgsArgs {
 	onProgress?: (p: UpdateProgress) => void;
 }
 
+/** One pkg that failed to update; the rest of the batch still ran. */
+export interface UpdateFailure {
+	id: string;
+	name: string;
+	error: string;
+}
+
+export interface UpdatePkgsResult {
+	/** Count of pkgs updated successfully. */
+	updated: number;
+	/** Per-pkg failures. A failure no longer aborts the batch — surface these
+	 *  to the user (they used to be swallowed entirely, which looked like
+	 *  "progress bar ran, nothing happened"). */
+	failed: UpdateFailure[];
+}
+
 export function useUpdatePkgs() {
 	const qc = useQueryClient();
 	const indexQuery = useRegistryIndex();
@@ -46,27 +62,40 @@ export function useUpdatePkgs() {
 	};
 
 	return useMutation({
-		mutationFn: async ({ rows, onProgress }: UpdatePkgsArgs): Promise<number> => {
+		mutationFn: async ({ rows, onProgress }: UpdatePkgsArgs): Promise<UpdatePkgsResult> => {
 			const targets = rows.filter((r) => r.registryEntry && r.latest && r.latest !== r.version);
 			let done = 0;
+			const failed: UpdateFailure[] = [];
 			for (const row of targets) {
-				onProgress?.({ done, total: targets.length, current: row.name });
-				const root = await getDetail(row.registryEntry!.name);
-				const plan = await resolveInstallPlan(root, getDetail);
-				for (const step of plan) {
-					await pkgInstallFromRegistry({
-						tarball: step.tarball,
-						integrity: step.integrity,
-						pkgId: step.pkgId,
-						sourceUrl: step.tarball,
+				onProgress?.({ done: done + failed.length, total: targets.length, current: row.name });
+				try {
+					const root = await getDetail(row.registryEntry!.name);
+					const plan = await resolveInstallPlan(root, getDetail);
+					for (const step of plan) {
+						await pkgInstallFromRegistry({
+							tarball: step.tarball,
+							integrity: step.integrity,
+							pkgId: step.pkgId,
+							sourceUrl: step.tarball,
+						});
+					}
+					done += 1;
+				} catch (e) {
+					// One bad pkg must not abort the rest of the batch — record it
+					// and keep going; callers render the failures.
+					failed.push({
+						id: row.id,
+						name: row.name,
+						error: e instanceof Error ? e.message : String(e),
 					});
 				}
-				done += 1;
 			}
-			onProgress?.({ done, total: targets.length, current: '' });
-			return done;
+			onProgress?.({ done: done + failed.length, total: targets.length, current: '' });
+			return { updated: done, failed };
 		},
-		onSuccess: () => {
+		onSettled: () => {
+			// Settled, not success: even a batch that ends with failures may have
+			// installed some pkgs before the failing row — refetch regardless.
 			void qc.invalidateQueries({ queryKey: ['pkg'] });
 			void qc.invalidateQueries({ queryKey: registryKeys.all });
 		},
