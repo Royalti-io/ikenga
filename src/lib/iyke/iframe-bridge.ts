@@ -547,17 +547,27 @@ function resolveTarget(
 		}
 	}
 	if (text) {
+		// Match the accessible name (aria-label/labelledby/alt/placeholder/text),
+		// not just visible text, so icon-only controls inside the pkg iframe are
+		// reachable by the `name` the snapshot reports. Mirrors `resolveByText`
+		// in dom-snapshot.ts. Prefer exact, then substring; innermost on ties.
+		const needle = text.trim();
+		if (!needle) return null;
 		const cands = document.querySelectorAll<HTMLElement>(
-			'button, a, [role=button], [role=link], [role=menuitem], [role=tab], [role=option], [role=checkbox], [role=switch], label'
+			'button, a, summary, label, [aria-label], [role=button], [role=link], [role=menuitem], [role=tab], [role=option], [role=checkbox], [role=switch], [role=radio]'
 		);
-		let best: HTMLElement | null = null;
+		let exact: HTMLElement | null = null;
+		let partial: HTMLElement | null = null;
 		for (const el of Array.from(cands)) {
-			const t = (el.innerText ?? el.textContent ?? '').trim();
-			if (t.includes(text)) {
-				if (!best || (best.contains(el) && el !== best)) best = el;
+			const name = (accessibleName(el) ?? '').trim();
+			const txt = (el.innerText ?? el.textContent ?? '').trim();
+			if (name === needle || txt === needle) {
+				if (!exact || (exact.contains(el) && el !== exact)) exact = el;
+			} else if (name.includes(needle) || txt.includes(needle)) {
+				if (!partial || (partial.contains(el) && el !== partial)) partial = el;
 			}
 		}
-		return best;
+		return exact ?? partial;
 	}
 	return null;
 }

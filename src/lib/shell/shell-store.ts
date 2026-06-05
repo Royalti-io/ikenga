@@ -66,6 +66,21 @@ export type CoreMode =
 	| 'settings';
 export type ActivityMode = CoreMode;
 
+// Runtime list of every valid activity mode — the single source of truth that
+// must stay in lockstep with the `CoreMode` union above. Consumed by the store
+// migration (snap stale modes → 'app') and by the iyke control listener to
+// validate `/iyke/mode`. Keeping it here (rather than re-declaring per call
+// site) is what stops the listener's allow-list from drifting behind the union.
+export const ACTIVITY_MODES: readonly ActivityMode[] = Object.freeze([
+	'app',
+	'files',
+	'sessions',
+	'artifact-grid',
+	'ngwa',
+	'pkgs',
+	'settings',
+]);
+
 // Default file roots. Kept in sync with `src-tauri/src/fs_roots.rs::DEFAULT_ROOTS`;
 // the Rust side is authoritative — these are only the seed values used by the
 // onboarding wizard's "reset to defaults" affordance and the test harness.
@@ -317,17 +332,9 @@ export function migrateShellStore(persisted: unknown, _version: number): unknown
 	// include 'pkgs' (registry browser activity-bar entry). v11 widens
 	// again with 'artifact-grid' (projects-and-artifact-wizard plan §B2).
 	// v13 widens with 'ngwa' (Ngwa Claude-config mode — replaces App-mode
-	// /claude NavItem; activity-bar ⌘6).
-	const valid: ActivityMode[] = [
-		'app',
-		'files',
-		'sessions',
-		'artifact-grid',
-		'ngwa',
-		'pkgs',
-		'settings',
-	];
-	if (p.activeMode && !valid.includes(p.activeMode as ActivityMode)) {
+	// /claude NavItem; activity-bar ⌘6). The valid set now lives in the
+	// exported ACTIVITY_MODES const above so it can't drift from the union.
+	if (p.activeMode && !ACTIVITY_MODES.includes(p.activeMode as ActivityMode)) {
 		p.activeMode = 'app';
 	}
 

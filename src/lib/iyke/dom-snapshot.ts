@@ -408,18 +408,31 @@ export function resolveBySelector(selector: string): Element | null {
 }
 
 export function resolveByText(text: string): Element | null {
-	// Find the smallest element whose innerText (trimmed) contains the text.
+	// Resolve against the *accessible name* the snapshot reports (aria-label /
+	// aria-labelledby / alt / placeholder / text), not just visible text. Icon-
+	// only controls — the whole activity bar, theme toggle, many toolbar buttons
+	// — are named purely by aria-label and have no text content, so a text-only
+	// match could never reach them and callers were forced onto ephemeral refs.
+	// Matching the name makes the snapshot's `name` field a stable click target.
+	const needle = text.trim();
+	if (!needle) return null;
+	// `[aria-label]` widens the set to those icon buttons; the role list keeps
+	// custom interactive elements that aren't native button/a.
 	const candidates = document.querySelectorAll<HTMLElement>(
-		'button, a, [role=button], [role=link], [role=menuitem], [role=tab], [role=option], [role=checkbox], [role=switch], label'
+		'button, a, summary, label, [aria-label], [role=button], [role=link], [role=menuitem], [role=tab], [role=option], [role=checkbox], [role=switch], [role=radio]'
 	);
-	let best: HTMLElement | null = null;
+	let exact: HTMLElement | null = null;
+	let partial: HTMLElement | null = null;
 	for (const el of Array.from(candidates)) {
-		const t = (el.innerText ?? el.textContent ?? '').trim();
-		if (t.includes(text)) {
-			if (!best || (best.contains(el) && el !== best)) {
-				best = el;
-			}
+		const name = (accessibleName(el) ?? '').trim();
+		const txt = (el.innerText ?? el.textContent ?? '').trim();
+		// Prefer an exact name/text hit; fall back to substring (the original
+		// behaviour). On ties, prefer the innermost (most specific) element.
+		if (name === needle || txt === needle) {
+			if (!exact || (exact.contains(el) && el !== exact)) exact = el;
+		} else if (name.includes(needle) || txt.includes(needle)) {
+			if (!partial || (partial.contains(el) && el !== partial)) partial = el;
 		}
 	}
-	return best;
+	return exact ?? partial;
 }

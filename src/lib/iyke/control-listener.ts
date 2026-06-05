@@ -13,17 +13,14 @@
 // dropped, never thrown, so a bad command from a misbehaving CLI/MCP
 // can't crash the UI.
 
-import { useEffect } from 'react';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { useEffect } from 'react';
 
 import { usePaneStore } from '@/lib/panes/pane-store';
 import type { PaneView } from '@/lib/panes/types';
-import { useShellStore, type ActivityMode } from '@/lib/shell/shell-store';
+import { modeForRoute } from '@/lib/shell/mode-routes';
+import { ACTIVITY_MODES, type ActivityMode, useShellStore } from '@/lib/shell/shell-store';
 import { createTerminalSession } from '@/terminal/single-terminal';
-
-// Must match the `ActivityMode` union in `lib/shell/shell-store.ts`. Post-
-// strip: 4 modes only. Mini-app modes were retired with the shell strip-down.
-const ACTIVITY_MODES: ReadonlyArray<ActivityMode> = ['app', 'files', 'sessions', 'settings'];
 
 interface GoPayload {
 	path: string;
@@ -75,6 +72,12 @@ export function useIykeControlListener(): void {
 					return;
 				}
 				usePaneStore.getState().navigateFocused(path);
+				// Keep the activity-bar mode coherent with where we just
+				// navigated. Only routes that *exclusively* belong to a system
+				// mode (Packages / Ngwa / Settings) flip it; shared routes
+				// (/sessions, /artifacts, …) return null and leave it untouched.
+				const mode = modeForRoute(path);
+				if (mode) useShellStore.getState().setActiveMode(mode);
 			})
 		);
 
