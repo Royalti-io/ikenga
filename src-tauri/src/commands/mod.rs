@@ -92,9 +92,9 @@ pub use fs::{
 };
 pub use fs_roots::{fs_roots_add, fs_roots_list, fs_roots_remove, fs_roots_reset};
 pub use iyke::{
-    iyke_dom_done, iyke_dom_query, iyke_endpoint, iyke_log_push, iyke_network_push,
-    iyke_query_cache_done, iyke_set_shell, iyke_terminal_read_done, iyke_wait_done,
-    IykeRuntimeState,
+    iyke_action_done, iyke_dom_done, iyke_dom_query, iyke_endpoint, iyke_log_push,
+    iyke_network_push, iyke_query_cache_done, iyke_set_shell, iyke_terminal_read_done,
+    iyke_wait_done, IykeRuntimeState,
 };
 pub use permissions_audit::{pkg_permission_violations_clear, pkg_permission_violations_list};
 pub use pkg::{

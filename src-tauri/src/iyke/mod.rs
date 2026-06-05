@@ -51,6 +51,9 @@ pub struct IykeRpc {
     pub query_cache: Pending<handlers::QueryCacheResult>,
     pub wait: Pending<handlers::WaitResult>,
     pub terminal_read: Pending<handlers::TerminalReadResult>,
+    /// Click/type/key match round-trips. Shared across the three action verbs
+    /// (each request_id is a UUID, so concurrent in-flight actions coexist).
+    pub action: Pending<handlers::ActionResult>,
 }
 
 impl IykeRpc {
@@ -60,6 +63,7 @@ impl IykeRpc {
             query_cache: new_pending(),
             wait: new_pending(),
             terminal_read: new_pending(),
+            action: new_pending(),
         }
     }
 }

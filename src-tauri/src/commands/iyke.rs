@@ -18,7 +18,9 @@ use serde_json::Value;
 use tauri::State;
 use tokio::sync::Mutex;
 
-use crate::iyke::handlers::{DomResult, QueryCacheResult, TerminalReadResult, WaitResult};
+use crate::iyke::handlers::{
+    ActionResult, DomResult, QueryCacheResult, TerminalReadResult, WaitResult,
+};
 use crate::iyke::rpc;
 use crate::iyke::state::{LogEntry, NetworkEntry};
 use crate::iyke::{Endpoint, IykeRpc, IykeRuntime, IykeState};
@@ -140,6 +142,19 @@ pub async fn iyke_terminal_read_done(
     result: TerminalReadResult,
 ) -> Result<(), String> {
     rpc::resolve(&rpc_state.terminal_read, &request_id, result)
+        .await
+        .map_err(|e| format!("{e:#}"))
+}
+
+/// FE callback for the click/type/key round-trip — resolves the pending
+/// `action` oneshot with whether a target was matched. See `post_click`.
+#[tauri::command]
+pub async fn iyke_action_done(
+    rpc_state: State<'_, IykeRpc>,
+    request_id: String,
+    result: ActionResult,
+) -> Result<(), String> {
+    rpc::resolve(&rpc_state.action, &request_id, result)
         .await
         .map_err(|e| format!("{e:#}"))
 }

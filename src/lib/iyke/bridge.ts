@@ -13,18 +13,21 @@
 // useIykeControlListener). Never mount inside per-pane MemoryRouter
 // contexts.
 
-import { useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-
+import { useEffect } from 'react';
+import { findLeaf } from '@/lib/panes/pane-reducer';
+import { usePaneStore } from '@/lib/panes/pane-store';
 import { queryClient } from '@/lib/query-client';
+import { readCapture, stripAnsi } from '@/terminal/pty-output-buffer';
+import { getPty } from '@/terminal/pty-registry';
 import { resolvePaneScope, useIykeActivity } from './activity-store';
 import {
+	type DomSnapshotResult,
 	resolveBySelector,
 	resolveByText,
 	resolveRef,
 	takeSnapshot,
-	type DomSnapshotResult,
 } from './dom-snapshot';
 import {
 	currentStateGeneration,
@@ -34,10 +37,6 @@ import {
 	requestIframeDom,
 	requestIframeWait,
 } from './iframe-registry';
-import { usePaneStore } from '@/lib/panes/pane-store';
-import { findLeaf } from '@/lib/panes/pane-reducer';
-import { getPty } from '@/terminal/pty-registry';
-import { readCapture, stripAnsi } from '@/terminal/pty-output-buffer';
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -81,6 +80,7 @@ interface WaitRequestPayload {
 }
 
 interface ClickPayload {
+	request_id: string;
 	ref?: string | null;
 	selector?: string | null;
 	text?: string | null;
@@ -530,45 +530,63 @@ function resolveTarget(
 	return null;
 }
 
-function handleClick(payload: ClickPayload) {
-	if (isIframePane(payload.pane)) {
+async function handleClick(payload: ClickPayload) {
+	let matched = false;
+	try {
+		if (isIframePane(payload.pane)) {
+			const id = useIykeActivity.getState().begin({
+				kind: 'click',
+				scope: payload.pane!,
+				detail: payload.ref ?? payload.selector ?? payload.text ?? undefined,
+			});
+			postToIframeFireAndForget(payload.pane!, 'click', {
+				ref: payload.ref ?? null,
+				selector: payload.selector ?? null,
+				text: payload.text ?? null,
+			});
+			useIykeActivity.getState().end(id);
+			// Iframe clicks are fire-and-forget into the sidecar bridge, which
+			// resolves the target on its side; the shell can't observe the
+			// hit/miss without a round-trip through the iframe, so report
+			// optimistically. TODO: thread the iframe doClick result back the
+			// way requestIframeDom does, then report the real match here.
+			matched = true;
+			return;
+		}
+		const el = resolveTarget(payload.ref, payload.selector, payload.text);
+		if (!el) {
+			console.warn('[iyke] click target not found:', payload);
+			return;
+		}
+		matched = true;
 		const id = useIykeActivity.getState().begin({
 			kind: 'click',
-			scope: payload.pane!,
+			scope: resolvePaneScope(el),
 			detail: payload.ref ?? payload.selector ?? payload.text ?? undefined,
 		});
-		postToIframeFireAndForget(payload.pane!, 'click', {
-			ref: payload.ref ?? null,
-			selector: payload.selector ?? null,
-			text: payload.text ?? null,
-		});
-		useIykeActivity.getState().end(id);
-		return;
-	}
-	const el = resolveTarget(payload.ref, payload.selector, payload.text);
-	if (!el) {
-		console.warn('[iyke] click target not found:', payload);
-		return;
-	}
-	const id = useIykeActivity.getState().begin({
-		kind: 'click',
-		scope: resolvePaneScope(el),
-		detail: payload.ref ?? payload.selector ?? payload.text ?? undefined,
-	});
-	if (el instanceof HTMLElement) {
-		// Match Playwright's hierarchy: focus first (so :focus styles + form
-		// semantics fire), then dispatch a real click. .click() routes through
-		// the user-activation path, which is what most React handlers expect.
-		try {
-			el.focus({ preventScroll: false });
-		} catch {
-			/* svg etc. */
+		if (el instanceof HTMLElement) {
+			// Match Playwright's hierarchy: focus first (so :focus styles + form
+			// semantics fire), then dispatch a real click. .click() routes through
+			// the user-activation path, which is what most React handlers expect.
+			try {
+				el.focus({ preventScroll: false });
+			} catch {
+				/* svg etc. */
+			}
+			el.click();
+		} else {
+			el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
 		}
-		el.click();
-	} else {
-		el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+		useIykeActivity.getState().end(id);
+	} finally {
+		// Resolve the host's pending round-trip so `/iyke/click` returns the
+		// real outcome — `ok:true` on a hit, `ok:false` ("target not found")
+		// on a miss — instead of the old blind `ok:true`.
+		await invoke('iyke_action_done', {
+			requestId: payload.request_id,
+			result: { matched },
+		}).catch(() => {});
 	}
-	useIykeActivity.getState().end(id);
 }
 
 function handleType(payload: TypePayload) {
@@ -911,7 +929,7 @@ export function useIykeBridge(): void {
 				void handleWaitRequest(e.payload);
 			})
 		);
-		track(listen<ClickPayload>('iyke://click', (e) => handleClick(e.payload)));
+		track(listen<ClickPayload>('iyke://click', (e) => void handleClick(e.payload)));
 		track(listen<TypePayload>('iyke://type', (e) => handleType(e.payload)));
 		track(listen<KeyPayload>('iyke://key', (e) => handleKey(e.payload)));
 		track(

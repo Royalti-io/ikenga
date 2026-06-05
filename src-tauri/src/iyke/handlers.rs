@@ -30,6 +30,7 @@ const DOM_TIMEOUT: Duration = Duration::from_secs(5);
 const QUERY_CACHE_TIMEOUT: Duration = Duration::from_secs(5);
 const WAIT_TIMEOUT_DEFAULT_MS: u64 = 10_000;
 const WAIT_TIMEOUT_MAX_MS: u64 = 60_000;
+const CLICK_TIMEOUT: Duration = Duration::from_secs(5);
 
 // --- types shared with the IykeRpc bundle ---------------------------------
 
@@ -74,6 +75,25 @@ pub struct WaitResult {
     pub elapsed_ms: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
+}
+
+/// FE → host result for a click/type/key round-trip: did the FE resolve the
+/// target (ref / selector / text) to a live element and action it? Carried on
+/// the shared `IykeRpc::action` channel.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ActionResult {
+    pub matched: bool,
+}
+
+/// HTTP response for the click/type/key endpoints. Mirrors the iframe bridge's
+/// `doClick` contract: `ok:true` when an element was matched and actioned,
+/// otherwise `ok:false` with a human error. HTTP stays 200 either way — a
+/// missed target is a well-formed request that found nothing, not a fault.
+#[derive(Serialize)]
+pub struct ActionResponse {
+    pub ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -629,20 +649,45 @@ pub struct ClickBody {
 
 pub async fn post_click(
     Extension(app): Extension<AppHandle>,
+    Extension(rpc): Extension<IykeRpc>,
     JsonBody(body): JsonBody<ClickBody>,
-) -> Result<Json<OkResponse>, (StatusCode, String)> {
+) -> Result<Json<ActionResponse>, (StatusCode, String)> {
     require_one_target(&body.r#ref, &body.selector, &body.text)?;
-    emit(
+    let r#ref = body.r#ref.clone();
+    let selector = body.selector.clone();
+    let text = body.text.clone();
+    let pane = body.pane.clone();
+    // Round-trip so the response reflects whether the FE actually found the
+    // target — previously this was fire-and-forget and returned `ok:true`
+    // even when nothing matched (a silent no-op). Same mechanism as `get_dom`.
+    let result = rpc::request(
         &app,
+        &rpc.action,
         "iyke://click",
-        serde_json::json!({
-            "ref": body.r#ref,
-            "selector": body.selector,
-            "text": body.text,
-            "pane": body.pane,
-        }),
-    )?;
-    Ok(ok())
+        CLICK_TIMEOUT,
+        |request_id| {
+            serde_json::json!({
+                "request_id": request_id,
+                "ref": r#ref,
+                "selector": selector,
+                "text": text,
+                "pane": pane,
+            })
+        },
+    )
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")))?;
+    Ok(Json(if result.matched {
+        ActionResponse {
+            ok: true,
+            error: None,
+        }
+    } else {
+        ActionResponse {
+            ok: false,
+            error: Some("target not found".into()),
+        }
+    }))
 }
 
 #[derive(Deserialize)]
