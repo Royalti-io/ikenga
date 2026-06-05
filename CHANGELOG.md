@@ -1,5 +1,11 @@
 # ikenga-desktop
 
+## 0.2.6
+
+### Patch Changes
+
+- Grant the updater + process plugin ACL to the main window. The in-app app updater was dead-on-arrival in every prior build — plugin:updater|check was never allowed in capabilities/default.json, so the update check silently failed and About always said "up to date". First build that can self-update via the banner / About page.
+
 ## 0.2.5
 
 ### Patch Changes
