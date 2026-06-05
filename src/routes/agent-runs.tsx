@@ -1,23 +1,26 @@
-// /agent-runs — discoverability deep-link into com.ikenga.agent-ops "Runs" view.
+// /agent-runs — deep-link into the com.ikenga.agent-ops "Runs" view.
 //
 // The agent-ops pkg is a top-level activity-bar app whose primary home is
-// /pkg/com.ikenga.agent-ops/. The Runs view lives under that route tree.
-// This shell-native route is a thin landing that navigates there and falls
-// back to an informational page if the pkg is not yet installed.
-//
-// TODO (WP-08/WP-12): once the pkg registers its ui.routes with a stable
-// sub-path (e.g. /pkg/com.ikenga.agent-ops/runs), upgrade this to a direct
-// redirect so /agent-runs → the live Runs view with no intermediate UI.
+// /pkg/com.ikenga.agent-ops/. The pkg registers /schedule /runs /failures
+// /live as real sub-routes (all mounting the same bundle; the pkg derives its
+// initial view from the pane's pathname), so this route deep-links directly.
+// We also set the pkg-menu active feature so an ALREADY-MOUNTED agent-ops
+// iframe swaps views via the hostContext re-emit (a same-source sub-route
+// change doesn't remount the iframe, so the URL alone wouldn't reach it).
+// Falls back to an informational landing if the pkg is not installed.
 
 import { createFileRoute } from '@tanstack/react-router';
 import { Activity } from 'lucide-react';
 import { useEffect } from 'react';
 
 import { usePaneStore } from '@/lib/panes/pane-store';
+import { usePkgMenuStore } from '@/lib/pkg/pkg-menu-store';
 import { pkgKernelStatus } from '@/lib/tauri-cmd';
 
 const AGENT_OPS_PKG_ID = 'com.ikenga.agent-ops';
-// The pkg root path; WP-08 will replace this with a /runs sub-path.
+const RUNS_PATH = `/pkg/${AGENT_OPS_PKG_ID}/runs`;
+// Pre-sub-route installs only register `/` — fall back so the deep-link still
+// lands on the pkg instead of bouncing off the catch-all.
 const PKG_ROOT = `/pkg/${AGENT_OPS_PKG_ID}/`;
 
 function AgentRunsPage() {
@@ -34,13 +37,11 @@ function AgentRunsPage() {
 					entries?: Array<{ pkg_id: string; path: string }>;
 				};
 				const entries = reg.entries ?? [];
-				const installed = entries.some((e) => e.pkg_id === AGENT_OPS_PKG_ID);
-				if (!cancelled && installed) {
-					// Navigate to the pkg root; the pkg's own side-menu handles
-					// switching to the Runs view. WP-08 will wire a direct sub-path
-					// once the pkg declares it.
-					navigateFocused(PKG_ROOT);
-				}
+				const pkgRoutes = entries.filter((e) => e.pkg_id === AGENT_OPS_PKG_ID);
+				if (cancelled || pkgRoutes.length === 0) return;
+				const hasRuns = pkgRoutes.some((e) => e.path === '/runs');
+				usePkgMenuStore.getState().setActiveFeature(AGENT_OPS_PKG_ID, 'v:runs');
+				navigateFocused(hasRuns ? RUNS_PATH : PKG_ROOT);
 			} catch {
 				// pkg not installed or kernel unreachable — show landing below.
 			}
