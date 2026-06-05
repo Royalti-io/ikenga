@@ -1,4 +1,3 @@
-import { useEffect, useState } from 'react';
 import {
 	Activity,
 	CheckSquare,
@@ -10,6 +9,7 @@ import {
 	LayoutDashboard,
 	LayoutGrid,
 	ListChecks,
+	type LucideIcon,
 	Mail,
 	Monitor,
 	Moon,
@@ -26,23 +26,9 @@ import {
 	Sun,
 	Trash2,
 	TrendingUp,
-	type LucideIcon,
 } from 'lucide-react';
-import { listen } from '@tauri-apps/api/event';
-import { pkgKernelStatus } from '@/lib/tauri-cmd';
-import { useShellStore, type ActivityMode, type CoreMode } from '@/lib/shell/shell-store';
-import { usePaneStore } from '@/lib/panes/pane-store';
-import { useIkengaStore, type IkengaMode, type IkengaWorkspace } from '@/lib/ikenga/theme-store';
-import { cn } from '@/components/ui/utils';
-import {
-	dispatchPinSelection,
-	useActivityBarPins,
-	usePinsStore,
-	type Pin,
-	type Section,
-} from '@/lib/shell/pins-store';
-import { useUpdatesAvailable } from '@/lib/registry/use-updates-available';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { useEffect, useState } from 'react';
+import { Button } from '@/components/ui/button';
 import {
 	ContextMenu,
 	ContextMenuContent,
@@ -58,7 +44,28 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { cn } from '@/components/ui/utils';
+import { type IkengaMode, type IkengaWorkspace, useIkengaStore } from '@/lib/ikenga/theme-store';
+import { usePaneStore } from '@/lib/panes/pane-store';
+import {
+	type PkgActivityBarEntry,
+	usePkgActivityBarEntries,
+} from '@/lib/pkg/use-activity-bar-entries';
+import { useUpdatesAvailable } from '@/lib/registry/use-updates-available';
+import {
+	dispatchPinSelection,
+	type Pin,
+	type Section,
+	useActivityBarPins,
+	usePinsStore,
+} from '@/lib/shell/pins-store';
+import {
+	type ActivityMode,
+	type CoreMode,
+	isPkgMode,
+	useShellStore,
+} from '@/lib/shell/shell-store';
 import type { Project } from '@/lib/tauri-cmd';
 import { PinIcon } from './pin-icon';
 
@@ -114,8 +121,10 @@ const MODE_LANDING: Partial<Record<ActivityMode, string>> = {
 };
 
 // Workspace tint mirrors core mode 1:1 post-strip; no mini-app rollup.
+// Dynamic `pkg:<id>` modes claim no workspace tint of their own — they map to
+// the neutral 'app' tint so the `[data-workspace]` cascade stays valid.
 function modeToWorkspace(mode: ActivityMode): IkengaWorkspace {
-	return mode;
+	return isPkgMode(mode) ? 'app' : mode;
 }
 
 // Map manifest `ui.nav[].icon` strings to LucideIcon components. Pkg authors
@@ -141,56 +150,6 @@ function iconForPkg(name: string | null | undefined): LucideIcon {
 	return Package;
 }
 
-// Activity-bar entries contributed by installed pkgs via manifest `ui.nav[0]`.
-// Shape mirrors the Rust `ActivityBarEntry` in `pkg/registries/activity_bar.rs`.
-interface PkgActivityBarEntry {
-	pkg_id: string;
-	id: string;
-	label: string;
-	icon?: string | null;
-	section?: string | null;
-	route: string;
-}
-
-/** Read the activity_bar registry from the kernel snapshot. Re-fetches on
- *  pkg install / uninstall / reload events so newly-mounted pkgs appear
- *  immediately without a shell restart. */
-function usePkgActivityBarEntries(): PkgActivityBarEntry[] {
-	const [entries, setEntries] = useState<PkgActivityBarEntry[]>([]);
-
-	useEffect(() => {
-		let cancelled = false;
-
-		async function refresh() {
-			try {
-				const status = await pkgKernelStatus();
-				const reg = (status.registries.activity_bar ?? {}) as {
-					entries?: PkgActivityBarEntry[];
-				};
-				if (!cancelled) setEntries(reg.entries ?? []);
-			} catch {
-				if (!cancelled) setEntries([]);
-			}
-		}
-
-		void refresh();
-
-		// Kernel lifecycle events. The names match those emitted by the pkg
-		// kernel in `lifecycle.rs` and `commands/pkg_dev.rs`.
-		const unsubs: Array<Promise<() => void>> = [
-			listen('pkg-installed', () => void refresh()),
-			listen('pkg-uninstalled', () => void refresh()),
-			listen('pkg-reloaded', () => void refresh()),
-		];
-		return () => {
-			cancelled = true;
-			for (const p of unsubs) void p.then((fn) => fn());
-		};
-	}, []);
-
-	return entries;
-}
-
 export function ActivityBar() {
 	const activeMode = useShellStore((s) => s.activeMode);
 	const setActiveMode = useShellStore((s) => s.setActiveMode);
@@ -211,12 +170,25 @@ export function ActivityBar() {
 	}, [activeMode, setWorkspace]);
 
 	const updatesAvailable = useUpdatesAvailable();
-	const pkgEntries = usePkgActivityBarEntries();
+	const { entries: pkgEntries, loaded: pkgEntriesLoaded } = usePkgActivityBarEntries();
+
+	// Reconcile a stale pkg mode. A `pkg:<id>` mode can survive in persisted
+	// state after its pkg was uninstalled; once the kernel snapshot has loaded
+	// and confirms no matching entry, fall back to 'app' so the sidebar doesn't
+	// strand on "Waiting for pkg menu…". Guarded on `pkgEntriesLoaded` so it
+	// never fires before the snapshot arrives.
+	useEffect(() => {
+		if (!pkgEntriesLoaded || !isPkgMode(activeMode)) return;
+		const stillInstalled = pkgEntries.some((e) => `pkg:${e.pkg_id}` === activeMode);
+		if (!stillInstalled) setActiveMode('app');
+	}, [pkgEntriesLoaded, pkgEntries, activeMode, setActiveMode]);
 
 	function handleSelectPkg(entry: PkgActivityBarEntry) {
-		// Flip to App mode so the sidebar slot is in the right mode to render
-		// the pkg's runtime menu (AppMode branches on focused-tab pkg routes).
-		setActiveMode('app');
+		// Each app pkg owns its own activity mode (`pkg:<id>`). Switch to it so
+		// the rail icon highlights and the sidebar renders the pkg's runtime
+		// menu (Sidebar branches on `isPkgMode`), then navigate the focused pane
+		// to the pkg route. App mode keeps its own main nav, untouched.
+		setActiveMode(`pkg:${entry.pkg_id}`);
 		usePaneStore.getState().navigateFocused(entry.route);
 	}
 
@@ -288,7 +260,12 @@ export function ActivityBar() {
 					/>
 					<div className="flex flex-col items-center" data-section="pkgs">
 						{pkgEntries.map((entry) => (
-							<PkgRailButton key={entry.pkg_id} entry={entry} onSelect={handleSelectPkg} />
+							<PkgRailButton
+								key={entry.pkg_id}
+								entry={entry}
+								isActive={activeMode === `pkg:${entry.pkg_id}`}
+								onSelect={handleSelectPkg}
+							/>
 						))}
 					</div>
 				</>
@@ -510,13 +487,17 @@ function ProjectIndicator() {
 
 interface PkgRailButtonProps {
 	entry: PkgActivityBarEntry;
+	/** True when this pkg's mode (`pkg:<id>`) is the active activity mode. */
+	isActive: boolean;
 	onSelect: (entry: PkgActivityBarEntry) => void;
 }
 
-/** Lightweight rail button for pkg activity-bar entries. Doesn't switch
- *  shell mode — just navigates the focused pane to the pkg's route. The
- *  active-route indicator is omitted v1; pkgs don't claim a workspace tint. */
-function PkgRailButton({ entry, onSelect }: PkgRailButtonProps) {
+/** Rail button for a pkg activity-bar entry. Selecting it switches the shell
+ *  into the pkg's own mode (`pkg:<id>`) — see `handleSelectPkg`. Active state
+ *  mirrors `RailButton`'s left-bar + raised-bg treatment, but neutral: pkgs
+ *  claim no workspace tint, so the active glyph uses `--fg` rather than a
+ *  `--tint-*` var. */
+function PkgRailButton({ entry, isActive, onSelect }: PkgRailButtonProps) {
 	const Icon = iconForPkg(entry.icon);
 	return (
 		<button
@@ -524,12 +505,23 @@ function PkgRailButton({ entry, onSelect }: PkgRailButtonProps) {
 			onClick={() => onSelect(entry)}
 			title={entry.label}
 			aria-label={entry.label}
+			aria-current={isActive ? 'page' : undefined}
 			className={cn(
 				'relative my-0.5 grid h-9 w-9 place-items-center rounded-md transition-colors',
 				'hover:bg-card'
 			)}
-			style={{ color: 'var(--fg-faint)' }}
+			style={{
+				color: isActive ? 'var(--fg)' : 'var(--fg-faint)',
+				background: isActive ? 'var(--bg-raised)' : undefined,
+			}}
 		>
+			{isActive && (
+				<span
+					aria-hidden="true"
+					className="absolute -left-0.5 top-2 bottom-2 w-0.5 rounded-r"
+					style={{ background: 'var(--fg)' }}
+				/>
+			)}
 			<Icon className="h-[18px] w-[18px]" />
 		</button>
 	);

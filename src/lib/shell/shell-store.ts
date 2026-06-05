@@ -64,7 +64,25 @@ export type CoreMode =
 	| 'ngwa'
 	| 'pkgs'
 	| 'settings';
-export type ActivityMode = CoreMode;
+
+// Dynamic per-pkg modes. Every app pkg with a `manifest.ui.nav[0]` entry owns
+// its own activity-bar mode `pkg:<pkg_id>` — clicking its rail icon makes that
+// the active mode and the sidebar renders the pkg's published menu (PkgMode),
+// instead of borrowing 'app' mode and clobbering the shell's main nav. Pkg ids
+// are dotted (e.g. `com.ikenga.tasks`); they never collide with the CORE modes.
+export type PkgActivityMode = `pkg:${string}`;
+export type ActivityMode = CoreMode | PkgActivityMode;
+
+/** True for a dynamic `pkg:<id>` mode. Type-predicate so callers narrow to
+ *  `CoreMode` in the `else` branch (e.g. the sidebar's mode switch). */
+export function isPkgMode(m: string): m is PkgActivityMode {
+	return m.startsWith('pkg:');
+}
+
+/** Extract the pkg id from a `pkg:<id>` mode, or null for CORE modes. */
+export function pkgIdFromMode(m: string): string | null {
+	return isPkgMode(m) ? m.slice('pkg:'.length) : null;
+}
 
 // Runtime list of every valid activity mode — the single source of truth that
 // must stay in lockstep with the `CoreMode` union above. Consumed by the store
@@ -334,7 +352,16 @@ export function migrateShellStore(persisted: unknown, _version: number): unknown
 	// v13 widens with 'ngwa' (Ngwa Claude-config mode — replaces App-mode
 	// /claude NavItem; activity-bar ⌘6). The valid set now lives in the
 	// exported ACTIVITY_MODES const above so it can't drift from the union.
-	if (p.activeMode && !ACTIVITY_MODES.includes(p.activeMode as ActivityMode)) {
+	// v14: dynamic `pkg:<id>` modes are also valid — each app pkg owns its own
+	// activity-bar mode. We can't validate the id against installed pkgs here
+	// (the kernel snapshot loads async, after rehydrate), so we preserve any
+	// `pkg:` mode; a stale one (pkg since-uninstalled) is reconciled → 'app'
+	// at runtime by the activity bar once entries load.
+	if (
+		p.activeMode &&
+		!ACTIVITY_MODES.includes(p.activeMode as ActivityMode) &&
+		!isPkgMode(p.activeMode)
+	) {
 		p.activeMode = 'app';
 	}
 
@@ -797,9 +824,14 @@ export const useShellStore = create<ShellState>()(
 		// v13: widen CoreMode with 'ngwa' (Ngwa Claude-config activity-bar
 		//     mode, ⌘6). Migrate keeps the same valid-set check, just widened;
 		//     no persisted users could already hold 'ngwa', so it's additive.
+		// v14: ActivityMode widened with dynamic `pkg:<id>` modes — every app
+		//     pkg now owns its own activity-bar mode instead of borrowing 'app'
+		//     and clobbering the main nav. Migrate preserves persisted pkg
+		//     modes; a stale one (pkg uninstalled) reconciles → 'app' at runtime
+		//     in the activity bar. Additive — no persisted user holds a pkg mode.
 		{
 			name: 'shell-store',
-			version: 13,
+			version: 14,
 			migrate: (persisted, version) => migrateShellStore(persisted, version) as ShellState,
 			// `projects` + `activeProjectId` are owned by Rust (migration 0015)
 			// and re-pulled every boot via `refreshProjects`. They must NOT be

@@ -7,11 +7,11 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-	ONBOARDING_STEPS,
-	ONBOARDING_STATE_VERSION,
-	type OnboardingState,
 	createDefaultOnboardingState,
 	migrateShellStore,
+	ONBOARDING_STATE_VERSION,
+	ONBOARDING_STEPS,
+	type OnboardingState,
 } from './shell-store';
 
 describe('shell-store onboarding migration', () => {
@@ -103,6 +103,28 @@ describe('shell-store onboarding migration', () => {
 				activeMode: 'mail', // legacy mode no longer in the union
 			},
 			6
+		) as { activeMode: string };
+		expect(migrated.activeMode).toBe('app');
+	});
+
+	it('preserves a persisted `pkg:<id>` activeMode (v14)', () => {
+		const migrated = migrateShellStore(
+			{
+				activeMode: 'pkg:com.ikenga.tasks',
+			},
+			13
+		) as { activeMode: string };
+		// Pkg modes are valid — kept as-is. (A stale one reconciles to 'app' at
+		// runtime in the activity bar, not here.)
+		expect(migrated.activeMode).toBe('pkg:com.ikenga.tasks');
+	});
+
+	it('still snaps a non-pkg unknown activeMode → app', () => {
+		const migrated = migrateShellStore(
+			{
+				activeMode: 'studio', // dead mode, not a pkg: prefix
+			},
+			13
 		) as { activeMode: string };
 		expect(migrated.activeMode).toBe('app');
 	});

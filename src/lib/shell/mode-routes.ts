@@ -19,7 +19,13 @@
 // This is the inverse direction of `activity-bar.tsx`'s `MODE_LANDING`, kept
 // here as a route *prefix* map (coarser than landing's exact paths). Keep the
 // two in sync when a mode's route territory changes.
+//
+// Pkg routes (`/pkg/<id>/…`) resolve to that pkg's own activity mode
+// (`pkg:<id>`) — each app pkg owns a mode, so navigating a pane to a pkg deep
+// link re-syncs the rail highlight + sidebar to the pkg, the same as clicking
+// its rail icon.
 
+import { pkgIdFromRoute } from '@/lib/pkg/pkg-menu-store';
 import type { ActivityMode } from './shell-store';
 
 const EXCLUSIVE_MODE_PREFIXES: ReadonlyArray<readonly [string, ActivityMode]> = [
@@ -37,6 +43,9 @@ const EXCLUSIVE_MODE_PREFIXES: ReadonlyArray<readonly [string, ActivityMode]> = 
  */
 export function modeForRoute(path: string): ActivityMode | null {
 	const pathname = path.split(/[?#]/, 1)[0] ?? path;
+	// A pkg route exclusively owns its own `pkg:<id>` mode.
+	const pkgId = pkgIdFromRoute(pathname);
+	if (pkgId) return `pkg:${pkgId}`;
 	for (const [prefix, mode] of EXCLUSIVE_MODE_PREFIXES) {
 		if (pathname === prefix || pathname.startsWith(`${prefix}/`)) return mode;
 	}

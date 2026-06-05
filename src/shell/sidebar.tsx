@@ -1,8 +1,10 @@
-import { useShellStore } from '@/lib/shell/shell-store';
+import { usePkgActivityBarEntries } from '@/lib/pkg/use-activity-bar-entries';
+import { isPkgMode, pkgIdFromMode, useShellStore } from '@/lib/shell/shell-store';
 import { AppMode } from './sidebar-modes/app-mode';
 import { ArtifactGridMode } from './sidebar-modes/artifact-grid-mode';
 import { FilesMode } from './sidebar-modes/files-mode';
 import { NgwaMode } from './sidebar-modes/ngwa-mode';
+import { PkgMode } from './sidebar-modes/pkg-mode';
 import { PkgsMode } from './sidebar-modes/pkgs-mode';
 import { SessionsMode } from './sidebar-modes/sessions-mode';
 import { SettingsMode } from './sidebar-modes/settings-mode';
@@ -19,9 +21,23 @@ const CORE_TITLES = {
 
 export function Sidebar() {
 	const activeMode = useShellStore((s) => s.activeMode);
+	// Entries are only consulted for the head title when in a pkg mode; the
+	// hook is cheap (one cached kernel snapshot) and safe to always call.
+	const { entries: pkgEntries } = usePkgActivityBarEntries();
 
 	let title: string = CORE_TITLES.app;
 	let body: React.ReactNode;
+
+	if (isPkgMode(activeMode)) {
+		// A pkg owns the sidebar in its own mode — render its published menu.
+		// Title is the pkg's activity-bar label, falling back to the raw id if
+		// the snapshot hasn't loaded the entry yet.
+		const pkgId = pkgIdFromMode(activeMode) ?? '';
+		const entry = pkgEntries.find((e) => e.pkg_id === pkgId);
+		title = entry?.label ?? pkgId;
+		body = <PkgMode pkgId={pkgId} />;
+		return renderSidebar(title, body);
+	}
 
 	switch (activeMode) {
 		case 'app':
@@ -59,6 +75,12 @@ export function Sidebar() {
 			body = <AppMode />;
 	}
 
+	return renderSidebar(title, body);
+}
+
+/** The sidebar chrome — workspace-tinted head + scrollable body. Shared by the
+ *  CORE-mode switch and the `pkg:<id>` path so they render identically. */
+function renderSidebar(title: string, body: React.ReactNode) {
 	return (
 		<nav
 			aria-label={`${title} sidebar`}
