@@ -12,7 +12,7 @@
 //!     section-less (`section_id = NULL`). Reorder is per-section: passing
 //!     the empty string as `section_id` means "no section".
 //!
-//! Both tables live in `pa.db` (migration 0010). Mutations go through the
+//! Both tables live in `ikenga.db` (migration 0010). Mutations go through the
 //! shared `PaDb` pool; the schema migration is also embedded in
 //! `commands/db.rs::ensure_schema` so fresh installs and dev pools both
 //! see the schema.

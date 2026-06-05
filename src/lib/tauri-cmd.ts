@@ -3485,7 +3485,7 @@ export async function activitySectionsRemove(id: string): Promise<void> {
 // Phase 2: SQLite + age-passphrase-encrypted secrets + installed-pkg list.
 // Restore is stage-and-swap-on-boot. `backupImport` writes a staged db,
 // optionally a chmod-0600 secrets-pending.json (decrypted at import-time),
-// and a marker; the next app launch swaps pa.db before any pool opens, and
+// and a marker; the next app launch swaps ikenga.db before any pool opens, and
 // replays staged secrets through the Stronghold-backed `bulk_set`.
 
 export interface PkgEntry {

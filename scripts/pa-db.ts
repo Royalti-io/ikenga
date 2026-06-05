@@ -40,7 +40,14 @@ function resolveDbPath(): string {
 	} else {
 		base = join(homedir(), '.local', 'share', 'app.ikenga');
 	}
-	return join(base, 'pa.db');
+	// `ikenga.db` is the live store (renamed from the legacy `pa.db` on first
+	// launch — src-tauri/src/lib.rs). Fall back to `pa.db` only when the
+	// rename never ran (pre-rename install that hasn't booted since).
+	const current = join(base, 'ikenga.db');
+	if (existsSync(current)) return current;
+	const legacy = join(base, 'pa.db');
+	if (existsSync(legacy)) return legacy;
+	return current;
 }
 
 let cachedDb: Database | null = null;
@@ -49,7 +56,7 @@ function db(): Database {
 	const path = resolveDbPath();
 	if (!existsSync(path)) {
 		throw new Error(
-			`pa.db not found at ${path}. Has the desktop app ever started? Set PA_DB_PATH to override.`
+			`ikenga.db not found at ${path}. Has the desktop app ever started? Set PA_DB_PATH to override.`
 		);
 	}
 	// readonly to avoid contention with the running app.

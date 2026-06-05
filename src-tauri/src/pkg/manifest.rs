@@ -257,7 +257,7 @@ pub struct CapabilitiesBlock {
     #[serde(default)]
     pub supabase: Option<SupabaseCapability>,
     /// Local SQLite capability (api ≥ 2). Declares that this pkg reads from
-    /// `pa.db` via `db_query`. The host resolves the logical db name and
+    /// `ikenga.db` via `db_query`. The host resolves the logical db name and
     /// threads it through `hostContext.sqlite` at iframe-mount time.
     /// Mirrors `SqliteCapabilitySchema` in `@ikenga/contract/manifest.ts`.
     #[serde(default)]

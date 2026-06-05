@@ -16,22 +16,25 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { useEffect } from 'react';
-import { findLeaf } from '@/lib/panes/pane-reducer';
+import { findLeaf, getLeafIdsInOrder } from '@/lib/panes/pane-reducer';
 import { usePaneStore } from '@/lib/panes/pane-store';
 import { queryClient } from '@/lib/query-client';
 import { readCapture, stripAnsi } from '@/terminal/pty-output-buffer';
 import { getPty } from '@/terminal/pty-registry';
 import { resolvePaneScope, useIykeActivity } from './activity-store';
 import {
+	allSearchDocs,
 	type DomSnapshotResult,
 	resolveBySelector,
 	resolveByText,
 	resolveRef,
+	sameOriginIframeBody,
 	takeSnapshot,
 } from './dom-snapshot';
 import {
 	currentStateGeneration,
 	getIframe,
+	type IframeRegistration,
 	installIykeIframeMessageListener,
 	postToIframeFireAndForget,
 	requestIframeDom,
@@ -330,8 +333,42 @@ installInstrumentation();
 
 // ── Tauri event listeners ────────────────────────────────────────────────
 
-function isIframePane(pane: string | null | undefined): pane is string {
-	return Boolean(pane) && pane !== 'shell' && Boolean(getIframe(pane!));
+// Resolve a `pane` request param to an iframe registration. Three forms work:
+//   1. a registry key (full or unique prefix) — html-frame panes register by
+//      pane id; pkg iframes register by pkg id (`com.ikenga.tasks`).
+//   2. a pane-leaf id (full or unique prefix, matching the truncated ids
+//      `iyke state` prints) whose active tab is a `/pkg/<pkgId>/…` route —
+//      resolved through the pane tree to the pkg's registration.
+//   3. `shell` / empty → undefined (host targeting).
+function resolveIframeReg(pane: string | null | undefined): IframeRegistration | undefined {
+	if (!pane || pane === 'shell') return undefined;
+	const direct = getIframe(pane);
+	if (direct) return direct;
+	const state = usePaneStore.getState();
+	const ids = getLeafIdsInOrder(state.root);
+	const leafId = ids.includes(pane) ? pane : uniquePrefixMatch(ids, pane);
+	if (!leafId) return undefined;
+	const leaf = findLeaf(state.root, leafId);
+	if (!leaf || leaf.type !== 'leaf') return undefined;
+	const tab = leaf.tabs[leaf.activeTabIdx];
+	if (!tab || tab.kind !== 'route') return undefined;
+	const m = /^\/pkg\/([^/]+)/.exec(tab.path);
+	return m ? getIframe(m[1]) : undefined;
+}
+
+function uniquePrefixMatch(candidates: string[], prefix: string): string | undefined {
+	const matches = candidates.filter((c) => c.startsWith(prefix));
+	return matches.length === 1 ? matches[0] : undefined;
+}
+
+// For a registration the iframe-side bridge never said `hello` on (pkg
+// iframes mount the AppBridge, not the iyke iframe bridge), serve requests
+// host-side against its same-origin document instead of posting into the
+// iframe — the postMessage path would just time out. Returns null when the
+// bridged path should be used (or the iframe is cross-origin).
+function directDocFor(reg: IframeRegistration): Document | null {
+	if (reg.bridged) return null;
+	return sameOriginIframeBody(reg.iframe)?.ownerDocument ?? null;
 }
 
 async function handleDomRequest(payload: DomRequestPayload) {
@@ -343,16 +380,15 @@ async function handleDomRequest(payload: DomRequestPayload) {
 	});
 	try {
 		let result: { text: string; json: unknown; generation: number };
-		if (isIframePane(payload.pane)) {
-			result = await requestIframeDom(
-				payload.pane!,
-				payload.query ?? undefined,
-				payload.all === true
-			);
+		const reg = resolveIframeReg(payload.pane);
+		const directDoc = reg ? directDocFor(reg) : null;
+		if (reg && !directDoc) {
+			result = await requestIframeDom(reg.paneId, payload.query ?? undefined, payload.all === true);
 		} else {
 			const snap: DomSnapshotResult = takeSnapshot({
 				query: payload.query ?? undefined,
 				all: payload.all === true,
+				root: directDoc?.body ?? undefined,
 			});
 			result = { text: snap.text, json: snap.json, generation: snap.generation };
 		}
@@ -434,10 +470,12 @@ async function handleWaitRequest(payload: WaitRequestPayload) {
 		detail: `${payload.kind}:${payload.value}`,
 	});
 	const finish = () => useIykeActivity.getState().end(actId);
-	if (isIframePane(payload.pane)) {
+	const reg = resolveIframeReg(payload.pane);
+	const directDoc = reg ? directDocFor(reg) : null;
+	if (reg && !directDoc) {
 		try {
 			const r = await requestIframeWait(
-				payload.pane!,
+				reg.paneId,
 				payload.kind,
 				payload.value,
 				payload.timeout_ms
@@ -462,21 +500,27 @@ async function handleWaitRequest(payload: WaitRequestPayload) {
 	}
 	const start = performance.now();
 	const deadline = start + payload.timeout_ms;
+	// Text predicates span the host doc + same-origin iframe docs (pkg panes)
+	// — or just the pane's doc when the request targeted one directly.
+	const visibleText = (): string =>
+		(directDoc ? [directDoc] : allSearchDocs()).map((d) => d.body?.innerText ?? '').join('\n');
 	const check = (): boolean => {
 		switch (payload.kind) {
 			case 'text': {
-				return Boolean(document.body && document.body.innerText.includes(payload.value));
+				return visibleText().includes(payload.value);
 			}
 			case 'gone-text': {
-				return !(document.body && document.body.innerText.includes(payload.value));
+				return !visibleText().includes(payload.value);
 			}
 			case 'selector': {
-				const el = resolveBySelector(payload.value);
-				return Boolean(el && el instanceof HTMLElement && el.offsetParent !== null);
+				const el = resolveBySelector(payload.value, directDoc ?? undefined);
+				// `'offsetParent' in el` instead of instanceof HTMLElement —
+				// cross-realm safe for elements inside iframe documents.
+				return Boolean(el && 'offsetParent' in el && (el as HTMLElement).offsetParent !== null);
 			}
 			case 'gone-selector': {
-				const el = resolveBySelector(payload.value);
-				return !el || (el instanceof HTMLElement && el.offsetParent === null);
+				const el = resolveBySelector(payload.value, directDoc ?? undefined);
+				return !el || ('offsetParent' in el && (el as HTMLElement).offsetParent === null);
 			}
 			case 'ref': {
 				const el = resolveRef(payload.value);
@@ -522,24 +566,27 @@ async function handleWaitRequest(payload: WaitRequestPayload) {
 function resolveTarget(
 	ref: string | null | undefined,
 	selector: string | null | undefined,
-	text: string | null | undefined
+	text: string | null | undefined,
+	doc?: Document
 ): Element | null {
 	if (ref) return resolveRef(ref);
-	if (selector) return resolveBySelector(selector);
-	if (text) return resolveByText(text);
+	if (selector) return resolveBySelector(selector, doc);
+	if (text) return resolveByText(text, doc);
 	return null;
 }
 
 async function handleClick(payload: ClickPayload) {
 	let matched = false;
 	try {
-		if (isIframePane(payload.pane)) {
+		const reg = resolveIframeReg(payload.pane);
+		const directDoc = reg ? directDocFor(reg) : null;
+		if (reg && !directDoc) {
 			const id = useIykeActivity.getState().begin({
 				kind: 'click',
-				scope: payload.pane!,
+				scope: reg.paneId,
 				detail: payload.ref ?? payload.selector ?? payload.text ?? undefined,
 			});
-			postToIframeFireAndForget(payload.pane!, 'click', {
+			postToIframeFireAndForget(reg.paneId, 'click', {
 				ref: payload.ref ?? null,
 				selector: payload.selector ?? null,
 				text: payload.text ?? null,
@@ -553,7 +600,10 @@ async function handleClick(payload: ClickPayload) {
 			matched = true;
 			return;
 		}
-		const el = resolveTarget(payload.ref, payload.selector, payload.text);
+		// Host path — also covers same-origin pkg iframes (directDoc scopes the
+		// selector/text resolution to the pane's document; unscoped resolution
+		// searches the host doc + every same-origin iframe doc).
+		const el = resolveTarget(payload.ref, payload.selector, payload.text, directDoc ?? undefined);
 		if (!el) {
 			console.warn('[iyke] click target not found:', payload);
 			return;
@@ -564,16 +614,18 @@ async function handleClick(payload: ClickPayload) {
 			scope: resolvePaneScope(el),
 			detail: payload.ref ?? payload.selector ?? payload.text ?? undefined,
 		});
-		if (el instanceof HTMLElement) {
+		if (typeof (el as HTMLElement).click === 'function') {
+			// Duck-typed instead of `instanceof HTMLElement` — elements inside
+			// iframe documents belong to another realm, so instanceof fails.
 			// Match Playwright's hierarchy: focus first (so :focus styles + form
 			// semantics fire), then dispatch a real click. .click() routes through
 			// the user-activation path, which is what most React handlers expect.
 			try {
-				el.focus({ preventScroll: false });
+				(el as HTMLElement).focus({ preventScroll: false });
 			} catch {
 				/* svg etc. */
 			}
-			el.click();
+			(el as HTMLElement).click();
 		} else {
 			el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
 		}
@@ -590,13 +642,15 @@ async function handleClick(payload: ClickPayload) {
 }
 
 function handleType(payload: TypePayload) {
-	if (isIframePane(payload.pane)) {
+	const reg = resolveIframeReg(payload.pane);
+	const directDoc = reg ? directDocFor(reg) : null;
+	if (reg && !directDoc) {
 		const id = useIykeActivity.getState().begin({
 			kind: 'type',
-			scope: payload.pane!,
+			scope: reg.paneId,
 			detail: payload.ref ?? payload.selector ?? undefined,
 		});
-		postToIframeFireAndForget(payload.pane!, 'type', {
+		postToIframeFireAndForget(reg.paneId, 'type', {
 			ref: payload.ref ?? null,
 			selector: payload.selector ?? null,
 			text: payload.text,
@@ -605,7 +659,7 @@ function handleType(payload: TypePayload) {
 		useIykeActivity.getState().end(id);
 		return;
 	}
-	const el = resolveTarget(payload.ref, payload.selector, null);
+	const el = resolveTarget(payload.ref, payload.selector, null, directDoc ?? undefined);
 	if (!el) {
 		console.warn('[iyke] type target not found:', payload);
 		return;
@@ -615,20 +669,23 @@ function handleType(payload: TypePayload) {
 		scope: resolvePaneScope(el),
 		detail: payload.ref ?? payload.selector ?? undefined,
 	});
-	if (
-		el instanceof HTMLInputElement ||
-		el instanceof HTMLTextAreaElement ||
-		(el instanceof HTMLElement && el.isContentEditable)
-	) {
-		el.focus();
-		if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
-			const setter = Object.getOwnPropertyDescriptor(
-				el instanceof HTMLInputElement ? HTMLInputElement.prototype : HTMLTextAreaElement.prototype,
-				'value'
-			)?.set;
-			const next = payload.replace ? payload.text : `${el.value}${payload.text}`;
-			if (setter) setter.call(el, next);
-			else el.value = next;
+	// Tag-name checks instead of instanceof — elements inside same-origin
+	// iframe documents belong to another realm, where instanceof fails.
+	const tag = el.tagName;
+	const isField = tag === 'INPUT' || tag === 'TEXTAREA';
+	if (isField || (el as HTMLElement).isContentEditable) {
+		(el as HTMLElement).focus();
+		if (isField) {
+			const field = el as HTMLInputElement | HTMLTextAreaElement;
+			// React's controlled inputs need the *native* value setter from the
+			// element's own realm, then a bubbling input event.
+			const win = (el.ownerDocument.defaultView ?? window) as typeof window;
+			const proto =
+				tag === 'INPUT' ? win.HTMLInputElement.prototype : win.HTMLTextAreaElement.prototype;
+			const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+			const next = payload.replace ? payload.text : `${field.value}${payload.text}`;
+			if (setter) setter.call(field, next);
+			else field.value = next;
 			el.dispatchEvent(new Event('input', { bubbles: true }));
 			el.dispatchEvent(new Event('change', { bubbles: true }));
 		} else {
@@ -840,13 +897,15 @@ async function handleTerminalSend(payload: TerminalSendPayload) {
 }
 
 function handleKey(payload: KeyPayload) {
-	if (isIframePane(payload.pane)) {
+	const reg = resolveIframeReg(payload.pane);
+	const directDoc = reg ? directDocFor(reg) : null;
+	if (reg && !directDoc) {
 		const id = useIykeActivity.getState().begin({
 			kind: 'key',
-			scope: payload.pane!,
+			scope: reg.paneId,
 			detail: payload.combo,
 		});
-		postToIframeFireAndForget(payload.pane!, 'key', {
+		postToIframeFireAndForget(reg.paneId, 'key', {
 			combo: payload.combo,
 			ref: payload.ref ?? null,
 			selector: payload.selector ?? null,
@@ -854,8 +913,11 @@ function handleKey(payload: KeyPayload) {
 		useIykeActivity.getState().end(id);
 		return;
 	}
+	const fallbackDoc = directDoc ?? document;
 	const target =
-		resolveTarget(payload.ref, payload.selector, null) ?? document.activeElement ?? document.body;
+		resolveTarget(payload.ref, payload.selector, null, directDoc ?? undefined) ??
+		fallbackDoc.activeElement ??
+		fallbackDoc.body;
 	if (!target) return;
 	const id = useIykeActivity.getState().begin({
 		kind: 'key',
@@ -902,7 +964,9 @@ export function useIykeBridge(): void {
 		track(listen<DomRequestPayload>('iyke://dom-request', (e) => handleDomRequest(e.payload)));
 		track(
 			listen<{ request_id: string; pane: string }>('iyke://iframe-state-request', (e) => {
-				const reg = getIframe(e.payload.pane);
+				// resolveIframeReg also maps pane-leaf ids (from `iyke state`) whose
+				// active tab is a /pkg/<pkgId>/ route to that pkg's registration.
+				const reg = resolveIframeReg(e.payload.pane);
 				const state = reg ? reg.state : null;
 				invoke('iyke_dom_done', {
 					requestId: e.payload.request_id,

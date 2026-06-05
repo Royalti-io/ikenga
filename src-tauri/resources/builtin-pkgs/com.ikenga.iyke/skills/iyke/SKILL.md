@@ -42,7 +42,7 @@ iyke refresh                  # re-mount the focused pane (React key bump)
 iyke focus <id|index>         # focus a pane by id or 1-based DFS index (matches Ctrl+1..Ctrl+6)
 iyke split                    # split the focused pane
 iyke close                    # close focused (or specified) pane
-iyke iframe-state             # read the latest publishState() value from the focused iframe pane
+iyke iframe-state             # read the latest published state from an iframe pane (e.g. the tasks pkg's open-task selection)
 iyke iframe-send <pane> <evt> # postMessage into an iframe pane
 iyke devtools                 # open DevTools (debug builds only)
 ```
@@ -56,6 +56,19 @@ Add `--json` to most commands for structured output.
 3. **The focused pane is what `iyke go` and `iyke dom` operate on.** If the user has multiple panes open, run `iyke state` first to see which is focused. Switch with `iyke focus <index>` (1-based, matching the Ctrl+N keybindings).
 4. **React strict-mode mounts effects 2× in dev** — when asserting on counters from `iyke logs`, use `> 0`, not `=== 1`.
 5. **`iyke open route`** opens a NEW tab; `iyke go` reuses the focused tab. Prefer `iyke go` unless you specifically want to preserve the existing pane.
+
+## Reading pkg panes (Tasks, Agent Ops, …)
+
+Pkg mini-apps mount as **same-origin srcdoc iframes**, and `iyke dom` descends into them — the pane's content appears inline in the snapshot (under an `iframe "com.ikenga.tasks"` node). `iyke click --text` / `--selector`, `iyke type`, and `iyke wait` also resolve targets inside pkg panes. **Do NOT open SQLite to answer "what is the pane showing"** — the DB can't tell you what's selected on screen anyway. Fast paths, in order:
+
+```bash
+iyke state --json             # leaves[] carry `pkg` + `state` for pkg panes — e.g.
+                              #   {"pkg":"com.ikenga.tasks","state":{"selection":{"view":"tasks","taskId":"…"}}}
+iyke iframe-state --pane com.ikenga.tasks   # same `state` object, fetched live (pane-leaf ids work too)
+iyke dom                      # full a11y tree incl. pkg-pane content; add --pane com.ikenga.tasks to scope
+```
+
+With the selected entity's id from `state.selection`, a *data* follow-up (not a UI question) can then go to SQLite — see *When iyke isn't enough* for the path.
 
 ## Common patterns
 
@@ -92,6 +105,6 @@ Useful when you want to see the data the UI is rendering without scraping the DO
 Iyke can read and drive the running app, but it can NOT:
 - Run Tauri commands directly (use the `pkg_*` / `iyke_*` HTTP routes that ARE exposed; otherwise spawn a child process and call them another way)
 - Modify Rust code (use Edit/Write)
-- Inspect SQLite directly (open `~/.local/share/io.royalti.pa.desktop/pa.db` with the `sqlite3` CLI)
+- Inspect SQLite directly. The app's local store is `ikenga.db` in the app data dir — Linux `~/.local/share/app.ikenga/ikenga.db`, macOS `~/Library/Application Support/app.ikenga/ikenga.db`. Open it read-only (`sqlite3 'file:…/ikenga.db?mode=ro'`). Ignore any stale `pa.db` sitting next to it — that's the pre-rename legacy file and is NOT what the running app writes.
 
 If you're hitting a limit, surface it and ask — don't loop on the same failing iyke command. Two attempts max.

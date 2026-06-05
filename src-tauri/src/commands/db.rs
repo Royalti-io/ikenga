@@ -1,7 +1,7 @@
 //! SQLite commands. Thin wrappers over tauri-plugin-sql's connection pool.
 //!
 //! tauri-plugin-sql exposes JS bindings directly (the frontend can do
-//! `Database.load("sqlite:pa.db").then(db => db.execute(...))`), but we
+//! `Database.load("sqlite:ikenga.db").then(db => db.execute(...))`), but we
 //! re-expose `db_query` / `db_exec` as Tauri commands so callers that prefer
 //! the typed wrapper in `tauri-cmd.ts` don't have to manage their own DB
 //! handle.
@@ -21,7 +21,7 @@ use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, S
 use tauri::{AppHandle, Manager, State};
 use tokio::sync::Mutex;
 
-/// SQLite handle for the local `pa.db`.
+/// SQLite handle for the local `ikenga.db`.
 ///
 /// WP-01 (G-DB-CORE): the database is opened through **two** sqlx pools rather
 /// than one shared pool. SQLite is single-writer; under a single shared pool a
@@ -108,7 +108,7 @@ impl PaDb {
         // Apply migrations idempotently against the writer exactly once.
         // tauri-plugin-sql's migration runner only fires when JS calls
         // Database.load(), and that path has been observed to silently hang
-        // (see raceTimeout in workspace.tsx). When it times out, pa.db stays
+        // (see raceTimeout in workspace.tsx). When it times out, ikenga.db stays
         // schema-less and every Rust-side query fails with "no such table".
         // Running migrations on the Rust writer makes the schema guaranteed
         // regardless of plugin behavior.
@@ -288,7 +288,7 @@ async fn ensure_schema(pool: &sqlx::SqlitePool) -> Result<(), String> {
         // SQLite as STRICT tables. Source of truth is royalti-pa's
         // supabase/migrations/*.sql (consolidated to one CREATE per table,
         // folding in subsequent ALTER … ADD COLUMN). Grouped by domain. These
-        // are the local-store target for the Supabase → pa.db migration; the
+        // are the local-store target for the Supabase → ikenga.db migration; the
         // WP-03 ETL loads rows, WP-05's validator reads the generated
         // `tables.json` (see `write_tables_manifest`).
         (
@@ -613,7 +613,7 @@ pub async fn db_exec(
 }
 
 /// WP-02 (G-05): emit a generated `tables.json` schema manifest next to
-/// `pa.db`. Introspects `sqlite_master` + `PRAGMA table_info(<table>)` and
+/// `ikenga.db`. Introspects `sqlite_master` + `PRAGMA table_info(<table>)` and
 /// writes a deterministic (sorted-key) map:
 ///
 /// ```json
@@ -853,7 +853,7 @@ mod tests {
     }
 
     /// WP-02 (G-05): the tables.json emitter writes a parseable manifest next
-    /// to pa.db that includes the new domain tables, marks them STRICT, and
+    /// to ikenga.db that includes the new domain tables, marks them STRICT, and
     /// excludes bookkeeping/internal tables.
     #[tokio::test]
     async fn wp02_tables_manifest_emits_and_parses() {

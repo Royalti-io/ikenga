@@ -73,6 +73,10 @@ export function currentStateGeneration(): number {
 	return stateGeneration;
 }
 
+/** Fired on window whenever an iframe publishes state, so the iyke shell-state
+ *  mirror (use-iyke-shell-sync) can re-push the panes payload. */
+export const IFRAME_STATE_EVENT = 'iyke:iframe-state-changed';
+
 // ── pending RPC ──────────────────────────────────────────────────────────
 
 interface PendingEntry<T = unknown> {
@@ -207,6 +211,9 @@ export function installIykeIframeMessageListener() {
 					const { key, value } = data.payload as { key: string; value: unknown };
 					reg.state[key] = value;
 					bumpStateGeneration();
+					window.dispatchEvent(
+						new CustomEvent(IFRAME_STATE_EVENT, { detail: { paneId: reg.paneId, key } })
+					);
 				}
 				return;
 			}

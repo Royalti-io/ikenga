@@ -37,6 +37,7 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { useEffect, useRef, useState } from 'react';
 
 import { sendToActiveSession } from '@/components/pkg/send-to-active-session';
+import { registerIykeIframe } from '@/lib/iyke/iframe-registry';
 import { mintPkgToken } from '@/lib/pkg/auth-token';
 import { buildHostContext } from '@/lib/pkg/host-context';
 import { usePaneStore } from '@/lib/panes/pane-store';
@@ -152,7 +153,7 @@ async function pkgDeclaresScope(pkgId: string, resource: string, action: string)
 }
 
 // Whether the pkg declared `capabilities.sqlite` (opt-in to reading the local
-// `pa.db`). Gates `host.dbQuery`. Same manifest-lookup shape as
+// `ikenga.db`). Gates `host.dbQuery`. Same manifest-lookup shape as
 // `pkgDeclaresScope`; fails closed on any error.
 async function pkgDeclaresSqlite(pkgId: string): Promise<boolean> {
 	try {
@@ -208,7 +209,7 @@ async function pkgSqliteTables(pkgId: string): Promise<string[]> {
 // Best-effort target-table extraction from a single write statement, for the
 // `host.dbExec` table-scope guard. Matches the leading `INSERT INTO <t>` /
 // `UPDATE <t>` / `DELETE FROM <t>`, stripping optional quoting. This is
-// defense-in-depth over a single-user local pa.db (the SQL is
+// defense-in-depth over a single-user local ikenga.db (the SQL is
 // pkg-author-controlled, not attacker-supplied) — not a hard security
 // boundary. Returns null when no table can be identified, which the caller
 // treats as a rejection.
@@ -291,7 +292,7 @@ export async function dispatchHostCall(
 	}
 
 	if (name === 'host.dbQuery') {
-		// Read-path bridge (WP-04): lets an iframe pkg read the local `pa.db`
+		// Read-path bridge (WP-04): lets an iframe pkg read the local `ikenga.db`
 		// via the host's `db_query` Tauri command instead of an in-iframe
 		// supabase-js client. Gated on the pkg declaring `capabilities.sqlite`
 		// (opt-in to local SQLite) — `host.*` verbs bypass the kernel's scope
@@ -299,7 +300,7 @@ export async function dispatchHostCall(
 		// `db_query` is SELECT-only on the Rust side; we additionally reject
 		// non-SELECT/WITH text as defense-in-depth. (Table-level scoping to the
 		// pkg's declared `permissions['sqlite.tables']` is a follow-up — the
-		// risk here is read-only access to the user's own single-user pa.db.)
+		// risk here is read-only access to the user's own single-user ikenga.db.)
 		const sql = typeof args.sql === 'string' ? args.sql : null;
 		if (!sql) {
 			return errResult('host.dbQuery: missing required `sql` argument');
@@ -324,7 +325,7 @@ export async function dispatchHostCall(
 
 	if (name === 'host.dbExec') {
 		// Write-path bridge (local-store write-path WP): lets an iframe pkg write
-		// to the local `pa.db` via the host's `db_exec` Tauri command, so the last
+		// to the local `ikenga.db` via the host's `db_exec` Tauri command, so the last
 		// supabase-js dependency (the tasks status-update write) can be removed.
 		// `host.*` verbs bypass the kernel's scope enforcement, so every guard
 		// happens here and fails closed:
@@ -333,7 +334,7 @@ export async function dispatchHostCall(
 		//   2. `capabilities.sqlite` opt-in (same gate as `host.dbQuery`).
 		//   3. table-scope — the statement's target table must be in the pkg's
 		//      declared `permissions['sqlite.tables']`. Defense-in-depth over a
-		//      single-user local pa.db (see `writeTargetTable`), not a hard boundary.
+		//      single-user local ikenga.db (see `writeTargetTable`), not a hard boundary.
 		const sql = typeof args.sql === 'string' ? args.sql : null;
 		if (!sql) {
 			return errResult('host.dbExec: missing required `sql` argument');
@@ -544,7 +545,9 @@ export async function dispatchHostCall(
 				content: [
 					{
 						type: 'text',
-						text: res?.ok ? `tail ${jobId} @${res?.nextOffset ?? 0}` : `tail-run: ${res?.error ?? 'failed'}`,
+						text: res?.ok
+							? `tail ${jobId} @${res?.nextOffset ?? 0}`
+							: `tail-run: ${res?.error ?? 'failed'}`,
 					},
 				],
 				structuredContent: res,
@@ -571,7 +574,9 @@ export async function dispatchHostCall(
 				content: [
 					{
 						type: 'text',
-						text: res?.ok ? `${jobId} enabled=${args.enabled}` : `setEnabled: ${res?.error ?? 'failed'}`,
+						text: res?.ok
+							? `${jobId} enabled=${args.enabled}`
+							: `setEnabled: ${res?.error ?? 'failed'}`,
 					},
 				],
 				structuredContent: res,
@@ -589,7 +594,12 @@ export async function dispatchHostCall(
 			const res = (await agentOpsListJobs()) as Record<string, unknown>;
 			const jobs = Array.isArray(res?.jobs) ? res.jobs.length : 0;
 			return {
-				content: [{ type: 'text', text: res?.ok ? `${jobs} job(s)` : `listJobs: ${res?.error ?? 'failed'}` }],
+				content: [
+					{
+						type: 'text',
+						text: res?.ok ? `${jobs} job(s)` : `listJobs: ${res?.error ?? 'failed'}`,
+					},
+				],
 				structuredContent: res,
 			};
 		} catch (e) {
@@ -608,7 +618,12 @@ export async function dispatchHostCall(
 		try {
 			const res = (await agentOpsUpsertJob(job)) as Record<string, unknown>;
 			return {
-				content: [{ type: 'text', text: res?.ok ? `upserted ${res.jobId}` : `upsertJob: ${res?.error ?? 'failed'}` }],
+				content: [
+					{
+						type: 'text',
+						text: res?.ok ? `upserted ${res.jobId}` : `upsertJob: ${res?.error ?? 'failed'}`,
+					},
+				],
 				structuredContent: res,
 			};
 		} catch (e) {
@@ -627,7 +642,12 @@ export async function dispatchHostCall(
 		try {
 			const res = (await agentOpsDeleteJob(jobId)) as Record<string, unknown>;
 			return {
-				content: [{ type: 'text', text: res?.ok ? `deleted ${jobId}` : `deleteJob: ${res?.error ?? 'failed'}` }],
+				content: [
+					{
+						type: 'text',
+						text: res?.ok ? `deleted ${jobId}` : `deleteJob: ${res?.error ?? 'failed'}`,
+					},
+				],
 				structuredContent: res,
 			};
 		} catch (e) {
@@ -741,6 +761,22 @@ export function PkgIframeHost({ pkgId, source, onInitialized }: PkgIframeHostPro
 			// request could 404 mid-teardown.
 		};
 	}, [pkgId, source, reloadKey]);
+
+	// Step 1c: register the iframe with the iyke iframe registry, keyed by
+	// pkg id (the pkg route catch-all has no real pane id — see
+	// routes/pkg/$pkgId/$.tsx). The iyke bridge resolves `--pane <pkgId>`
+	// directly and maps pane-leaf ids showing a /pkg/<pkgId>/ route to this
+	// registration. Because srcdoc iframes are same-origin and never send the
+	// iyke `hello`, the bridge serves dom/click/type/wait for this
+	// registration host-side against contentDocument (no postMessage bridge
+	// needed), and `{__iyke:true, kind:'state'}` postMessages from the pkg
+	// land in `reg.state` for `iyke iframe-state`. If the same pkg is mounted
+	// in two panes the last mount wins — acceptable for a debug surface.
+	useEffect(() => {
+		const el = iframeRef.current;
+		if (!el || !srcDoc) return;
+		return registerIykeIframe(pkgId, el, 'pkg-iframe');
+	}, [srcDoc, pkgId]);
 
 	// Step 1b (dev-mode): listen for `Kernel::reload_pkg` events and bump the
 	// reload counter when our pkg id matches. Only one listener per host

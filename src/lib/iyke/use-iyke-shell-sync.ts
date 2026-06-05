@@ -6,6 +6,7 @@ import { findLeaf, getLeafIdsInOrder } from '@/lib/panes/pane-reducer';
 import type { PaneId, PaneNode, PaneView } from '@/lib/panes/types';
 
 import { setShell } from './client';
+import { getIframe, IFRAME_STATE_EVENT } from './iframe-registry';
 
 /**
  * Bridge between React shell state and the Iyke Rust mirror. Mounted
@@ -24,13 +25,27 @@ export function useIykeShellSync(): void {
 	const root = usePaneStore((s) => s.root);
 
 	useEffect(() => {
-		const view = usePaneStore.getState().focusedView();
-		const route = view && view.kind === 'route' ? view.path : null;
-		const panes = buildPanesPayload(root, focusedId);
-		setShell({ mode: activeMode, route, panes }).catch((err) => {
-			console.warn('[iyke] set_shell failed:', err);
-		});
+		pushShellState();
 	}, [activeMode, focusedId, root]);
+
+	// Re-push when a pkg iframe publishes state (selection etc.) so
+	// `iyke state` reflects it without waiting for a pane-tree mutation.
+	useEffect(() => {
+		const onState = () => pushShellState();
+		window.addEventListener(IFRAME_STATE_EVENT, onState);
+		return () => window.removeEventListener(IFRAME_STATE_EVENT, onState);
+	}, []);
+}
+
+function pushShellState(): void {
+	const activeMode = useShellStore.getState().activeMode;
+	const paneState = usePaneStore.getState();
+	const view = paneState.focusedView();
+	const route = view && view.kind === 'route' ? view.path : null;
+	const panes = buildPanesPayload(paneState.root, paneState.focusedId);
+	setShell({ mode: activeMode, route, panes }).catch((err) => {
+		console.warn('[iyke] set_shell failed:', err);
+	});
 }
 
 interface LeafSummary {
@@ -38,6 +53,10 @@ interface LeafSummary {
 	focused: boolean;
 	activeTabIdx: number;
 	tabs: Array<{ kind: string; title: string; pinned?: boolean }>;
+	/** Pkg id when the active tab is a /pkg/<id>/ route. */
+	pkg?: string;
+	/** Latest state the pkg iframe published (e.g. open-task selection). */
+	state?: Record<string, unknown>;
 }
 
 interface PanesPayload {
@@ -54,7 +73,7 @@ function buildPanesPayload(root: PaneNode, focusedId: PaneId): PanesPayload {
 			// tree, so findLeaf should always succeed.
 			return { id, focused: false, activeTabIdx: 0, tabs: [] };
 		}
-		return {
+		const summary: LeafSummary = {
 			id,
 			focused: id === focusedId,
 			activeTabIdx: leaf.activeTabIdx,
@@ -64,6 +83,20 @@ function buildPanesPayload(root: PaneNode, focusedId: PaneId): PanesPayload {
 				...(t.pinned ? { pinned: true } : {}),
 			})),
 		};
+		// Surface the pkg id + its latest published state (selection etc.) for
+		// pkg-route panes, so external callers can answer "what's open in this
+		// pane" from `iyke state` alone. Pkg iframes register by pkg id —
+		// see pkg-iframe-host.tsx Step 1c.
+		const active = leaf.tabs[leaf.activeTabIdx];
+		if (active?.kind === 'route') {
+			const m = /^\/pkg\/([^/]+)/.exec(active.path);
+			if (m) {
+				summary.pkg = m[1];
+				const reg = getIframe(m[1]);
+				if (reg && Object.keys(reg.state).length > 0) summary.state = reg.state;
+			}
+		}
+		return summary;
 	});
 	return { leaves, tree: root };
 }

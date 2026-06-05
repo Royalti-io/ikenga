@@ -82,6 +82,26 @@ function walk(el: Element, opts: SnapshotOptions, counter: { n: number; refs: nu
 	if (SKIP_TAGS.has(el.tagName)) return [];
 	if (!opts.all && !isVisible(el)) return [];
 
+	// Same-origin iframes (pkg panes are srcdoc → parent-origin) are
+	// transparent: descend into their document so `iyke dom` sees pane
+	// content without any iframe-side bridge. Cross-origin iframes throw /
+	// return null on contentDocument access and stay opaque.
+	if (el.tagName === 'IFRAME') {
+		const innerBody = sameOriginIframeBody(el as HTMLIFrameElement);
+		if (innerBody) {
+			const ref = assignRef(el);
+			const name = el.getAttribute('data-pkg-id') ?? el.getAttribute('title') ?? el.id ?? undefined;
+			const node: AxNode = {
+				ref,
+				role: 'iframe',
+				children: walk(innerBody, opts, counter),
+			};
+			if (name) node.name = name;
+			return [node];
+		}
+		// fall through — opaque iframe, treated like any other element
+	}
+
 	const role = ariaRole(el);
 	const name = accessibleName(el);
 	const value = elementValue(el);
@@ -142,6 +162,30 @@ function walk(el: Element, opts: SnapshotOptions, counter: { n: number; refs: nu
 	return [node];
 }
 
+/** The iframe's document body when it is same-origin-readable, else null. */
+export function sameOriginIframeBody(iframe: HTMLIFrameElement): HTMLElement | null {
+	try {
+		return iframe.contentDocument?.body ?? null;
+	} catch {
+		return null; // cross-origin
+	}
+}
+
+/**
+ * The host document plus every same-origin iframe document reachable from it
+ * (recursively — srcdoc pkg iframes inherit the parent origin). Used by the
+ * selector/text resolvers and wait predicates so targets inside pkg panes
+ * resolve without an iframe-side bridge.
+ */
+export function allSearchDocs(root: Document = document): Document[] {
+	const out: Document[] = [root];
+	for (const frame of Array.from(root.querySelectorAll('iframe'))) {
+		const body = sameOriginIframeBody(frame);
+		if (body?.ownerDocument) out.push(...allSearchDocs(body.ownerDocument));
+	}
+	return out;
+}
+
 function assignRef(el: Element): string {
 	// Reuse existing ref when an element appears more than once via the
 	// text-promotion path.
@@ -154,17 +198,19 @@ function assignRef(el: Element): string {
 }
 
 function isVisible(el: Element): boolean {
-	if (!(el instanceof HTMLElement) && !(el instanceof SVGElement)) return true;
 	if (el.getAttribute('aria-hidden') === 'true') return false;
-	const style = window.getComputedStyle(el as HTMLElement);
+	// Use the element's own window — host getComputedStyle on an element from
+	// an iframe document returns unreliable results across engines. (No
+	// instanceof HTMLElement gating here: it fails across realms — iframe
+	// documents have their own constructors.)
+	const win = el.ownerDocument.defaultView ?? window;
+	const style = win.getComputedStyle(el);
 	if (style.display === 'none' || style.visibility === 'hidden') return false;
 	// 0-size elements with no children. Allow size=0 for input[type=hidden]-style cases.
-	if (el instanceof HTMLElement) {
-		const rect = el.getBoundingClientRect();
-		if (rect.width === 0 && rect.height === 0 && el.children.length === 0) {
-			// Inputs with type=hidden are intentionally 0-size. Keep them in --all only.
-			return false;
-		}
+	const rect = el.getBoundingClientRect();
+	if (rect.width === 0 && rect.height === 0 && el.children.length === 0) {
+		// Inputs with type=hidden are intentionally 0-size. Keep them in --all only.
+		return false;
 	}
 	return true;
 }
@@ -325,19 +371,23 @@ function accessibleName(el: Element): string | undefined {
 	if (lb) {
 		const parts = lb
 			.split(/\s+/)
-			.map((id) => document.getElementById(id)?.textContent ?? '')
+			.map((id) => el.ownerDocument.getElementById(id)?.textContent ?? '')
 			.filter(Boolean);
 		if (parts.length > 0) return parts.join(' ').trim();
 	}
-	if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
-		if (el.placeholder) return el.placeholder;
-		const id = el.id;
+	// instanceof checks fail across realms (iframe docs have their own
+	// HTMLInputElement constructor), so test by tag name instead.
+	const tagName = el.tagName;
+	if (tagName === 'INPUT' || tagName === 'TEXTAREA') {
+		const field = el as HTMLInputElement | HTMLTextAreaElement;
+		if (field.placeholder) return field.placeholder;
+		const id = field.id;
 		if (id) {
-			const lbl = document.querySelector(`label[for="${cssEscape(id)}"]`);
+			const lbl = el.ownerDocument.querySelector(`label[for="${cssEscape(id)}"]`);
 			if (lbl) return (lbl.textContent ?? '').trim();
 		}
 	}
-	if (el instanceof HTMLImageElement && el.alt) return el.alt;
+	if (tagName === 'IMG' && (el as HTMLImageElement).alt) return (el as HTMLImageElement).alt;
 	// For buttons + links + headings: use text content.
 	const tag = el.tagName.toLowerCase();
 	if (['button', 'a', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'summary'].includes(tag)) {
@@ -348,13 +398,16 @@ function accessibleName(el: Element): string | undefined {
 }
 
 function elementValue(el: Element): string | undefined {
-	if (el instanceof HTMLInputElement) {
-		if (['hidden'].includes(el.type)) return undefined;
-		if (['checkbox', 'radio'].includes(el.type)) return undefined;
-		return el.value || undefined;
+	// Tag-name checks instead of instanceof — cross-realm safe (iframe docs).
+	const tag = el.tagName;
+	if (tag === 'INPUT') {
+		const input = el as HTMLInputElement;
+		if (['hidden'].includes(input.type)) return undefined;
+		if (['checkbox', 'radio'].includes(input.type)) return undefined;
+		return input.value || undefined;
 	}
-	if (el instanceof HTMLTextAreaElement) return el.value || undefined;
-	if (el instanceof HTMLSelectElement) return el.value || undefined;
+	if (tag === 'TEXTAREA') return (el as HTMLTextAreaElement).value || undefined;
+	if (tag === 'SELECT') return (el as HTMLSelectElement).value || undefined;
 	return undefined;
 }
 
@@ -399,15 +452,23 @@ function renderText(nodes: AxNode[], depth: number): string {
 
 // --- selector / text resolution ------------------------------------------
 
-export function resolveBySelector(selector: string): Element | null {
-	try {
-		return document.querySelector(selector);
-	} catch {
-		return null;
+export function resolveBySelector(selector: string, doc?: Document): Element | null {
+	// With an explicit doc, search only it (pane-scoped resolution). Without
+	// one, search the host document first, then every same-origin iframe doc
+	// (pkg panes) so `iyke click --selector` reaches inside panes.
+	const docs = doc ? [doc] : allSearchDocs();
+	for (const d of docs) {
+		try {
+			const el = d.querySelector(selector);
+			if (el) return el;
+		} catch {
+			return null; // invalid selector — same in every doc
+		}
 	}
+	return null;
 }
 
-export function resolveByText(text: string): Element | null {
+export function resolveByText(text: string, doc?: Document): Element | null {
 	// Resolve against the *accessible name* the snapshot reports (aria-label /
 	// aria-labelledby / alt / placeholder / text), not just visible text. Icon-
 	// only controls — the whole activity bar, theme toggle, many toolbar buttons
@@ -416,23 +477,29 @@ export function resolveByText(text: string): Element | null {
 	// Matching the name makes the snapshot's `name` field a stable click target.
 	const needle = text.trim();
 	if (!needle) return null;
-	// `[aria-label]` widens the set to those icon buttons; the role list keeps
-	// custom interactive elements that aren't native button/a.
-	const candidates = document.querySelectorAll<HTMLElement>(
-		'button, a, summary, label, [aria-label], [role=button], [role=link], [role=menuitem], [role=tab], [role=option], [role=checkbox], [role=switch], [role=radio]'
-	);
 	let exact: HTMLElement | null = null;
 	let partial: HTMLElement | null = null;
-	for (const el of Array.from(candidates)) {
-		const name = (accessibleName(el) ?? '').trim();
-		const txt = (el.innerText ?? el.textContent ?? '').trim();
-		// Prefer an exact name/text hit; fall back to substring (the original
-		// behaviour). On ties, prefer the innermost (most specific) element.
-		if (name === needle || txt === needle) {
-			if (!exact || (exact.contains(el) && el !== exact)) exact = el;
-		} else if (name.includes(needle) || txt.includes(needle)) {
-			if (!partial || (partial.contains(el) && el !== partial)) partial = el;
+	// With an explicit doc, search only it (pane-scoped resolution); otherwise
+	// the host doc + every same-origin iframe doc, so pkg-pane targets resolve.
+	for (const d of doc ? [doc] : allSearchDocs()) {
+		// `[aria-label]` widens the set to those icon buttons; the role list keeps
+		// custom interactive elements that aren't native button/a.
+		const candidates = d.querySelectorAll<HTMLElement>(
+			'button, a, summary, label, [aria-label], [role=button], [role=link], [role=menuitem], [role=tab], [role=option], [role=checkbox], [role=switch], [role=radio]'
+		);
+		for (const el of Array.from(candidates)) {
+			const name = (accessibleName(el) ?? '').trim();
+			const txt = (el.innerText ?? el.textContent ?? '').trim();
+			// Prefer an exact name/text hit; fall back to substring (the original
+			// behaviour). On ties, prefer the innermost (most specific) element.
+			if (name === needle || txt === needle) {
+				if (!exact || (exact.contains(el) && el !== exact)) exact = el;
+			} else if (name.includes(needle) || txt.includes(needle)) {
+				if (!partial || (partial.contains(el) && el !== partial)) partial = el;
+			}
 		}
+		// An exact hit in an earlier doc (host first) wins outright.
+		if (exact) break;
 	}
 	return exact ?? partial;
 }
