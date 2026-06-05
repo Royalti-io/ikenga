@@ -1,7 +1,7 @@
 // Layout-state persistence helpers for the workspace shell.
 //
-// Primary store: tauri-plugin-sql (sqlite:ikenga.db, `layout_state` kv).
-// Fallback: window.localStorage. The fallback exists because Database.load
+// Primary store: the canonical app SQLite db via `loadAppDb()` (`layout_state`
+// kv). Fallback: window.localStorage. The fallback exists because Database.load
 // has been observed to silently never resolve in some launches — the
 // terminal session-store uses the same pattern. localStorage keys are
 // namespaced under `__lstate__:` to avoid collision with other writers.
@@ -11,7 +11,8 @@
 // prefer SQLite and fall through to localStorage on any error or timeout.
 // Net result: state is durable even when the SQL plugin is misbehaving.
 
-import Database from '@tauri-apps/plugin-sql';
+import type Database from '@tauri-apps/plugin-sql';
+import { loadAppDb } from '@/lib/sql-db';
 
 const SQL_TIMEOUT_MS = 1500;
 const LS_PREFIX = '__lstate__:';
@@ -37,11 +38,7 @@ function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
 /** Returns the SQL Database, or null if the plugin is unavailable / hung. */
 function getDb(): Promise<Database | null> {
 	if (!dbPromise) {
-		dbPromise = withTimeout(
-			Database.load('sqlite:ikenga.db'),
-			SQL_TIMEOUT_MS,
-			'Database.load(ikenga.db)'
-		)
+		dbPromise = withTimeout(loadAppDb(), SQL_TIMEOUT_MS, 'loadAppDb(ikenga.db)')
 			.then<Database | null>((db) => db)
 			.catch((err) => {
 				// eslint-disable-next-line no-console

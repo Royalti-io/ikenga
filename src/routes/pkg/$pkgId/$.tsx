@@ -2,15 +2,22 @@
 //
 // Resolves /pkg/<pkgId>/<splat> against UiRoutesRegistry. If the registry
 // has an entry for `pkg://<pkgId>/<splat>` with kind=iframe, we mount it via
-// PkgIframeHost. Anything else (no entry, kind=component for a non-builtin,
-// pkg uninstalled mid-session) renders a NotFound state — making uninstall
-// a real 404, which is the contract this whole mechanism exists to provide.
+// PkgIframeHost.
 //
-// Builtins (Tasks) keep their host route file (`src/routes/tasks/...`); the
-// catch-all is the third-party path. The two coexist because the host route
-// file wins under TanStack's router resolution.
+// STALE-SUBPATH HEALING: if the exact subpath isn't registered but the pkg IS
+// installed (it has other registered routes), we redirect to the pkg's primary
+// route (preferring `/`) instead of showing a hard error. This is what a
+// persisted pane pointing at a since-removed subpath needs — e.g. a saved
+// `/pkg/com.ikenga.tasks/tasks` pane after the tasks pkg moved to a single
+// root route with in-iframe view switching. Only when the pkg has NO routes at
+// all (genuinely uninstalled) do we render the NotFound 404 — that's the
+// contract this mechanism exists to provide.
+//
+// (Historical note: Tasks used to be a host-route builtin under
+// `src/routes/tasks/`; it's now a normal installed pkg, so the catch-all is the
+// only path for it too.)
 
-import { createFileRoute } from '@tanstack/react-router';
+import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useEffect, useState } from 'react';
 
 import { PkgIframeHost } from '@/components/pkg/pkg-iframe-host';
@@ -34,10 +41,12 @@ type State =
 	| { kind: 'iframe'; entry: UiRouteEntry }
 	| { kind: 'webview'; entry: UiRouteEntry }
 	| { kind: 'unmountable'; entry: UiRouteEntry }
+	| { kind: 'redirect'; toSplat: string }
 	| { kind: 'not_found'; routePath: string };
 
 function PkgRouteCatchAll() {
 	const { pkgId, _splat } = Route.useParams() as { pkgId: string; _splat: string };
+	const navigate = useNavigate();
 	// The splat doesn't include the leading slash; the registry stores
 	// entries with a leading-slash path, so we add it back here.
 	const routePath = `/${_splat ?? ''}`.replace(/\/+$/, '/').replace(/\/$/, '') || '/';
@@ -59,6 +68,23 @@ function PkgRouteCatchAll() {
 					entries.find((e) => e.pkg_id === pkgId && e.path === routePath + '/');
 				if (cancelled) return;
 				if (!entry) {
+					// No exact match. If the pkg is installed and has *some* route,
+					// the subpath is stale (e.g. a persisted pane from a prior pkg
+					// version) — heal it by redirecting to the pkg's primary route
+					// (prefer `/`) rather than dead-ending on a 404.
+					const pkgRoutes = entries.filter((e) => e.pkg_id === pkgId);
+					const fallback =
+						pkgRoutes.find((e) => e.path === '/') ??
+						pkgRoutes.find((e) => e.path === '') ??
+						pkgRoutes[0];
+					if (fallback) {
+						const fallbackSplat = fallback.path.replace(/^\//, '');
+						// Guard against a self-redirect loop (target === current).
+						if (fallbackSplat !== (_splat ?? '').replace(/\/+$/, '')) {
+							setState({ kind: 'redirect', toSplat: fallbackSplat });
+							return;
+						}
+					}
 					setState({ kind: 'not_found', routePath });
 					return;
 				}
@@ -81,9 +107,20 @@ function PkgRouteCatchAll() {
 		return () => {
 			cancelled = true;
 		};
-	}, [pkgId, routePath]);
+	}, [pkgId, routePath, _splat]);
 
-	if (state.kind === 'loading') {
+	// Perform the stale-subpath redirect once resolved. `replace` keeps the
+	// broken URL out of history so Back doesn't bounce into it again.
+	useEffect(() => {
+		if (state.kind !== 'redirect') return;
+		void navigate({
+			to: '/pkg/$pkgId/$',
+			params: { pkgId, _splat: state.toSplat },
+			replace: true,
+		});
+	}, [state, navigate, pkgId]);
+
+	if (state.kind === 'loading' || state.kind === 'redirect') {
 		return <div className="p-6 text-sm opacity-60">Resolving package route…</div>;
 	}
 	if (state.kind === 'not_found') {

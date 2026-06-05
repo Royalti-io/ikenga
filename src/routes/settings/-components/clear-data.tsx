@@ -3,12 +3,12 @@
 // cache, browser localStorage, AND the durable settings_kv mirror so a user
 // who clicks here gets a true clean slate (auth + theme survive).
 
-import { useState } from 'react';
 import { confirm as confirmDialog } from '@tauri-apps/plugin-dialog';
-import Database from '@tauri-apps/plugin-sql';
 import { AlertTriangle, Trash2 } from 'lucide-react';
+import { useState } from 'react';
 
 import { Button } from '@/components/ui/button';
+import { loadAppDb } from '@/lib/sql-db';
 import { settingsClearAll } from '@/lib/tauri-cmd';
 
 // Persistence keys this UI knows how to clear. Kept in one place so adding a
@@ -42,7 +42,7 @@ export function ClearDataSectionBody() {
 		try {
 			// SQLite content tables.
 			try {
-				const db = await Database.load('sqlite:ikenga.db');
+				const db = await loadAppDb();
 				const tables = [
 					'layout_state',
 					'viewer_recents',

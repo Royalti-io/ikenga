@@ -1,6 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { confirm as confirmDialog } from '@tauri-apps/plugin-dialog';
-import Database from '@tauri-apps/plugin-sql';
 import { Monitor, Moon, RotateCcw, Sun } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
@@ -24,6 +23,7 @@ import {
 	type IkengaTintStrength,
 	useIkengaStore,
 } from '@/lib/ikenga/theme-store';
+import { loadAppDb } from '@/lib/sql-db';
 
 import { LAYOUT_LS_PREFIX } from './-components/clear-data';
 import { SettingGroup } from './-components/setting-group';
@@ -636,7 +636,7 @@ function ResetLayoutButton() {
 			// SQLite layout_state table — best effort; the FE has localStorage as
 			// a fallback so success here isn't load-bearing.
 			try {
-				const db = await Database.load('sqlite:ikenga.db');
+				const db = await loadAppDb();
 				await db.execute('DELETE FROM layout_state');
 			} catch (e) {
 				console.warn('[settings] failed to clear layout_state', e);
