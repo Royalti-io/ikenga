@@ -471,6 +471,15 @@ jobs:
             const has  = f => fs.existsSync(path.join(dir, f));
             const read = f => fs.readFileSync(path.join(dir, f), "utf8").trim();
             // [updater platform key, .sig filename, bundle filename]
+            //
+            // tauri-plugin-updater resolves `{os}-{arch}-{installer}` FIRST,
+            // then falls back to `{os}-{arch}`. The installer suffix comes
+            // from the bundle type stamped into the running binary at build
+            // time — so a deb-installed shell looks for `linux-x86_64-deb`.
+            // Without that key it fell back to `linux-x86_64`, downloaded
+            // the AppImage, and install_deb rejected it (InvalidUpdaterFormat)
+            // AFTER the progress bar completed. The deb + deb.sig are already
+            // built and attached (createUpdaterArtifacts signs them); list them.
             const map = [
               ["darwin-aarch64",      "Ikenga_aarch64.app.tar.gz.sig",          "Ikenga_aarch64.app.tar.gz"],
               ["darwin-aarch64-app",  "Ikenga_aarch64.app.tar.gz.sig",          "Ikenga_aarch64.app.tar.gz"],
@@ -479,6 +488,7 @@ jobs:
               ["windows-x86_64",      "Ikenga_" + version + "_x64-setup.exe.sig",  "Ikenga_" + version + "_x64-setup.exe"],
               ["windows-x86_64-nsis", "Ikenga_" + version + "_x64-setup.exe.sig",  "Ikenga_" + version + "_x64-setup.exe"],
               ["linux-x86_64",        "Ikenga_" + version + "_amd64.AppImage.sig", "Ikenga_" + version + "_amd64.AppImage"],
+              ["linux-x86_64-deb",    "Ikenga_" + version + "_amd64.deb.sig",      "Ikenga_" + version + "_amd64.deb"],
             ];
             const platforms = {};
             for (const [key, sig, bundle] of map) {
