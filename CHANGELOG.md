@@ -1,5 +1,11 @@
 # ikenga-desktop
 
+## 0.2.7
+
+### Patch Changes
+
+- Heal stale package routes + fix FE SQLite pointing at an empty database. (1) A saved pane at an unregistered pkg subpath (e.g. `/pkg/com.ikenga.tasks/tasks` after tasks moved to a single root route) now redirects to the pkg's primary route instead of a hard "not registered" error. (2) The frontend SQL layer was opening an empty db in the app config dir while all data lives in the app data dir — layout persistence silently fell back to localStorage and "clear local data" silently cleared nothing; both now hit the real database.
+
 ## 0.2.6
 
 ### Patch Changes
