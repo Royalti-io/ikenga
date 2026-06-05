@@ -21,6 +21,8 @@
     "sql:allow-select",
     "sql:allow-load",
     "stronghold:default",
+    "updater:default",
+    "process:allow-restart",
     "global-shortcut:default",
     "clipboard-manager:allow-write-text",
     "notification:default",
