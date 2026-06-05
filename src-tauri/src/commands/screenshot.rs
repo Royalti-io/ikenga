@@ -212,7 +212,15 @@ pub async fn capture(
         }
         #[cfg(target_os = "windows")]
         {
-            let captured = emit_and_await(app, pending, kind, None, true).await?;
+            let captured = match emit_and_await(app, pending, kind, None, true).await? {
+                CaptureOutcome::Ok(r) => r,
+                CaptureOutcome::Err(msg) => {
+                    return Err(anyhow!("screenshot capture failed: {msg}"))
+                }
+                CaptureOutcome::NativeCrop { .. } => {
+                    return Err(anyhow!("FE returned native-crop request for window capture"))
+                }
+            };
             return write_capture(app, kind, None, out_path, captured).await;
         }
     }
