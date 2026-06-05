@@ -19,7 +19,12 @@ import { useEffect } from 'react';
 import { usePaneStore } from '@/lib/panes/pane-store';
 import type { PaneView } from '@/lib/panes/types';
 import { modeForRoute } from '@/lib/shell/mode-routes';
-import { ACTIVITY_MODES, type ActivityMode, useShellStore } from '@/lib/shell/shell-store';
+import {
+	ACTIVITY_MODES,
+	type ActivityMode,
+	isPkgMode,
+	useShellStore,
+} from '@/lib/shell/shell-store';
 import { createTerminalSession } from '@/terminal/single-terminal';
 
 interface GoPayload {
@@ -84,7 +89,13 @@ export function useIykeControlListener(): void {
 		track(
 			listen<ModePayload>('iyke:mode', (e) => {
 				const mode = e.payload?.mode;
-				if (!ACTIVITY_MODES.includes(mode as ActivityMode)) {
+				// CORE modes are allow-listed; dynamic `pkg:<id>` modes (one per
+				// installed app pkg) pass by prefix. A stale pkg mode reconciles
+				// to 'app' in the activity bar, so we needn't check the live set.
+				const valid =
+					typeof mode === 'string' &&
+					(ACTIVITY_MODES.includes(mode as ActivityMode) || isPkgMode(mode));
+				if (!valid) {
 					console.warn('[iyke] iyke:mode ignored — unknown mode:', mode);
 					return;
 				}

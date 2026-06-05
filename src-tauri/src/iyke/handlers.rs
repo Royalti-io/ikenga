@@ -1299,19 +1299,14 @@ fn emit(app: &AppHandle, event: &str, payload: Value) -> Result<(), (StatusCode,
 /// Modes recognized by the in-app `useShellStore`. Kept in sync with
 /// `src/lib/shell/shell-store.ts` (`ActivityMode`). Server-side check is
 /// a sanity gate; the FE listener is the source of truth.
+///
+/// CORE modes mirror the `CoreMode` union. Dynamic `pkg:<id>` modes (one per
+/// installed app pkg) are accepted by prefix — the FE reconciles a stale pkg
+/// mode to 'app' if the pkg isn't installed, so the bridge needn't know the
+/// live pkg set.
 fn is_valid_mode(m: &str) -> bool {
     matches!(
         m,
-        "app"
-            | "files"
-            | "agents"
-            | "sessions"
-            | "settings"
-            | "studio"
-            | "storyboard"
-            | "video-engine"
-            | "hyperframes"
-            | "canvas-design"
-            | "image-generator"
-    )
+        "app" | "files" | "sessions" | "artifact-grid" | "ngwa" | "pkgs" | "settings"
+    ) || m.starts_with("pkg:")
 }

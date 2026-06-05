@@ -1,9 +1,12 @@
-import { NAV_GROUPS } from '../nav-config';
-import { PkgMode, pkgIdFromRoute } from './pkg-mode';
-import { usePaneStore } from '@/lib/panes/pane-store';
 import { findLeaf } from '@/lib/panes/pane-reducer';
+import { usePaneStore } from '@/lib/panes/pane-store';
+import { NAV_GROUPS } from '../nav-config';
 import { SidebarNav, SidebarNavRow, SidebarNavSection } from './_nav';
 
+// App mode always renders the shell's main nav. Pkgs no longer borrow this
+// slot: each app pkg owns its own activity mode (`pkg:<id>`) and the sidebar
+// renders its menu there (see `sidebar.tsx` + `activity-bar.tsx`). That keeps
+// Home / Sessions / Scratchpads / Todos / Cron reachable while a pkg is open.
 export function AppMode() {
 	const navigateFocused = usePaneStore((s) => s.navigateFocused);
 	// Active highlight tracks the focused pane's active route view (if any).
@@ -13,17 +16,6 @@ export function AppMode() {
 		const tab = leaf.tabs[leaf.activeTabIdx];
 		return tab && tab.kind === 'route' ? tab.path : null;
 	});
-
-	// When the focused pane is on a pkg route, swap the sidebar to the pkg's
-	// runtime menu (published via `host.pkg.setMenu`). Matches the documented
-	// intent in `nav-config.ts`: "The pkg-aware sidebar is rendered alongside
-	// this list inside AppMode". v1 fully replaces the nav-config items; we
-	// can fold the home/scratchpads/todos shortcuts back in below the pkg menu
-	// if users miss them.
-	const pkgId = pkgIdFromRoute(activePath);
-	if (pkgId) {
-		return <PkgMode pkgId={pkgId} />;
-	}
 
 	return (
 		<SidebarNav ariaLabel="App navigation">
