@@ -390,6 +390,13 @@ async fn ensure_schema(pool: &sqlx::SqlitePool) -> Result<(), String> {
             "0042_mail_domain",
             include_str!("../../migrations/0042_mail_domain.sql"),
         ),
+        // WP-19b — outbound domain state tables (sequence steps · email approval
+        //           queue · generic sent log · newsletter draft queue + approval).
+        (
+            44,
+            "0044_outbound_domain",
+            include_str!("../../migrations/0044_outbound_domain.sql"),
+        ),
     ];
 
     for (id, name, sql) in migrations {
