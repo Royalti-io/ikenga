@@ -22,6 +22,7 @@ import {
 	type LucideIcon,
 } from 'lucide-react';
 
+import { Segmented } from '@/components/ui/segmented';
 import { usePkgMenuStore, type PkgMenuItem } from '@/lib/pkg/pkg-menu-store';
 import { SidebarNav, SidebarNavRow, SidebarNavSection } from './_nav';
 
@@ -86,6 +87,28 @@ export function PkgMode({ pkgId }: { pkgId: string }) {
 					className={gi > 0 ? 'border-t border-border/40 pt-3' : undefined}
 				>
 					{g.items.map((item) => {
+						// Segmented view-switcher (the locked `list-kanban-switch`
+						// pattern): renders as an inline pill strip; clicking an option
+						// publishes the OPTION's id as the active feature.
+						if (item.kind === 'seg' && item.options && item.options.length > 0) {
+							const value =
+								item.options.find((o) => o.active)?.id ??
+								item.options.find((o) => o.id === activeFeature)?.id ??
+								item.options[0]!.id;
+							return (
+								<Segmented
+									key={item.id}
+									variant="pill"
+									ariaLabel={g.section ? `${g.section} mode` : 'View mode'}
+									className="mx-2 my-1"
+									items={item.options.map((o) => ({ id: o.id, label: o.label }))}
+									value={value}
+									onValueChange={(id) => {
+										if (!item.disabled) setActiveFeature(pkgId, id);
+									}}
+								/>
+							);
+						}
 						// Pkg-driven `active` wins; otherwise fall back to the store's
 						// last-clicked feature. Disabled items never highlight / fire.
 						const isActive = item.disabled ? false : (item.active ?? item.id === activeFeature);

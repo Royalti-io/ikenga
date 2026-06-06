@@ -394,7 +394,34 @@ export async function dispatchHostCall(
 		for (const it of rawItems) {
 			if (!it || typeof it !== 'object') continue;
 			const obj = it as Record<string, unknown>;
-			if (typeof obj.id !== 'string' || typeof obj.label !== 'string') continue;
+			if (typeof obj.id !== 'string') continue;
+			// Segmented view-switcher item (the locked `list-kanban-switch`
+			// pattern): no top-level label; validated `options` are the mini-items.
+			if (obj.kind === 'seg') {
+				const rawOpts = Array.isArray(obj.options) ? obj.options : [];
+				const options: NonNullable<PkgMenuItem['options']> = [];
+				for (const o of rawOpts) {
+					if (!o || typeof o !== 'object') continue;
+					const opt = o as Record<string, unknown>;
+					if (typeof opt.id !== 'string' || typeof opt.label !== 'string') continue;
+					options.push({
+						id: opt.id,
+						label: opt.label,
+						active: typeof opt.active === 'boolean' ? opt.active : undefined,
+					});
+				}
+				if (options.length === 0) continue;
+				items.push({
+					id: obj.id,
+					label: typeof obj.label === 'string' ? obj.label : '',
+					kind: 'seg',
+					options,
+					section: typeof obj.section === 'string' ? obj.section : null,
+					disabled: obj.disabled === true,
+				});
+				continue;
+			}
+			if (typeof obj.label !== 'string') continue;
 			items.push({
 				id: obj.id,
 				label: obj.label,
@@ -409,10 +436,12 @@ export async function dispatchHostCall(
 		// If the pkg hasn't been told an active feature yet, seed it to the
 		// first item so the pkg has a sensible default to render before any
 		// click happens. The pkg can override this at any time by sending its
-		// own preferred default in the menu order.
+		// own preferred default in the menu order. Seg containers are skipped —
+		// their id is never a feature; only their options' ids are.
 		const current = usePkgMenuStore.getState().activeFeatures[pkgId];
-		if (!current && items[0]) {
-			usePkgMenuStore.getState().setActiveFeature(pkgId, items[0].id);
+		const firstSelectable = items.find((i) => i.kind !== 'seg');
+		if (!current && firstSelectable) {
+			usePkgMenuStore.getState().setActiveFeature(pkgId, firstSelectable.id);
 		}
 		return {
 			content: [{ type: 'text', text: `menu set: ${items.length} items` }],

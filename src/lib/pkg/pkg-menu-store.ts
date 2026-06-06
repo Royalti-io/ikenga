@@ -29,6 +29,13 @@ export interface PkgMenuItem {
 	 *  independent selections at once (e.g. the active view AND the active
 	 *  filter). When `undefined`, the shell falls back to `id === activeFeature`. */
 	active?: boolean;
+	/** Segmented view-switcher (the locked `list-kanban-switch` pattern): when
+	 *  `kind === 'seg'` the item renders as an inline `Segmented` pill strip
+	 *  instead of a nav row. Each option is a mini-item — clicking one sets the
+	 *  pkg's activeFeature to the OPTION's id, so pkgs publish full feature ids
+	 *  (e.g. `seg:list` / `seg:kanban`). `label` is unused on seg items. */
+	kind?: 'item' | 'seg';
+	options?: Array<{ id: string; label: string; active?: boolean }>;
 }
 
 interface PkgMenuState {
