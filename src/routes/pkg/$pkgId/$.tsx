@@ -20,6 +20,7 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useEffect, useState } from 'react';
 
+import { ActionBar } from '@/components/pkg/actions/action-bar';
 import { PkgIframeHost } from '@/components/pkg/pkg-iframe-host';
 import { PkgWebviewHost } from '@/components/pkg/pkg-webview-host';
 import { pkgKernelStatus } from '@/lib/tauri-cmd';
@@ -163,5 +164,18 @@ function PkgRouteCatchAll() {
 			<PkgWebviewHost pkgId={state.entry.pkg_id} paneId={paneId} source={state.entry.source} />
 		);
 	}
-	return <PkgIframeHost pkgId={state.entry.pkg_id} source={state.entry.source} />;
+	// WP-25: a pane whose pkg `requires` skills surfaces those skills' actions
+	// as a bar above the iframe (resolved via `list_skill_actions` → Ọba store).
+	// ActionBar renders null for pkgs that contribute no actions; `empty:hidden`
+	// collapses the padded strip entirely in that case.
+	return (
+		<div className="flex h-full flex-col">
+			<div className="shrink-0 border-b border-border/60 px-3 py-2 empty:hidden">
+				<ActionBar pkgId={state.entry.pkg_id} />
+			</div>
+			<div className="min-h-0 flex-1">
+				<PkgIframeHost pkgId={state.entry.pkg_id} source={state.entry.source} />
+			</div>
+		</div>
+	);
 }
