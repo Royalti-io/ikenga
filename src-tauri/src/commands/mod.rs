@@ -35,6 +35,7 @@ pub mod runtime;
 pub mod screenshot;
 pub mod secrets;
 pub mod settings_kv;
+pub mod skill_roster;
 pub mod spike;
 pub mod studio_threads;
 pub mod supabase_config;
@@ -136,6 +137,7 @@ pub use secrets::{
     secrets_list_keys_scoped, secrets_set, secrets_set_scoped, secrets_vault_status, SecretsLock,
 };
 pub use settings_kv::{settings_clear_all, settings_get, settings_get_all, settings_set};
+pub use skill_roster::skill_roster_read;
 pub use spike::{spike_grant_fs_read, spike_setup_test_file};
 pub use studio_threads::{
     studio_message_append, studio_message_list, studio_thread_delete, studio_thread_get,

@@ -27,6 +27,28 @@ export interface HostSupabaseConfig {
 	anonKey: string;
 }
 
+/** A human assignee entry from the project roster file. */
+export interface RosterHuman {
+	value: string;
+	label: string;
+}
+
+/** An agent assignee entry from the project roster file. */
+export interface RosterAgent {
+	id: string;
+	label: string;
+}
+
+/** The resolved roster injected by the shell from
+ *  `<project_root>/.atelier/skill-tasks/roster.json`.
+ *  Both arrays must be non-empty for the Tasks pkg to use this roster;
+ *  an absent or malformed file causes `resolveRoster` to return `null`
+ *  and the pkg falls back to its static defaults. */
+export interface TasksRoster {
+	humans: RosterHuman[];
+	agents: RosterAgent[];
+}
+
 /** Custom Royalti namespace inside the spec's `[key: string]: unknown`
  *  passthrough. Carries pkg-mode shell state the iframe needs to react to. */
 export interface RoyaltiSuiteContext {
@@ -35,6 +57,12 @@ export interface RoyaltiSuiteContext {
 	 *  and route their internal view accordingly. Undefined means the iframe
 	 *  picks its own default. */
 	activeFeature?: string;
+	/** Assignee roster injected from `.atelier/skill-tasks/roster.json` for
+	 *  the active project. Present when the file is valid (both arrays non-empty);
+	 *  absent when the file is missing, malformed, or the project has no root.
+	 *  The Tasks pkg's `resolveRoster` validates and falls back to static
+	 *  defaults when this field is absent. */
+	tasksRoster?: TasksRoster;
 }
 
 export function buildHostContext(opts: {
