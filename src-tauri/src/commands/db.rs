@@ -390,6 +390,14 @@ async fn ensure_schema(pool: &sqlx::SqlitePool) -> Result<(), String> {
             "0042_mail_domain",
             include_str!("../../migrations/0042_mail_domain.sql"),
         ),
+        // WP-18b — sales domain app-layer columns (title, owner, next_action,
+        // next_action_mode, win_probability) on sales_deals. Stage enum:
+        // lead → qualified → proposal → negotiation → closing → won | lost.
+        (
+            43,
+            "0043_sales_domain",
+            include_str!("../../migrations/0043_sales_domain.sql"),
+        ),
     ];
 
     for (id, name, sql) in migrations {
