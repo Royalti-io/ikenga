@@ -1081,6 +1081,35 @@ pub async fn post_pkg_scope_set(
     Ok(ok())
 }
 
+#[derive(Deserialize)]
+pub struct ObaInstallLocalBody {
+    pub kind: String,
+    pub name: String,
+    pub path: String,
+}
+
+/// Install a primitive into the Ọba store from a LOCAL path. Drive surface for
+/// the `oba_install_local` Tauri command (WP-25) — the install itself is
+/// copy-only staging with provenance `local` and `auto_update` off; this
+/// handler only relays the call so iyke-driven sessions can populate the store
+/// without an FE affordance.
+pub async fn post_oba_install_local(
+    JsonBody(body): JsonBody<ObaInstallLocalBody>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let entry =
+        crate::commands::claude_store::oba_install_local(body.kind, body.name, body.path)
+            .await
+            .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    serde_json::to_value(&entry)
+        .map(|v| Json(serde_json::json!({ "installed": v })))
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("serialize store entry: {e}"),
+            )
+        })
+}
+
 pub async fn post_pkg_install(
     Extension(app): Extension<AppHandle>,
     JsonBody(body): JsonBody<PkgInstallBody>,
