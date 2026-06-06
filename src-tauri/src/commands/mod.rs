@@ -76,7 +76,8 @@ pub use claude_store::{
     claude_primitive_move, claude_primitive_remove, claude_primitive_remove_for,
     claude_store_import, claude_store_list, oba_auto_update_all, oba_backfill_registry,
     oba_check_update, oba_dependents, oba_forget, oba_install_bundle, oba_install_git,
-    oba_install_npx, oba_install_with_deps, oba_missing_requires, oba_relink_dependents,
+    oba_install_local, oba_install_npx, oba_install_with_deps, oba_missing_requires,
+    oba_relink_dependents,
     oba_safe_delete, oba_set_auto_update, oba_unlink_one, oba_update,
 };
 pub use comment_route::comment_route;
