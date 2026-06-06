@@ -417,6 +417,14 @@ async fn ensure_schema(pool: &sqlx::SqlitePool) -> Result<(), String> {
             "0046_finance_domain",
             include_str!("../../migrations/0046_finance_domain.sql"),
         ),
+        // WP-21b — content domain tables (content_pieces, content_published,
+        // content_stage_transitions). STRICT, no FK, soft TEXT links.
+        // Stage enum: idea | outline | draft | review | scheduled.
+        (
+            47,
+            "0047_content_domain",
+            include_str!("../../migrations/0047_content_domain.sql"),
+        ),
     ];
 
     for (id, name, sql) in migrations {
@@ -759,7 +767,7 @@ mod tests {
     /// drift fix + finance view + 14 new business tables). Keep this in lockstep
     /// with the `migrations` tuple list — it guards against a migration silently
     /// being dropped from the embedded list (a class of bug we've hit before).
-    const MIGRATION_COUNT: i64 = 46;
+    const MIGRATION_COUNT: i64 = 47;
 
     /// Schema init applies every embedded migration exactly once. The
     /// `_pa_migrations` table must end with one row per migration tuple.
