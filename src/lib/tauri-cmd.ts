@@ -3898,6 +3898,25 @@ export async function projectListenActiveChanged(
 	return listen<{ id: string }>('projects:active-changed', (e) => callback(e.payload));
 }
 
+// ─── Atelier skill roster (WP-16b) ────────────────────────────────────────────
+//
+// Reads `.atelier/skill-tasks/roster.json` from the active project root and
+// returns the raw JSON string. Returns `null` when the file is absent or the
+// project has no root configured. The caller is responsible for parsing and
+// validation; an absent or malformed value causes the Tasks pkg to fall back
+// to its static defaults (see `resolveRoster` in `assignees.js`).
+//
+// The path suffix `.atelier/skill-tasks/roster.json` is hard-coded on the
+// Rust side; callers cannot traverse outside the project root.
+
+/** Read `.atelier/skill-tasks/roster.json` from `projectRoot`.
+ *  Returns the raw JSON string on success, `null` when absent or on IO error.
+ *  Pass `null` for projects with no root configured — Rust returns `null`
+ *  immediately without a filesystem access. */
+export async function skillRosterRead(projectRoot: string | null): Promise<string | null> {
+	return invoke<string | null>('skill_roster_read', { projectRoot });
+}
+
 // ─── Bun runtime fetch (B+A hybrid) ───────────────────────────────────────────
 //
 // The shell no longer bundles bun; on a fresh install it's fetched after the

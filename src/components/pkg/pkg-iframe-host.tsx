@@ -39,9 +39,10 @@ import { useEffect, useRef, useState } from 'react';
 import { sendToActiveSession } from '@/components/pkg/send-to-active-session';
 import { registerIykeIframe } from '@/lib/iyke/iframe-registry';
 import { mintPkgToken } from '@/lib/pkg/auth-token';
-import { buildHostContext } from '@/lib/pkg/host-context';
+import { buildHostContext, type TasksRoster } from '@/lib/pkg/host-context';
 import { usePaneStore } from '@/lib/panes/pane-store';
 import { usePkgMenuStore, type PkgMenuItem } from '@/lib/pkg/pkg-menu-store';
+import { useShellStore } from '@/lib/shell/shell-store';
 import {
 	agentOpsDeleteJob,
 	agentOpsListJobs,
@@ -57,6 +58,7 @@ import {
 	pkgMcpCall,
 	pkgPreviewManifest,
 	pkgSidecarCall,
+	skillRosterRead,
 	type SqlValue,
 } from '@/lib/tauri-cmd';
 import {
@@ -723,6 +725,25 @@ export function PkgIframeHost({ pkgId, source, onInitialized }: PkgIframeHostPro
 	// iframe can swap its mounted view in response.
 	const activeFeature = usePkgMenuStore((s) => s.activeFeatures[pkgId]);
 
+	// Active project root — a project switch re-reads the roster file and then
+	// re-pushes hostContext so the Tasks pkg receives the new project's roster
+	// (WP-16b). Select only root_path to avoid spurious re-renders on
+	// unrelated project field changes.
+	const activeProjectRoot = useShellStore(
+		(s) => s.projects.find((p) => p.id === s.activeProjectId)?.root_path ?? null
+	);
+
+	// The resolved roster for the active project, read from disk and cached in a
+	// ref so theme/appearance re-emits don't trigger a fresh file read. Updated
+	// only when `activeProjectRoot` changes (project switch) or on first mount.
+	// `null` means "absent or malformed — use static fallback".
+	const rosterRef = useRef<TasksRoster | null>(null);
+	// Bumped each time the roster fetch RESOLVES. The Step-3 re-emit keys on
+	// this (not on the project id) so a project switch pushes the NEW project's
+	// roster — keying on the id alone re-emitted before the async read landed,
+	// delivering the previous project's roster (caught in WP-16b live-verify).
+	const [rosterGen, setRosterGen] = useState(0);
+
 	// Stabilize onInitialized via ref so effect deps stay constant. Without
 	// this, every parent re-render recreates the callback → effect re-runs →
 	// bridge is torn down + reattached, and we miss the iframe's initialize.
@@ -730,6 +751,46 @@ export function PkgIframeHost({ pkgId, source, onInitialized }: PkgIframeHostPro
 	useEffect(() => {
 		onInitializedRef.current = onInitialized;
 	}, [onInitialized]);
+
+	// Roster fetch: read .atelier/skill-tasks/roster.json from the active
+	// project root whenever the project switches (or on first mount). Parses
+	// and validates the JSON; invalid/absent → rosterRef stays null so the
+	// Tasks pkg falls back to its static defaults. The shell passes the roster
+	// through verbatim without transformation, as required by §Roster-config.
+	useEffect(() => {
+		let cancelled = false;
+		(async () => {
+			let next: TasksRoster | null = null;
+			try {
+				const raw = await skillRosterRead(activeProjectRoot);
+				if (cancelled) return;
+				if (raw) {
+					const parsed = JSON.parse(raw) as unknown;
+					// Validate: both arrays must be present and non-empty.
+					const obj = parsed as Record<string, unknown>;
+					if (
+						obj &&
+						typeof obj === 'object' &&
+						Array.isArray(obj.humans) &&
+						obj.humans.length > 0 &&
+						Array.isArray(obj.agents) &&
+						obj.agents.length > 0
+					) {
+						next = parsed as TasksRoster;
+					}
+				}
+			} catch {
+				// fall through with next = null (absent/malformed → static fallback)
+			}
+			if (cancelled) return;
+			rosterRef.current = next;
+			// Signal the Step-3 re-emit that a (possibly changed) roster is ready.
+			setRosterGen((g) => g + 1);
+		})();
+		return () => {
+			cancelled = true;
+		};
+	}, [activeProjectRoot]);
 
 	// Step 1: read the iframe HTML + mint a subresource token (per-mount).
 	// `reloadKey` is included so the dev-mode `pkg-reloaded` event re-runs
@@ -818,7 +879,15 @@ export function PkgIframeHost({ pkgId, source, onInitialized }: PkgIframeHostPro
 					pkgId,
 					authToken: authTokenRef.current,
 					supabase: supabaseConfigRef.current,
-					suite: { activeFeature: usePkgMenuStore.getState().activeFeatures[pkgId] },
+					suite: {
+						activeFeature: usePkgMenuStore.getState().activeFeatures[pkgId],
+						// Inject the roster at connect time so the first
+						// `onContextChange` the pkg receives already carries it.
+						// rosterRef.current is populated by the roster-fetch effect
+						// that runs before this bridge-connect effect (Step 1 deps
+						// fire before Step 2 because srcDoc gates Step 2).
+						...(rosterRef.current ? { tasksRoster: rosterRef.current } : {}),
+					},
 				}),
 			});
 			bridge.oncalltool = (async (params) => {
@@ -899,6 +968,7 @@ export function PkgIframeHost({ pkgId, source, onInitialized }: PkgIframeHostPro
 	// (theme / mode / tint / workspace) or the active suite-feature changes.
 	// The pkg's onhostcontextchanged handler re-applies the `--color-*` palette
 	// and reads `royaltiSuite.activeFeature` to swap its internal view.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: rosterGen is the intentional trigger — it re-pushes after the roster fetch resolves; the value itself is read from rosterRef.
 	useEffect(() => {
 		const repush = () => {
 			const bridge = bridgeRef.current;
@@ -917,7 +987,14 @@ export function PkgIframeHost({ pkgId, source, onInitialized }: PkgIframeHostPro
 						pkgId,
 						authToken: authTokenRef.current,
 						supabase: supabaseConfigRef.current,
-						suite: { activeFeature },
+						suite: {
+							activeFeature,
+							// Include the current roster so project switches that update
+							// rosterRef (via the roster-fetch effect) are delivered here.
+							// rosterRef is a stable ref — reads always see the latest value
+							// without appearing in the dep array (avoids double-emits).
+							...(rosterRef.current ? { tasksRoster: rosterRef.current } : {}),
+						},
 					})
 				);
 			} catch {
@@ -940,7 +1017,12 @@ export function PkgIframeHost({ pkgId, source, onInitialized }: PkgIframeHostPro
 			attributeFilter: ['data-mode', 'data-theme', 'data-tint-strength', 'data-workspace'],
 		});
 		return () => observer.disconnect();
-	}, [pkgId, activeFeature]);
+		// `rosterGen` (bumped when the roster-fetch effect RESOLVES) is what
+		// re-pushes on project switch — keying on the project id directly fired
+		// before the async read landed and delivered the previous project's
+		// roster. One gen bump per fetch → one re-push carrying the new value
+		// from `rosterRef` (a stable ref, always current inside `repush`).
+	}, [pkgId, activeFeature, rosterGen]);
 
 	// Step 4: revoke the content token on full unmount.
 	useEffect(() => {

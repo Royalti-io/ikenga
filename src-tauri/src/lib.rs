@@ -65,7 +65,8 @@ use commands::{
     screenshot_window, secrets_delete, secrets_delete_scoped, secrets_get, secrets_get_scoped,
     secrets_list_keys, secrets_list_keys_scoped, secrets_set, secrets_set_scoped,
     secrets_vault_status, set_dock_badge, settings_clear_all, settings_get, settings_get_all,
-    settings_set, spike_grant_fs_read, spike_setup_test_file, studio_message_append,
+    settings_set, skill_roster_read, spike_grant_fs_read, spike_setup_test_file,
+    studio_message_append,
     studio_message_list, studio_thread_delete, studio_thread_get, studio_thread_get_or_create,
     studio_thread_list_recent, KernelState, PkgContentState, PkgSettingsState,
     SidecarSupervisorState, SidecarsRegistryState, StreamingSidecarManager,
@@ -866,6 +867,9 @@ pub fn run() {
             project_skills_list,
             project_scaffold_claude,
             project_artifacts_walk,
+            // atelier skill roster (WP-16b) — reads .atelier/skill-tasks/roster.json
+            // from the active project root and injects it into the Tasks pkg hostContext.
+            skill_roster_read,
             // supabase config (URL + anon key manifest)
             supabase_config_get,
             supabase_config_set,
