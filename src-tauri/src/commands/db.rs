@@ -384,6 +384,12 @@ async fn ensure_schema(pool: &sqlx::SqlitePool) -> Result<(), String> {
             "0041_content_perf_history",
             include_str!("../../migrations/0041_content_perf_history.sql"),
         ),
+        // WP-17b — mail thread-state table (read/unread · snooze · tags · preview).
+        (
+            42,
+            "0042_mail_domain",
+            include_str!("../../migrations/0042_mail_domain.sql"),
+        ),
     ];
 
     for (id, name, sql) in migrations {
