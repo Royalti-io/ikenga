@@ -411,6 +411,14 @@ async fn ensure_schema(pool: &sqlx::SqlitePool) -> Result<(), String> {
             "0045_sales_stage_backfill",
             include_str!("../../migrations/0045_sales_stage_backfill.sql"),
         ),
+        // WP-21b — content domain tables (content_pieces, content_published,
+        // content_stage_transitions). STRICT, no FK, soft TEXT links.
+        // Stage enum: idea | outline | draft | review | scheduled.
+        (
+            47,
+            "0047_content_domain",
+            include_str!("../../migrations/0047_content_domain.sql"),
+        ),
     ];
 
     for (id, name, sql) in migrations {
