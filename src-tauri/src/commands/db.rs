@@ -411,6 +411,12 @@ async fn ensure_schema(pool: &sqlx::SqlitePool) -> Result<(), String> {
             "0045_sales_stage_backfill",
             include_str!("../../migrations/0045_sales_stage_backfill.sql"),
         ),
+        // WP-20b — Finance domain alert queue (CFO-agent writes; Finance pkg reads).
+        (
+            46,
+            "0046_finance_domain",
+            include_str!("../../migrations/0046_finance_domain.sql"),
+        ),
     ];
 
     for (id, name, sql) in migrations {
@@ -753,7 +759,7 @@ mod tests {
     /// drift fix + finance view + 14 new business tables). Keep this in lockstep
     /// with the `migrations` tuple list — it guards against a migration silently
     /// being dropped from the embedded list (a class of bug we've hit before).
-    const MIGRATION_COUNT: i64 = 45;
+    const MIGRATION_COUNT: i64 = 46;
 
     /// Schema init applies every embedded migration exactly once. The
     /// `_pa_migrations` table must end with one row per migration tuple.
