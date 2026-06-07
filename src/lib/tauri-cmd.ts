@@ -4258,3 +4258,105 @@ export function parseStudioScopeChip(json: string | null): StudioScopeChip | nul
 		return null;
 	}
 }
+
+// ─── Approve-gate run-then-pause seam (pa_action_drafts) ──────────────────────
+//
+// Wrappers + event listeners for the approve-gate seam (WP-4). Rust side:
+// src-tauri/src/commands/pa_actions.rs (WP-3); scope:
+// plans/atelier/10-approve-gate-seam.md. The list returns opaque rows — parse
+// `payloadJson`/`editedJson` and derive the PausedDraft view-model with
+// `fromDraftItem` from @ikenga/contract.
+
+/** One draft row as stored in pa_action_drafts. `payloadJson` is a DraftItem +
+ *  ApproveGateMeta; `editedJson` holds operator subject/body overrides. */
+export interface PaActionDraftRow {
+	id: string;
+	batchId: string;
+	actionId: string;
+	/** awaiting | edited | committed | sent | rejected */
+	status: string;
+	channel: string;
+	payloadJson: string;
+	editedJson: string | null;
+	scheduledAt: string | null;
+	createdAt: string;
+	committedAt: string | null;
+	sentAt: string | null;
+}
+
+/** One draft in a pause batch. `payload` (DraftItem + ApproveGateMeta) is stored
+ *  verbatim and parsed FE-side. */
+export interface PaPauseDraftInput {
+	id: string;
+	channel: string;
+	scheduledAt?: string | null;
+	payload: unknown;
+}
+
+export interface PaActionPausedEvent {
+	batchId: string;
+	count: number;
+}
+export interface PaActionCommittedEvent {
+	draftId: string;
+	channel: string;
+	payloadJson: string;
+	editedJson: string | null;
+}
+export interface PaActionRejectedEvent {
+	draftId: string;
+}
+
+/** List drafts in the gate. Defaults to the active set (awaiting/edited/
+ *  committed); pass a status to filter (e.g. 'sent', 'rejected'). */
+export async function paActionsList(status?: string): Promise<PaActionDraftRow[]> {
+	return invoke<PaActionDraftRow[]>('pa_actions_list', { status: status ?? null });
+}
+
+/** Pause a batch of drafts — the producer hand-off. Inserts one awaiting row per
+ *  draft and emits `pa-action-paused`. Returns the row count. */
+export async function paActionsPause(
+	batchId: string,
+	actionId: string,
+	drafts: PaPauseDraftInput[]
+): Promise<number> {
+	return invoke<number>('pa_actions_pause', { batchId, actionId, drafts });
+}
+
+/** Persist operator inline edits ({ subject?, body? }) onto a draft. */
+export async function paActionsUpdate(
+	draftId: string,
+	patch: { subject?: string; body?: string }
+): Promise<void> {
+	return invoke('pa_actions_update', { draftId, patch });
+}
+
+/** Commit a draft (post-undo). Flips it to committed + emits
+ *  `pa-action-committed` for the external mutation worker. The shell never sends. */
+export async function paActionsCommit(draftId: string): Promise<void> {
+	return invoke('pa_actions_commit', { draftId });
+}
+
+/** Reject a draft. Flips it to rejected + emits `pa-action-rejected`. */
+export async function paActionsReject(draftId: string): Promise<void> {
+	return invoke('pa_actions_reject', { draftId });
+}
+
+/** Fires when an approve-aware action pauses a batch — mount the gate. */
+export function onPaActionPaused(callback: (e: PaActionPausedEvent) => void): Promise<UnlistenFn> {
+	return listen<PaActionPausedEvent>('pa-action-paused', (e) => callback(e.payload));
+}
+
+/** Fires after commit — the external mutation worker performs the real send. */
+export function onPaActionCommitted(
+	callback: (e: PaActionCommittedEvent) => void
+): Promise<UnlistenFn> {
+	return listen<PaActionCommittedEvent>('pa-action-committed', (e) => callback(e.payload));
+}
+
+/** Fires when a draft is rejected. */
+export function onPaActionRejected(
+	callback: (e: PaActionRejectedEvent) => void
+): Promise<UnlistenFn> {
+	return listen<PaActionRejectedEvent>('pa-action-rejected', (e) => callback(e.payload));
+}
