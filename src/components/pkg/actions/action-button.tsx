@@ -22,12 +22,14 @@
 
 import { useState } from 'react';
 
-import { openSessionDialog } from '@/components/pkg/open-session-dialog';
 import { cn } from '@/components/ui/utils';
 import type { SkillAction } from '@/lib/tauri-cmd';
+import { dispatchAction, isDispatchable } from './action-runner';
 
 export function ActionButton({ action }: { action: SkillAction }) {
 	const isConfirm = action.uxMode === 'confirm';
+	const isApprove = action.uxMode === 'approve';
+	const canDispatch = isDispatchable(action.uxMode);
 	const [pending, setPending] = useState(false);
 	const [note, setNote] = useState<string | null>(null);
 
@@ -35,21 +37,11 @@ export function ActionButton({ action }: { action: SkillAction }) {
 		if (pending) return;
 		setPending(true);
 		setNote(null);
-		// Prefer the parsed run.prompt; fall back to a sensible instruction so
-		// the dialog never opens with an empty prompt.
-		const prompt =
-			action.promptTemplate?.trim() ||
-			`${action.name}${action.description ? ` — ${action.description}` : ''}`;
 		try {
-			// Opens the reusable New-Session dialog pre-filled with the prompt;
-			// the dialog source-stamps the body as `[via: groundwork/skill-action]`
-			// and mints/seeds the chosen target on Start. Resolves on Start or
-			// Cancel — neither is an error; a clean cancel just clears state.
-			const res = await openSessionDialog({
-				initialPrompt: prompt,
-				source: 'skill-action',
-				sessionKind: 'chat',
-			});
+			// `confirm` seeds a chat for the operator to review + send; `approve`
+			// runs the action and its drafts pause at /outbox/approvals. Both open
+			// the New-Session dialog as the dispatch surface (see action-runner).
+			const res = await dispatchAction(action);
 			if (!res.ok && res.reason === 'scope-denied') {
 				setNote('Scope denied');
 			}
@@ -64,17 +56,19 @@ export function ActionButton({ action }: { action: SkillAction }) {
 		<button
 			type="button"
 			data-mode={action.uxMode}
-			data-active={isConfirm ? 'true' : 'false'}
-			disabled={!isConfirm || pending}
+			data-active={canDispatch ? 'true' : 'false'}
+			disabled={!canDispatch || pending}
 			title={
-				isConfirm
-					? (action.description ?? action.name)
+				canDispatch
+					? isApprove
+						? `${action.name} — runs, then pauses at the approve gate`
+						: (action.description ?? action.name)
 					: `${action.name} — ${action.uxMode} mode not yet available`
 			}
-			onClick={isConfirm ? dispatch : undefined}
+			onClick={canDispatch ? dispatch : undefined}
 			className={cn(
 				'inline-flex items-center gap-1.5 rounded-md border px-3 py-1 text-sm font-medium transition-colors',
-				isConfirm
+				canDispatch
 					? 'border-primary bg-primary text-primary-foreground hover:brightness-110'
 					: 'border-border bg-card text-muted-foreground opacity-70',
 				pending && 'opacity-60'
