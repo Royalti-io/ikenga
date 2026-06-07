@@ -439,6 +439,15 @@ async fn ensure_schema(pool: &sqlx::SqlitePool) -> Result<(), String> {
             "0049_task_signals",
             include_str!("../../migrations/0049_task_signals.sql"),
         ),
+        // 0050 — approve-gate run-then-pause durable draft queue (pa_action_drafts).
+        // Producer side of the seam: host.paActionsPause writes rows; the approve-gate
+        // panel reads them; commit/reject flip status + emit events for the external
+        // mutation worker, which performs the real send. The shell never sends.
+        (
+            50,
+            "0050_pa_action_drafts",
+            include_str!("../../migrations/0050_pa_action_drafts.sql"),
+        ),
     ];
 
     for (id, name, sql) in migrations {
