@@ -1,33 +1,33 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Command } from 'cmdk';
-import { useFocusReturn, useFocusTrap } from '@/lib/a11y/focus';
-import { usePaneStore } from '@/lib/panes/pane-store';
-import { findLeaf } from '@/lib/panes/pane-reducer';
-import type { PaneNode, PaneView } from '@/lib/panes/types';
-import { createTerminalSession } from '@/terminal/single-terminal';
 import {
-	Inbox,
+	Bot,
 	CheckSquare,
+	FileText,
+	FolderKanban,
+	FolderOpen,
+	Inbox,
+	Layers,
+	Mail,
+	MessageSquare,
+	Newspaper,
+	Pin as PinIconGlyph,
+	Plus,
+	RefreshCw,
+	Settings,
+	Sparkles,
+	Terminal as TerminalIcon,
 	Users,
 	Wallet,
-	Mail,
-	Newspaper,
-	MessageSquare,
-	Terminal as TerminalIcon,
-	Settings,
-	FileText,
-	FolderOpen,
-	FolderKanban,
-	RefreshCw,
-	Plus,
-	Layers,
-	Bot,
-	Pin as PinIconGlyph,
-	Sparkles,
 } from 'lucide-react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { CommandRow, type CommandRowProps } from '@/components/ui/command-row';
+import { useFocusReturn, useFocusTrap } from '@/lib/a11y/focus';
+import { findLeaf } from '@/lib/panes/pane-reducer';
+import { usePaneStore } from '@/lib/panes/pane-store';
+import type { PaneNode, PaneView } from '@/lib/panes/types';
 import { fuzzyMatchSection, slugifySectionId, usePinsStore } from '@/lib/shell/pins-store';
 import { useShellStore } from '@/lib/shell/shell-store';
-import { CommandRow, type CommandRowProps } from '@/components/ui/command-row';
+import { createTerminalSession } from '@/terminal/single-terminal';
 
 export type PaletteMode = 'all' | 'views' | 'switcher' | 'projects';
 
@@ -269,6 +269,11 @@ export function CommandPalette({ open, mode, onOpenChange }: CommandPaletteProps
 												onSelect={() => go('/outbox/sent')}
 												Icon={Mail}
 												label="Go to Outbox · Sent"
+											/>
+											<PaletteItem
+												onSelect={() => go('/outbox/approvals')}
+												Icon={CheckSquare}
+												label="Go to Outbox · Approvals"
 											/>
 											<PaletteItem
 												onSelect={() => go('/sessions')}

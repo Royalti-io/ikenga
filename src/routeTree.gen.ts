@@ -50,6 +50,10 @@ import { Route as SettingsActivityBarRouteImport } from './routes/settings/activ
 import { Route as SettingsAboutRouteImport } from './routes/settings/about'
 import { Route as ProjectsNewArtifactRouteImport } from './routes/projects/new-artifact'
 import { Route as PackagesBrowseRouteImport } from './routes/packages_.browse'
+import { Route as OutboxSocialRouteImport } from './routes/outbox/social'
+import { Route as OutboxSentRouteImport } from './routes/outbox/sent'
+import { Route as OutboxNewsletterRouteImport } from './routes/outbox/newsletter'
+import { Route as OutboxEmailRouteImport } from './routes/outbox/email'
 import { Route as OutboxApprovalsRouteImport } from './routes/outbox/approvals'
 import { Route as OnboardingWelcomeRouteImport } from './routes/onboarding/welcome'
 import { Route as OnboardingTelemetryRouteImport } from './routes/onboarding/telemetry'
@@ -276,6 +280,26 @@ const PackagesBrowseRoute = PackagesBrowseRouteImport.update({
   path: '/packages/browse',
   getParentRoute: () => rootRouteImport,
 } as any)
+const OutboxSocialRoute = OutboxSocialRouteImport.update({
+  id: '/social',
+  path: '/social',
+  getParentRoute: () => OutboxRouteRoute,
+} as any)
+const OutboxSentRoute = OutboxSentRouteImport.update({
+  id: '/sent',
+  path: '/sent',
+  getParentRoute: () => OutboxRouteRoute,
+} as any)
+const OutboxNewsletterRoute = OutboxNewsletterRouteImport.update({
+  id: '/newsletter',
+  path: '/newsletter',
+  getParentRoute: () => OutboxRouteRoute,
+} as any)
+const OutboxEmailRoute = OutboxEmailRouteImport.update({
+  id: '/email',
+  path: '/email',
+  getParentRoute: () => OutboxRouteRoute,
+} as any)
 const OutboxApprovalsRoute = OutboxApprovalsRouteImport.update({
   id: '/approvals',
   path: '/approvals',
@@ -414,6 +438,10 @@ export interface FileRoutesByFullPath {
   '/onboarding/telemetry': typeof OnboardingTelemetryRoute
   '/onboarding/welcome': typeof OnboardingWelcomeRoute
   '/outbox/approvals': typeof OutboxApprovalsRoute
+  '/outbox/email': typeof OutboxEmailRoute
+  '/outbox/newsletter': typeof OutboxNewsletterRoute
+  '/outbox/sent': typeof OutboxSentRoute
+  '/outbox/social': typeof OutboxSocialRoute
   '/packages/browse': typeof PackagesBrowseRoute
   '/projects/new-artifact': typeof ProjectsNewArtifactRoute
   '/settings/about': typeof SettingsAboutRoute
@@ -473,6 +501,10 @@ export interface FileRoutesByTo {
   '/onboarding/telemetry': typeof OnboardingTelemetryRoute
   '/onboarding/welcome': typeof OnboardingWelcomeRoute
   '/outbox/approvals': typeof OutboxApprovalsRoute
+  '/outbox/email': typeof OutboxEmailRoute
+  '/outbox/newsletter': typeof OutboxNewsletterRoute
+  '/outbox/sent': typeof OutboxSentRoute
+  '/outbox/social': typeof OutboxSocialRoute
   '/packages/browse': typeof PackagesBrowseRoute
   '/projects/new-artifact': typeof ProjectsNewArtifactRoute
   '/settings/about': typeof SettingsAboutRoute
@@ -537,6 +569,10 @@ export interface FileRoutesById {
   '/onboarding/telemetry': typeof OnboardingTelemetryRoute
   '/onboarding/welcome': typeof OnboardingWelcomeRoute
   '/outbox/approvals': typeof OutboxApprovalsRoute
+  '/outbox/email': typeof OutboxEmailRoute
+  '/outbox/newsletter': typeof OutboxNewsletterRoute
+  '/outbox/sent': typeof OutboxSentRoute
+  '/outbox/social': typeof OutboxSocialRoute
   '/packages_/browse': typeof PackagesBrowseRoute
   '/projects/new-artifact': typeof ProjectsNewArtifactRoute
   '/settings/about': typeof SettingsAboutRoute
@@ -602,6 +638,10 @@ export interface FileRouteTypes {
     | '/onboarding/telemetry'
     | '/onboarding/welcome'
     | '/outbox/approvals'
+    | '/outbox/email'
+    | '/outbox/newsletter'
+    | '/outbox/sent'
+    | '/outbox/social'
     | '/packages/browse'
     | '/projects/new-artifact'
     | '/settings/about'
@@ -661,6 +701,10 @@ export interface FileRouteTypes {
     | '/onboarding/telemetry'
     | '/onboarding/welcome'
     | '/outbox/approvals'
+    | '/outbox/email'
+    | '/outbox/newsletter'
+    | '/outbox/sent'
+    | '/outbox/social'
     | '/packages/browse'
     | '/projects/new-artifact'
     | '/settings/about'
@@ -724,6 +768,10 @@ export interface FileRouteTypes {
     | '/onboarding/telemetry'
     | '/onboarding/welcome'
     | '/outbox/approvals'
+    | '/outbox/email'
+    | '/outbox/newsletter'
+    | '/outbox/sent'
+    | '/outbox/social'
     | '/packages_/browse'
     | '/projects/new-artifact'
     | '/settings/about'
@@ -1071,6 +1119,34 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PackagesBrowseRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/outbox/social': {
+      id: '/outbox/social'
+      path: '/social'
+      fullPath: '/outbox/social'
+      preLoaderRoute: typeof OutboxSocialRouteImport
+      parentRoute: typeof OutboxRouteRoute
+    }
+    '/outbox/sent': {
+      id: '/outbox/sent'
+      path: '/sent'
+      fullPath: '/outbox/sent'
+      preLoaderRoute: typeof OutboxSentRouteImport
+      parentRoute: typeof OutboxRouteRoute
+    }
+    '/outbox/newsletter': {
+      id: '/outbox/newsletter'
+      path: '/newsletter'
+      fullPath: '/outbox/newsletter'
+      preLoaderRoute: typeof OutboxNewsletterRouteImport
+      parentRoute: typeof OutboxRouteRoute
+    }
+    '/outbox/email': {
+      id: '/outbox/email'
+      path: '/email'
+      fullPath: '/outbox/email'
+      preLoaderRoute: typeof OutboxEmailRouteImport
+      parentRoute: typeof OutboxRouteRoute
+    }
     '/outbox/approvals': {
       id: '/outbox/approvals'
       path: '/approvals'
@@ -1258,10 +1334,18 @@ const OnboardingRouteRouteWithChildren = OnboardingRouteRoute._addFileChildren(
 
 interface OutboxRouteRouteChildren {
   OutboxApprovalsRoute: typeof OutboxApprovalsRoute
+  OutboxEmailRoute: typeof OutboxEmailRoute
+  OutboxNewsletterRoute: typeof OutboxNewsletterRoute
+  OutboxSentRoute: typeof OutboxSentRoute
+  OutboxSocialRoute: typeof OutboxSocialRoute
 }
 
 const OutboxRouteRouteChildren: OutboxRouteRouteChildren = {
   OutboxApprovalsRoute: OutboxApprovalsRoute,
+  OutboxEmailRoute: OutboxEmailRoute,
+  OutboxNewsletterRoute: OutboxNewsletterRoute,
+  OutboxSentRoute: OutboxSentRoute,
+  OutboxSocialRoute: OutboxSocialRoute,
 }
 
 const OutboxRouteRouteWithChildren = OutboxRouteRoute._addFileChildren(
