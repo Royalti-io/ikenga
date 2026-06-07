@@ -108,8 +108,6 @@ Ikenga is **Apache-2.0**. We use **inbound = outbound**: by opening a pull reque
 
 Why: an Apache-2.0 *license* does not by itself require a CLA — that's a foundation *governance* requirement, not a license one. Ikenga is Apache-2.0-licensed but is not an ASF project, so we keep contribution friction low the way most non-foundation OSS projects do.
 
-<!-- DECISION: inbound=outbound vs DCO sign-off — The above uses plain inbound=outbound (no extra step for contributors). The lightweight alternative is a DCO sign-off (`git commit -s`, adding a `Signed-off-by:` trailer asserting the Developer Certificate of Origin at https://developercertificate.org/), optionally enforced by the DCO GitHub App. DCO gives a per-commit provenance record at the cost of one flag for contributors; inbound=outbound is zero-friction but relies on the PR-acceptance act as the agreement. Maintainer to choose before launch. If DCO is chosen, add a "sign your commits with `-s`" line to the workflow section above and enable the check. Either way, not a full CLA. -->
-
 ## Getting help
 
 - Project docs: [ikenga.dev](https://ikenga.dev) (in-site Starlight docs).

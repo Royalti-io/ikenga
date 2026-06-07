@@ -72,8 +72,8 @@ mod registry;
 mod install;
 
 pub use install::{
-    oba_auto_update_all, oba_check_update, oba_install_bundle, oba_install_git, oba_install_npx,
-    oba_install_with_deps, oba_missing_requires, oba_set_auto_update, oba_update,
+    oba_auto_update_all, oba_check_update, oba_install_bundle, oba_install_git, oba_install_local,
+    oba_install_npx, oba_install_with_deps, oba_missing_requires, oba_set_auto_update, oba_update,
     resolve_pkg_requires, CatalogEntryRef, PkgRequiresResult,
 };
 

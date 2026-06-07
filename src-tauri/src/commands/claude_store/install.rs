@@ -409,8 +409,106 @@ fn fetch_and_adopt(
             let _ = std::fs::remove_dir_all(&staging);
             res
         }
-        ProvenanceSource::Local => Err("local entries have no remote to fetch from".to_string()),
+        ProvenanceSource::Local => {
+            // WP-25: install from a LOCAL path — staging = COPY from the dir the
+            // caller pointed us at (the dir containing the primitive content, e.g.
+            // `ikenga-pkgs/packages/skills/mail/skills/mail`). `url` carries that
+            // absolute source path. No remote → no version (`None`). The copy is
+            // adopted through the SAME atomic swap as git/npx, so a partial copy
+            // never exposes a half-written canonical. Copy-only: the source tree
+            // is never moved, symlinked, or mutated (the v2b data-loss guard).
+            let src_root = Path::new(url);
+            if !src_root.exists() {
+                return Err(format!("local source path does not exist: {url}"));
+            }
+            if !src_root.is_dir() {
+                return Err(format!(
+                    "local source must be a directory (the dir containing the primitive content): {url}"
+                ));
+            }
+            let located = locate_in_local(src_root, kind, name)?;
+            // Compiled `requires`: read the package root's `manifest.json` first
+            // (the `ikenga-pkgs` skills/<name>/ publish layout puts it at the
+            // package root, two levels above SKILL.md), then fall back to the
+            // located primitive dir — mirrors the git path's two-step lookup.
+            let mut requires = read_manifest_requires_walk_up(&located, src_root);
+            if requires.is_empty() {
+                requires = read_manifest_requires(&located);
+            }
+            let dest = adopt_into_store(store, kind, name, &located)?;
+            // No remote ⇒ no resolved version.
+            Ok((dest, None, requires))
+        }
     }
+}
+
+/// Find the primitive content inside a LOCAL source directory — the copy-staging
+/// sibling of `locate_in_clone`. Same bounded search (no deep guessing):
+///   skill   → `<root>/SKILL.md` (root IS the skill) | `<root>/skills/<name>` | `<root>/<name>`
+///   agent   → `<root>/<name>.md` | `<root>/agents/<name>.md`
+///   command → `<root>/<name>.md` | `<root>/commands/<name>.md`
+/// `locate_in_clone` operates on a freshly-cloned tree; this operates on the
+/// caller-supplied local dir (never mutated — `adopt_into_store` copies out of it).
+fn locate_in_local(root: &Path, kind: Kind, name: &str) -> Result<PathBuf, String> {
+    match kind {
+        Kind::Skill => {
+            if root.join("SKILL.md").is_file() {
+                return Ok(root.to_path_buf());
+            }
+            for cand in [root.join("skills").join(name), root.join(name)] {
+                if cand.join("SKILL.md").is_file() {
+                    return Ok(cand);
+                }
+            }
+            Err(format!(
+                "no SKILL.md found in local source for skill {name:?} (looked at root, skills/{name}, {name})"
+            ))
+        }
+        Kind::Agent | Kind::Command => {
+            let leaf = format!("{name}.md");
+            let mut cands = vec![root.join(&leaf)];
+            if let Some(sub) = kind.dir_name() {
+                cands.push(root.join(sub).join(&leaf));
+            }
+            for cand in cands {
+                if cand.is_file() {
+                    return Ok(cand);
+                }
+            }
+            Err(format!(
+                "no {name}.md found in local source for {} {name:?}",
+                kind.as_str()
+            ))
+        }
+        Kind::Bundle => {
+            Err("bundle local-install not supported (a bundle ships member skills via the bundle path)".to_string())
+        }
+        Kind::Hook | Kind::Mcp => {
+            Err("hook/mcp are JSON-fragment primitives; install via the merge engine".to_string())
+        }
+    }
+}
+
+/// Read the compiled `requires` from the nearest `manifest.json` walking UP from
+/// the located primitive dir toward (and including) the source root. The
+/// `ikenga-pkgs` skills publish layout is `packages/skills/<pkg>/skills/<name>/`
+/// with the `manifest.json` (carrying `requires`) at the package root — two
+/// levels above SKILL.md — so a plain "read beside SKILL.md" misses it. We probe
+/// the located dir, then each ancestor up to `boundary` (inclusive). Returns the
+/// first non-empty `requires` found; empty if none on the path.
+fn read_manifest_requires_walk_up(located: &Path, boundary: &Path) -> Vec<RequiresEntry> {
+    let mut cur = Some(located);
+    while let Some(dir) = cur {
+        let req = read_manifest_requires(dir);
+        if !req.is_empty() {
+            return req;
+        }
+        if dir == boundary {
+            break;
+        }
+        cur = dir.parent();
+    }
+    Vec::new()
 }
 
 fn build_entry(
@@ -526,6 +624,17 @@ fn update_core(store: &Path, kind: Kind, name: &str) -> Result<ClaudeStoreEntry,
     if !prov.managed {
         return Err(format!(
             "{} {name:?} is an external master (kept in place) — update its source upstream, not here",
+            kind.as_str()
+        ));
+    }
+    // WP-25: a local-source install has no remote to re-fetch from — `update`
+    // (and `check_update`) refuse it. Re-installing from the local path is the
+    // explicit `oba_install_local` call, not an `update`. This also keeps the
+    // auto-update batch a no-op for local entries (their `auto_update` is always
+    // off, but guard the manual path too).
+    if prov.source == ProvenanceSource::Local {
+        return Err(format!(
+            "{} {name:?} is a local-source install (no remote) — re-run the local install to refresh, not update",
             kind.as_str()
         ));
     }
@@ -904,6 +1013,37 @@ pub async fn oba_install_npx(
     )
 }
 
+/// Install a primitive from a LOCAL path into the vault as a managed canonical
+/// (WP-25). Staging is a COPY of the dir at `path` (the dir containing the
+/// primitive content, e.g. a skill's `SKILL.md` dir); provenance is recorded as
+/// `local` with NO version (there is no remote to resolve a SHA from) and
+/// `auto_update` OFF (catalog ON, local/manual OFF — there is nothing to update
+/// from). Copy-only: the source tree at `path` is never moved, symlinked, or
+/// mutated. The store `name` is the canonical store dir (`store/skills/<name>`),
+/// independent of the skill's own frontmatter name — so a local dir whose
+/// SKILL.md is named `mail` can be installed as `skill-mail` to satisfy a pkg's
+/// `requires:{kind:"skill",name:"skill-mail"}` edge.
+#[tauri::command]
+pub async fn oba_install_local(
+    kind: String,
+    name: String,
+    path: String,
+) -> Result<ClaudeStoreEntry, String> {
+    let k = Kind::parse(&kind)?;
+    let store = store_root().ok_or_else(|| "cannot resolve store root".to_string())?;
+    // Local installs are never catalog-discovered → from_catalog=false →
+    // auto_update=false (the `install_core` provenance rule).
+    install_core(
+        &store,
+        k,
+        &name,
+        ProvenanceSource::Local,
+        &path,
+        None,
+        false,
+    )
+}
+
 /// Install a multi-skill BUNDLE via the Claude `skills` CLI
 /// (`npx skills add <spec> --skill '*'`). Materializes ALL member skills into
 /// the vault canonical `store/bundles/<name>/<member>/` and writes ONE registry
@@ -1025,7 +1165,8 @@ fn parse_source(s: &str) -> Result<ProvenanceSource, String> {
         "git" => Ok(ProvenanceSource::Git),
         "npx" => Ok(ProvenanceSource::Npx),
         "catalog" => Ok(ProvenanceSource::Git),
-        other => Err(format!("install source must be git|npx, got {other:?}")),
+        "local" => Ok(ProvenanceSource::Local),
+        other => Err(format!("install source must be git|npx|local, got {other:?}")),
     }
 }
 
@@ -2273,6 +2414,277 @@ mod tests {
         // and the pre-existing fields still bind
         assert_eq!(rf.entries[0].provenance.source, ProvenanceSource::Git);
         assert_eq!(rf.entries[0].provenance.version.as_deref(), Some("sha"));
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    // ─── WP-25 — local-source install (copy-staging, provenance `local`) ──────
+
+    /// Build a local source dir holding a skill-at-root: `<dir>/SKILL.md` (+ a
+    /// helper file). Returns the dir path. No git, no manifest — the simplest
+    /// local skill the installer copies.
+    fn make_local_skill_dir(base: &Path, dir: &str, skill_name: &str) -> PathBuf {
+        let d = base.join(dir);
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(
+            d.join("SKILL.md"),
+            format!("---\nname: {skill_name}\ndescription: a local skill\n---\nbody"),
+        )
+        .unwrap();
+        std::fs::write(d.join("helper.py"), "print(1)\n").unwrap();
+        d
+    }
+
+    #[test]
+    fn install_local_creates_canonical_and_records_provenance_local() {
+        let base = unique_tmp("install_local");
+        let store = base.join("store");
+        std::fs::create_dir_all(&store).unwrap();
+        let src = make_local_skill_dir(&base, "src-mail", "mail");
+
+        // install as `skill-mail` (store name differs from frontmatter `mail`)
+        let entry = install_core(
+            &store,
+            Kind::Skill,
+            "skill-mail",
+            ProvenanceSource::Local,
+            &src.to_string_lossy(),
+            None,
+            false,
+        )
+        .expect("local install ok");
+
+        // canonical landed at store/skills/skill-mail with the content (copied)
+        let canon = store_path_for(&store, Kind::Skill, "skill-mail").unwrap();
+        assert!(canon.ends_with("skills/skill-mail"));
+        assert!(canon.join("SKILL.md").is_file());
+        assert!(canon.join("helper.py").is_file());
+
+        // provenance: local source, NO version (no remote), managed, path recorded
+        assert_eq!(entry.provenance.source, ProvenanceSource::Local);
+        assert!(entry.provenance.managed);
+        assert!(
+            entry.provenance.version.is_none(),
+            "local install resolves no version (no remote)"
+        );
+        assert_eq!(entry.provenance.url.as_deref(), Some(src.to_string_lossy().as_ref()));
+        // auto_update OFF for local (catalog ON, local/manual OFF)
+        assert!(!entry.provenance.from_catalog);
+        assert!(
+            !entry.provenance.auto_update,
+            "local install → auto_update off"
+        );
+
+        // the SOURCE tree is untouched (copy-only staging — the v2b data-loss guard)
+        assert!(src.join("SKILL.md").is_file(), "source not moved");
+        assert!(src.join("helper.py").is_file());
+
+        // persisted to registry.json
+        let rec = registry::load(&store)
+            .entries
+            .into_iter()
+            .find(|e| e.name == "skill-mail")
+            .expect("recorded");
+        assert_eq!(rec.provenance.source, ProvenanceSource::Local);
+        assert!(rec.provenance.version.is_none());
+        assert!(!rec.provenance.auto_update);
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn install_local_reads_requires_from_package_root_manifest() {
+        // Mirror the ikenga-pkgs publish layout: package root has manifest.json
+        // (carrying `requires`) and skills/<name>/SKILL.md two levels below. The
+        // local install points at the SKILL.md dir; the requires walk-up finds the
+        // manifest only when it lives on the path between located and boundary.
+        // Here boundary == located (the SKILL.md dir), and we place the manifest
+        // beside SKILL.md so it is read — proving the walk-up reads the located dir.
+        let base = unique_tmp("install_local_requires");
+        let store = base.join("store");
+        std::fs::create_dir_all(&store).unwrap();
+        let src = make_local_skill_dir(&base, "src-with-req", "mail");
+        std::fs::write(
+            src.join("manifest.json"),
+            r#"{"requires":[{"kind":"skill","name":"skill-core"}]}"#,
+        )
+        .unwrap();
+
+        let entry = install_core(
+            &store,
+            Kind::Skill,
+            "skill-mail",
+            ProvenanceSource::Local,
+            &src.to_string_lossy(),
+            None,
+            false,
+        )
+        .expect("local install ok");
+
+        assert_eq!(entry.requires.len(), 1, "requires read from local manifest");
+        assert_eq!(entry.requires[0].name, "skill-core");
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn install_local_finds_skill_in_skills_subdir() {
+        // Point the local install at a package root (NOT the SKILL.md dir): the
+        // skill lives at `<root>/skills/<name>/`. `locate_in_local` must find it
+        // via the `skills/<name>` candidate, and the requires walk-up reads the
+        // package-root manifest.json.
+        let base = unique_tmp("install_local_subdir");
+        let store = base.join("store");
+        std::fs::create_dir_all(&store).unwrap();
+        let pkg_root = base.join("pkg-mail");
+        let skill = pkg_root.join("skills").join("skill-mail");
+        std::fs::create_dir_all(&skill).unwrap();
+        std::fs::write(skill.join("SKILL.md"), "---\nname: mail\n---\nbody").unwrap();
+        std::fs::write(
+            pkg_root.join("manifest.json"),
+            r#"{"requires":[{"kind":"skill","name":"skill-core"}]}"#,
+        )
+        .unwrap();
+
+        let entry = install_core(
+            &store,
+            Kind::Skill,
+            "skill-mail",
+            ProvenanceSource::Local,
+            &pkg_root.to_string_lossy(),
+            None,
+            false,
+        )
+        .expect("local install from package root ok");
+
+        let canon = store_path_for(&store, Kind::Skill, "skill-mail").unwrap();
+        assert!(canon.join("SKILL.md").is_file());
+        assert_eq!(entry.requires.len(), 1, "requires read from package-root manifest");
+        assert_eq!(entry.requires[0].name, "skill-core");
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn install_local_missing_path_leaves_no_canonical_no_record() {
+        let base = unique_tmp("install_local_missing");
+        let store = base.join("store");
+        std::fs::create_dir_all(&store).unwrap();
+
+        let err = install_core(
+            &store,
+            Kind::Skill,
+            "ghost",
+            ProvenanceSource::Local,
+            &base.join("does-not-exist").to_string_lossy(),
+            None,
+            false,
+        )
+        .unwrap_err();
+        assert!(err.contains("does not exist"), "clear error: {err}");
+        assert!(!store_path_for(&store, Kind::Skill, "ghost")
+            .unwrap()
+            .exists());
+        assert!(registry::load(&store).entries.is_empty());
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn install_local_no_skill_md_errors() {
+        let base = unique_tmp("install_local_noskill");
+        let store = base.join("store");
+        std::fs::create_dir_all(&store).unwrap();
+        let src = base.join("empty-src");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(src.join("README.md"), "nothing\n").unwrap();
+
+        let err = install_core(
+            &store,
+            Kind::Skill,
+            "skill-mail",
+            ProvenanceSource::Local,
+            &src.to_string_lossy(),
+            None,
+            false,
+        )
+        .unwrap_err();
+        assert!(err.contains("no SKILL.md"), "should fail to locate: {err}");
+        assert!(registry::load(&store).entries.is_empty());
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn check_update_and_update_refuse_local_entries() {
+        let base = unique_tmp("local_no_update");
+        let store = base.join("store");
+        std::fs::create_dir_all(&store).unwrap();
+        let src = make_local_skill_dir(&base, "src-local", "mail");
+        install_core(
+            &store,
+            Kind::Skill,
+            "skill-mail",
+            ProvenanceSource::Local,
+            &src.to_string_lossy(),
+            None,
+            false,
+        )
+        .unwrap();
+
+        let cerr = check_update_core(&store, Kind::Skill, "skill-mail").unwrap_err();
+        assert!(cerr.contains("no remote"), "check refuses local: {cerr}");
+        let uerr = update_core(&store, Kind::Skill, "skill-mail").unwrap_err();
+        assert!(
+            uerr.contains("local-source"),
+            "update refuses local: {uerr}"
+        );
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn parse_source_accepts_local() {
+        assert_eq!(parse_source("local").unwrap(), ProvenanceSource::Local);
+        assert_eq!(parse_source("git").unwrap(), ProvenanceSource::Git);
+        assert!(parse_source("bogus").unwrap_err().contains("git|npx|local"));
+    }
+
+    #[test]
+    fn install_local_round_trips_reinstall_idempotent() {
+        // Re-installing from the same local path overwrites the canonical
+        // atomically and leaves exactly one registry record (idempotent refresh).
+        let base = unique_tmp("local_round_trip");
+        let store = base.join("store");
+        std::fs::create_dir_all(&store).unwrap();
+        let src = make_local_skill_dir(&base, "src-rt", "mail");
+
+        install_core(
+            &store,
+            Kind::Skill,
+            "skill-mail",
+            ProvenanceSource::Local,
+            &src.to_string_lossy(),
+            None,
+            false,
+        )
+        .unwrap();
+        // advance the local source (new file) + reinstall
+        std::fs::write(src.join("NEW.md"), "added\n").unwrap();
+        let entry2 = install_core(
+            &store,
+            Kind::Skill,
+            "skill-mail",
+            ProvenanceSource::Local,
+            &src.to_string_lossy(),
+            None,
+            false,
+        )
+        .unwrap();
+
+        // the refreshed file is in the canonical; still exactly one record
+        let canon = store_path_for(&store, Kind::Skill, "skill-mail").unwrap();
+        assert!(canon.join("NEW.md").is_file(), "reinstall picks up new file");
+        assert_eq!(entry2.provenance.source, ProvenanceSource::Local);
+        let recs: Vec<_> = registry::load(&store)
+            .entries
+            .into_iter()
+            .filter(|e| e.name == "skill-mail")
+            .collect();
+        assert_eq!(recs.len(), 1, "reinstall replaces, not appends");
         std::fs::remove_dir_all(&base).ok();
     }
 

@@ -411,6 +411,34 @@ async fn ensure_schema(pool: &sqlx::SqlitePool) -> Result<(), String> {
             "0045_sales_stage_backfill",
             include_str!("../../migrations/0045_sales_stage_backfill.sql"),
         ),
+        // WP-20b — Finance domain alert queue (CFO-agent writes; Finance pkg reads).
+        (
+            46,
+            "0046_finance_domain",
+            include_str!("../../migrations/0046_finance_domain.sql"),
+        ),
+        // WP-21b — content domain tables (content_pieces, content_published,
+        // content_stage_transitions). STRICT, no FK, soft TEXT links.
+        // Stage enum: idea | outline | draft | review | scheduled.
+        (
+            47,
+            "0047_content_domain",
+            include_str!("../../migrations/0047_content_domain.sql"),
+        ),
+        // 0048 — task activity/audit log (task_events). Backfilled from existing
+        // tasks columns; no triggers (the splitter above can't handle them).
+        (
+            48,
+            "0048_task_events",
+            include_str!("../../migrations/0048_task_events.sql"),
+        ),
+        // 0049 — per-task derived auto-close confidence (task_signals) driving
+        // the Sweeper confidence bar. Backfill is a transparent heuristic.
+        (
+            49,
+            "0049_task_signals",
+            include_str!("../../migrations/0049_task_signals.sql"),
+        ),
     ];
 
     for (id, name, sql) in migrations {
@@ -753,7 +781,7 @@ mod tests {
     /// drift fix + finance view + 14 new business tables). Keep this in lockstep
     /// with the `migrations` tuple list — it guards against a migration silently
     /// being dropped from the embedded list (a class of bug we've hit before).
-    const MIGRATION_COUNT: i64 = 45;
+    const MIGRATION_COUNT: i64 = 47;
 
     /// Schema init applies every embedded migration exactly once. The
     /// `_pa_migrations` table must end with one row per migration tuple.

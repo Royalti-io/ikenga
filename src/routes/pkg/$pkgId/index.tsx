@@ -125,5 +125,18 @@ function PkgRouteIndex() {
 			</div>
 		);
 	}
-	return <PkgIframeHost pkgId={pkgId} source={state.entry.source} />;
+	// WP-25: a pane whose pkg `requires` skills surfaces those skills' actions
+	// as a bar above the iframe (same mount as the `$.tsx` splat sibling).
+	// ActionBar renders null for pkgs that contribute no actions; `empty:hidden`
+	// collapses the padded strip entirely in that case.
+	return (
+		<div className="flex h-full flex-col">
+			<div className="shrink-0 border-b border-border/60 px-3 py-2 empty:hidden">
+				<ActionBar pkgId={pkgId} />
+			</div>
+			<div className="min-h-0 flex-1">
+				<PkgIframeHost pkgId={pkgId} source={state.entry.source} />
+			</div>
+		</div>
+	);
 }
