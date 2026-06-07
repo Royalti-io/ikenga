@@ -425,6 +425,20 @@ async fn ensure_schema(pool: &sqlx::SqlitePool) -> Result<(), String> {
             "0047_content_domain",
             include_str!("../../migrations/0047_content_domain.sql"),
         ),
+        // 0048 — task activity/audit log (task_events). Backfilled from existing
+        // tasks columns; no triggers (the splitter above can't handle them).
+        (
+            48,
+            "0048_task_events",
+            include_str!("../../migrations/0048_task_events.sql"),
+        ),
+        // 0049 — per-task derived auto-close confidence (task_signals) driving
+        // the Sweeper confidence bar. Backfill is a transparent heuristic.
+        (
+            49,
+            "0049_task_signals",
+            include_str!("../../migrations/0049_task_signals.sql"),
+        ),
     ];
 
     for (id, name, sql) in migrations {
