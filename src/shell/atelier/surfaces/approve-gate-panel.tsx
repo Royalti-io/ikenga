@@ -24,43 +24,13 @@ import {
 	useState,
 } from 'react';
 import './approve-gate-panel.css';
+import { CHANNEL_LABEL, type DraftChannel, type PausedDraft } from '@ikenga/contract';
 
-// ── Types (mirror 07-fe-button-renderer.md §3.5; the renderer injects these) ──────────────────
-
-export type DraftChannel = 'smtp' | 'resend' | 'listmonk' | 'buffer';
-
-export interface PausedDraft {
-	id: string;
-	recipient: string;
-	recipientEmail: string | null;
-	tenantId: string | null;
-	subject: string;
-	body: string;
-	bodyPreview: string;
-	channel: DraftChannel;
-	agent: string;
-	senderAddress: string;
-	cold: boolean;
-	status: 'awaiting' | 'edited' | 'overdue';
-	scheduledAt: string;
-	scheduledLabel: string;
-	timeVariant: 'is-today' | 'is-overdue' | null;
-	overdue: boolean;
-	everEdited: boolean;
-	section: string;
-	sequence: { name: string; step: number; total: number; recipients: number } | null;
-	fromProvider: string;
-	model: string;
-	threadCount: string;
-	deal: string | null;
-	consequence: {
-		target: string;
-		recipients: number;
-		channel: string;
-		time: string;
-		undoMs: number;
-	};
-}
+// ── Types ─────────────────────────────────────────────────────────────────────────────────────
+// PausedDraft / DraftChannel are the shared run-then-pause contract — the renderer injects them
+// (07-fe-button-renderer.md §3.5; 10-approve-gate-seam.md WP-1). Re-exported so the fixtures +
+// tests keep importing them from the panel.
+export type { DraftChannel, PausedDraft };
 
 export interface ApproveGatePanelProps {
 	drafts: PausedDraft[];
@@ -73,13 +43,6 @@ export interface ApproveGatePanelProps {
 	/** Persisted inline edits (⌘S). Optional — the harness logs them. */
 	onEdit?: (draftId: string, patch: { subject?: string; body?: string }) => void;
 }
-
-const CHANNEL_LABEL: Record<DraftChannel, string> = {
-	smtp: 'SMTP',
-	resend: 'Resend',
-	listmonk: 'Listmonk',
-	buffer: 'Buffer',
-};
 
 const LIST_W_DEFAULT = 420;
 const LIST_W_MIN = 320;
