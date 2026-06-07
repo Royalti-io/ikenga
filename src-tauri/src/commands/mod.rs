@@ -20,6 +20,7 @@ pub mod engine_layout;
 pub mod fs;
 pub mod fs_roots;
 pub mod iyke;
+pub mod pa_actions;
 pub mod permissions_audit;
 pub mod pkg;
 pub mod pkg_content;
@@ -97,6 +98,9 @@ pub use iyke::{
     iyke_action_done, iyke_dom_done, iyke_dom_query, iyke_endpoint, iyke_log_push,
     iyke_network_push, iyke_query_cache_done, iyke_set_shell, iyke_terminal_read_done,
     iyke_wait_done, IykeRuntimeState,
+};
+pub use pa_actions::{
+    pa_actions_commit, pa_actions_list, pa_actions_pause, pa_actions_reject, pa_actions_update,
 };
 pub use permissions_audit::{pkg_permission_violations_clear, pkg_permission_violations_list};
 pub use pkg::{
