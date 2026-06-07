@@ -21,6 +21,7 @@ pub mod handlers;
 pub mod layout;
 pub mod mcp;
 pub mod memory;
+pub mod pa_actions;
 pub mod permissions_audit;
 pub mod pkg_dispatch;
 pub mod projects;

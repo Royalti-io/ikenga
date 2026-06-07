@@ -142,6 +142,19 @@ pub async fn pa_actions_pause(
     action_id: String,
     drafts: Vec<PaPauseDraftInput>,
 ) -> Result<usize, String> {
+    pa_actions_pause_inner(&app, db.inner(), batch_id, action_id, drafts).await
+}
+
+/// Shared pause logic — used by the Tauri command above and the iyke bridge
+/// handler (`iyke::pa_actions`), so an MCP/CLI caller (mcp-iyke `pa_actions_pause`
+/// tool, WP-8) and the FE hit the exact same insert + `pa-action-paused` emit.
+pub async fn pa_actions_pause_inner(
+    app: &AppHandle,
+    db: &Arc<PaDb>,
+    batch_id: String,
+    action_id: String,
+    drafts: Vec<PaPauseDraftInput>,
+) -> Result<usize, String> {
     if drafts.is_empty() {
         // §3.5 invariant: the gate must never surface an empty list.
         return Err("pa_actions_pause: drafts cannot be empty".into());

@@ -44,6 +44,7 @@ use super::handlers::{
 };
 use super::layout::{get_layout, post_layout_reset};
 use super::mcp::{get_mcp_list, post_mcp_restart};
+use super::pa_actions::post_pa_actions_pause;
 use super::memory::{
     get_kv_get, get_kv_list, get_lock_status, get_scratchpad_list, get_scratchpad_read,
     get_timer_list, get_todo_list, post_agent_register, post_kv_delete, post_kv_set,
@@ -202,6 +203,8 @@ pub async fn serve(
         .route("/iyke/scratchpad/read", get(get_scratchpad_read))
         .route("/iyke/scratchpad/list", get(get_scratchpad_list))
         .route("/iyke/scratchpad/delete", post(post_scratchpad_delete))
+        // Approve-gate producer hand-off (WP-8) — mcp-iyke `pa_actions_pause` tool.
+        .route("/iyke/pa-actions/pause", post(post_pa_actions_pause))
         .route("/iyke/kv/set", post(post_kv_set))
         .route("/iyke/kv/get", get(get_kv_get))
         .route("/iyke/kv/delete", post(post_kv_delete))
