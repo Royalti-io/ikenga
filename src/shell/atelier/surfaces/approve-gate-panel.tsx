@@ -329,16 +329,17 @@ export function ApproveGatePanel(props: ApproveGatePanelProps) {
 			if (tag === 'INPUT' || tag === 'TEXTAREA') return;
 			if (e.key === 'j') {
 				e.preventDefault();
-				move(-1); // Previous (J) — per the D-04 toolbar hint
+				move(1); // Next (j = down, vim convention)
 			} else if (e.key === 'k') {
 				e.preventDefault();
-				move(1); // Next (K)
+				move(-1); // Previous (k = up, vim convention)
 			}
 		},
 		[move]
 	);
 
 	const selectedIndex = selected ? flat.findIndex((d) => d.id === selected.id) : -1;
+	const consequence = selected ? consequenceStrings(selected) : null;
 
 	const splitStyle =
 		listWidth != null ? ({ '--list-w': `${listWidth}px` } as CSSProperties) : undefined;
@@ -518,8 +519,8 @@ export function ApproveGatePanel(props: ApproveGatePanelProps) {
 								<button
 									type="button"
 									className="btn-icon"
-									aria-label="Previous draft (J)"
-									aria-keyshortcuts="j"
+									aria-label="Previous draft (K)"
+									aria-keyshortcuts="k"
 									onClick={() => move(-1)}
 								>
 									<IcoUp />
@@ -527,8 +528,8 @@ export function ApproveGatePanel(props: ApproveGatePanelProps) {
 								<button
 									type="button"
 									className="btn-icon"
-									aria-label="Next draft (K)"
-									aria-keyshortcuts="k"
+									aria-label="Next draft (J)"
+									aria-keyshortcuts="j"
 									onClick={() => move(1)}
 								>
 									<IcoDown />
@@ -695,13 +696,15 @@ export function ApproveGatePanel(props: ApproveGatePanelProps) {
 								<span className="ob-actions-meta">
 									→ sends to {selected.consequence.target} · {selected.consequence.recipients}{' '}
 									{selected.consequence.recipients === 1 ? 'recipient' : 'recipients'} ·{' '}
-									{selected.consequence.channel} · {selected.consequence.time} · undo 10s
+									{selected.consequence.channel} · {selected.consequence.time} · undo{' '}
+									{Math.round(selected.consequence.undoMs / 1000)}s
 								</span>
 								<button
 									type="button"
 									className="btn ob-actions-primary"
 									aria-keyshortcuts="Meta+Enter"
-									title={`Will send via ${selected.consequence.channel} · ${selected.fromProvider} · ${selected.consequence.time}`}
+									aria-label={consequence?.aria}
+									title={consequence?.title}
 									onClick={() => startApprove(selected)}
 								>
 									<IcoCheck />
@@ -764,6 +767,20 @@ function initials(name: string): string {
 function wordCount(s: string): number {
 	const t = s.trim();
 	return t ? t.split(/\s+/).length : 0;
+}
+
+// The full consequence, carried onto the primary's tooltip + accessible name so
+// the gate's safety premise (who/where/when + undo) survives even when the meta
+// row is space-constrained. The "Approve & Send —" prefix keeps the visible CTA
+// in the accessible name.
+function consequenceStrings(d: PausedDraft): { title: string; aria: string } {
+	const n = d.consequence.recipients;
+	const word = n === 1 ? 'recipient' : 'recipients';
+	const undoS = Math.round((d.consequence.undoMs ?? 10000) / 1000);
+	return {
+		title: `→ sends to ${d.consequence.target} · ${n} ${word} · ${d.consequence.channel} · ${d.fromProvider} · ${d.consequence.time} · ${undoS}s undo`,
+		aria: `Approve & Send — to ${d.consequence.target}, ${n} ${word}, via ${d.consequence.channel}, ${d.consequence.time}, ${undoS} second undo`,
+	};
 }
 
 function nowLabel(): string {
