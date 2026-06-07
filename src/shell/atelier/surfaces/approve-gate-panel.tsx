@@ -111,10 +111,17 @@ export function ApproveGatePanel(props: ApproveGatePanelProps) {
 	const splitRef = useRef<HTMLDivElement>(null);
 	const rowRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
-	// keep selection valid as rows resolve
+	// Keep selection valid as rows arrive/resolve. Auto-select the first draft
+	// when nothing is selected (or the selection went stale) — `drafts` arrives
+	// asynchronously from the renderer's query, so the initial useState seed runs
+	// before there is anything to select. Clears the selection when the queue empties.
 	useEffect(() => {
-		if (selectedId && !visible.some((d) => d.id === selectedId)) {
-			setSelectedId(visible[0]?.id ?? null);
+		if (visible.length === 0) {
+			if (selectedId !== null) setSelectedId(null);
+			return;
+		}
+		if (!selectedId || !visible.some((d) => d.id === selectedId)) {
+			setSelectedId(visible[0].id);
 		}
 	}, [visible, selectedId]);
 
