@@ -39,4 +39,10 @@ export const queryKeys = {
 		all: ['claude_store'] as const,
 		list: (kind?: string | null) => ['claude_store', 'list', kind ?? 'all'] as const,
 	},
+	// Approve-gate run-then-pause draft queue (pa_action_drafts). The route at
+	// /outbox/approvals reads it; commit/reject mutations invalidate `all`.
+	paActions: {
+		all: ['pa_actions'] as const,
+		list: (status?: string | null) => ['pa_actions', 'list', status ?? 'active'] as const,
+	},
 } as const;
