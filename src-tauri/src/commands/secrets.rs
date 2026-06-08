@@ -22,8 +22,14 @@
 //!   - The `secrets_dump_to_runtime_file` helper writes all key/value pairs
 //!     to an OS-runtime file (`$XDG_RUNTIME_DIR/ikenga-actions/env-vault` or
 //!     `$TMPDIR/ikenga-actions/env-vault` on macOS) so sidecar processes can
-//!     read them via the existing dotenv loader. The file is chmod 0600 and
-//!     cleaned up on app quit.
+//!     read them via the existing dotenv loader. The runtime file is chmod
+//!     0600 and cleaned up on app quit.
+//!   - A second **durable** copy is written to
+//!     `$XDG_CONFIG_HOME/ikenga-actions/env` (Linux) or
+//!     `~/Library/Application Support/ikenga-actions/env` (macOS) on every
+//!     `secrets_set` / `secrets_delete`. This file survives shell restarts so
+//!     the mutation-worker daemon can send overnight with the shell closed.
+//!     It is NOT cleaned up on quit — that is by design.
 //!   - `read_secret` is a sync helper exposed for capability resolvers (e.g.
 //!     pkg_content's Supabase capability) that need vault values during
 //!     command handling without round-tripping through the public
@@ -863,6 +869,29 @@ pub fn runtime_env_vault_path() -> PathBuf {
     base.join("ikenga-actions").join("env-vault")
 }
 
+/// Path to the **durable** env file written alongside the volatile runtime
+/// vault. The mutation-worker daemon reads this path when the shell is not
+/// running (overnight sends). Uses `$XDG_CONFIG_HOME` on Linux, or
+/// `~/Library/Application Support` on macOS, falling back to `~/.config`
+/// if neither env var is set. chmod 600. NOT cleaned up on app quit — the
+/// file's whole purpose is to survive the shell being closed.
+pub fn durable_env_path() -> PathBuf {
+    let base: PathBuf = if cfg!(target_os = "macos") {
+        std::env::var_os("HOME")
+            .map(|h| PathBuf::from(h).join("Library").join("Application Support"))
+            .unwrap_or_else(|| PathBuf::from("/tmp"))
+    } else {
+        std::env::var_os("XDG_CONFIG_HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| {
+                std::env::var_os("HOME")
+                    .map(|h| PathBuf::from(h).join(".config"))
+                    .unwrap_or_else(|| PathBuf::from("/tmp"))
+            })
+    };
+    base.join("ikenga-actions").join("env")
+}
+
 fn shell_escape(value: &str) -> String {
     let mut out = String::with_capacity(value.len() + 2);
     out.push('"');
@@ -986,13 +1015,48 @@ fn dump_to_runtime_file_locked<R: Runtime>(
                 let _ = std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700));
             }
         }
-        std::fs::write(&path, body).map_err(|e| format!("write runtime: {e}"))?;
+        std::fs::write(&path, &body).map_err(|e| format!("write runtime: {e}"))?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
             std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
                 .map_err(|e| format!("chmod runtime: {e}"))?;
         }
+
+        // Also write the durable copy at ~/.config/ikenga-actions/env so the
+        // mutation-worker daemon can read credentials while the shell is closed
+        // (overnight sends). Failure is non-fatal — the volatile runtime vault
+        // is still the primary path; log and continue.
+        let durable = durable_env_path();
+        if let Some(parent) = durable.parent() {
+            if let Err(e) = std::fs::create_dir_all(parent) {
+                tracing::warn!("vault: could not create durable env dir {}: {e}", parent.display());
+            } else {
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    let _ = std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700));
+                }
+            }
+        }
+        match std::fs::write(&durable, &body) {
+            Ok(()) => {
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    if let Err(e) = std::fs::set_permissions(
+                        &durable,
+                        std::fs::Permissions::from_mode(0o600),
+                    ) {
+                        tracing::warn!("vault: chmod durable env {}: {e}", durable.display());
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!("vault: could not write durable env {}: {e}", durable.display());
+            }
+        }
+
         Ok(path)
     })
 }
@@ -1086,5 +1150,30 @@ mod tests {
         assert!(glob_match("A*Z", "AZ"));
         assert!(glob_match("A*Z", "AmiddleZ"));
         assert!(!glob_match("A*Z", "B"));
+    }
+
+    #[test]
+    fn durable_env_path_ends_with_expected_suffix() {
+        let p = durable_env_path();
+        let s = p.to_string_lossy();
+        assert!(
+            s.ends_with("ikenga-actions/env"),
+            "durable_env_path should end with ikenga-actions/env, got: {s}"
+        );
+        // Must NOT be inside a volatile tmp/runtime dir.
+        assert!(
+            !s.contains("/run/user/") && !s.starts_with("/tmp"),
+            "durable_env_path must not point to a volatile runtime dir, got: {s}"
+        );
+    }
+
+    #[test]
+    fn durable_env_path_differs_from_runtime_vault() {
+        let durable = durable_env_path();
+        let runtime = runtime_env_vault_path();
+        assert_ne!(
+            durable, runtime,
+            "durable and runtime paths must be distinct"
+        );
     }
 }
