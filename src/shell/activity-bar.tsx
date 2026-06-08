@@ -1,3 +1,4 @@
+import { useQuery } from '@tanstack/react-query';
 import {
 	Activity,
 	CheckSquare,
@@ -52,6 +53,7 @@ import {
 	type PkgActivityBarEntry,
 	usePkgActivityBarEntries,
 } from '@/lib/pkg/use-activity-bar-entries';
+import { paActionsListQueryOptions } from '@/lib/queries/pa-actions';
 import { useUpdatesAvailable } from '@/lib/registry/use-updates-available';
 import {
 	dispatchPinSelection,
@@ -323,6 +325,8 @@ export function ActivityBar() {
 
 			<div className="mt-auto" />
 
+			<ApprovalsRailButton />
+
 			<ThemeToggleButton />
 
 			{CORE_BOTTOM.map((item) => (
@@ -582,6 +586,40 @@ function RailButton({
 					{badgeCount > 9 ? '9+' : badgeCount}
 				</span>
 			)}
+		</button>
+	);
+}
+
+/** Standalone activity-bar attention badge for pending approvals. Shows only
+ *  when ≥1 draft is awaiting at the approve gate; clicking opens
+ *  /outbox/approvals. Polls (15s) so the count stays fresh even if the
+ *  pa-action-paused event is missed; the route's commit/reject invalidations
+ *  refresh it too. */
+function ApprovalsRailButton() {
+	const navigateFocused = usePaneStore((s) => s.navigateFocused);
+	const { data } = useQuery({ ...paActionsListQueryOptions(), refetchInterval: 15_000 });
+	const count = data?.length ?? 0;
+	if (count === 0) return null;
+	const plural = count === 1 ? '' : 's';
+	return (
+		<button
+			type="button"
+			onClick={() => navigateFocused('/outbox/approvals')}
+			title={`${count} approval${plural} awaiting`}
+			aria-label={`${count} approval${plural} awaiting — open the approve gate`}
+			className={cn(
+				'relative my-0.5 grid h-9 w-9 place-items-center rounded-md transition-colors',
+				'hover:bg-card'
+			)}
+			style={{ color: 'var(--fg-faint)' }}
+		>
+			<CheckSquare className="h-[18px] w-[18px]" />
+			<span
+				aria-hidden="true"
+				className="absolute right-1 top-1 grid h-3.5 min-w-[14px] place-items-center rounded-full bg-[var(--live,#22c55e)] px-1 text-[9px] font-semibold leading-none text-white"
+			>
+				{count > 9 ? '9+' : count}
+			</span>
 		</button>
 	);
 }
