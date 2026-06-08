@@ -1,37 +1,38 @@
 import { useEffect, useState } from 'react';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
-import { ActivityBar } from './activity-bar';
-import { Sidebar } from './sidebar';
-import { ContentPane } from './content-pane';
-import { Dock } from './dock/dock';
-import { useDockStore } from './dock/dock-store';
-import { CommandPalette, useCommandPalette } from './command-palette';
-import { TerminalHandoffPrompt } from './artifact-wizard/terminal-handoff-prompt';
 import { OpenSessionDialogHost } from '@/components/pkg/open-session-dialog-host';
-import { WizardPopRecoveryChip } from './artifact-wizard/wizard-pop-recovery-chip';
-import { RuntimeBunChip } from './runtime-bun-chip';
-import { ConnectorBanner } from './connector-banner';
-import { TrustReviewBanner } from './trust-review-banner';
-import { UpdaterBanner } from './updater-banner';
-import { PkgAutoUpdater } from './pkg-auto-updater';
+import { dumpBootTimings, mark } from '@/lib/boot-timing';
 import { useIykeBridge } from '@/lib/iyke/bridge';
 import { useIykeControlListener } from '@/lib/iyke/control-listener';
 import { useIykeShellSync } from '@/lib/iyke/use-iyke-shell-sync';
 import { usePinRoutedListener } from '@/lib/iyke/use-pin-routed-listener';
-import { useProjectsSync } from '@/lib/shell/use-projects-sync';
+import { loadPaneTree, persistPaneTree } from '@/lib/panes/pane-persistence';
+import { usePaneStore } from '@/lib/panes/pane-store';
+import { useRouterPaneSync } from '@/lib/panes/router-pane-sync';
 import {
 	loadPanelSizes,
 	persistPanelSizes,
 	registerPanelSizesSetter,
 } from '@/lib/shell/panel-sizes';
-import { useScreenshotListener } from '@/lib/use-screenshot-listener';
+import { useProjectsSync } from '@/lib/shell/use-projects-sync';
+import { usePaActionsListener } from '@/lib/use-pa-actions';
 import { usePreloadViewers } from '@/lib/use-preload-viewers';
-import { dumpBootTimings, mark } from '@/lib/boot-timing';
-import { usePaneStore } from '@/lib/panes/pane-store';
-import { loadPaneTree, persistPaneTree } from '@/lib/panes/pane-persistence';
-import { useRouterPaneSync } from '@/lib/panes/router-pane-sync';
+import { useScreenshotListener } from '@/lib/use-screenshot-listener';
 import { useTerminalStore } from '@/terminal/session-store';
 import { createTerminalSession } from '@/terminal/single-terminal';
+import { ActivityBar } from './activity-bar';
+import { TerminalHandoffPrompt } from './artifact-wizard/terminal-handoff-prompt';
+import { WizardPopRecoveryChip } from './artifact-wizard/wizard-pop-recovery-chip';
+import { CommandPalette, useCommandPalette } from './command-palette';
+import { ConnectorBanner } from './connector-banner';
+import { ContentPane } from './content-pane';
+import { Dock } from './dock/dock';
+import { useDockStore } from './dock/dock-store';
+import { PkgAutoUpdater } from './pkg-auto-updater';
+import { RuntimeBunChip } from './runtime-bun-chip';
+import { Sidebar } from './sidebar';
+import { TrustReviewBanner } from './trust-review-banner';
+import { UpdaterBanner } from './updater-banner';
 
 export function Workspace() {
 	const [initialSizes, setInitialSizes] = useState<[number, number] | null>(null);
@@ -71,6 +72,11 @@ export function Workspace() {
 	// prompt. Workspace-level so a pin created from any artifact pane
 	// dispatches reliably, not just from the grid.
 	usePinRoutedListener();
+	// Approve-gate seam: when an approve-aware action pauses a batch
+	// (`pa-action-paused`), open /outbox/approvals in the focused pane so the
+	// operator can sign off the drafts. Workspace-level so any action's pause
+	// reliably surfaces the gate.
+	usePaActionsListener();
 	// Note: the mbox sync scheduler that used to live here moved into the
 	// com.ikenga.email pkg's manifest cron when the strip-down landed.
 

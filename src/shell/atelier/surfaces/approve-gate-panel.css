@@ -534,6 +534,26 @@
 	position: relative;
 }
 
+/* Keep the consequence visible at every width. The app-kit action-bar-quick
+ * default hides .ob-actions-meta below 720px (24-action-bar-quick.css); for the
+ * approve gate that line IS the safety premise of the gate, so re-show it on its
+ * own full-width row above the primary instead. Surface-scoped override — the
+ * shared component default is unchanged for other consumers; later source order
+ * (this file @imports app-kit first) wins the equal-specificity tie. */
+@container ob-detail (max-width: 720px) {
+	.ob-actions-spacer {
+		display: none;
+	}
+	.ob-actions-meta {
+		display: block;
+		flex-basis: 100%;
+		white-space: normal;
+		overflow: visible;
+		text-overflow: clip;
+		margin: var(--space-1) 0 0;
+	}
+}
+
 /* Pattern-glue reduced-motion: the app-kit 00-base global block already covers this,
  * but keep an explicit guard for these transitions per the part's motion spec. */
 @media (prefers-reduced-motion: reduce) {

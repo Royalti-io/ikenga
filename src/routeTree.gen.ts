@@ -28,6 +28,7 @@ import { Route as ClaudeAssetsSmokeRouteImport } from './routes/claude-assets-sm
 import { Route as AgentRunsRouteImport } from './routes/agent-runs'
 import { Route as SettingsRouteRouteImport } from './routes/settings/route'
 import { Route as SessionsRouteRouteImport } from './routes/sessions/route'
+import { Route as OutboxRouteRouteImport } from './routes/outbox/route'
 import { Route as OnboardingRouteRouteImport } from './routes/onboarding/route'
 import { Route as ClaudeRouteRouteImport } from './routes/claude/route'
 import { Route as IndexRouteImport } from './routes/index'
@@ -49,6 +50,11 @@ import { Route as SettingsActivityBarRouteImport } from './routes/settings/activ
 import { Route as SettingsAboutRouteImport } from './routes/settings/about'
 import { Route as ProjectsNewArtifactRouteImport } from './routes/projects/new-artifact'
 import { Route as PackagesBrowseRouteImport } from './routes/packages_.browse'
+import { Route as OutboxSocialRouteImport } from './routes/outbox/social'
+import { Route as OutboxSentRouteImport } from './routes/outbox/sent'
+import { Route as OutboxNewsletterRouteImport } from './routes/outbox/newsletter'
+import { Route as OutboxEmailRouteImport } from './routes/outbox/email'
+import { Route as OutboxApprovalsRouteImport } from './routes/outbox/approvals'
 import { Route as OnboardingWelcomeRouteImport } from './routes/onboarding/welcome'
 import { Route as OnboardingTelemetryRouteImport } from './routes/onboarding/telemetry'
 import { Route as OnboardingSummaryRouteImport } from './routes/onboarding/summary'
@@ -164,6 +170,11 @@ const SessionsRouteRoute = SessionsRouteRouteImport.update({
   path: '/sessions',
   getParentRoute: () => rootRouteImport,
 } as any)
+const OutboxRouteRoute = OutboxRouteRouteImport.update({
+  id: '/outbox',
+  path: '/outbox',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const OnboardingRouteRoute = OnboardingRouteRouteImport.update({
   id: '/onboarding',
   path: '/onboarding',
@@ -269,6 +280,31 @@ const PackagesBrowseRoute = PackagesBrowseRouteImport.update({
   path: '/packages/browse',
   getParentRoute: () => rootRouteImport,
 } as any)
+const OutboxSocialRoute = OutboxSocialRouteImport.update({
+  id: '/social',
+  path: '/social',
+  getParentRoute: () => OutboxRouteRoute,
+} as any)
+const OutboxSentRoute = OutboxSentRouteImport.update({
+  id: '/sent',
+  path: '/sent',
+  getParentRoute: () => OutboxRouteRoute,
+} as any)
+const OutboxNewsletterRoute = OutboxNewsletterRouteImport.update({
+  id: '/newsletter',
+  path: '/newsletter',
+  getParentRoute: () => OutboxRouteRoute,
+} as any)
+const OutboxEmailRoute = OutboxEmailRouteImport.update({
+  id: '/email',
+  path: '/email',
+  getParentRoute: () => OutboxRouteRoute,
+} as any)
+const OutboxApprovalsRoute = OutboxApprovalsRouteImport.update({
+  id: '/approvals',
+  path: '/approvals',
+  getParentRoute: () => OutboxRouteRoute,
+} as any)
 const OnboardingWelcomeRoute = OnboardingWelcomeRouteImport.update({
   id: '/welcome',
   path: '/welcome',
@@ -369,6 +405,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/claude': typeof ClaudeRouteRouteWithChildren
   '/onboarding': typeof OnboardingRouteRouteWithChildren
+  '/outbox': typeof OutboxRouteRouteWithChildren
   '/sessions': typeof SessionsRouteRouteWithChildren
   '/settings': typeof SettingsRouteRouteWithChildren
   '/agent-runs': typeof AgentRunsRoute
@@ -400,6 +437,11 @@ export interface FileRoutesByFullPath {
   '/onboarding/summary': typeof OnboardingSummaryRoute
   '/onboarding/telemetry': typeof OnboardingTelemetryRoute
   '/onboarding/welcome': typeof OnboardingWelcomeRoute
+  '/outbox/approvals': typeof OutboxApprovalsRoute
+  '/outbox/email': typeof OutboxEmailRoute
+  '/outbox/newsletter': typeof OutboxNewsletterRoute
+  '/outbox/sent': typeof OutboxSentRoute
+  '/outbox/social': typeof OutboxSocialRoute
   '/packages/browse': typeof PackagesBrowseRoute
   '/projects/new-artifact': typeof ProjectsNewArtifactRoute
   '/settings/about': typeof SettingsAboutRoute
@@ -429,6 +471,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/claude': typeof ClaudeRouteRouteWithChildren
+  '/outbox': typeof OutboxRouteRouteWithChildren
   '/agent-runs': typeof AgentRunsRoute
   '/claude-assets-smoke': typeof ClaudeAssetsSmokeRoute
   '/cron': typeof CronRoute
@@ -457,6 +500,11 @@ export interface FileRoutesByTo {
   '/onboarding/summary': typeof OnboardingSummaryRoute
   '/onboarding/telemetry': typeof OnboardingTelemetryRoute
   '/onboarding/welcome': typeof OnboardingWelcomeRoute
+  '/outbox/approvals': typeof OutboxApprovalsRoute
+  '/outbox/email': typeof OutboxEmailRoute
+  '/outbox/newsletter': typeof OutboxNewsletterRoute
+  '/outbox/sent': typeof OutboxSentRoute
+  '/outbox/social': typeof OutboxSocialRoute
   '/packages/browse': typeof PackagesBrowseRoute
   '/projects/new-artifact': typeof ProjectsNewArtifactRoute
   '/settings/about': typeof SettingsAboutRoute
@@ -488,6 +536,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/claude': typeof ClaudeRouteRouteWithChildren
   '/onboarding': typeof OnboardingRouteRouteWithChildren
+  '/outbox': typeof OutboxRouteRouteWithChildren
   '/sessions': typeof SessionsRouteRouteWithChildren
   '/settings': typeof SettingsRouteRouteWithChildren
   '/agent-runs': typeof AgentRunsRoute
@@ -519,6 +568,11 @@ export interface FileRoutesById {
   '/onboarding/summary': typeof OnboardingSummaryRoute
   '/onboarding/telemetry': typeof OnboardingTelemetryRoute
   '/onboarding/welcome': typeof OnboardingWelcomeRoute
+  '/outbox/approvals': typeof OutboxApprovalsRoute
+  '/outbox/email': typeof OutboxEmailRoute
+  '/outbox/newsletter': typeof OutboxNewsletterRoute
+  '/outbox/sent': typeof OutboxSentRoute
+  '/outbox/social': typeof OutboxSocialRoute
   '/packages_/browse': typeof PackagesBrowseRoute
   '/projects/new-artifact': typeof ProjectsNewArtifactRoute
   '/settings/about': typeof SettingsAboutRoute
@@ -551,6 +605,7 @@ export interface FileRouteTypes {
     | '/'
     | '/claude'
     | '/onboarding'
+    | '/outbox'
     | '/sessions'
     | '/settings'
     | '/agent-runs'
@@ -582,6 +637,11 @@ export interface FileRouteTypes {
     | '/onboarding/summary'
     | '/onboarding/telemetry'
     | '/onboarding/welcome'
+    | '/outbox/approvals'
+    | '/outbox/email'
+    | '/outbox/newsletter'
+    | '/outbox/sent'
+    | '/outbox/social'
     | '/packages/browse'
     | '/projects/new-artifact'
     | '/settings/about'
@@ -611,6 +671,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/claude'
+    | '/outbox'
     | '/agent-runs'
     | '/claude-assets-smoke'
     | '/cron'
@@ -639,6 +700,11 @@ export interface FileRouteTypes {
     | '/onboarding/summary'
     | '/onboarding/telemetry'
     | '/onboarding/welcome'
+    | '/outbox/approvals'
+    | '/outbox/email'
+    | '/outbox/newsletter'
+    | '/outbox/sent'
+    | '/outbox/social'
     | '/packages/browse'
     | '/projects/new-artifact'
     | '/settings/about'
@@ -669,6 +735,7 @@ export interface FileRouteTypes {
     | '/'
     | '/claude'
     | '/onboarding'
+    | '/outbox'
     | '/sessions'
     | '/settings'
     | '/agent-runs'
@@ -700,6 +767,11 @@ export interface FileRouteTypes {
     | '/onboarding/summary'
     | '/onboarding/telemetry'
     | '/onboarding/welcome'
+    | '/outbox/approvals'
+    | '/outbox/email'
+    | '/outbox/newsletter'
+    | '/outbox/sent'
+    | '/outbox/social'
     | '/packages_/browse'
     | '/projects/new-artifact'
     | '/settings/about'
@@ -731,6 +803,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ClaudeRouteRoute: typeof ClaudeRouteRouteWithChildren
   OnboardingRouteRoute: typeof OnboardingRouteRouteWithChildren
+  OutboxRouteRoute: typeof OutboxRouteRouteWithChildren
   SessionsRouteRoute: typeof SessionsRouteRouteWithChildren
   SettingsRouteRoute: typeof SettingsRouteRouteWithChildren
   AgentRunsRoute: typeof AgentRunsRoute
@@ -892,6 +965,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SessionsRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/outbox': {
+      id: '/outbox'
+      path: '/outbox'
+      fullPath: '/outbox'
+      preLoaderRoute: typeof OutboxRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/onboarding': {
       id: '/onboarding'
       path: '/onboarding'
@@ -1038,6 +1118,41 @@ declare module '@tanstack/react-router' {
       fullPath: '/packages/browse'
       preLoaderRoute: typeof PackagesBrowseRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/outbox/social': {
+      id: '/outbox/social'
+      path: '/social'
+      fullPath: '/outbox/social'
+      preLoaderRoute: typeof OutboxSocialRouteImport
+      parentRoute: typeof OutboxRouteRoute
+    }
+    '/outbox/sent': {
+      id: '/outbox/sent'
+      path: '/sent'
+      fullPath: '/outbox/sent'
+      preLoaderRoute: typeof OutboxSentRouteImport
+      parentRoute: typeof OutboxRouteRoute
+    }
+    '/outbox/newsletter': {
+      id: '/outbox/newsletter'
+      path: '/newsletter'
+      fullPath: '/outbox/newsletter'
+      preLoaderRoute: typeof OutboxNewsletterRouteImport
+      parentRoute: typeof OutboxRouteRoute
+    }
+    '/outbox/email': {
+      id: '/outbox/email'
+      path: '/email'
+      fullPath: '/outbox/email'
+      preLoaderRoute: typeof OutboxEmailRouteImport
+      parentRoute: typeof OutboxRouteRoute
+    }
+    '/outbox/approvals': {
+      id: '/outbox/approvals'
+      path: '/approvals'
+      fullPath: '/outbox/approvals'
+      preLoaderRoute: typeof OutboxApprovalsRouteImport
+      parentRoute: typeof OutboxRouteRoute
     }
     '/onboarding/welcome': {
       id: '/onboarding/welcome'
@@ -1217,6 +1332,26 @@ const OnboardingRouteRouteWithChildren = OnboardingRouteRoute._addFileChildren(
   OnboardingRouteRouteChildren,
 )
 
+interface OutboxRouteRouteChildren {
+  OutboxApprovalsRoute: typeof OutboxApprovalsRoute
+  OutboxEmailRoute: typeof OutboxEmailRoute
+  OutboxNewsletterRoute: typeof OutboxNewsletterRoute
+  OutboxSentRoute: typeof OutboxSentRoute
+  OutboxSocialRoute: typeof OutboxSocialRoute
+}
+
+const OutboxRouteRouteChildren: OutboxRouteRouteChildren = {
+  OutboxApprovalsRoute: OutboxApprovalsRoute,
+  OutboxEmailRoute: OutboxEmailRoute,
+  OutboxNewsletterRoute: OutboxNewsletterRoute,
+  OutboxSentRoute: OutboxSentRoute,
+  OutboxSocialRoute: OutboxSocialRoute,
+}
+
+const OutboxRouteRouteWithChildren = OutboxRouteRoute._addFileChildren(
+  OutboxRouteRouteChildren,
+)
+
 interface SessionsRouteRouteChildren {
   SessionsIndexRoute: typeof SessionsIndexRoute
   SessionsByAgentAgentRoute: typeof SessionsByAgentAgentRoute
@@ -1293,6 +1428,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ClaudeRouteRoute: ClaudeRouteRouteWithChildren,
   OnboardingRouteRoute: OnboardingRouteRouteWithChildren,
+  OutboxRouteRoute: OutboxRouteRouteWithChildren,
   SessionsRouteRoute: SessionsRouteRouteWithChildren,
   SettingsRouteRoute: SettingsRouteRouteWithChildren,
   AgentRunsRoute: AgentRunsRoute,

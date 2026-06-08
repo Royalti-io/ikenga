@@ -68,9 +68,9 @@ describe('ApproveGatePanel', () => {
 		const surface = screen.getByLabelText('Draft approvals');
 		// initial selection = Valentim (Today). Display order: Overdue(Hannah) → Today(Valentim, LinkedIn) → This week(L5).
 		expect(subjectValue()).toMatch(/Re: Catalog import/);
-		fireEvent.keyDown(surface, { key: 'k' }); // next → LinkedIn social
+		fireEvent.keyDown(surface, { key: 'j' }); // next (j = down, vim) → LinkedIn social
 		expect(subjectValue()).toMatch(/Ship note/);
-		fireEvent.keyDown(surface, { key: 'j' }); // previous → Valentim
+		fireEvent.keyDown(surface, { key: 'k' }); // previous (k = up, vim) → Valentim
 		expect(subjectValue()).toMatch(/Re: Catalog import/);
 	});
 

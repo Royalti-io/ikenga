@@ -24,43 +24,13 @@ import {
 	useState,
 } from 'react';
 import './approve-gate-panel.css';
+import { CHANNEL_LABEL, type DraftChannel, type PausedDraft } from '@ikenga/contract';
 
-// ── Types (mirror 07-fe-button-renderer.md §3.5; the renderer injects these) ──────────────────
-
-export type DraftChannel = 'smtp' | 'resend' | 'listmonk' | 'buffer';
-
-export interface PausedDraft {
-	id: string;
-	recipient: string;
-	recipientEmail: string | null;
-	tenantId: string | null;
-	subject: string;
-	body: string;
-	bodyPreview: string;
-	channel: DraftChannel;
-	agent: string;
-	senderAddress: string;
-	cold: boolean;
-	status: 'awaiting' | 'edited' | 'overdue';
-	scheduledAt: string;
-	scheduledLabel: string;
-	timeVariant: 'is-today' | 'is-overdue' | null;
-	overdue: boolean;
-	everEdited: boolean;
-	section: string;
-	sequence: { name: string; step: number; total: number; recipients: number } | null;
-	fromProvider: string;
-	model: string;
-	threadCount: string;
-	deal: string | null;
-	consequence: {
-		target: string;
-		recipients: number;
-		channel: string;
-		time: string;
-		undoMs: number;
-	};
-}
+// ── Types ─────────────────────────────────────────────────────────────────────────────────────
+// PausedDraft / DraftChannel are the shared run-then-pause contract — the renderer injects them
+// (07-fe-button-renderer.md §3.5; 10-approve-gate-seam.md WP-1). Re-exported so the fixtures +
+// tests keep importing them from the panel.
+export type { DraftChannel, PausedDraft };
 
 export interface ApproveGatePanelProps {
 	drafts: PausedDraft[];
@@ -73,13 +43,6 @@ export interface ApproveGatePanelProps {
 	/** Persisted inline edits (⌘S). Optional — the harness logs them. */
 	onEdit?: (draftId: string, patch: { subject?: string; body?: string }) => void;
 }
-
-const CHANNEL_LABEL: Record<DraftChannel, string> = {
-	smtp: 'SMTP',
-	resend: 'Resend',
-	listmonk: 'Listmonk',
-	buffer: 'Buffer',
-};
 
 const LIST_W_DEFAULT = 420;
 const LIST_W_MIN = 320;
@@ -148,10 +111,17 @@ export function ApproveGatePanel(props: ApproveGatePanelProps) {
 	const splitRef = useRef<HTMLDivElement>(null);
 	const rowRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
-	// keep selection valid as rows resolve
+	// Keep selection valid as rows arrive/resolve. Auto-select the first draft
+	// when nothing is selected (or the selection went stale) — `drafts` arrives
+	// asynchronously from the renderer's query, so the initial useState seed runs
+	// before there is anything to select. Clears the selection when the queue empties.
 	useEffect(() => {
-		if (selectedId && !visible.some((d) => d.id === selectedId)) {
-			setSelectedId(visible[0]?.id ?? null);
+		if (visible.length === 0) {
+			if (selectedId !== null) setSelectedId(null);
+			return;
+		}
+		if (!selectedId || !visible.some((d) => d.id === selectedId)) {
+			setSelectedId(visible[0].id);
 		}
 	}, [visible, selectedId]);
 
@@ -329,16 +299,17 @@ export function ApproveGatePanel(props: ApproveGatePanelProps) {
 			if (tag === 'INPUT' || tag === 'TEXTAREA') return;
 			if (e.key === 'j') {
 				e.preventDefault();
-				move(-1); // Previous (J) — per the D-04 toolbar hint
+				move(1); // Next (j = down, vim convention)
 			} else if (e.key === 'k') {
 				e.preventDefault();
-				move(1); // Next (K)
+				move(-1); // Previous (k = up, vim convention)
 			}
 		},
 		[move]
 	);
 
 	const selectedIndex = selected ? flat.findIndex((d) => d.id === selected.id) : -1;
+	const consequence = selected ? consequenceStrings(selected) : null;
 
 	const splitStyle =
 		listWidth != null ? ({ '--list-w': `${listWidth}px` } as CSSProperties) : undefined;
@@ -518,8 +489,8 @@ export function ApproveGatePanel(props: ApproveGatePanelProps) {
 								<button
 									type="button"
 									className="btn-icon"
-									aria-label="Previous draft (J)"
-									aria-keyshortcuts="j"
+									aria-label="Previous draft (K)"
+									aria-keyshortcuts="k"
 									onClick={() => move(-1)}
 								>
 									<IcoUp />
@@ -527,8 +498,8 @@ export function ApproveGatePanel(props: ApproveGatePanelProps) {
 								<button
 									type="button"
 									className="btn-icon"
-									aria-label="Next draft (K)"
-									aria-keyshortcuts="k"
+									aria-label="Next draft (J)"
+									aria-keyshortcuts="j"
 									onClick={() => move(1)}
 								>
 									<IcoDown />
@@ -695,13 +666,15 @@ export function ApproveGatePanel(props: ApproveGatePanelProps) {
 								<span className="ob-actions-meta">
 									→ sends to {selected.consequence.target} · {selected.consequence.recipients}{' '}
 									{selected.consequence.recipients === 1 ? 'recipient' : 'recipients'} ·{' '}
-									{selected.consequence.channel} · {selected.consequence.time} · undo 10s
+									{selected.consequence.channel} · {selected.consequence.time} · undo{' '}
+									{Math.round(selected.consequence.undoMs / 1000)}s
 								</span>
 								<button
 									type="button"
 									className="btn ob-actions-primary"
 									aria-keyshortcuts="Meta+Enter"
-									title={`Will send via ${selected.consequence.channel} · ${selected.fromProvider} · ${selected.consequence.time}`}
+									aria-label={consequence?.aria}
+									title={consequence?.title}
 									onClick={() => startApprove(selected)}
 								>
 									<IcoCheck />
@@ -764,6 +737,20 @@ function initials(name: string): string {
 function wordCount(s: string): number {
 	const t = s.trim();
 	return t ? t.split(/\s+/).length : 0;
+}
+
+// The full consequence, carried onto the primary's tooltip + accessible name so
+// the gate's safety premise (who/where/when + undo) survives even when the meta
+// row is space-constrained. The "Approve & Send —" prefix keeps the visible CTA
+// in the accessible name.
+function consequenceStrings(d: PausedDraft): { title: string; aria: string } {
+	const n = d.consequence.recipients;
+	const word = n === 1 ? 'recipient' : 'recipients';
+	const undoS = Math.round((d.consequence.undoMs ?? 10000) / 1000);
+	return {
+		title: `→ sends to ${d.consequence.target} · ${n} ${word} · ${d.consequence.channel} · ${d.fromProvider} · ${d.consequence.time} · ${undoS}s undo`,
+		aria: `Approve & Send — to ${d.consequence.target}, ${n} ${word}, via ${d.consequence.channel}, ${d.consequence.time}, ${undoS} second undo`,
+	};
 }
 
 function nowLabel(): string {
