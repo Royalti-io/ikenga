@@ -448,6 +448,14 @@ async fn ensure_schema(pool: &sqlx::SqlitePool) -> Result<(), String> {
             "0050_pa_action_drafts",
             include_str!("../../migrations/0050_pa_action_drafts.sql"),
         ),
+        // 0051 — mutation-worker claim + retry + delivery columns on pa_action_drafts.
+        // Extends 0050: adds claimed_at/attempts/last_attempt_at/error_text/external_id/
+        // delivery_status/delivery_checked_at + idx_pa_drafts_claimable. Freezes G-SCHEMA.
+        (
+            51,
+            "0051_pa_action_drafts_send_state",
+            include_str!("../../migrations/0051_pa_action_drafts_send_state.sql"),
+        ),
     ];
 
     for (id, name, sql) in migrations {
