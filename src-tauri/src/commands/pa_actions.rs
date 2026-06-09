@@ -16,6 +16,15 @@
 //!
 //! Rust stays a thin store: `payload_json` (the DraftItem + ApproveGateMeta) is
 //! opaque here and parsed FE-side via `@ikenga/contract` `fromDraftItem`.
+//!
+//! WP-09 additions (mutation-worker event-wake bridge):
+//! * `pa_actions_commit` fires a fire-and-forget POST to the daemon run-now
+//!   endpoint via `agent_ops::agent_ops_run_now` after the row is committed
+//!   (DEC-11 — the daemon wakes immediately; poll stays the backstop).
+//! * `pa_actions_pause_inner` normalises `scheduled_at` from ISO-8601 (with
+//!   `T`-separator and optional timezone offset) to SQLite UTC `YYYY-MM-DD HH:MM:SS`
+//!   before INSERT, so the worker's lexical `scheduled_at <= datetime('now')`
+//!   predicate is correct by construction (DEC-10 / G-07).
 
 use std::sync::Arc;
 
@@ -31,6 +40,60 @@ const COLS: &str = "id, batch_id, action_id, status, channel, payload_json, \
 /// Active gate statuses — rows the approve-gate panel still surfaces. `sent` and
 /// `rejected` are terminal and excluded from the default list.
 const ACTIVE_STATUSES: &str = "('awaiting', 'edited', 'committed')";
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
+
+/// Normalise a `scheduledAt` ISO-8601 string (e.g. `"2026-06-09T07:00:00+01:00"` or
+/// `"2026-06-09T07:00:00Z"`) to the UTC space-format SQLite expects for lexical date
+/// comparison: `"YYYY-MM-DD HH:MM:SS"`.
+///
+/// SQLite's `datetime('now')` returns `"YYYY-MM-DD HH:MM:SS"` in UTC. If the
+/// producer inserts a raw ISO string (which uses `T` + a timezone offset), the
+/// predicate `scheduled_at <= datetime('now')` is a broken lexical compare that
+/// either fires immediately (offset < `T`) or never fires (offset > space). DEC-10 /
+/// G-07 requires the shell to normalise at pause-time so the worker can trust the
+/// column.
+///
+/// Behaviour:
+/// * `None` → `None` (no scheduled time).
+/// * Already in the space-format (`"YYYY-MM-DD HH:MM:SS"`) → returned as-is.
+/// * Valid RFC 3339 / ISO 8601 with offset or `Z` → converted to UTC, formatted as
+///   `"YYYY-MM-DD HH:MM:SS"`.
+/// * Unparseable → original string returned unchanged (logged; the row inserts; the
+///   worker's defensive parse can handle degraded inputs rather than blocking the
+///   commit with a hard error).
+fn normalize_scheduled_at(iso: Option<String>) -> Option<String> {
+    let s = match iso {
+        None => return None,
+        Some(s) if s.is_empty() => return None,
+        Some(s) => s,
+    };
+
+    // Fast-path: already in `"YYYY-MM-DD HH:MM:SS"` space-format (no T, no offset).
+    // The SQLite datetime format is exactly 19 chars: "2026-06-09 07:00:00".
+    if s.len() == 19 && !s.contains('T') && !s.contains('+') {
+        return Some(s);
+    }
+
+    // Parse as RFC 3339 and convert to UTC.
+    match chrono::DateTime::parse_from_rfc3339(&s) {
+        Ok(dt) => {
+            use chrono::TimeZone;
+            let utc = chrono::Utc.from_utc_datetime(&dt.naive_utc());
+            Some(utc.format("%Y-%m-%d %H:%M:%S").to_string())
+        }
+        Err(e) => {
+            // Non-fatal: log and pass through. The row still inserts; the worker
+            // performs its own defensive parse against malformed values.
+            tracing::warn!(
+                scheduled_at = %s,
+                error = %e,
+                "pa_actions_pause: failed to normalise scheduled_at — inserting raw"
+            );
+            Some(s)
+        }
+    }
+}
 
 // ── Wire shapes ─────────────────────────────────────────────────────────────
 
@@ -176,7 +239,7 @@ pub async fn pa_actions_pause_inner(
         .bind(&action_id)
         .bind(&d.channel)
         .bind(payload)
-        .bind(&d.scheduled_at)
+        .bind(normalize_scheduled_at(d.scheduled_at.clone()))
         .execute(&mut *tx)
         .await
         .map_err(|e| format!("insert draft {}: {e}", d.id))?;
@@ -287,6 +350,17 @@ pub async fn pa_actions_commit(
             edited_json,
         },
     );
+
+    // WP-09 / DEC-11 — event-wake: POST the daemon run-now so the mutation worker
+    // fires immediately (low latency; the poll backstop catches any missed wake).
+    // Fire-and-forget: spawn a detached task so the commit response returns without
+    // waiting for the HTTP round-trip. Failures are silent by design — an absent /
+    // stale daemon.lock (`daemon_down`) or a disabled job (`disabled` / 409) both
+    // degrade gracefully; the poll catches up within 60 s.
+    tokio::spawn(super::agent_ops::agent_ops_run_now(
+        "mutation:send-worker".to_string(),
+    ));
+
     Ok(())
 }
 
