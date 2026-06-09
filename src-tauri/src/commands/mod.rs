@@ -100,7 +100,8 @@ pub use iyke::{
     iyke_wait_done, IykeRuntimeState,
 };
 pub use pa_actions::{
-    pa_actions_commit, pa_actions_list, pa_actions_pause, pa_actions_reject, pa_actions_update,
+    pa_actions_commit, pa_actions_list, pa_actions_pause, pa_actions_reject, pa_actions_retry,
+    pa_actions_update,
 };
 pub use permissions_audit::{pkg_permission_violations_clear, pkg_permission_violations_list};
 pub use pkg::{

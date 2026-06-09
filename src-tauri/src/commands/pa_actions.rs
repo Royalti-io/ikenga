@@ -30,16 +30,20 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sqlx::Row as _;
 use tauri::{AppHandle, Emitter, State};
 
 use super::db::PaDb;
 
 const COLS: &str = "id, batch_id, action_id, status, channel, payload_json, \
-                    edited_json, scheduled_at, created_at, committed_at, sent_at";
+                    edited_json, scheduled_at, created_at, committed_at, sent_at, \
+                    claimed_at, attempts, last_attempt_at, error_text, \
+                    external_id, delivery_status, delivery_checked_at";
 
 /// Active gate statuses — rows the approve-gate panel still surfaces. `sent` and
-/// `rejected` are terminal and excluded from the default list.
-const ACTIVE_STATUSES: &str = "('awaiting', 'edited', 'committed')";
+/// `rejected` are terminal and excluded from the default list. `failed` rows are
+/// included so the operator can see errors and retry (WP-12 / G-09).
+const ACTIVE_STATUSES: &str = "('awaiting', 'edited', 'committed', 'failed')";
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -107,7 +111,7 @@ pub struct PaActionDraftRow {
     pub batch_id: String,
     #[serde(rename = "actionId")]
     pub action_id: String,
-    /// `awaiting` | `edited` | `committed` | `sent` | `rejected`.
+    /// `awaiting` | `edited` | `committed` | `sending` | `sent` | `failed` | `rejected`.
     pub status: String,
     pub channel: String,
     #[serde(rename = "payloadJson")]
@@ -122,35 +126,47 @@ pub struct PaActionDraftRow {
     pub committed_at: Option<String>,
     #[serde(rename = "sentAt")]
     pub sent_at: Option<String>,
+    // ── 0051 mutation-worker columns ─────────────────────────────────────────
+    #[serde(rename = "claimedAt")]
+    pub claimed_at: Option<String>,
+    pub attempts: i64,
+    #[serde(rename = "lastAttemptAt")]
+    pub last_attempt_at: Option<String>,
+    #[serde(rename = "errorText")]
+    pub error_text: Option<String>,
+    #[serde(rename = "externalId")]
+    pub external_id: Option<String>,
+    #[serde(rename = "deliveryStatus")]
+    pub delivery_status: Option<String>,
+    #[serde(rename = "deliveryCheckedAt")]
+    pub delivery_checked_at: Option<String>,
 }
 
-type DraftRow = (
-    String,
-    String,
-    String,
-    String,
-    String,
-    String,
-    Option<String>,
-    Option<String>,
-    String,
-    Option<String>,
-    Option<String>,
-);
-
-fn row_to_draft(r: DraftRow) -> PaActionDraftRow {
+/// Map a raw `SqliteRow` (from `query(COLS).fetch_*`) into `PaActionDraftRow`.
+///
+/// We use manual column indexing rather than a tuple `FromRow` impl because the
+/// 18-column COLS projection exceeds sqlx's 16-element tuple `FromRow` limit.
+/// Column order must match the `COLS` constant exactly.
+fn row_to_draft(r: sqlx::sqlite::SqliteRow) -> PaActionDraftRow {
     PaActionDraftRow {
-        id: r.0,
-        batch_id: r.1,
-        action_id: r.2,
-        status: r.3,
-        channel: r.4,
-        payload_json: r.5,
-        edited_json: r.6,
-        scheduled_at: r.7,
-        created_at: r.8,
-        committed_at: r.9,
-        sent_at: r.10,
+        id:                 r.get(0),
+        batch_id:           r.get(1),
+        action_id:          r.get(2),
+        status:             r.get(3),
+        channel:            r.get(4),
+        payload_json:       r.get(5),
+        edited_json:        r.get(6),
+        scheduled_at:       r.get(7),
+        created_at:         r.get(8),
+        committed_at:       r.get(9),
+        sent_at:            r.get(10),
+        claimed_at:         r.get(11),
+        attempts:           r.get::<Option<i64>, _>(12).unwrap_or(0),
+        last_attempt_at:    r.get(13),
+        error_text:         r.get(14),
+        external_id:        r.get(15),
+        delivery_status:    r.get(16),
+        delivery_checked_at: r.get(17),
     }
 }
 
@@ -257,22 +273,24 @@ pub async fn pa_actions_pause_inner(
 }
 
 /// List drafts in the gate. Defaults to the active set (`awaiting`/`edited`/
-/// `committed`); pass an explicit `status` to filter (e.g. `sent`, `rejected`).
+/// `committed`/`failed`); pass an explicit `status` to filter (e.g. `sent`,
+/// `rejected`). Uses manual `row.get(i)` mapping instead of a tuple `FromRow`
+/// because the 18-column COLS projection exceeds sqlx's 16-element tuple limit.
 #[tauri::command]
 pub async fn pa_actions_list(
     db: State<'_, Arc<PaDb>>,
     status: Option<String>,
 ) -> Result<Vec<PaActionDraftRow>, String> {
     let pool = db.ensure_pool().await?;
-    let rows: Vec<DraftRow> = if let Some(s) = status.as_deref() {
-        sqlx::query_as(&format!(
+    let rows = if let Some(s) = status.as_deref() {
+        sqlx::query(&format!(
             "SELECT {COLS} FROM pa_action_drafts WHERE status = ? ORDER BY created_at ASC"
         ))
         .bind(s)
         .fetch_all(&pool)
         .await
     } else {
-        sqlx::query_as(&format!(
+        sqlx::query(&format!(
             "SELECT {COLS} FROM pa_action_drafts \
              WHERE status IN {ACTIVE_STATUSES} ORDER BY created_at ASC"
         ))
@@ -360,6 +378,54 @@ pub async fn pa_actions_commit(
     tokio::spawn(super::agent_ops::agent_ops_run_now(
         "mutation:send-worker".to_string(),
     ));
+
+    Ok(())
+}
+
+/// Re-queue a `failed` draft for another send attempt (WP-12 / G-09).
+///
+/// Flips `failed → committed`, resets `error_text` and `claimed_at` to NULL, and
+/// stamps `committed_at = datetime('now')` so the mutation worker's claimable
+/// predicate (`status='committed' AND scheduled_at <= now`) picks it up on its
+/// next poll (or immediately via the event-wake POST).
+///
+/// Only operates on `failed` rows — idempotent guard: a row already committed or
+/// sent cannot be retried again (the worker owns those states).
+#[tauri::command]
+pub async fn pa_actions_retry(
+    app: AppHandle,
+    db: State<'_, Arc<PaDb>>,
+    draft_id: String,
+) -> Result<(), String> {
+    let pool = db.ensure_pool().await?;
+    let affected = sqlx::query(
+        "UPDATE pa_action_drafts \
+         SET status = 'committed', \
+             committed_at = datetime('now'), \
+             claimed_at = NULL, \
+             error_text = NULL \
+         WHERE id = ? AND status = 'failed'",
+    )
+    .bind(&draft_id)
+    .execute(&pool)
+    .await
+    .map_err(|e| format!("retry draft {draft_id}: {e}"))?
+    .rows_affected();
+
+    if affected == 0 {
+        return Err(format!("draft {draft_id} not found or not in failed state"));
+    }
+
+    // Event-wake: POST the daemon run-now so the mutation worker fires immediately.
+    // Fire-and-forget — same pattern as pa_actions_commit (DEC-11).
+    tokio::spawn(super::agent_ops::agent_ops_run_now(
+        "mutation:send-worker".to_string(),
+    ));
+
+    let _ = app.emit(
+        "pa-action-retried",
+        serde_json::json!({ "draftId": draft_id }),
+    );
 
     Ok(())
 }
