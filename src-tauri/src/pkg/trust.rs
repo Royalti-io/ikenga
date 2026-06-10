@@ -35,6 +35,7 @@ use sha2::{Digest, Sha256};
 use sqlx::SqlitePool;
 
 use crate::pkg::manifest::{Package, Permissions};
+use crate::pkg::signature::{self, SignatureVerdict};
 use crate::pkg::source::InstallSource;
 
 /// Sentinel scope_kind reserved for manifest trust grants. Never appears in
@@ -72,8 +73,18 @@ pub enum NeedsApprovalReason {
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "state", rename_all = "snake_case")]
 pub enum TrustState {
-    /// `source.kind = "builtin"` AND id starts with `com.ikenga.`.
-    /// No row required; never expires.
+    /// Provenance-trusted, no user row required; never expires. Reached by:
+    /// - `source.kind = "builtin"` AND id starts with `com.ikenga.`,
+    /// - `source.kind = "dev"` (the `ikenga dev` bypass), OR
+    /// - a `registry` source whose manifest `signature` minisign-verifies
+    ///   against the install's `publisher_key` (WP-02 / `pkg::signature`).
+    ///
+    /// This is the only state that grants `is_trusted_for_elevated()` — the
+    /// cryptographic / provenance anchor that elevated host caps
+    /// (host.fetch / secrets / invoke) consult. A signed-registry pkg that
+    /// reaches `AutoTrusted` is still subject to the sensitive-perms snapshot
+    /// for `shell.execute` / unsandboxed `fs.write` (those follow the
+    /// builtin's ceiling, i.e. covered by this same auto-trust).
     AutoTrusted,
     /// Pkg declares no sensitive perms — auto-granted on install with no
     /// prompt. Same surface as a user-approved row from the FE's POV.
@@ -94,6 +105,30 @@ impl TrustState {
             self,
             TrustState::AutoTrusted | TrustState::AutoGranted | TrustState::Granted { .. }
         )
+    }
+
+    /// The SINGLE gate for *elevated* host capabilities (host.fetch,
+    /// secrets/named-secret injection, host.invoke — consumed by WP-03/04/05).
+    ///
+    /// Returns `true` ONLY for `AutoTrusted`, i.e. a pkg that earned trust by
+    /// **provenance**: builtin-in-namespace, a `ikenga dev` mount, or a
+    /// registry pkg whose manifest signature cryptographically verified
+    /// (`pkg::signature::verify_manifest_signature(...).is_valid()`, wired in
+    /// `evaluate()` below).
+    ///
+    /// It deliberately returns `false` for `AutoGranted` and `Granted`. Those
+    /// states mean the pkg either declares no sensitive perms (`AutoGranted`)
+    /// or a *user clicked approve* on its sensitive-perms snapshot
+    /// (`Granted`). A user approving `shell.execute` / `fs.write` is **not**
+    /// the same as provenance trust: approving a community pkg's declared
+    /// perms lets its MCP tools run, but it does NOT hand that pkg the
+    /// cryptographic anchor that elevated host caps require. Elevated caps are
+    /// gated on *who published this and did the bytes verify*, not on *did the
+    /// user consent to the declared perms*. The two are intentionally
+    /// orthogonal: `is_allowed()` (run at all) vs `is_trusted_for_elevated()`
+    /// (reach the privileged host surface).
+    pub fn is_trusted_for_elevated(&self) -> bool {
+        matches!(self, TrustState::AutoTrusted)
     }
 
     pub fn label(&self) -> &'static str {
@@ -246,6 +281,55 @@ pub async fn evaluate(
             }
         }
         return Ok(TrustState::AutoTrusted);
+    }
+
+    // Signed-registry provenance (WP-02 / G-TRUST). A registry pkg whose
+    // manifest `signature` minisign-verifies against the install's
+    // `publisher_key` earns the same provenance anchor as a builtin:
+    // `AutoTrusted`, which carries `is_trusted_for_elevated()`. The verdict is
+    // re-derived from the raw `manifest.json` on disk on every call, so a pkg
+    // whose bytes changed after install (or whose key/sig is wrong) drops back
+    // to `Invalid` and never reaches this arm — fail-closed by construction.
+    //
+    // Subtlety vs. the sensitive-perms snapshot: we only promote to
+    // `AutoTrusted` here when the pkg declares **no** sensitive perms
+    // (`!requires_trust`). A signed pkg that ALSO wants `shell.execute` or
+    // unsandboxed `fs.write` falls through to the snapshot/approval flow
+    // below — the signature does NOT silently auto-grant those; the user still
+    // approves them (yielding `Granted`, which is intentionally not
+    // elevated-trusted). Anything other than a clean `Valid` verdict
+    // (`Unsigned` / `MissingPublisherKey` / `Invalid`) is a no-op here: the
+    // pkg evaluates exactly as it would today.
+    if source.is_registry() {
+        let verdict = signature::verify_manifest_signature(pkg, source);
+        match &verdict {
+            SignatureVerdict::Valid => {
+                tracing::info!(
+                    "[pkg_trust] registry pkg `{pkg_id}` signature verdict={} → provenance-trusted",
+                    verdict.label()
+                );
+                if !requires_trust(&pkg.manifest.permissions) {
+                    return Ok(TrustState::AutoTrusted);
+                }
+                // Signed AND sensitive: keep the elevated anchor but still
+                // require explicit approval of the sensitive perms. Fall
+                // through to the snapshot flow.
+            }
+            // Unsigned / missing-key / invalid: log at the right level and let
+            // the normal (untrusted) evaluation proceed. Never grants trust.
+            SignatureVerdict::Unsigned | SignatureVerdict::NotApplicable => {
+                tracing::info!(
+                    "[pkg_trust] registry pkg `{pkg_id}` signature verdict={} → not provenance-trusted",
+                    verdict.label()
+                );
+            }
+            SignatureVerdict::MissingPublisherKey | SignatureVerdict::Invalid { .. } => {
+                tracing::warn!(
+                    "[pkg_trust] registry pkg `{pkg_id}` signature verdict={} → NOT provenance-trusted (fail-closed)",
+                    verdict.label()
+                );
+            }
+        }
     }
 
     let perms = &pkg.manifest.permissions;
@@ -402,6 +486,247 @@ mod tests {
             },
             install_path: PathBuf::from("/tmp"),
         }
+    }
+
+    // ── G-TRUST: signed-registry provenance truth table ──────────────────────
+    //
+    // These exercise the WP-02 wiring end-to-end: `evaluate()` calls
+    // `signature::verify_manifest_signature`, which reads the **raw**
+    // manifest.json off disk and minisign-verifies it — independent of the
+    // in-memory `Manifest` struct. So each fixture writes the full golden
+    // manifest text (the WP-06 contract shape, which the current Rust struct
+    // doesn't model field-for-field — `capabilities.http` etc.) into a tempdir
+    // and constructs a `Package` whose `install_path` points there. The
+    // signature check sees the exact golden bytes on disk; the in-memory
+    // `Manifest` only needs the fields trust.rs reads (id / version / perms /
+    // signature). This mirrors how `signature.rs` only ever parses the golden
+    // as a generic `serde_json::Value`, never via `Package::load`.
+
+    // The shared golden vector (same artifacts `signature.rs` tests against).
+    const GOLDEN_MANIFEST: &str =
+        include_str!("testdata/signature_golden_v1/manifest.json");
+    const GOLDEN_PUBKEY: &str = include_str!("testdata/signature_golden_v1/publisher.pub");
+    const GOLDEN_SIG: &str = include_str!("testdata/signature_golden_v1/manifest.minisig");
+
+    /// Build the golden `Permissions` (net + vault.keys only — NO sensitive
+    /// perms, so `requires_trust` is false; matches the golden manifest.json).
+    fn golden_perms() -> Permissions {
+        let mut p = Permissions::default();
+        p.net.push("https://api.example.com/".into());
+        p.vault_keys.push("EXAMPLE_API_KEY".into());
+        p
+    }
+
+    /// Write `on_disk_text` (the raw manifest.json the signature check reads)
+    /// into a fresh tempdir and build a `Package` rooted there. `signature` is
+    /// the in-memory `Manifest.signature` (the `verify_manifest_signature`
+    /// short-circuit checks it before touching disk). `perms` drives the
+    /// `requires_trust` branch. The TempDir is returned so the caller keeps it
+    /// alive (Package only holds the path).
+    fn pkg_on_disk(
+        on_disk_text: &str,
+        signature: Option<String>,
+        perms: Permissions,
+    ) -> (Package, tempfile::TempDir) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir.path().join("manifest.json"), on_disk_text)
+            .expect("write manifest.json");
+        let mut pkg = pkg_with_perms("com.example.signed", perms);
+        pkg.manifest.version = "1.2.3".into();
+        pkg.manifest.signature = signature;
+        pkg.install_path = dir.path().to_path_buf();
+        (pkg, dir)
+    }
+
+    /// The golden manifest text with its placeholder `signature` replaced by the
+    /// real golden `.minisig` blob (JSON-escaped). Canonicalization strips the
+    /// signature field, so the canonical bytes are identical to the golden
+    /// vector either way — the embedded blob is what gets verified.
+    fn golden_manifest_with_real_sig() -> String {
+        let sig_json = serde_json::to_string(GOLDEN_SIG).expect("escape sig");
+        GOLDEN_MANIFEST.replace(
+            r#""signature": "PLACEHOLDER_TO_BE_STRIPPED""#,
+            &format!(r#""signature": {sig_json}"#),
+        )
+    }
+
+    fn registry_source_with_golden_key() -> InstallSource {
+        InstallSource::Registry {
+            url: "https://reg.example/r".into(),
+            publisher_key: Some(GOLDEN_PUBKEY.to_string()),
+        }
+    }
+
+    /// valid-signature registry pkg → AutoTrusted + is_trusted_for_elevated.
+    #[tokio::test]
+    async fn g_trust_valid_signature_registry_is_auto_trusted_and_elevated() {
+        let pool = open_test_pool().await;
+        let (pkg, _dir) = pkg_on_disk(
+            &golden_manifest_with_real_sig(),
+            Some(GOLDEN_SIG.to_string()),
+            golden_perms(),
+        );
+        let state = evaluate(
+            &pool,
+            &pkg,
+            &registry_source_with_golden_key(),
+            &PathBuf::from("/tmp"),
+        )
+        .await
+        .expect("evaluate");
+        assert!(
+            matches!(state, TrustState::AutoTrusted),
+            "valid-signature registry pkg must reach AutoTrusted, got {state:?}"
+        );
+        assert!(state.is_trusted_for_elevated());
+        assert!(state.is_allowed());
+    }
+
+    /// unsigned registry pkg → NOT auto-trusted, NOT elevated (but runs fine).
+    #[tokio::test]
+    async fn g_trust_unsigned_registry_runs_but_not_elevated() {
+        let pool = open_test_pool().await;
+        // Golden manifest with the `signature` field removed entirely.
+        let unsigned = GOLDEN_MANIFEST.replace(
+            ",\n  \"signature\": \"PLACEHOLDER_TO_BE_STRIPPED\"",
+            "",
+        );
+        assert!(!unsigned.contains("signature"), "sig must be gone");
+        let (pkg, _dir) = pkg_on_disk(&unsigned, None, golden_perms());
+        let state = evaluate(
+            &pool,
+            &pkg,
+            &registry_source_with_golden_key(),
+            &PathBuf::from("/tmp"),
+        )
+        .await
+        .expect("evaluate");
+        // No sensitive perms (golden has empty shell.execute/fs.write) →
+        // AutoGranted: runs, but is NOT provenance/elevated-trusted.
+        assert!(matches!(state, TrustState::AutoGranted), "got {state:?}");
+        assert!(state.is_allowed(), "unsigned pkg still runs");
+        assert!(
+            !state.is_trusted_for_elevated(),
+            "unsigned pkg must NOT be elevated-trusted"
+        );
+    }
+
+    /// tampered manifest (bytes changed after signing) → NOT trusted, NOT
+    /// elevated. Proves disk-fresh re-verification catches post-install edits.
+    #[tokio::test]
+    async fn g_trust_tampered_manifest_registry_not_trusted() {
+        let pool = open_test_pool().await;
+        // Keep the real signature, but mutate a signed field (name) so the
+        // canonical bytes no longer match what was signed.
+        let tampered = golden_manifest_with_real_sig()
+            .replace(r#""name": "Signed Example""#, r#""name": "Tampered Evil""#);
+        let (pkg, _dir) = pkg_on_disk(&tampered, Some(GOLDEN_SIG.to_string()), golden_perms());
+        let state = evaluate(
+            &pool,
+            &pkg,
+            &registry_source_with_golden_key(),
+            &PathBuf::from("/tmp"),
+        )
+        .await
+        .expect("evaluate");
+        assert!(
+            !state.is_trusted_for_elevated(),
+            "tampered manifest must NOT be elevated-trusted, got {state:?}"
+        );
+        // Still runs (no sensitive perms) — tampering the elevated anchor
+        // doesn't brick the pkg, it just denies elevated caps.
+        assert!(matches!(state, TrustState::AutoGranted), "got {state:?}");
+    }
+
+    /// wrong publisher key → NOT trusted, NOT elevated.
+    #[tokio::test]
+    async fn g_trust_wrong_publisher_key_registry_not_trusted() {
+        let pool = open_test_pool().await;
+        let (pkg, _dir) = pkg_on_disk(
+            &golden_manifest_with_real_sig(),
+            Some(GOLDEN_SIG.to_string()),
+            golden_perms(),
+        );
+        // A real, valid minisign key that simply didn't sign our content.
+        const OTHER_KEY: &str = "RWQf6LRCGA9i53mlYecO4IzT51TGPpvWucNSCh1CBM0QTaLn73Y7GFO3";
+        let source = InstallSource::Registry {
+            url: "u".into(),
+            publisher_key: Some(OTHER_KEY.into()),
+        };
+        let state = evaluate(&pool, &pkg, &source, &PathBuf::from("/tmp"))
+            .await
+            .expect("evaluate");
+        assert!(
+            !state.is_trusted_for_elevated(),
+            "wrong key must NOT be elevated-trusted, got {state:?}"
+        );
+    }
+
+    /// signed manifest but the index named no publisher_key → fail-closed,
+    /// NOT elevated.
+    #[tokio::test]
+    async fn g_trust_missing_publisher_key_registry_not_trusted() {
+        let pool = open_test_pool().await;
+        let (pkg, _dir) = pkg_on_disk(
+            &golden_manifest_with_real_sig(),
+            Some(GOLDEN_SIG.to_string()),
+            golden_perms(),
+        );
+        let source = InstallSource::Registry {
+            url: "u".into(),
+            publisher_key: None,
+        };
+        let state = evaluate(&pool, &pkg, &source, &PathBuf::from("/tmp"))
+            .await
+            .expect("evaluate");
+        assert!(
+            !state.is_trusted_for_elevated(),
+            "missing key must NOT be elevated-trusted, got {state:?}"
+        );
+    }
+
+    /// builtin-in-namespace → is_trusted_for_elevated (no signature needed).
+    #[tokio::test]
+    async fn g_trust_builtin_in_namespace_is_elevated_without_signature() {
+        let pool = open_test_pool().await;
+        let pkg = pkg_with_perms("com.ikenga.iyke", Permissions::default());
+        let state = evaluate(&pool, &pkg, &InstallSource::Builtin, &PathBuf::from("/tmp"))
+            .await
+            .expect("evaluate");
+        assert!(matches!(state, TrustState::AutoTrusted));
+        assert!(state.is_trusted_for_elevated());
+    }
+
+    /// THE key distinction: a user-Granted (sensitive-perms-approved) but
+    /// UNSIGNED registry pkg is allowed to run, but is NOT elevated-trusted.
+    /// User approval ≠ provenance/signature trust.
+    #[tokio::test]
+    async fn g_trust_user_granted_unsigned_is_allowed_but_not_elevated() {
+        let pool = open_test_pool().await;
+        // Use the seeded com.evil.studio row; give it a sensitive perm.
+        let mut perms = Permissions::default();
+        perms.shell_execute.push("bin/run".into());
+        let pkg = pkg_with_perms("com.evil.studio", perms);
+        let source = InstallSource::Registry {
+            url: "u".into(),
+            publisher_key: None,
+        };
+
+        // User approves the sensitive-perms snapshot.
+        let summary = summarize_sensitive(&pkg.manifest.permissions);
+        grant(&pool, &pkg.manifest.id, &pkg.manifest.version, &summary)
+            .await
+            .expect("grant");
+
+        let state = evaluate(&pool, &pkg, &source, &PathBuf::from("/tmp"))
+            .await
+            .expect("evaluate");
+        assert!(matches!(state, TrustState::Granted { .. }), "got {state:?}");
+        assert!(state.is_allowed(), "user-granted pkg runs");
+        assert!(
+            !state.is_trusted_for_elevated(),
+            "user approval is NOT provenance trust — must NOT be elevated"
+        );
     }
 
     #[test]

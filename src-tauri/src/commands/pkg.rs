@@ -385,6 +385,17 @@ pub struct PkgInstallFromRegistryArgs {
     /// passed separately so the FE can choose a more meaningful "origin" URL
     /// later (e.g. the index URL).
     pub source_url: String,
+    /// The publisher's minisign public key, as named by the signed registry
+    /// index for this pkg. Threaded straight into
+    /// `InstallSource::Registry.publisher_key` and persisted on
+    /// `pkg_installed.source_json`. The trust gate (`pkg::signature` +
+    /// `pkg::trust`) verifies the manifest's `signature` against this key at
+    /// install and on every boot replay; absent ⇒ the pkg installs and runs
+    /// but is never trusted for elevated capabilities. The signed index does
+    /// not carry per-pkg publisher keys yet (WP-06), so this is `None` today —
+    /// the field is wired now so no shape change is needed when keys land.
+    #[serde(default)]
+    pub publisher_key: Option<String>,
 }
 
 /// Install a pkg from a registry. `scope` follows the same wire format as
@@ -501,7 +512,7 @@ async fn install_from_registry_inner(
     let final_dir_for_kernel = final_dir.clone();
     let source = InstallSource::Registry {
         url: args.source_url,
-        publisher_key: None,
+        publisher_key: args.publisher_key,
     };
     let installed = tokio::task::spawn_blocking(move || {
         kernel.install_from_path(&final_dir_for_kernel, source, project_id)

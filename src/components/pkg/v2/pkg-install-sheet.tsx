@@ -145,6 +145,12 @@ export function PkgInstallSheet({
 					integrity: step.integrity,
 					pkgId: step.pkgId,
 					sourceUrl: step.tarball,
+					// Publisher key from the signed index entry. The registry
+					// schema doesn't carry per-pkg publisher keys yet (WP-06),
+					// so this reads as undefined today -> installs as untrusted
+					// (no elevated host caps) until keys land. Sourced
+					// defensively so no call-site change is needed then.
+					publisherKey: (step as { publisherKey?: string | null }).publisherKey ?? undefined,
 				});
 				done += 1;
 			}

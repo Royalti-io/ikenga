@@ -1,4 +1,4 @@
-// Step 2 — Coding agent picker.
+// Step 2 â Coding agent picker.
 //
 // Renders a fixed list of supported engines as cards with skeleton rows
 // while their PATH lookups resolve. Each engine probe fires independently
@@ -8,7 +8,7 @@
 // engine-noop offline CTA inherited from the previous flow.
 //
 // Tests rely on `OFFLINE_PAYLOAD`, `agentToPayload`, `shouldShowAuthWarning`,
-// and `findEngineNoopEntry` — keep those exports stable.
+// and `findEngineNoopEntry` â keep those exports stable.
 
 import { useEffect, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
@@ -51,7 +51,7 @@ const OFFLINE_AGENT_ID = 'engine-noop';
 const ENGINE_NOOP_NPM_NAME = '@ikenga/pkg-engine-noop';
 const ENGINE_NOOP_PKG_ID = 'com.ikenga.engine-noop';
 const REGISTRY_UNREACHABLE_MSG =
-	"Couldn't reach the registry — you can install the offline engine later from Packages → Browse.";
+	"Couldn't reach the registry â you can install the offline engine later from Packages â Browse.";
 
 // Stable display order. The Rust side already knows about these ids in
 // `KNOWN_AGENTS`; the wizard surfaces them whether the binary is present
@@ -67,7 +67,7 @@ const SUPPORTED_ENGINES: ReadonlyArray<{
 	{
 		id: 'claude-code',
 		display: 'Claude Code',
-		description: 'Anthropic — full ACP capabilities, MCP, thinking, resume.',
+		description: 'Anthropic â full ACP capabilities, MCP, thinking, resume.',
 		binaryHint: 'claude',
 		docsUrl: 'https://docs.anthropic.com/en/docs/claude-code',
 		installCmd: 'npm install -g @anthropic-ai/claude-code',
@@ -75,7 +75,7 @@ const SUPPORTED_ENGINES: ReadonlyArray<{
 	{
 		id: 'codex',
 		display: 'OpenAI Codex CLI',
-		description: 'OpenAI — streaming + tool use. No MCP yet.',
+		description: 'OpenAI â streaming + tool use. No MCP yet.',
 		binaryHint: 'codex',
 		docsUrl: 'https://platform.openai.com/docs/guides/codex',
 		installCmd: 'npm install -g @openai/codex',
@@ -83,7 +83,7 @@ const SUPPORTED_ENGINES: ReadonlyArray<{
 	{
 		id: 'gemini',
 		display: 'Gemini CLI',
-		description: 'Google — streaming + tool use.',
+		description: 'Google â streaming + tool use.',
 		binaryHint: 'gemini',
 		docsUrl: 'https://github.com/google-gemini/gemini-cli',
 		installCmd: 'npm install -g @google/gemini-cli',
@@ -91,14 +91,14 @@ const SUPPORTED_ENGINES: ReadonlyArray<{
 	{
 		id: 'cursor-agent',
 		display: 'Cursor Agent',
-		description: 'Cursor — streaming, tool use, MCP.',
+		description: 'Cursor â streaming, tool use, MCP.',
 		binaryHint: 'cursor-agent',
 		docsUrl: 'https://docs.cursor.com/en/cli',
 	},
 	{
 		id: 'ollama',
 		display: 'Ollama',
-		description: 'Local models — chat only, no tool use yet.',
+		description: 'Local models â chat only, no tool use yet.',
 		binaryHint: 'ollama',
 		docsUrl: 'https://ollama.com',
 	},
@@ -141,7 +141,7 @@ export function AgentBody({ onContinue }: AgentBodyProps) {
 		applySelection(agent);
 	};
 
-	// ─── Manual override ──────────────────────────────────────────────────
+	// âââ Manual override ââââââââââââââââââââââââââââââââââââââââââââââââââ
 	const [overridePath, setOverridePath] = useState('');
 	const [overrideError, setOverrideError] = useState<string | null>(null);
 	const [overrideBusy, setOverrideBusy] = useState(false);
@@ -159,7 +159,7 @@ export function AgentBody({ onContinue }: AgentBodyProps) {
 		setOverrideBusy(true);
 		setOverrideError(null);
 		try {
-			// Spawn-and-respond is the only verification we owe the user — the
+			// Spawn-and-respond is the only verification we owe the user â the
 			// chat adapter will surface a clear error if the binary fails on
 			// first send. Pin a generic 'custom' id and stash the path in the
 			// payload so the adapter can pick it up.
@@ -185,7 +185,7 @@ export function AgentBody({ onContinue }: AgentBodyProps) {
 		}
 	}
 
-	// ─── Offline fallback (engine-noop install) ───────────────────────────
+	// âââ Offline fallback (engine-noop install) âââââââââââââââââââââââââââ
 	const [offlineError, setOfflineError] = useState<string | null>(null);
 
 	const offlineMut = useMutation({
@@ -209,6 +209,9 @@ export function AgentBody({ onContinue }: AgentBodyProps) {
 						integrity: step.integrity,
 						pkgId: step.pkgId,
 						sourceUrl: step.tarball,
+						// Signed-index publisher key (WP-06 will populate it;
+						// undefined today -> installs untrusted-for-elevated).
+						publisherKey: (step as { publisherKey?: string | null }).publisherKey ?? undefined,
 					});
 				} catch (e) {
 					const msg = String((e as Error).message ?? e).toLowerCase();
@@ -250,7 +253,7 @@ export function AgentBody({ onContinue }: AgentBodyProps) {
 	const allMissing = !anyPending && !anyDetected;
 
 	const offlineButtonLabel = (long: boolean) => {
-		if (offlineMut.isPending) return 'Installing offline engine…';
+		if (offlineMut.isPending) return 'Installing offline engineâ¦';
 		if (isOffline) return 'Offline selected';
 		return long ? 'Use offline mode' : 'Continue offline';
 	};
@@ -271,9 +274,9 @@ export function AgentBody({ onContinue }: AgentBodyProps) {
 					</h1>
 					<p className="mt-2 max-w-[60ch] text-sm" style={{ color: 'var(--fg-muted)' }}>
 						{anyPending
-							? 'Scanning your $PATH for each agent in parallel…'
+							? 'Scanning your $PATH for each agent in parallelâ¦'
 							: anyDetected
-								? 'Pick one to continue. You can change your Chi later from Settings → Engine.'
+								? 'Pick one to continue. You can change your Chi later from Settings â Engine.'
 								: "We couldn't find any Chi on $PATH. Install one below, point at a custom binary, or continue offline."}
 					</p>
 				</div>
@@ -282,7 +285,7 @@ export function AgentBody({ onContinue }: AgentBodyProps) {
 				</Button>
 			</div>
 
-			{/* ── Engine grid (always 5 cards; status reveals per-engine) ──── */}
+			{/* ââ Engine grid (always 5 cards; status reveals per-engine) ââââ */}
 			<div className="grid gap-4 md:grid-cols-2" data-testid="agents-grid">
 				{SUPPORTED_ENGINES.map((engine) => {
 					const entry = results[engine.id] ?? { status: 'pending' as const };
@@ -303,7 +306,7 @@ export function AgentBody({ onContinue }: AgentBodyProps) {
 				})}
 			</div>
 
-			{/* ── Custom binary override ───────────────────────────────────── */}
+			{/* ââ Custom binary override âââââââââââââââââââââââââââââââââââââ */}
 			<details
 				className="mt-6 rounded-md border p-4"
 				style={{ borderColor: 'var(--border-soft)', background: 'var(--bg-surface)' }}
@@ -341,7 +344,7 @@ export function AgentBody({ onContinue }: AgentBodyProps) {
 							disabled={overrideBusy}
 							data-testid="agents-override-apply"
 						>
-							{overrideBusy ? 'Verifying…' : 'Use this binary'}
+							{overrideBusy ? 'Verifyingâ¦' : 'Use this binary'}
 						</Button>
 					</div>
 					{overrideError && (
@@ -360,7 +363,7 @@ export function AgentBody({ onContinue }: AgentBodyProps) {
 				</div>
 			</details>
 
-			{/* ── Offline-mode strip ──────────────────────────────────────── */}
+			{/* ââ Offline-mode strip ââââââââââââââââââââââââââââââââââââââââ */}
 			<div
 				className="mt-6 flex items-center gap-4 rounded-md border border-dashed p-4"
 				style={{ borderColor: 'var(--border-strong)' }}
@@ -378,7 +381,7 @@ export function AgentBody({ onContinue }: AgentBodyProps) {
 				<div className="flex-1">
 					<div className="text-[13px] font-semibold">
 						{allMissing
-							? 'No Chi found on this machine — continue without one'
+							? 'No Chi found on this machine â continue without one'
 							: 'Continue without a Chi'}
 					</div>
 					<div className="mt-0.5 text-xs" style={{ color: 'var(--fg-muted)' }}>
@@ -411,7 +414,7 @@ export function AgentBody({ onContinue }: AgentBodyProps) {
 				</div>
 			)}
 
-			{/* ── Per-engine auth (ADR-013 §5) ─────────────────────────────── */}
+			{/* ââ Per-engine auth (ADR-013 Â§5) âââââââââââââââââââââââââââââââ */}
 			{missingAuth && selectedAgent && engineOnboardingFor(selectedAgent.id) && (
 				<div
 					className="mt-6 rounded-md border p-4"
@@ -426,7 +429,7 @@ export function AgentBody({ onContinue }: AgentBodyProps) {
 					</div>
 					<div className="mb-3 mt-1 text-xs" style={{ color: 'var(--fg-muted)' }}>
 						{selectedAgent.auth_hint ??
-							'Set the API key or run the auth command below. You can also finish onboarding now and fix this later from Settings → Engine.'}
+							'Set the API key or run the auth command below. You can also finish onboarding now and fix this later from Settings â Engine.'}
 					</div>
 					<EngineAuthPanel
 						engineId={selectedAgent.id}
@@ -436,7 +439,7 @@ export function AgentBody({ onContinue }: AgentBodyProps) {
 				</div>
 			)}
 
-			{/* ── Inline Continue ──────────────────────────────────────────── */}
+			{/* ââ Inline Continue ââââââââââââââââââââââââââââââââââââââââââââ */}
 			<div className="mt-8 flex items-center justify-end gap-3">
 				<Button
 					onClick={onContinue}
@@ -470,8 +473,8 @@ interface EngineCardProps {
 
 function EngineCard({ meta, entry, selected, onSelect, onOpenDocs }: EngineCardProps) {
 	const interactive = entry.status === 'detected';
-	// `div role="button"` (not a real <button>) so the "Docs →" affordance can
-	// nest inside — the HTML spec and React forbid <button> inside <button>.
+	// `div role="button"` (not a real <button>) so the "Docs â" affordance can
+	// nest inside â the HTML spec and React forbid <button> inside <button>.
 	const handleKey = (e: React.KeyboardEvent<HTMLDivElement>) => {
 		if (!interactive) return;
 		if (e.key === 'Enter' || e.key === ' ') {
@@ -512,7 +515,7 @@ function EngineCard({ meta, entry, selected, onSelect, onOpenDocs }: EngineCardP
 					style={{ background: 'var(--primary)', color: 'var(--primary-fg, white)' }}
 					aria-hidden="true"
 				>
-					✓
+					â
 				</span>
 			)}
 
@@ -571,7 +574,7 @@ function EngineCard({ meta, entry, selected, onSelect, onOpenDocs }: EngineCardP
 							className="text-[11.5px] underline-offset-2 hover:underline"
 							style={{ color: 'var(--primary)' }}
 						>
-							Docs →
+							Docs â
 						</button>
 					</div>
 				)}
@@ -609,7 +612,7 @@ function StatusPill({ entry }: { entry: AgentDetectEntry }) {
 		return (
 			<span data-testid="status-pill" data-status="pending">
 				<StatusChip tone="faint" dot className="animate-pulse">
-					Scanning…
+					Scanningâ¦
 				</StatusChip>
 			</span>
 		);
@@ -651,7 +654,7 @@ function AuthPill({ authed }: { authed: boolean | null }) {
 	return null;
 }
 
-// ── Pure helpers (testable without DOM) ─────────────────────────────────
+// ââ Pure helpers (testable without DOM) âââââââââââââââââââââââââââââââââ
 
 /** Decide whether the auth-warning banner should render for the given
  *  selected agent. */
@@ -670,7 +673,7 @@ export function agentToPayload(agent: DetectedAgent): AgentStepPayload {
 	};
 }
 
-/** The offline fallback payload — exported so the summary step and tests
+/** The offline fallback payload â exported so the summary step and tests
  *  share the same constant. */
 export const OFFLINE_PAYLOAD: AgentStepPayload = Object.freeze({
 	agentId: OFFLINE_AGENT_ID,

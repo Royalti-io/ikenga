@@ -2812,6 +2812,17 @@ export interface PkgInstallFromRegistryArgs {
 	integrity: string;
 	pkgId: string;
 	sourceUrl: string;
+	/**
+	 * Publisher's minisign public key for this pkg, as named by the signed
+	 * registry index. Threaded into `InstallSource::Registry.publisher_key`
+	 * and used by the Rust trust gate (`pkg::signature`) to verify the
+	 * manifest's `signature` at install + every boot. The signed index does
+	 * not carry per-pkg publisher keys yet (WP-06), so this is `undefined`
+	 * today — the field is wired now so callers don't change shape when keys
+	 * land. Absent ⇒ the pkg installs/runs but is never trusted for elevated
+	 * host capabilities.
+	 */
+	publisherKey?: string | null;
 }
 
 export async function pkgInstallFromRegistry(

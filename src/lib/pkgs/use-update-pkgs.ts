@@ -77,6 +77,9 @@ export function useUpdatePkgs() {
 							integrity: step.integrity,
 							pkgId: step.pkgId,
 							sourceUrl: step.tarball,
+							// Signed-index publisher key (WP-06 will populate it;
+							// undefined today -> installs untrusted-for-elevated).
+							publisherKey: (step as { publisherKey?: string | null }).publisherKey ?? undefined,
 						});
 					}
 					done += 1;
