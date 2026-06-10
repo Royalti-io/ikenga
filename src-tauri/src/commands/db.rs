@@ -448,6 +448,14 @@ async fn ensure_schema(pool: &sqlx::SqlitePool) -> Result<(), String> {
             "0050_pa_action_drafts",
             include_str!("../../migrations/0050_pa_action_drafts.sql"),
         ),
+        // 0051 — mutation-worker claim + retry + delivery columns on pa_action_drafts.
+        // Extends 0050: adds claimed_at/attempts/last_attempt_at/error_text/external_id/
+        // delivery_status/delivery_checked_at + idx_pa_drafts_claimable. Freezes G-SCHEMA.
+        (
+            51,
+            "0051_pa_action_drafts_send_state",
+            include_str!("../../migrations/0051_pa_action_drafts_send_state.sql"),
+        ),
     ];
 
     for (id, name, sql) in migrations {
@@ -787,12 +795,13 @@ mod tests {
 
     /// Total embedded migration count. 24 shipped through WP-01; WP-02 added 7
     /// domain-schema migrations (0025–0031); WP-10a adds 8 more (0032–0039:
-    /// drift fix + finance view + 14 new business tables); 0040–0050 brought it
-    /// to 50 (finance/content/task domains + pa_action_drafts). Keep this in
+    /// drift fix + finance view + 14 new business tables); 0040–0051 brought it
+    /// to 51 (finance/content/task domains + pa_action_drafts send-state). Keep this in
     /// lockstep with the `migrations` tuple list — it guards against a migration
     /// silently being dropped from the embedded list (a class of bug we've hit
-    /// before). Was stale at 47 while 0048–0050 landed on main without a bump.
-    const MIGRATION_COUNT: i64 = 50;
+    /// before). Was stale at 47 while 0048–0050 landed on main without a bump;
+    /// 0051 (pa_action_drafts send-state, WP-12) brings it to 51.
+    const MIGRATION_COUNT: i64 = 51;
 
     /// Schema init applies every embedded migration exactly once. The
     /// `_pa_migrations` table must end with one row per migration tuple.

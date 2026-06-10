@@ -78,7 +78,8 @@ use commands::{
 #[cfg(debug_assertions)]
 use commands::{bg_spike_reply, bg_spike_run, new_bg_spike_state};
 use commands::{
-    pa_actions_commit, pa_actions_list, pa_actions_pause, pa_actions_reject, pa_actions_update,
+    pa_actions_commit, pa_actions_list, pa_actions_pause, pa_actions_reject, pa_actions_retry,
+    pa_actions_update,
     pkg_permission_violations_clear, pkg_permission_violations_list, pkg_trust_approve,
     pkg_trust_grant, pkg_trust_list, pkg_trust_list_pending, pkg_trust_preview, pkg_trust_reject,
     pkg_trust_revoke, session_cancel, session_destroy, session_destroy_all, session_ensure,
@@ -897,6 +898,7 @@ pub fn run() {
             pa_actions_update,
             pa_actions_commit,
             pa_actions_reject,
+            pa_actions_retry,
             // db
             db_query,
             db_exec,

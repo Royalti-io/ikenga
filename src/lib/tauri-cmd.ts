@@ -4363,12 +4363,14 @@ export function parseStudioScopeChip(json: string | null): StudioScopeChip | nul
 // `fromDraftItem` from @ikenga/contract.
 
 /** One draft row as stored in pa_action_drafts. `payloadJson` is a DraftItem +
- *  ApproveGateMeta; `editedJson` holds operator subject/body overrides. */
+ *  ApproveGateMeta; `editedJson` holds operator subject/body overrides.
+ *  The 0051 columns (claimedAt … deliveryCheckedAt) are written by the external
+ *  mutation worker; the shell surfaces them for failure-surfacing (WP-12 / G-09). */
 export interface PaActionDraftRow {
 	id: string;
 	batchId: string;
 	actionId: string;
-	/** awaiting | edited | committed | sent | rejected */
+	/** awaiting | edited | committed | sending | sent | failed | rejected */
 	status: string;
 	channel: string;
 	payloadJson: string;
@@ -4377,6 +4379,18 @@ export interface PaActionDraftRow {
 	createdAt: string;
 	committedAt: string | null;
 	sentAt: string | null;
+	// ── 0051 mutation-worker columns ──────────────────────────────────────────
+	claimedAt: string | null;
+	/** Number of send attempts so far; 0 before the worker ever claimed the row. */
+	attempts: number;
+	lastAttemptAt: string | null;
+	/** Last error message written by the worker on failure. */
+	errorText: string | null;
+	/** Provider message/campaign/post id written on success. */
+	externalId: string | null;
+	/** null | accepted | delivered | bounced | complained | errored */
+	deliveryStatus: string | null;
+	deliveryCheckedAt: string | null;
 }
 
 /** One draft in a pause batch. `payload` (DraftItem + ApproveGateMeta) is stored
@@ -4435,6 +4449,13 @@ export async function paActionsCommit(draftId: string): Promise<void> {
 /** Reject a draft. Flips it to rejected + emits `pa-action-rejected`. */
 export async function paActionsReject(draftId: string): Promise<void> {
 	return invoke('pa_actions_reject', { draftId });
+}
+
+/** Re-queue a failed draft for another send attempt (WP-12 / G-09).
+ *  Flips failed → committed and wakes the mutation worker. Only operates on
+ *  `failed` rows — returns an error string if the row is in any other state. */
+export async function paActionsRetry(draftId: string): Promise<void> {
+	return invoke('pa_actions_retry', { draftId });
 }
 
 /** Fires when an approve-aware action pauses a batch — mount the gate. */

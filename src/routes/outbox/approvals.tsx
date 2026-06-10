@@ -8,7 +8,7 @@ import { useMemo } from 'react';
 import { openSessionDialog } from '@/components/pkg/open-session-dialog';
 import { paActionsListQueryOptions, pausedDraftFromRow } from '@/lib/queries/pa-actions';
 import { queryKeys } from '@/lib/query-keys';
-import { paActionsCommit, paActionsReject, paActionsUpdate } from '@/lib/tauri-cmd';
+import { paActionsCommit, paActionsReject, paActionsRetry, paActionsUpdate } from '@/lib/tauri-cmd';
 import { ApproveGatePanel } from '@/shell/atelier/surfaces/approve-gate-panel';
 
 function ApprovalsPage() {
@@ -27,6 +27,8 @@ function ApprovalsPage() {
 	// then flips the row to `committed` and emits pa-action-committed for the worker.
 	const onApprove = (id: string) => void paActionsCommit(id).then(invalidate);
 	const onReject = (id: string) => void paActionsReject(id).then(invalidate);
+	// Re-queue a failed draft: failed → committed + event-wake the worker (WP-12 / G-09).
+	const onRetry = (id: string) => void paActionsRetry(id).then(invalidate);
 	// Fire-and-forget persist — the panel already reflects the edit locally.
 	const onEdit = (id: string, patch: { subject?: string; body?: string }) =>
 		void paActionsUpdate(id, patch);
@@ -49,6 +51,7 @@ function ApprovalsPage() {
 				onApprove={onApprove}
 				onReject={onReject}
 				onEdit={onEdit}
+				onRetry={onRetry}
 				onSendToChat={handoff}
 				onContinueSession={handoff}
 			/>

@@ -24,6 +24,12 @@ export function paActionsListQueryOptions(status?: string) {
  * (the producer writes it via `host.paActionsPause`); `editedJson` is the
  * operator's `{ subject?, body? }` overrides. Returns `null` on malformed JSON so
  * the caller can skip the row rather than crash the gate.
+ *
+ * WP-12 / G-09: reads `row.status`, `row.errorText`, and `row.attempts` from the
+ * DB row and stamps them onto the view-model so the panel can surface failed rows
+ * with their error callout and Retry button. `fromDraftItem` derives its own
+ * overdue/today status from the scheduled time; we override with `'failed'` only
+ * when the DB row is actually in the `failed` state.
  */
 export function pausedDraftFromRow(row: PaActionDraftRow): PausedDraft | null {
 	let parsed: { item?: DraftItem; meta?: ApproveGateMeta };
@@ -55,5 +61,20 @@ export function pausedDraftFromRow(row: PaActionDraftRow): PausedDraft | null {
 		draft.everEdited = true;
 		if (draft.status === 'awaiting') draft.status = 'edited';
 	}
+
+	// WP-12 / G-09 — propagate DB-side status onto the view-model.
+	// `failed` is the only status that originates from the worker (not the FE) and
+	// needs to override fromDraftItem's derived status.
+	if (row.status === 'failed') {
+		draft.status = 'failed';
+	}
+	// Surface worker-written error context so the panel can render the callout.
+	if (row.errorText != null) {
+		draft.errorMessage = row.errorText;
+	}
+	if (row.attempts > 0) {
+		draft.attempts = row.attempts;
+	}
+
 	return draft;
 }

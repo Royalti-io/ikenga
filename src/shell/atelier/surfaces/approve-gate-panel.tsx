@@ -42,6 +42,8 @@ export interface ApproveGatePanelProps {
 	onContinueSession: (draftId: string) => void;
 	/** Persisted inline edits (⌘S). Optional — the harness logs them. */
 	onEdit?: (draftId: string, patch: { subject?: string; body?: string }) => void;
+	/** Re-queue a failed draft for another worker attempt (WP-12 / G-09). */
+	onRetry?: (draftId: string) => void;
 }
 
 const LIST_W_DEFAULT = 420;
@@ -91,11 +93,14 @@ const IcoSeq = svg(
 		<path d="M4 5.5v5M5.3 4.6L10.7 7M5.3 11.4L10.7 9" />
 	</>
 );
+const IcoRefresh = svg(
+	<path d="M13 8A5 5 0 1 1 8 3M13 3v5h-5" />
+);
 
 // ── Component ─────────────────────────────────────────────────────────────────────────────────
 
 export function ApproveGatePanel(props: ApproveGatePanelProps) {
-	const { drafts, onApprove, onReject, onSendToChat, onContinueSession, onEdit } = props;
+	const { drafts, onApprove, onReject, onSendToChat, onContinueSession, onEdit, onRetry } = props;
 
 	const [resolved, setResolved] = useState<Set<string>>(() => new Set());
 	const visible = useMemo(() => drafts.filter((d) => !resolved.has(d.id)), [drafts, resolved]);
@@ -507,6 +512,36 @@ export function ApproveGatePanel(props: ApproveGatePanelProps) {
 							</div>
 
 							<div className="ob-detail-body">
+								{selected.status === 'failed' && (
+									<div
+										className="ob-failed-callout"
+										role="alert"
+										aria-label="Send failure"
+									>
+										<span className="ob-failed-callout-label">
+											Send failed
+											{selected.attempts != null && selected.attempts > 0
+												? ` · ${selected.attempts} attempt${selected.attempts === 1 ? '' : 's'}`
+												: ''}
+										</span>
+										{selected.errorMessage && (
+											<span className="ob-failed-callout-msg">
+												{selected.errorMessage}
+											</span>
+										)}
+										{onRetry && (
+											<button
+												type="button"
+												className="btn btn-sm ob-failed-callout-retry"
+												onClick={() => onRetry(selected.id)}
+												aria-label="Retry sending this draft"
+											>
+												<IcoRefresh />
+												<span className="btn-label">Retry</span>
+											</button>
+										)}
+									</div>
+								)}
 								<div className="ob-detail-head">
 									<div className="ob-detail-to-row">
 										<div className="ob-avatar" aria-hidden="true">
