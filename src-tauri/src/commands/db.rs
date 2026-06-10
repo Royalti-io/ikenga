@@ -787,10 +787,12 @@ mod tests {
 
     /// Total embedded migration count. 24 shipped through WP-01; WP-02 added 7
     /// domain-schema migrations (0025–0031); WP-10a adds 8 more (0032–0039:
-    /// drift fix + finance view + 14 new business tables). Keep this in lockstep
-    /// with the `migrations` tuple list — it guards against a migration silently
-    /// being dropped from the embedded list (a class of bug we've hit before).
-    const MIGRATION_COUNT: i64 = 47;
+    /// drift fix + finance view + 14 new business tables); 0040–0050 brought it
+    /// to 50 (finance/content/task domains + pa_action_drafts). Keep this in
+    /// lockstep with the `migrations` tuple list — it guards against a migration
+    /// silently being dropped from the embedded list (a class of bug we've hit
+    /// before). Was stale at 47 while 0048–0050 landed on main without a bump.
+    const MIGRATION_COUNT: i64 = 50;
 
     /// Schema init applies every embedded migration exactly once. The
     /// `_pa_migrations` table must end with one row per migration tuple.
