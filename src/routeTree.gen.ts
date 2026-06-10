@@ -39,6 +39,7 @@ import { Route as SettingsTelemetryRouteImport } from './routes/settings/telemet
 import { Route as SettingsStorageRouteImport } from './routes/settings/storage'
 import { Route as SettingsSecretsRouteImport } from './routes/settings/secrets'
 import { Route as SettingsProjectsRouteImport } from './routes/settings/projects'
+import { Route as SettingsPkgAuditRouteImport } from './routes/settings/pkg-audit'
 import { Route as SettingsPackagesRouteImport } from './routes/settings/packages'
 import { Route as SettingsOnboardingRouteImport } from './routes/settings/onboarding'
 import { Route as SettingsIntegrationsRouteImport } from './routes/settings/integrations'
@@ -223,6 +224,11 @@ const SettingsSecretsRoute = SettingsSecretsRouteImport.update({
 const SettingsProjectsRoute = SettingsProjectsRouteImport.update({
   id: '/projects',
   path: '/projects',
+  getParentRoute: () => SettingsRouteRoute,
+} as any)
+const SettingsPkgAuditRoute = SettingsPkgAuditRouteImport.update({
+  id: '/pkg-audit',
+  path: '/pkg-audit',
   getParentRoute: () => SettingsRouteRoute,
 } as any)
 const SettingsPackagesRoute = SettingsPackagesRouteImport.update({
@@ -453,6 +459,7 @@ export interface FileRoutesByFullPath {
   '/settings/integrations': typeof SettingsIntegrationsRoute
   '/settings/onboarding': typeof SettingsOnboardingRoute
   '/settings/packages': typeof SettingsPackagesRoute
+  '/settings/pkg-audit': typeof SettingsPkgAuditRoute
   '/settings/projects': typeof SettingsProjectsRoute
   '/settings/secrets': typeof SettingsSecretsRoute
   '/settings/storage': typeof SettingsStorageRoute
@@ -516,6 +523,7 @@ export interface FileRoutesByTo {
   '/settings/integrations': typeof SettingsIntegrationsRoute
   '/settings/onboarding': typeof SettingsOnboardingRoute
   '/settings/packages': typeof SettingsPackagesRoute
+  '/settings/pkg-audit': typeof SettingsPkgAuditRoute
   '/settings/projects': typeof SettingsProjectsRoute
   '/settings/secrets': typeof SettingsSecretsRoute
   '/settings/storage': typeof SettingsStorageRoute
@@ -584,6 +592,7 @@ export interface FileRoutesById {
   '/settings/integrations': typeof SettingsIntegrationsRoute
   '/settings/onboarding': typeof SettingsOnboardingRoute
   '/settings/packages': typeof SettingsPackagesRoute
+  '/settings/pkg-audit': typeof SettingsPkgAuditRoute
   '/settings/projects': typeof SettingsProjectsRoute
   '/settings/secrets': typeof SettingsSecretsRoute
   '/settings/storage': typeof SettingsStorageRoute
@@ -653,6 +662,7 @@ export interface FileRouteTypes {
     | '/settings/integrations'
     | '/settings/onboarding'
     | '/settings/packages'
+    | '/settings/pkg-audit'
     | '/settings/projects'
     | '/settings/secrets'
     | '/settings/storage'
@@ -716,6 +726,7 @@ export interface FileRouteTypes {
     | '/settings/integrations'
     | '/settings/onboarding'
     | '/settings/packages'
+    | '/settings/pkg-audit'
     | '/settings/projects'
     | '/settings/secrets'
     | '/settings/storage'
@@ -783,6 +794,7 @@ export interface FileRouteTypes {
     | '/settings/integrations'
     | '/settings/onboarding'
     | '/settings/packages'
+    | '/settings/pkg-audit'
     | '/settings/projects'
     | '/settings/secrets'
     | '/settings/storage'
@@ -1040,6 +1052,13 @@ declare module '@tanstack/react-router' {
       path: '/projects'
       fullPath: '/settings/projects'
       preLoaderRoute: typeof SettingsProjectsRouteImport
+      parentRoute: typeof SettingsRouteRoute
+    }
+    '/settings/pkg-audit': {
+      id: '/settings/pkg-audit'
+      path: '/pkg-audit'
+      fullPath: '/settings/pkg-audit'
+      preLoaderRoute: typeof SettingsPkgAuditRouteImport
       parentRoute: typeof SettingsRouteRoute
     }
     '/settings/packages': {
@@ -1382,6 +1401,7 @@ interface SettingsRouteRouteChildren {
   SettingsIntegrationsRoute: typeof SettingsIntegrationsRoute
   SettingsOnboardingRoute: typeof SettingsOnboardingRoute
   SettingsPackagesRoute: typeof SettingsPackagesRoute
+  SettingsPkgAuditRoute: typeof SettingsPkgAuditRoute
   SettingsProjectsRoute: typeof SettingsProjectsRoute
   SettingsSecretsRoute: typeof SettingsSecretsRoute
   SettingsStorageRoute: typeof SettingsStorageRoute
@@ -1399,6 +1419,7 @@ const SettingsRouteRouteChildren: SettingsRouteRouteChildren = {
   SettingsIntegrationsRoute: SettingsIntegrationsRoute,
   SettingsOnboardingRoute: SettingsOnboardingRoute,
   SettingsPackagesRoute: SettingsPackagesRoute,
+  SettingsPkgAuditRoute: SettingsPkgAuditRoute,
   SettingsProjectsRoute: SettingsProjectsRoute,
   SettingsSecretsRoute: SettingsSecretsRoute,
   SettingsStorageRoute: SettingsStorageRoute,

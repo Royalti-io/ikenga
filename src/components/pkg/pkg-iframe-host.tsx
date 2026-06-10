@@ -54,6 +54,9 @@ import {
 	dbQuery,
 	pkgContentHtml,
 	pkgContentRevoke,
+	pkgFetch,
+	pkgInvoke,
+	pkgIsTrustedForElevated,
 	pkgKernelStatus,
 	pkgMcpCall,
 	pkgPreviewManifest,
@@ -187,6 +190,59 @@ async function pkgDeclaresAgentOps(pkgId: string): Promise<boolean> {
 		console.warn(`[pkg-host] agentOps capability check for ${pkgId} failed:`, e);
 		return false;
 	}
+}
+
+// Whether the pkg declared `capabilities.http` (opt-in to the mediated
+// `host.fetch` proxy — ADR-017, TRUSTED-only). Presence is the gate; the URL
+// allowlist is `permissions.net` and the auth wiring lives in the manifest, all
+// enforced Rust-side in `pkg_fetch`. This FE check is fail-fast UX only — a
+// hostile iframe skips it and still hits the authoritative Rust gate. Same
+// manifest-lookup shape as `pkgDeclaresSqlite`; fails closed on any error.
+async function pkgDeclaresHttp(pkgId: string): Promise<boolean> {
+	try {
+		const status = await pkgKernelStatus();
+		const entry = status.installed.find((p) => p.id === pkgId);
+		if (!entry) return false;
+		const manifest = await pkgPreviewManifest(entry.install_path);
+		const caps = manifest.capabilities as Record<string, unknown> | undefined;
+		return !!caps?.http;
+	} catch (e) {
+		console.warn(`[pkg-host] http capability check for ${pkgId} failed:`, e);
+		return false;
+	}
+}
+
+// Whether the pkg declared `capabilities.invoke` AND lists `command` in its
+// `capabilities.invoke.commands` allowlist (ADR-017 D-06, TRUSTED-only). The
+// allowlist is invoke's OWN field (not permissions["shell.execute"]). Glob-
+// matches `command` against the declared entries. Rust re-checks (trust + the
+// same allowlist) — this is fail-fast UX only. Fails closed on any error.
+async function pkgDeclaresInvoke(pkgId: string, command: string): Promise<boolean> {
+	try {
+		const status = await pkgKernelStatus();
+		const entry = status.installed.find((p) => p.id === pkgId);
+		if (!entry) return false;
+		const manifest = await pkgPreviewManifest(entry.install_path);
+		const caps = manifest.capabilities as Record<string, unknown> | undefined;
+		const invoke = caps?.invoke as { commands?: unknown } | undefined;
+		if (!invoke) return false;
+		const commands = Array.isArray(invoke.commands)
+			? invoke.commands.filter((c): c is string => typeof c === 'string')
+			: [];
+		return commands.some((glob) => globMatch(glob, command));
+	} catch (e) {
+		console.warn(`[pkg-host] invoke capability check for ${pkgId} failed:`, e);
+		return false;
+	}
+}
+
+// Minimal glob match (`*` any-sequence, `?` one-char) mirroring the Rust
+// `glob::Pattern` surface used by `check_shell_execute`. Advisory only — the
+// Rust gate is authoritative. A pattern with no wildcards is an exact match.
+function globMatch(glob: string, name: string): boolean {
+	const escaped = glob.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+	const re = new RegExp(`^${escaped.replace(/\*/g, '.*').replace(/\?/g, '.')}$`);
+	return re.test(name);
 }
 
 // The tables a pkg declared it may touch via `permissions['sqlite.tables']`.
@@ -686,7 +742,98 @@ export async function dispatchHostCall(
 		}
 	}
 
+	// ── host.fetch — mediated outbound HTTP proxy (ADR-017, WP-04) ──────────
+	// TRUSTED-only. The shell makes the request + attaches auth from Stronghold;
+	// the credential NEVER enters the iframe. The FE branch is THIN — it
+	// validates arg shape + does the fail-fast capability/trust pre-check, then
+	// forwards to `pkg_fetch` which does ALL enforcement Rust-side (URL allowlist,
+	// SSRF guard, redirect handling, size cap, credential injection). A hostile
+	// iframe that skips these FE checks still hits the authoritative Rust gate.
+	if (name === 'host.fetch') {
+		const url = typeof args.url === 'string' ? args.url : null;
+		if (!url) {
+			return errResult('host.fetch: missing required `url` argument');
+		}
+		// Gate FE-side as `pkgDeclaresCapability('http') && pkgIsTrustedForElevated`
+		// (fail-fast UX; the Rust command re-checks both server-side).
+		if (!(await pkgDeclaresHttp(pkgId))) {
+			return errResult("host.fetch: pkg lacks the 'http' capability");
+		}
+		if (!(await pkgIsTrustedForElevated(pkgId))) {
+			return errResult('host.fetch: pkg is not trusted for elevated capabilities');
+		}
+		try {
+			const res = await pkgFetch(pkgId, {
+				url,
+				method: typeof args.method === 'string' ? args.method : undefined,
+				headers: isStringRecord(args.headers) ? args.headers : undefined,
+				body:
+					typeof args.body === 'string' || (args.body !== null && typeof args.body === 'object')
+						? (args.body as string | Record<string, unknown> | unknown[])
+						: undefined,
+				timeout: typeof args.timeout === 'number' ? args.timeout : undefined,
+			});
+			return {
+				content: [
+					{
+						type: 'text',
+						text: res.ok
+							? `${res.status} ${url}`
+							: `host.fetch: ${res.reason ?? 'failed'}`,
+					},
+				],
+				structuredContent: res as unknown as Record<string, unknown>,
+				isError: res.ok === false,
+			};
+		} catch (e) {
+			return errResult(`host.fetch failed: ${(e as Error).message ?? String(e)}`);
+		}
+	}
+
+	// ── host.invoke — scoped named-command passthrough (ADR-017, WP-05) ─────
+	// TRUSTED-only. Runs a small allowlist of NAMED commands from
+	// `capabilities.invoke.commands` (D-06: invoke's OWN field, not
+	// permissions["shell.execute"]). NOT a general shell. Rust re-checks trust +
+	// the allowlist; the FE checks are fail-fast UX only.
+	if (name === 'host.invoke') {
+		const command = typeof args.command === 'string' ? args.command : null;
+		if (!command) {
+			return errResult('host.invoke: missing required `command` argument');
+		}
+		if (!(await pkgDeclaresInvoke(pkgId, command))) {
+			return errResult(`host.invoke: '${command}' not in the pkg's capabilities.invoke.commands`);
+		}
+		if (!(await pkgIsTrustedForElevated(pkgId))) {
+			return errResult('host.invoke: pkg is not trusted for elevated capabilities');
+		}
+		const invokeArgs = Array.isArray(args.args)
+			? args.args.filter((a): a is string => typeof a === 'string')
+			: [];
+		try {
+			const res = await pkgInvoke(pkgId, command, invokeArgs);
+			return {
+				content: [
+					{
+						type: 'text',
+						text: res.ok ? `ok (exit ${res.exitCode ?? 0})` : `host.invoke: ${res.error ?? 'failed'}`,
+					},
+				],
+				structuredContent: res as unknown as Record<string, unknown>,
+				isError: res.ok === false,
+			};
+		} catch (e) {
+			return errResult(`host.invoke failed: ${(e as Error).message ?? String(e)}`);
+		}
+	}
+
 	return errResult(`unknown host tool: ${name}`);
+}
+
+/** Narrow an unknown value to a `Record<string, string>` (all string values).
+ *  Used by `host.fetch` to accept only string→string header maps. */
+function isStringRecord(v: unknown): v is Record<string, string> {
+	if (v === null || typeof v !== 'object' || Array.isArray(v)) return false;
+	return Object.values(v as Record<string, unknown>).every((x) => typeof x === 'string');
 }
 
 /**
@@ -741,6 +888,14 @@ export function PkgIframeHost({ pkgId, source, onInitialized }: PkgIframeHostPro
 	// Stored in a ref so theme-flip rebuilds reuse the same value without
 	// forcing the bridge to reconnect.
 	const supabaseConfigRef = useRef<{ url: string; anonKey: string } | null>(null);
+	// Resolved named secrets (ADR-017) when the pkg declared
+	// `capabilities.secrets` AND is trusted-for-elevated. Same ref pattern as
+	// supabase so theme-flip / host-context-changed re-emits carry the values
+	// without a bridge reconnect; a vault edit re-resolves on the next mount.
+	const secretsConfigRef = useRef<{
+		values: Record<string, string>;
+		missing: string[];
+	} | null>(null);
 
 	// Appearance reactivity (theme / mode / tint / workspace) is handled by a
 	// MutationObserver on the <html> data-* attributes in Step 3 below, NOT by
@@ -837,6 +992,7 @@ export function PkgIframeHost({ pkgId, source, onInitialized }: PkgIframeHostPro
 					return;
 				}
 				supabaseConfigRef.current = handle.supabase ?? null;
+				secretsConfigRef.current = handle.secrets ?? null;
 				setTokenForRevoke(handle.token);
 				setBaseUrl(handle.baseUrl);
 				setSrcDoc(handle.html);
@@ -908,6 +1064,7 @@ export function PkgIframeHost({ pkgId, source, onInitialized }: PkgIframeHostPro
 					pkgId,
 					authToken: authTokenRef.current,
 					supabase: supabaseConfigRef.current,
+					secrets: secretsConfigRef.current,
 					suite: {
 						activeFeature: usePkgMenuStore.getState().activeFeatures[pkgId],
 						// Inject the roster at connect time so the first
@@ -1016,6 +1173,7 @@ export function PkgIframeHost({ pkgId, source, onInitialized }: PkgIframeHostPro
 						pkgId,
 						authToken: authTokenRef.current,
 						supabase: supabaseConfigRef.current,
+						secrets: secretsConfigRef.current,
 						suite: {
 							activeFeature,
 							// Include the current roster so project switches that update

@@ -168,6 +168,7 @@ mod tests {
             engine: None,
             screenshots: vec![],
             requires: vec![],
+            signature: None,
         }
     }
 
@@ -216,6 +217,9 @@ mod tests {
             sqlite: None,
             webview: None,
             agent_ops: None,
+            http: None,
+            secrets: None,
+            invoke: None,
         });
         assert!(capabilities_changed(&normalize(&a), &normalize(&b)));
     }

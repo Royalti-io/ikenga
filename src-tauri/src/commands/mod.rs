@@ -25,6 +25,8 @@ pub mod permissions_audit;
 pub mod pkg;
 pub mod pkg_content;
 pub mod pkg_dev;
+pub mod pkg_fetch;
+pub mod pkg_invoke;
 pub mod pkg_mcp;
 pub mod pkg_sidecar;
 pub mod pkg_sidecar_stream;
@@ -105,12 +107,14 @@ pub use pa_actions::{
 pub use permissions_audit::{pkg_permission_violations_clear, pkg_permission_violations_list};
 pub use pkg::{
     list_all_skill_actions, list_skill_actions, pkg_db_diag, pkg_discover_workspace,
-    pkg_install_from_path, pkg_install_from_registry, pkg_kernel_status, pkg_preview_manifest,
-    pkg_screenshot, pkg_set_enabled, pkg_set_scope, pkg_settings_get, pkg_settings_set,
-    pkg_uninstall, KernelState, PkgSettingsState,
+    pkg_install_from_path, pkg_install_from_registry, pkg_is_trusted_for_elevated,
+    pkg_kernel_status, pkg_preview_manifest, pkg_screenshot, pkg_set_enabled, pkg_set_scope,
+    pkg_settings_get, pkg_settings_set, pkg_uninstall, KernelState, PkgSettingsState,
 };
 pub use pkg_content::{pkg_content_html, pkg_content_revoke, pkg_content_url, PkgContentState};
 pub use pkg_dev::{pkg_dev_register, pkg_dev_reload, pkg_dev_unregister};
+pub use pkg_fetch::pkg_fetch;
+pub use pkg_invoke::pkg_invoke;
 pub use pkg_mcp::{
     dev_bind_port, dev_release_port, pkg_mcp_call, pkg_supervisor_restart, SidecarSupervisorState,
 };

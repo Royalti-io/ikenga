@@ -1380,6 +1380,7 @@ mod tests {
             engine: None,
             screenshots: vec![],
             requires: vec![],
+            signature: None,
         };
         m.mcp.push(McpServer {
             name: "t".into(),
