@@ -780,6 +780,75 @@ mod tests {
         );
     }
 
+    /// WP-05 D-06 — THE key assertion. A signed/builtin pkg that declares
+    /// `capabilities.invoke.commands` but leaves `permissions["shell.execute"]`
+    /// EMPTY reaches `AutoTrusted` → `is_trusted_for_elevated()` is true. This is
+    /// the whole reason the invoke allowlist is its OWN field and NOT
+    /// `shell.execute`: a non-empty `shell.execute` would trip `requires_trust`,
+    /// dropping the pkg to user-`Granted` (never `AutoTrusted`), at which point
+    /// `host.invoke` could never run. By keeping the command allowlist in
+    /// `capabilities.invoke.commands`, `shell.execute` stays empty, `requires_trust`
+    /// is false, and a builtin (or signed registry) pkg stays elevated-trusted.
+    #[tokio::test]
+    async fn d06_builtin_with_invoke_commands_but_empty_shell_execute_is_elevated() {
+        use crate::pkg::manifest::{CapabilitiesBlock, InvokeCapability};
+        let pool = open_test_pool().await;
+
+        // Empty shell.execute → requires_trust(false). Declare an invoke
+        // allowlist in the cap instead.
+        let mut pkg = pkg_with_perms("com.ikenga.outbound", Permissions::default());
+        pkg.manifest.capabilities = Some(CapabilitiesBlock {
+            invoke: Some(InvokeCapability {
+                commands: vec!["pa_actions_commit".into(), "pa_actions_reject".into()],
+            }),
+            ..Default::default()
+        });
+        // Sanity: the allowlist living in the cap does NOT make shell.execute
+        // non-empty, so requires_trust stays false.
+        assert!(
+            !requires_trust(&pkg.manifest.permissions),
+            "invoke.commands must NOT trip requires_trust (it's not shell.execute)"
+        );
+
+        let state = evaluate(&pool, &pkg, &InstallSource::Builtin, &PathBuf::from("/tmp"))
+            .await
+            .expect("evaluate");
+        assert!(
+            matches!(state, TrustState::AutoTrusted),
+            "builtin pkg w/ invoke.commands + empty shell.execute must be AutoTrusted, got {state:?}"
+        );
+        assert!(
+            state.is_trusted_for_elevated(),
+            "the D-06 fix: this pkg MUST reach is_trusted_for_elevated() == true"
+        );
+
+        // Counterfactual: had the allowlist been expressed as shell.execute, the
+        // SAME pkg would trip requires_trust and (as a registry/local pkg) drop
+        // to NeedsApproval — never elevated. Proves WHY the field is separate.
+        let mut counter = pkg_with_perms("com.evil.studio", {
+            let mut p = Permissions::default();
+            p.shell_execute.push("pa_actions_commit".into());
+            p
+        });
+        counter.manifest.capabilities = None;
+        assert!(
+            requires_trust(&counter.manifest.permissions),
+            "shell.execute non-empty DOES trip requires_trust"
+        );
+        let counter_state = evaluate(
+            &pool,
+            &counter,
+            &InstallSource::Local { path: "/tmp".into() },
+            &PathBuf::from("/tmp"),
+        )
+        .await
+        .expect("evaluate");
+        assert!(
+            !counter_state.is_trusted_for_elevated(),
+            "a shell.execute-gated pkg is NOT elevated — this is the trap D-06 avoids"
+        );
+    }
+
     #[test]
     fn auto_trust_requires_both_builtin_source_and_ikenga_id() {
         // Both ✓ → auto-trust.

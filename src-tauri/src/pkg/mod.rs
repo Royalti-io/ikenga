@@ -10,6 +10,7 @@ pub mod cap_snapshot;
 pub mod engine_adapter;
 pub mod engine_adapters;
 pub mod file_watcher;
+pub mod http_proxy;
 pub mod keep_awake;
 pub mod kernel;
 pub mod lifecycle;

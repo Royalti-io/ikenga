@@ -424,12 +424,24 @@ pub struct NamedSecret {
     pub format: Option<String>,
 }
 
-/// host.invoke capability (ADR-017) — presence gate; the command allowlist is
-/// `permissions["shell.execute"]`. Empty struct so its mere presence opts in,
-/// mirroring `AgentOpsCapability`. Mirrors `InvokeCapabilitySchema` in
+/// host.invoke capability (ADR-017) — presence gates the verb; `commands` is the
+/// named-command allowlist (glob-matched by `permissions_check::check_shell_execute`
+/// against the requested `host.invoke` command).
+///
+/// D-06: the allowlist is `invoke`'s OWN field, NOT `permissions["shell.execute"]`.
+/// `shell.execute` non-empty trips `trust::requires_trust` → the pkg can only ever
+/// reach user-`Granted`, never `AutoTrusted`, so `is_trusted_for_elevated()` is
+/// false and `host.invoke` would ALWAYS deny. Keeping the allowlist here lets a
+/// signed/builtin pkg declare invokable commands while leaving `shell.execute`
+/// empty → AutoTrusted → elevated. POLICY: named commands only, never `*` — this is
+/// not a general shell. Mirrors `InvokeCapabilitySchema` in
 /// `@ikenga/contract/manifest.ts`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct InvokeCapability {}
+#[serde(deny_unknown_fields)]
+pub struct InvokeCapability {
+    #[serde(default)]
+    pub commands: Vec<String>,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Author {
@@ -899,8 +911,43 @@ mod tests {
         assert!(decl.required);
         assert_eq!(decl.format.as_deref(), Some("bearer"));
 
-        // `invoke` is a presence-gate empty struct — its mere presence opts in.
-        assert!(caps.invoke.is_some());
+        // `invoke` present — `commands` defaults to empty when omitted.
+        let invoke = caps.invoke.expect("invoke cap present");
+        assert!(invoke.commands.is_empty());
+    }
+
+    #[test]
+    fn trusted_cap_invoke_commands_allowlist_parses() {
+        // WP-05 D-06: `capabilities.invoke.commands` is the invoke allowlist
+        // (its OWN field, NOT permissions["shell.execute"]). A manifest carrying
+        // a non-empty allowlist parses + round-trips the entries. Mirrors the
+        // contract-side `InvokeCapability (D-06)` test.
+        let json = r#"{
+            "id": "com.ikenga.outbound",
+            "name": "Outbound", "version": "0.1.0", "ikenga_api": "3",
+            "capabilities": {
+                "invoke": { "commands": ["pa_actions_commit", "pa_actions_reject"] }
+            }
+        }"#;
+        let m: Manifest = serde_json::from_str(json).expect("parse invoke.commands");
+        let invoke = m.capabilities.unwrap().invoke.unwrap();
+        assert_eq!(
+            invoke.commands,
+            vec!["pa_actions_commit".to_string(), "pa_actions_reject".to_string()]
+        );
+    }
+
+    #[test]
+    fn trusted_cap_invoke_rejects_unknown_field() {
+        // deny_unknown_fields on InvokeCapability — guards lockstep with the
+        // Zod `.strict()` on `InvokeCapabilitySchema`.
+        let json = r#"{
+            "id": "com.ikenga.x",
+            "name": "X", "version": "0.1.0", "ikenga_api": "3",
+            "capabilities": { "invoke": { "commands": [], "bogus": true } }
+        }"#;
+        let result: Result<Manifest, _> = serde_json::from_str(json);
+        assert!(result.is_err(), "unknown InvokeCapability field must be rejected");
     }
 
     #[test]

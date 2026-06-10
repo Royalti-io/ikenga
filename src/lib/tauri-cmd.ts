@@ -3201,6 +3201,70 @@ export async function pkgIsTrustedForElevated(pkgId: string): Promise<boolean> {
 	return invoke<boolean>('pkg_is_trusted_for_elevated', { pkgId });
 }
 
+// ─── host.fetch — mediated outbound HTTP proxy (ADR-017, WP-04) ──────────
+//
+// A TRUSTED pkg names a URL + request shape; the shell makes the request,
+// attaches the auth credential from Stronghold, and returns the credential-
+// free response. ALL enforcement (URL allowlist via permissions.net, SSRF
+// guard, redirect handling, size cap, credential injection) is Rust-side —
+// the FE only validates arg shape. The auth secret NEVER enters the iframe.
+
+/** Request shape for `pkg_fetch`. `url` must match a `permissions.net` glob.
+ *  The auth header is NOT supplied here — the shell injects it from the named
+ *  `capabilities.http.auth_secret`. */
+export interface PkgFetchReq {
+	url: string;
+	method?: string;
+	headers?: Record<string, string>;
+	/** String sent verbatim, or any JSON value (serialized host-side). */
+	body?: string | Record<string, unknown> | unknown[];
+	/** Per-call timeout (ms), clamped host-side to [1, 60000]. */
+	timeout?: number;
+}
+
+/** Frozen result envelope. A non-2xx HTTP `status` is still `ok: true` — only
+ *  gate/guard/transport failures set `ok: false` + a frozen `reason`. The
+ *  injected auth header is never echoed back (only response headers, with
+ *  Set-Cookie stripped). */
+export interface PkgFetchResult {
+	ok: boolean;
+	status?: number;
+	headers?: Record<string, string>;
+	body?: string;
+	truncated?: boolean;
+	bytes?: number;
+	reason?: string;
+}
+
+export async function pkgFetch(pkgId: string, req: PkgFetchReq): Promise<PkgFetchResult> {
+	return invoke<PkgFetchResult>('pkg_fetch', { pkgId, req });
+}
+
+// ─── host.invoke — scoped named-command passthrough (ADR-017, WP-05) ──────
+//
+// A TRUSTED pkg runs a small allowlist of NAMED commands declared in
+// `capabilities.invoke.commands` (D-06: invoke's OWN field, not
+// permissions["shell.execute"]). Not a general shell. Rust re-checks trust +
+// the allowlist; the FE check is fail-fast UX only.
+
+/** Result of a `pkg_invoke` named-command run. */
+export interface PkgInvokeResult {
+	ok: boolean;
+	error?: string;
+	stdout?: string;
+	stderr?: string;
+	exitCode?: number;
+	timedOut?: boolean;
+}
+
+export async function pkgInvoke(
+	pkgId: string,
+	command: string,
+	args: string[],
+): Promise<PkgInvokeResult> {
+	return invoke<PkgInvokeResult>('pkg_invoke', { pkgId, command, args });
+}
+
 export async function pkgContentRevoke(token: string): Promise<void> {
 	return invoke('pkg_content_revoke', { token });
 }
