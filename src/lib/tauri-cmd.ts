@@ -2812,6 +2812,17 @@ export interface PkgInstallFromRegistryArgs {
 	integrity: string;
 	pkgId: string;
 	sourceUrl: string;
+	/**
+	 * Publisher's minisign public key for this pkg, as named by the signed
+	 * registry index. Threaded into `InstallSource::Registry.publisher_key`
+	 * and used by the Rust trust gate (`pkg::signature`) to verify the
+	 * manifest's `signature` at install + every boot. The signed index does
+	 * not carry per-pkg publisher keys yet (WP-06), so this is `undefined`
+	 * today — the field is wired now so callers don't change shape when keys
+	 * land. Absent ⇒ the pkg installs/runs but is never trusted for elevated
+	 * host capabilities.
+	 */
+	publisherKey?: string | null;
 }
 
 export async function pkgInstallFromRegistry(
@@ -3164,10 +3175,94 @@ export interface PkgContentHtmlHandle {
 	 *  declared it non-required and the vault has no keys. Pkgs that don't
 	 *  declare the capability never see this field populated. */
 	supabase: { url: string; anonKey: string } | null;
+	/** Resolved named secrets (ADR-017) when the pkg declared
+	 *  `capabilities.secrets` AND is trusted-for-elevated. `values` maps each
+	 *  declared `name` → its resolved plaintext; `missing` lists declared,
+	 *  non-required names absent from the vault. `null` when the pkg didn't
+	 *  declare the cap OR isn't trusted (fail-closed — silently ignored). The
+	 *  iframe never sees a `vault_key`. */
+	secrets: { values: Record<string, string>; missing: string[] } | null;
 }
 
 export async function pkgContentHtml(pkgId: string, source: string): Promise<PkgContentHtmlHandle> {
 	return invoke<PkgContentHtmlHandle>('pkg_content_html', { pkgId, source });
+}
+
+/** The single FE gate for ELEVATED host capabilities (ADR-017 / trusted-pkg
+ *  tier). Returns true only when the pkg is trusted-for-elevated
+ *  (`TrustState::AutoTrusted` — builtin provenance, `ikenga dev`, or a
+ *  signature-verified registry pkg). Wave-2 elevated verbs (`host.fetch` /
+ *  `host.invoke`, WP-04/05) call this in `dispatchHostCall` as
+ *  `pkgDeclaresCapability(pkgId, '<cap>') && pkgIsTrustedForElevated(pkgId)`;
+ *  the Rust command re-checks the same gate (the FE check is fail-fast UX
+ *  only — a hostile iframe could skip it). Fail-closed: un-installed /
+ *  un-loadable / un-evaluable → false. */
+export async function pkgIsTrustedForElevated(pkgId: string): Promise<boolean> {
+	return invoke<boolean>('pkg_is_trusted_for_elevated', { pkgId });
+}
+
+// ─── host.fetch — mediated outbound HTTP proxy (ADR-017, WP-04) ──────────
+//
+// A TRUSTED pkg names a URL + request shape; the shell makes the request,
+// attaches the auth credential from Stronghold, and returns the credential-
+// free response. ALL enforcement (URL allowlist via permissions.net, SSRF
+// guard, redirect handling, size cap, credential injection) is Rust-side —
+// the FE only validates arg shape. The auth secret NEVER enters the iframe.
+
+/** Request shape for `pkg_fetch`. `url` must match a `permissions.net` glob.
+ *  The auth header is NOT supplied here — the shell injects it from the named
+ *  `capabilities.http.auth_secret`. */
+export interface PkgFetchReq {
+	url: string;
+	method?: string;
+	headers?: Record<string, string>;
+	/** String sent verbatim, or any JSON value (serialized host-side). */
+	body?: string | Record<string, unknown> | unknown[];
+	/** Per-call timeout (ms), clamped host-side to [1, 60000]. */
+	timeout?: number;
+}
+
+/** Frozen result envelope. A non-2xx HTTP `status` is still `ok: true` — only
+ *  gate/guard/transport failures set `ok: false` + a frozen `reason`. The
+ *  injected auth header is never echoed back (only response headers, with
+ *  Set-Cookie stripped). */
+export interface PkgFetchResult {
+	ok: boolean;
+	status?: number;
+	headers?: Record<string, string>;
+	body?: string;
+	truncated?: boolean;
+	bytes?: number;
+	reason?: string;
+}
+
+export async function pkgFetch(pkgId: string, req: PkgFetchReq): Promise<PkgFetchResult> {
+	return invoke<PkgFetchResult>('pkg_fetch', { pkgId, req });
+}
+
+// ─── host.invoke — scoped named-command passthrough (ADR-017, WP-05) ──────
+//
+// A TRUSTED pkg runs a small allowlist of NAMED commands declared in
+// `capabilities.invoke.commands` (D-06: invoke's OWN field, not
+// permissions["shell.execute"]). Not a general shell. Rust re-checks trust +
+// the allowlist; the FE check is fail-fast UX only.
+
+/** Result of a `pkg_invoke` named-command run. */
+export interface PkgInvokeResult {
+	ok: boolean;
+	error?: string;
+	stdout?: string;
+	stderr?: string;
+	exitCode?: number;
+	timedOut?: boolean;
+}
+
+export async function pkgInvoke(
+	pkgId: string,
+	command: string,
+	args: string[],
+): Promise<PkgInvokeResult> {
+	return invoke<PkgInvokeResult>('pkg_invoke', { pkgId, command, args });
 }
 
 export async function pkgContentRevoke(token: string): Promise<void> {

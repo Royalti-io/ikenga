@@ -1,0 +1,1 @@
+{"capabilities":{"http":{"endpoints":[{"authSecret":"EXAMPLE_API_KEY","urlPattern":"https://api.example.com/*"}],"required":false}},"id":"com.example.signed","ikenga_api":"3","name":"Signed Example","permissions":{"fs.read":[],"fs.write":[],"net":["https://api.example.com/"],"shell.execute":[],"vault.keys":["EXAMPLE_API_KEY"]},"version":"1.2.3"}

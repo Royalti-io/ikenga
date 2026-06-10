@@ -10,7 +10,7 @@
 // Manifest URL stays parked; the signed-registry path covers the same need
 // with the signature/integrity guarantees baked in.
 
-import { Plus, X } from 'lucide-react';
+import { Globe, KeyRound, Lock, Plus, Shield, Terminal, X } from 'lucide-react';
 import { useCallback, useRef, useState, type KeyboardEvent } from 'react';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
@@ -27,6 +27,153 @@ import {
 	type RegistryEntry,
 } from '@/lib/registry/use-registry';
 import { PkgScreenshotCarousel } from './pkg-screenshots';
+
+// ── Elevated-capability types (ADR-017 / WP-08) ──────────────────────────────
+// These mirror the manifest shapes; extracted inline so we don't depend on the
+// full contract package at this import boundary.
+interface HttpCapability {
+	auth_secret?: string | null;
+	auth_header?: string;
+}
+interface NamedSecret {
+	name: string;
+	vault_key: string;
+	required?: boolean;
+	format?: string | null;
+}
+interface SecretsCapability {
+	declarations?: NamedSecret[];
+}
+interface InvokeCapability {
+	commands?: string[];
+}
+interface ElevatedCaps {
+	http?: HttpCapability | null;
+	secrets?: SecretsCapability | null;
+	invoke?: InvokeCapability | null;
+}
+
+/** Read elevated caps from a manifest-shaped record. */
+function extractElevatedCaps(manifest: Record<string, unknown> | null | undefined): ElevatedCaps | null {
+	if (!manifest) return null;
+	const caps = manifest.capabilities as Record<string, unknown> | undefined;
+	if (!caps) return null;
+	const http = caps.http as HttpCapability | null | undefined;
+	const secrets = caps.secrets as SecretsCapability | null | undefined;
+	const invoke = caps.invoke as InvokeCapability | null | undefined;
+	if (!http && !secrets && !invoke) return null;
+	return { http: http ?? null, secrets: secrets ?? null, invoke: invoke ?? null };
+}
+
+/** Whether any elevated cap is declared. */
+function hasElevatedCaps(caps: ElevatedCaps | null): boolean {
+	if (!caps) return false;
+	return !!(caps.http || caps.secrets || caps.invoke);
+}
+
+/** Read net globs from a manifest permissions block. */
+function extractNetHosts(manifest: Record<string, unknown> | null | undefined): string[] {
+	if (!manifest) return [];
+	const perms = manifest.permissions as Record<string, unknown> | undefined;
+	const net = perms?.['net'] ?? perms?.net;
+	return Array.isArray(net) ? (net as string[]) : [];
+}
+
+/** Elevated-cap panel — shown in the pkg-targeted install sheet before the
+ *  install button. Surfaces each declared elevated cap with its scope and a
+ *  plain-English description. For non-builtin registry pkgs (pre-WP-06 GA)
+ *  shows the interim "trusted capabilities require builtin provenance" note so
+ *  the user knows the elevated caps will be inert at this trust level. */
+function ElevatedCapsPanel({
+	caps,
+	netHosts,
+	isTrustedSource,
+}: {
+	caps: ElevatedCaps;
+	netHosts: string[];
+	/** True when the install source is a builtin or a signed-registry entry.
+	 *  False for plain registry installs (unsigned, pre-WP-06). */
+	isTrustedSource: boolean;
+}) {
+	const items: React.ReactNode[] = [];
+
+	if (caps.http) {
+		const hosts = netHosts.length ? netHosts : ['any allowed host'];
+		const withCred = caps.http.auth_secret
+			? ` using your "${caps.http.auth_secret}" credential`
+			: '';
+		items.push(
+			<div key="http" className="flex items-start gap-2.5 py-2">
+				<Globe className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+				<div className="min-w-0">
+					<div className="text-xs font-medium text-foreground">Makes network requests</div>
+					<div className="text-[11px] text-muted-foreground">
+						To: {hosts.join(', ')}
+						{withCred}
+					</div>
+				</div>
+			</div>
+		);
+	}
+
+	if (caps.secrets && (caps.secrets.declarations?.length ?? 0) > 0) {
+		const names = (caps.secrets.declarations ?? []).map((d) => d.name);
+		items.push(
+			<div key="secrets" className="flex items-start gap-2.5 py-2">
+				<KeyRound className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+				<div className="min-w-0">
+					<div className="text-xs font-medium text-foreground">Reads stored secrets</div>
+					<div className="text-[11px] text-muted-foreground">{names.join(', ')}</div>
+				</div>
+			</div>
+		);
+	}
+
+	if (caps.invoke && (caps.invoke.commands?.length ?? 0) > 0) {
+		const cmds = caps.invoke.commands ?? [];
+		items.push(
+			<div key="invoke" className="flex items-start gap-2.5 py-2">
+				<Terminal className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+				<div className="min-w-0">
+					<div className="text-xs font-medium text-foreground">Runs host commands</div>
+					<div className="text-[11px] font-mono text-muted-foreground">{cmds.join(', ')}</div>
+				</div>
+			</div>
+		);
+	}
+
+	return (
+		<section className="space-y-2">
+			<label className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground/70">
+				elevated capabilities
+			</label>
+			<div className="divide-y divide-border rounded-sm border border-border bg-background">
+				{items}
+				{/* Trust state banner */}
+				{isTrustedSource ? (
+					<div className="flex items-center gap-2 px-3 py-2 text-[11px]">
+						<Shield className="h-3.5 w-3.5 shrink-0 text-[var(--live)]" aria-hidden />
+						<span className="text-muted-foreground">
+							Trusted by provenance — elevated capabilities will be active.
+						</span>
+					</div>
+				) : (
+					<div className="flex items-center gap-2 px-3 py-2 text-[11px]">
+						<Lock className="h-3.5 w-3.5 shrink-0 text-[var(--achievement)]" aria-hidden />
+						<span className="text-muted-foreground">
+							<span className="font-medium text-foreground">
+								Trusted capabilities require builtin provenance.
+							</span>{' '}
+							Elevated capabilities will be{' '}
+							<span className="font-medium">inert</span> until the pkg is
+							signature-verified (WP-06 signing pipeline pending).
+						</span>
+					</div>
+				)}
+			</div>
+		</section>
+	);
+}
 
 type InstallTab = 'manifest-url' | 'local-path' | 'registry';
 
@@ -114,6 +261,20 @@ export function PkgInstallSheet({
 	// metadata is already enough until the user commits.
 	const registryEntry: RegistryEntry | undefined = pkg?.registryEntry ?? undefined;
 	const detailQuery = useRegistryPkgDetail(indexUrl, registryEntry);
+
+	// ── Elevated capabilities (ADR-017, WP-08) ──────────────────────────────
+	// Prefer the fetched detail (has the full manifest shape); fall back to the
+	// pkg.manifest preview if detail is still loading.
+	const manifestSource: Record<string, unknown> | null =
+		(detailQuery.data as Record<string, unknown> | undefined) ?? pkg?.manifest ?? null;
+	const elevatedCaps = extractElevatedCaps(manifestSource);
+	const netHosts = extractNetHosts(manifestSource);
+	// Trusted source = builtin provenance OR signed-registry (publisher_key
+	// present in the registry entry, once WP-06 signing pipeline ships).
+	// Until WP-06 GA, registry installs always show the "inert" copy.
+	const isTrustedSource =
+		pkg?.origin === 'builtin' ||
+		!!(registryEntry as Record<string, unknown> | undefined)?.publisherKey;
 	const planResolver = useInstallPlanResolver(indexUrl);
 	const refreshRegistry = useRefreshRegistry();
 
@@ -145,6 +306,12 @@ export function PkgInstallSheet({
 					integrity: step.integrity,
 					pkgId: step.pkgId,
 					sourceUrl: step.tarball,
+					// Publisher key from the signed index entry. The registry
+					// schema doesn't carry per-pkg publisher keys yet (WP-06),
+					// so this reads as undefined today -> installs as untrusted
+					// (no elevated host caps) until keys land. Sourced
+					// defensively so no call-site change is needed then.
+					publisherKey: (step as { publisherKey?: string | null }).publisherKey ?? undefined,
 				});
 				done += 1;
 			}
@@ -255,6 +422,15 @@ export function PkgInstallSheet({
 										</dd>
 									</dl>
 								</section>
+							)}
+							{/* Elevated-cap disclosure (ADR-017 / WP-08) — shown whenever the
+							    pkg's manifest declares capabilities.http / .secrets / .invoke */}
+							{hasElevatedCaps(elevatedCaps) && elevatedCaps && (
+								<ElevatedCapsPanel
+									caps={elevatedCaps}
+									netHosts={netHosts}
+									isTrustedSource={isTrustedSource}
+								/>
 							)}
 							{pkg.scopes.some((s) => /^fs:write/.test(s)) && (
 								<div className="space-y-1 rounded-sm border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">

@@ -2970,6 +2970,7 @@ dependencies = [
  "libc",
  "log",
  "mime_guess",
+ "minisign-verify",
  "notify",
  "notify-debouncer-mini",
  "objc2 0.5.2",

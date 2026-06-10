@@ -48,6 +48,10 @@ impl InstallSource {
         matches!(self, InstallSource::Dev { .. })
     }
 
+    pub fn is_registry(&self) -> bool {
+        matches!(self, InstallSource::Registry { .. })
+    }
+
     /// Parse a stored `source_json` blob, falling back to `Local { path }`
     /// when the value is missing or unparseable. Used at boot for rows that
     /// predate the source column.

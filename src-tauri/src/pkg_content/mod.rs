@@ -72,6 +72,40 @@ struct PkgEntry {
     /// Logical DB name when the pkg declared `capabilities.sqlite` (api ≥ 2).
     /// `None` = pkg didn't declare the capability and never sees the db name.
     sqlite_db: Option<String>,
+    /// Named-secret injection declaration (ADR-017). `None` = the pkg didn't
+    /// declare `capabilities.secrets`. `Some` carries the declared
+    /// `name → vault_key` mappings PLUS the pkg's `permissions["vault.keys"]`
+    /// allowlist so the resolver (`pkg_content_html`) can enforce the read
+    /// scope without re-loading the manifest. Resolution is trust-gated at
+    /// mount; this struct is just the static declaration.
+    secrets: Option<SecretsCapabilityEntry>,
+}
+
+/// The pkg's `capabilities.secrets` declaration captured at register time,
+/// paired with its `permissions["vault.keys"]` allowlist. Held verbatim so
+/// `pkg_content_html` can resolve + scope-check each named secret without a
+/// manifest reload. The vault keys never reach the iframe.
+#[derive(Clone)]
+pub struct SecretsCapabilityEntry {
+    /// `(name, vault_key, required, format)` for each declared secret. `name`
+    /// is what the iframe sees in `hostContext.secrets`; `vault_key` is the
+    /// Stronghold key the shell resolves (never exposed).
+    pub declarations: Vec<NamedSecretDecl>,
+    /// `permissions["vault.keys"]` globs — the read-scope allowlist. Each
+    /// declared `vault_key` MUST match one of these or resolution rejects it
+    /// as an authoring bug.
+    pub vault_keys: Vec<String>,
+}
+
+/// One resolved-shape named-secret declaration (mirror of
+/// `manifest::NamedSecret`, decoupled from the manifest struct so the content
+/// server owns a stable internal type).
+#[derive(Clone)]
+pub struct NamedSecretDecl {
+    pub name: String,
+    pub vault_key: String,
+    pub required: bool,
+    pub format: Option<String>,
 }
 
 #[derive(Clone)]
@@ -172,6 +206,15 @@ impl PkgContentServer {
     /// Returns `None` if the pkg isn't registered or didn't declare the capability.
     pub fn sqlite_capability(&self, pkg_id: &str) -> Option<String> {
         self.pkgs.get(pkg_id).and_then(|e| e.sqlite_db.clone())
+    }
+
+    /// Named-secret injection declaration (ADR-017) for a registered pkg, paired
+    /// with its `vault.keys` allowlist. Returns `None` if the pkg isn't
+    /// registered or didn't declare `capabilities.secrets`. The actual resolve
+    /// + trust gate happens in `pkg_content_html`; this only surfaces the static
+    /// declaration. The vault keys never leave the host.
+    pub fn secrets_capability(&self, pkg_id: &str) -> Option<SecretsCapabilityEntry> {
+        self.pkgs.get(pkg_id).and_then(|e| e.secrets.clone())
     }
 
     /// Revoke a single token (iframe unmount).
@@ -650,6 +693,30 @@ impl Registry for PkgContentServer {
             .as_ref()
             .and_then(|c| c.sqlite.as_ref())
             .map(|s| s.db.clone());
+        // Named-secret injection declaration (ADR-017). Capture the declared
+        // name→vault_key mappings + the pkg's vault.keys allowlist so the
+        // resolver can scope-check each read without a manifest reload. A pkg
+        // that declares the cap but has zero declarations registers as `None`
+        // (nothing to inject).
+        let secrets = pkg
+            .manifest
+            .capabilities
+            .as_ref()
+            .and_then(|c| c.secrets.as_ref())
+            .filter(|s| !s.declarations.is_empty())
+            .map(|s| SecretsCapabilityEntry {
+                declarations: s
+                    .declarations
+                    .iter()
+                    .map(|d| NamedSecretDecl {
+                        name: d.name.clone(),
+                        vault_key: d.vault_key.clone(),
+                        required: d.required,
+                        format: d.format.clone(),
+                    })
+                    .collect(),
+                vault_keys: pkg.manifest.permissions.vault_keys.clone(),
+            });
         self.pkgs.insert(
             pkg.manifest.id.clone(),
             PkgEntry {
@@ -658,6 +725,7 @@ impl Registry for PkgContentServer {
                 perm_overrides,
                 supabase_required,
                 sqlite_db,
+                secrets,
             },
         );
         Ok(())
