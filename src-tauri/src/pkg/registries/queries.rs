@@ -141,6 +141,7 @@ mod tests {
             engine: None,
             screenshots: vec![],
             requires: vec![],
+            signature: None,
         };
         Package {
             manifest,

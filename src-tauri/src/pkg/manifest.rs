@@ -24,7 +24,12 @@ use serde::{Deserialize, Serialize};
 ///
 /// v2 (WP-05): added `capabilities.sqlite` + `permissions["sqlite.tables"]`;
 /// `permissions["supabase.tables"]` kept as a compat alias for api=1 manifests.
-pub const IKENGA_API_VERSION: u32 = 2;
+///
+/// v3 (ADR-017): added capabilities.http / .secrets / .invoke (trusted-cap tier)
+/// + top-level optional `signature`. All additive; api=1/2 manifests parse
+/// unchanged. Elevated caps are inert unless the pkg is trusted (builtin
+/// provenance OR signature-verified registry).
+pub const IKENGA_API_VERSION: u32 = 3;
 
 /// Smallest supported manifest version. Packages with older `ikenga_api` are
 /// auto-disabled at boot; the kernel surfaces them with an "update required"
@@ -137,6 +142,17 @@ pub struct Manifest {
     /// `@ikenga/contract/manifest` (lockstep).
     #[serde(default)]
     pub requires: Vec<RequiresEntry>,
+
+    /// Optional ed25519 signature over the NORMALIZED manifest JSON (sort
+    /// keys, strip this field before signing). Format: `"ed25519:<base64>"`.
+    /// Present only on registry-published pkgs that went through the
+    /// notarization/signing pipeline. Verified at install/boot against the
+    /// `publisher_key` the signed registry index named for this pkg
+    /// (`InstallSource::Registry.publisher_key`). Absent → pkg simply isn't
+    /// trusted (runs, but no elevated caps). Mirrors `signature` in
+    /// `@ikenga/contract/manifest.ts`.
+    #[serde(default)]
+    pub signature: Option<String>,
 }
 
 /// One forward-dependency edge (`requires[]` element). Names a standalone Ọba
@@ -275,6 +291,30 @@ pub struct CapabilitiesBlock {
     /// `AgentOpsCapabilitySchema` in `@ikenga/contract/manifest.ts`.
     #[serde(rename = "agentOps", default)]
     pub agent_ops: Option<AgentOpsCapability>,
+
+    /// Host-mediated HTTP proxy (ADR-017). TRUSTED-only. Presence gates the
+    /// `host.fetch` verb; the shell makes the request and attaches auth from
+    /// Stronghold — the key NEVER enters the iframe. URL allowlist is the
+    /// existing `permissions.net` globs. Mirrors `HttpCapabilitySchema`.
+    #[serde(default)]
+    pub http: Option<HttpCapability>,
+
+    /// Named-secret injection (ADR-017). TRUSTED-only. Generalizes the
+    /// Supabase precedent: the shell resolves each declared vault key and
+    /// injects only the resolved value into `hostContext.secrets[name]`.
+    /// Declared keys must be within `permissions["vault.keys"]`. Mirrors
+    /// `SecretsCapabilitySchema`.
+    #[serde(default)]
+    pub secrets: Option<SecretsCapability>,
+
+    /// Scoped Tauri invoke passthrough (ADR-017). TRUSTED-only. Presence gates
+    /// the `host.invoke` verb; the allowed command list is the existing
+    /// `permissions["shell.execute"]` globs, enforced by
+    /// `permissions_check::check_shell_execute` (same path as kernel spawns).
+    /// Simple presence gate (mirrors the `agentOps`/`paActions` shape).
+    /// Mirrors `InvokeCapabilitySchema`.
+    #[serde(rename = "invoke", default)]
+    pub invoke: Option<InvokeCapability>,
 }
 
 /// Agent-ops host-bridge capability block — currently empty; its presence
@@ -331,6 +371,65 @@ pub struct WebviewCapability {
     #[serde(default)]
     pub partitions: Vec<String>,
 }
+
+/// host.fetch capability (ADR-017). URL allowlist reuses `permissions.net`; an
+/// optional `auth_secret` names ONE of the pkg's declared `capabilities.secrets`
+/// entries whose resolved value the shell attaches as the auth header. Mirrors
+/// `HttpCapabilitySchema` in `@ikenga/contract/manifest.ts`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HttpCapability {
+    /// Name of a `capabilities.secrets` declaration to use as the auth header
+    /// value. None = unauthenticated proxy (still URL-scoped via net globs).
+    #[serde(default)]
+    pub auth_secret: Option<String>,
+    /// Default header name for the auth secret. Defaults to "Authorization".
+    #[serde(default = "default_auth_header")]
+    pub auth_header: String,
+}
+
+fn default_auth_header() -> String {
+    "Authorization".to_string()
+}
+
+/// Named-secret injection capability (ADR-017). Each declaration maps a logical
+/// `name` (what the iframe sees in `hostContext.secrets`) to a `vault_key` the
+/// shell resolves from Stronghold. The iframe never sees `vault_key`. Mirrors
+/// `SecretsCapabilitySchema` in `@ikenga/contract/manifest.ts`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SecretsCapability {
+    #[serde(default)]
+    pub declarations: Vec<NamedSecret>,
+}
+
+/// One named-secret declaration. Mirrors `NamedSecretSchema` in
+/// `@ikenga/contract/manifest.ts`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NamedSecret {
+    /// Logical name exposed at `hostContext.secrets[name]`.
+    pub name: String,
+    /// Stronghold vault key the shell resolves (must be in
+    /// `permissions["vault.keys"]`). Never exposed to the iframe.
+    pub vault_key: String,
+    /// When true, mount fails if the key is missing (Supabase `required`
+    /// semantics). When false/omitted, missing → injects null.
+    #[serde(default)]
+    pub required: bool,
+    /// Optional value-format hint for host-side validation: "jwt" | "bearer"
+    /// | "raw". Kept a String (not closed enum) so new formats don't break
+    /// old manifests. None = no validation.
+    #[serde(default)]
+    pub format: Option<String>,
+}
+
+/// host.invoke capability (ADR-017) — presence gate; the command allowlist is
+/// `permissions["shell.execute"]`. Empty struct so its mere presence opts in,
+/// mirroring `AgentOpsCapability`. Mirrors `InvokeCapabilitySchema` in
+/// `@ikenga/contract/manifest.ts`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct InvokeCapability {}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Author {
@@ -699,6 +798,7 @@ mod tests {
             engine: None,
             screenshots: vec![],
             requires: vec![],
+            signature: None,
         }
     }
 
@@ -754,6 +854,99 @@ mod tests {
         }"#;
         let m: Manifest = serde_json::from_str(json).expect("parse");
         assert!(m.requires.is_empty());
+    }
+
+    #[test]
+    fn trusted_cap_tier_full_shape_parses() {
+        // WP-01 (ADR-017, G-MANIFEST DoD): a fully-populated api=3 manifest
+        // carrying ALL FOUR new fields — top-level `signature`,
+        // `capabilities.http` (with auth_secret + custom auth_header),
+        // `capabilities.secrets` (with a declaration), and the presence-gate
+        // `capabilities.invoke` — parses despite `deny_unknown_fields` on the
+        // Manifest, CapabilitiesBlock-nested structs, and the new cap structs.
+        let json = r#"{
+            "id": "com.ikenga.outbound",
+            "name": "Outbound", "version": "0.1.0", "ikenga_api": "3",
+            "signature": "ed25519:Zm9vYmFyYmF6",
+            "permissions": {
+                "net": ["https://api.twenty.com/"],
+                "vault.keys": ["TWENTY_API_KEY"]
+            },
+            "capabilities": {
+                "http": { "auth_secret": "twenty", "auth_header": "X-Api-Key" },
+                "secrets": {
+                    "declarations": [
+                        { "name": "twenty", "vault_key": "TWENTY_API_KEY",
+                          "required": true, "format": "bearer" }
+                    ]
+                },
+                "invoke": {}
+            }
+        }"#;
+        let m: Manifest = serde_json::from_str(json).expect("parse full trusted-cap manifest");
+        assert_eq!(m.signature.as_deref(), Some("ed25519:Zm9vYmFyYmF6"));
+        let caps = m.capabilities.expect("capabilities block present");
+
+        let http = caps.http.expect("http cap present");
+        assert_eq!(http.auth_secret.as_deref(), Some("twenty"));
+        assert_eq!(http.auth_header, "X-Api-Key");
+
+        let secrets = caps.secrets.expect("secrets cap present");
+        assert_eq!(secrets.declarations.len(), 1);
+        let decl = &secrets.declarations[0];
+        assert_eq!(decl.name, "twenty");
+        assert_eq!(decl.vault_key, "TWENTY_API_KEY");
+        assert!(decl.required);
+        assert_eq!(decl.format.as_deref(), Some("bearer"));
+
+        // `invoke` is a presence-gate empty struct — its mere presence opts in.
+        assert!(caps.invoke.is_some());
+    }
+
+    #[test]
+    fn trusted_cap_http_auth_header_defaults_to_authorization() {
+        // `auth_header` omitted → defaults to "Authorization"; `auth_secret`
+        // omitted → None (unauthenticated proxy, still net-scoped).
+        let json = r#"{
+            "id": "com.ikenga.outbound",
+            "name": "Outbound", "version": "0.1.0", "ikenga_api": "3",
+            "capabilities": { "http": {} }
+        }"#;
+        let m: Manifest = serde_json::from_str(json).expect("parse");
+        let http = m.capabilities.unwrap().http.unwrap();
+        assert_eq!(http.auth_header, "Authorization");
+        assert!(http.auth_secret.is_none());
+    }
+
+    #[test]
+    fn back_compat_api1_manifest_without_new_fields_parses() {
+        // WP-01 back-compat: an api=1 manifest carrying NONE of the four new
+        // fields parses unchanged (signature → None, the three caps → None)
+        // despite `deny_unknown_fields`.
+        let json = r#"{
+            "id": "com.ikenga.legacy",
+            "name": "Legacy", "version": "0.1.0", "ikenga_api": "1"
+        }"#;
+        let m: Manifest = serde_json::from_str(json).expect("parse legacy manifest");
+        assert!(m.signature.is_none());
+        assert!(m.capabilities.is_none());
+    }
+
+    #[test]
+    fn trusted_cap_secrets_rejects_unknown_field() {
+        // deny_unknown_fields on NamedSecret — guards lockstep with the Zod
+        // `.strict()` on `NamedSecretSchema`.
+        let json = r#"{
+            "id": "com.ikenga.x",
+            "name": "X", "version": "0.1.0", "ikenga_api": "3",
+            "capabilities": {
+                "secrets": { "declarations": [
+                    { "name": "k", "vault_key": "K", "bogus": true }
+                ] }
+            }
+        }"#;
+        let result: Result<Manifest, _> = serde_json::from_str(json);
+        assert!(result.is_err(), "unknown NamedSecret field must be rejected");
     }
 
     #[test]
