@@ -134,6 +134,15 @@ futures-util = "0.3"
 # Tarball extraction for pkg installs. npm tarballs are gzip-compressed.
 flate2 = "1"
 tar = "0.4"
+# Manifest signature verification for the trusted-pkg tier (ADR-017 / WP-02).
+# minisign is the SAME signature scheme the FE already uses to verify the
+# registry index (`@ikenga/registry-client` verifyMinisign + REGISTRY_PUBKEY),
+# so signed manifests + the signed index share one crypto primitive — no new
+# scheme. Pinned to 0.2.5, the exact version already in Cargo.lock (pulled
+# transitively via tauri-plugin-updater), so this adds no new version to the
+# tree. minisign is Ed25519 + BLAKE2b under the hood, so the ADR's ed25519
+# intent holds.
+minisign-verify = "=0.2.5"
 # URL parsing for pkg_webview navigation. Already a transitive dep via several
 # crates; pinning explicitly so usage in pkg/webview.rs is direct.
 url = "2"

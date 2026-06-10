@@ -1,0 +1,22 @@
+{
+  "id": "com.example.signed",
+  "name": "Signed Example",
+  "version": "1.2.3",
+  "ikenga_api": "3",
+  "permissions": {
+    "net": ["https://api.example.com/"],
+    "shell.execute": [],
+    "fs.read": [],
+    "fs.write": [],
+    "vault.keys": ["EXAMPLE_API_KEY"]
+  },
+  "capabilities": {
+    "http": {
+      "required": false,
+      "endpoints": [
+        { "urlPattern": "https://api.example.com/*", "authSecret": "EXAMPLE_API_KEY" }
+      ]
+    }
+  },
+  "signature": "PLACEHOLDER_TO_BE_STRIPPED"
+}
