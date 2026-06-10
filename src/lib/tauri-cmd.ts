@@ -3175,10 +3175,30 @@ export interface PkgContentHtmlHandle {
 	 *  declared it non-required and the vault has no keys. Pkgs that don't
 	 *  declare the capability never see this field populated. */
 	supabase: { url: string; anonKey: string } | null;
+	/** Resolved named secrets (ADR-017) when the pkg declared
+	 *  `capabilities.secrets` AND is trusted-for-elevated. `values` maps each
+	 *  declared `name` → its resolved plaintext; `missing` lists declared,
+	 *  non-required names absent from the vault. `null` when the pkg didn't
+	 *  declare the cap OR isn't trusted (fail-closed — silently ignored). The
+	 *  iframe never sees a `vault_key`. */
+	secrets: { values: Record<string, string>; missing: string[] } | null;
 }
 
 export async function pkgContentHtml(pkgId: string, source: string): Promise<PkgContentHtmlHandle> {
 	return invoke<PkgContentHtmlHandle>('pkg_content_html', { pkgId, source });
+}
+
+/** The single FE gate for ELEVATED host capabilities (ADR-017 / trusted-pkg
+ *  tier). Returns true only when the pkg is trusted-for-elevated
+ *  (`TrustState::AutoTrusted` — builtin provenance, `ikenga dev`, or a
+ *  signature-verified registry pkg). Wave-2 elevated verbs (`host.fetch` /
+ *  `host.invoke`, WP-04/05) call this in `dispatchHostCall` as
+ *  `pkgDeclaresCapability(pkgId, '<cap>') && pkgIsTrustedForElevated(pkgId)`;
+ *  the Rust command re-checks the same gate (the FE check is fail-fast UX
+ *  only — a hostile iframe could skip it). Fail-closed: un-installed /
+ *  un-loadable / un-evaluable → false. */
+export async function pkgIsTrustedForElevated(pkgId: string): Promise<boolean> {
+	return invoke<boolean>('pkg_is_trusted_for_elevated', { pkgId });
 }
 
 export async function pkgContentRevoke(token: string): Promise<void> {

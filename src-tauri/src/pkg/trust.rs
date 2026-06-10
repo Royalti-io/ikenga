@@ -435,6 +435,57 @@ pub async fn revoke(pool: &SqlitePool, pkg_id: &str) -> Result<()> {
     Ok(())
 }
 
+/// Resolve whether an installed pkg is trusted enough to hold an **elevated**
+/// host capability (host.fetch / named-secret injection / host.invoke). This is
+/// the shared seam every Wave-2 elevated verb consults, factored out of the
+/// `pkg_mcp.rs` recipe so the secret-injection path (`pkg_content_html`) and the
+/// `pkg_is_trusted_for_elevated` Tauri command (reused by WP-04/05) agree on a
+/// single evaluation:
+///
+/// 1. Re-load the manifest off disk (`Package::load`) so the verdict reflects
+///    the bytes actually installed (signature re-verification is disk-fresh).
+/// 2. Resolve the pkg's `InstallSource` from the kernel's installed summary
+///    (falling back to `Local` if absent, matching `pkg_mcp.rs`).
+/// 3. `trust::evaluate(...)` → `TrustState::is_trusted_for_elevated()`.
+///
+/// **Fail-closed:** an un-installed pkg, a manifest that won't load, or any
+/// trust-evaluation error all resolve to `false` — never a panic, never an
+/// accidental grant.
+pub async fn resolve_elevated_trust(
+    pool: &SqlitePool,
+    kernel: &crate::pkg::kernel::Kernel,
+    app_data_dir: &PathBuf,
+    pkg_id: &str,
+) -> bool {
+    let Some(install_path) = kernel.installed_path(pkg_id) else {
+        return false;
+    };
+    let pkg = match Package::load(&install_path) {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::warn!(
+                "[pkg_trust] resolve_elevated_trust: pkg `{pkg_id}` manifest reload failed: {e:#}"
+            );
+            return false;
+        }
+    };
+    let source = kernel
+        .installed_summary(pkg_id)
+        .map(|s| s.source)
+        .unwrap_or(InstallSource::Local {
+            path: install_path.display().to_string(),
+        });
+    match evaluate(pool, &pkg, &source, app_data_dir).await {
+        Ok(state) => state.is_trusted_for_elevated(),
+        Err(e) => {
+            tracing::warn!(
+                "[pkg_trust] resolve_elevated_trust: pkg `{pkg_id}` evaluate failed: {e:#}"
+            );
+            false
+        }
+    }
+}
+
 /// Convenience: structured error returned by MCP call sites when a tools/call
 /// hits an untrusted pkg. The string form is what propagates through the
 /// existing `anyhow!` plumbing; FE / agents parse the prefix to detect the

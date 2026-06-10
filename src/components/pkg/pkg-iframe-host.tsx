@@ -741,6 +741,14 @@ export function PkgIframeHost({ pkgId, source, onInitialized }: PkgIframeHostPro
 	// Stored in a ref so theme-flip rebuilds reuse the same value without
 	// forcing the bridge to reconnect.
 	const supabaseConfigRef = useRef<{ url: string; anonKey: string } | null>(null);
+	// Resolved named secrets (ADR-017) when the pkg declared
+	// `capabilities.secrets` AND is trusted-for-elevated. Same ref pattern as
+	// supabase so theme-flip / host-context-changed re-emits carry the values
+	// without a bridge reconnect; a vault edit re-resolves on the next mount.
+	const secretsConfigRef = useRef<{
+		values: Record<string, string>;
+		missing: string[];
+	} | null>(null);
 
 	// Appearance reactivity (theme / mode / tint / workspace) is handled by a
 	// MutationObserver on the <html> data-* attributes in Step 3 below, NOT by
@@ -837,6 +845,7 @@ export function PkgIframeHost({ pkgId, source, onInitialized }: PkgIframeHostPro
 					return;
 				}
 				supabaseConfigRef.current = handle.supabase ?? null;
+				secretsConfigRef.current = handle.secrets ?? null;
 				setTokenForRevoke(handle.token);
 				setBaseUrl(handle.baseUrl);
 				setSrcDoc(handle.html);
@@ -908,6 +917,7 @@ export function PkgIframeHost({ pkgId, source, onInitialized }: PkgIframeHostPro
 					pkgId,
 					authToken: authTokenRef.current,
 					supabase: supabaseConfigRef.current,
+					secrets: secretsConfigRef.current,
 					suite: {
 						activeFeature: usePkgMenuStore.getState().activeFeatures[pkgId],
 						// Inject the roster at connect time so the first
@@ -1016,6 +1026,7 @@ export function PkgIframeHost({ pkgId, source, onInitialized }: PkgIframeHostPro
 						pkgId,
 						authToken: authTokenRef.current,
 						supabase: supabaseConfigRef.current,
+						secrets: secretsConfigRef.current,
 						suite: {
 							activeFeature,
 							// Include the current roster so project switches that update

@@ -774,3 +774,33 @@ pub fn list_all_skill_actions(
     }
     out
 }
+
+/// The single FE-facing gate for **elevated** host capabilities (ADR-017 /
+/// trusted-pkg tier). Resolves the pkg's trust state the same way the
+/// secret-injection path does (`Package::load` off disk → `trust::evaluate`
+/// → `TrustState::is_trusted_for_elevated()`) and returns the boolean.
+///
+/// Wave-2 elevated verbs (`host.fetch` / `host.invoke`, WP-04/05) call this
+/// FE-side in `dispatchHostCall` as `pkgDeclaresCapability(pkgId, '<cap>') &&
+/// pkgIsTrustedForElevated(pkgId)`, then the matching Rust command **re-checks**
+/// the same gate server-side (the FE check is fail-fast UX only — a hostile
+/// iframe could skip it). Named-secret injection (WP-03) gates entirely inside
+/// `pkg_content_html` and doesn't need this command, but it shares the exact
+/// `trust::resolve_elevated_trust` helper so all three verbs agree.
+///
+/// Fail-closed: un-installed / un-loadable / un-evaluable → `false`.
+#[tauri::command]
+pub async fn pkg_is_trusted_for_elevated(
+    app: tauri::AppHandle,
+    kernel: State<'_, KernelState>,
+    db: State<'_, Arc<crate::commands::db::PaDb>>,
+    pkg_id: String,
+) -> Result<bool, String> {
+    use tauri::Manager;
+    let app_data = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("app_data_dir: {e}"))?;
+    let pool = db.ensure_pool().await.map_err(|e| e.to_string())?;
+    Ok(crate::pkg::trust::resolve_elevated_trust(&pool, &kernel.0, &app_data, &pkg_id).await)
+}

@@ -27,6 +27,18 @@ export interface HostSupabaseConfig {
 	anonKey: string;
 }
 
+/** Resolved named secrets (ADR-017) threaded into `hostContext.secrets` for a
+ *  TRUSTED pkg that declared `capabilities.secrets`. `values` maps each declared
+ *  `name` → its resolved plaintext; `missing` lists declared-but-absent
+ *  (non-required) names so the pkg can show "not configured" instead of failing
+ *  silently. The host resolves these from Stronghold at mount and re-emits them
+ *  on `host-context-changed` — the iframe never sees a `vault_key`. Mirrors
+ *  `SecretsHostConfig` in `src-tauri/src/commands/pkg_content.rs`. */
+export interface HostSecretsConfig {
+	values: Record<string, string>;
+	missing: string[];
+}
+
 /** A human assignee entry from the project roster file. */
 export interface RosterHuman {
 	value: string;
@@ -73,6 +85,11 @@ export function buildHostContext(opts: {
 	 *  configure its vendored Supabase client without baking secrets into its
 	 *  build. Absent for pkgs that don't declare the capability. */
 	supabase?: HostSupabaseConfig | null;
+	/** Resolved named secrets (ADR-017), set by `pkg_content_html` when the pkg
+	 *  declared `capabilities.secrets` AND is trusted-for-elevated. Threaded
+	 *  into `hostContext.secrets` so the pkg reads `host.secrets[name]`. Absent
+	 *  for pkgs that don't declare the cap OR aren't trusted (fail-closed). */
+	secrets?: HostSecretsConfig | null;
 	/** Suite-style pkg state: which feature the shell sidebar last picked.
 	 *  Re-emitted on every change so the iframe can swap its mounted view. */
 	suite?: RoyaltiSuiteContext;
@@ -102,6 +119,9 @@ export function buildHostContext(opts: {
 	};
 	if (opts.supabase) {
 		(ctx as McpUiHostContext & { supabase: HostSupabaseConfig }).supabase = opts.supabase;
+	}
+	if (opts.secrets) {
+		(ctx as McpUiHostContext & { secrets: HostSecretsConfig }).secrets = opts.secrets;
 	}
 	if (opts.suite) {
 		(ctx as McpUiHostContext & { royaltiSuite: RoyaltiSuiteContext }).royaltiSuite = opts.suite;
