@@ -456,6 +456,14 @@ async fn ensure_schema(pool: &sqlx::SqlitePool) -> Result<(), String> {
             "0051_pa_action_drafts_send_state",
             include_str!("../../migrations/0051_pa_action_drafts_send_state.sql"),
         ),
+        // 0052 — social producer columns on social_queue (media_url, hashtags).
+        // Source-of-truth store live producers (Buffer worker, cmo-agent) stamp;
+        // the outbound pkg reads the same data from pa_action_drafts.payload_json.
+        (
+            52,
+            "0052_social_media_hashtags",
+            include_str!("../../migrations/0052_social_media_hashtags.sql"),
+        ),
     ];
 
     for (id, name, sql) in migrations {
@@ -800,8 +808,9 @@ mod tests {
     /// lockstep with the `migrations` tuple list — it guards against a migration
     /// silently being dropped from the embedded list (a class of bug we've hit
     /// before). Was stale at 47 while 0048–0050 landed on main without a bump;
-    /// 0051 (pa_action_drafts send-state, WP-12) brings it to 51.
-    const MIGRATION_COUNT: i64 = 51;
+    /// 0051 (pa_action_drafts send-state, WP-12) brings it to 51; 0052
+    /// (social_queue media/hashtags columns) brings it to 52.
+    const MIGRATION_COUNT: i64 = 52;
 
     /// Schema init applies every embedded migration exactly once. The
     /// `_pa_migrations` table must end with one row per migration tuple.
