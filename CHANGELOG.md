@@ -1,5 +1,11 @@
 # ikenga-desktop
 
+## 0.2.8
+
+### Patch Changes
+
+- Trusted-pkg capability tier (ADR-017) + mutation-worker stack. Signature/provenance-gated elevated capabilities for builtin + signed-registry pkgs: `host.fetch` (mediated proxy with host-side secret injection + SSRF defense), `capabilities.secrets` (named-secret injection), `host.invoke` (scoped command allowlist). Outbound reply-intelligence pulls Twenty CRM live via `host.fetch`, retiring the local mirror. Mutation worker: durable secrets copy for overnight sends, failure surfacing UI, migration `0051`. Install sheet surfaces declared elevated caps + a trust banner; `/settings/pkg-audit` violations view. Fix: release bundle preserves `builtin-pkgs/` per-pkg directory structure (no longer flattened).
+
 ## 0.2.7
 
 ### Patch Changes
