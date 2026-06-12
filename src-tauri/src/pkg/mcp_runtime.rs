@@ -110,6 +110,20 @@ pub async fn call_tool(
     let stdout = child.stdout.take().ok_or_else(|| anyhow!("no stdout"))?;
     let mut reader = BufReader::new(stdout).lines();
 
+    // Drain stderr concurrently. It's piped but otherwise never read; a child
+    // that writes more than the OS pipe buffer (~64 KiB) to stderr before
+    // responding would block on its stderr write and never answer, hitting the
+    // timeout below. The task ends on EOF when the child exits / is reaped.
+    if let Some(stderr) = child.stderr.take() {
+        let tool_for_err = tool.to_string();
+        tokio::spawn(async move {
+            let mut lines = BufReader::new(stderr).lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                log::warn!("[mcp_runtime.{tool_for_err}.stderr] {line}");
+            }
+        });
+    }
+
     let result = timeout(CALL_TIMEOUT, async {
         // 1. initialize
         write_line(
@@ -156,9 +170,11 @@ pub async fn call_tool(
     .map_err(|_| anyhow!("mcp tool `{}` timed out after {:?}", tool, CALL_TIMEOUT))??;
 
     // Best-effort shutdown. drop(stdin) closes the pipe; the child should
-    // exit on its own. kill_on_drop in Command guarantees it dies if not.
+    // exit on its own. Bound the reap wait so a child that ignores stdin EOF
+    // can't hang this call indefinitely — on timeout we fall through and the
+    // `child` drop fires kill_on_drop, which guarantees it dies.
     drop(stdin);
-    let _ = child.wait().await;
+    let _ = timeout(Duration::from_secs(2), child.wait()).await;
 
     Ok(result)
 }
