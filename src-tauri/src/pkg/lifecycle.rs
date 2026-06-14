@@ -83,6 +83,12 @@ use crate::pkg::registry::Registry;
 /// Per-call wallclock cap for `tools/call` against a supervised child.
 const CALL_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// Cap on a single stdin write/flush to a supervised child. A child that has
+/// stopped draining its stdin pipe would otherwise block the writer task
+/// forever; on timeout we treat the child as wedged and fire a crash so the
+/// supervisor reaps and restarts it.
+const WRITE_TIMEOUT: Duration = Duration::from_secs(5);
+
 /// Cap on the initialize handshake. A child that can't `initialize` within
 /// this window is treated as crashed (the retry budget kicks in).
 const INIT_TIMEOUT: Duration = Duration::from_secs(5);
@@ -651,13 +657,21 @@ impl SupervisedSidecar {
         }))?;
         frame.push(b'\n');
 
-        if stdin_tx.send(frame).await.is_err() {
-            let mut p = pending.lock().expect("pending lock poisoned");
-            p.remove(&id);
-            return Err(anyhow!(
-                "supervised sidecar for `{}` stdin closed",
-                self.pkg_id
-            ));
+        // Bound the enqueue. If the writer is wedged on a child that has
+        // stopped reading its stdin, the bounded channel fills and an
+        // unbounded `send().await` would block this caller past CALL_TIMEOUT.
+        // A full channel (timeout) and a closed channel (Err) both mean the
+        // call can't be delivered.
+        match timeout(CALL_TIMEOUT, stdin_tx.send(frame)).await {
+            Ok(Ok(())) => {}
+            Ok(Err(_)) | Err(_) => {
+                let mut p = pending.lock().expect("pending lock poisoned");
+                p.remove(&id);
+                return Err(anyhow!(
+                    "supervised sidecar for `{}` stdin unavailable",
+                    self.pkg_id
+                ));
+            }
         }
 
         let outcome = match timeout(CALL_TIMEOUT, rx).await {
@@ -796,25 +810,40 @@ impl SupervisedSidecar {
     /// For Parked pkgs the supervisor task already exited, so we have to
     /// re-spawn it; restart() takes a self-Arc to allow that.
     pub fn restart(self: &Arc<Self>) {
-        // Phase 9: Stopped is a second terminal state (one-shot finished
-        // cleanly with auto_restart=false). The operator-restart path is
-        // identical — re-launch a fresh supervisor task.
-        let was_terminal = matches!(
-            self.current_state(),
-            State::Parked { .. } | State::Stopped { .. }
-        );
-        // Kick is harmless if no-one is sleeping.
+        // Kick is harmless if no-one is sleeping — wakes a supervisor that is
+        // mid-sleep (Blocked/Crashed retry) so it re-spawns immediately.
         self.restart_kick.notify_waiters();
-        // If Parked or Stopped, the supervisor loop already returned; we have
-        // to launch a fresh task. Reset state under the lock first so the
-        // new task sees Spawning, not the terminal label.
-        if was_terminal {
-            self.set_state(State::Spawning);
+        // Phase 9: Parked and Stopped are both terminal — their supervisor
+        // loop already returned, so we must launch a fresh task. Claim the
+        // terminal→Spawning transition atomically: two concurrent restart()
+        // calls (e.g. a UI double-click, or a watcher kick racing an operator)
+        // would otherwise both observe a terminal state and both spawn a
+        // supervisor_loop, racing two live children and orphaning one. Only the
+        // caller that wins the CAS spawns.
+        if self.claim_terminal_to_spawning() {
             self.clear_blocked_signal();
             let task = self.clone();
             tauri::async_runtime::spawn(async move {
                 SupervisedSidecar::supervisor_loop(task).await;
             });
+        }
+    }
+
+    /// Compare-and-set under the state lock: if currently in a terminal state
+    /// (`Parked` or `Stopped`), transition to `Spawning` and return true (the
+    /// caller now owns the respawn). Otherwise return false. The check and the
+    /// set are atomic, so at most one concurrent `restart()` can win a
+    /// terminal respawn.
+    fn claim_terminal_to_spawning(&self) -> bool {
+        let mut state = self.state.lock().expect("state lock poisoned");
+        if matches!(&*state, State::Parked { .. } | State::Stopped { .. }) {
+            *state = State::Spawning;
+            drop(state);
+            log::info!("[pkg_lifecycle] `{}` → spawning (operator restart)", self.pkg_id);
+            self.emit_lifecycle(&State::Spawning);
+            true
+        } else {
+            false
         }
     }
 
@@ -1122,21 +1151,45 @@ impl SupervisedSidecar {
         let pending: PendingMap = Arc::new(StdMutex::new(HashMap::new()));
         let (stdin_tx, mut stdin_rx) = mpsc::channel::<Vec<u8>>(64);
 
+        // Shared one-shot crash trigger. Either the reader (on EOF) or the
+        // writer (on a wedged/closed stdin) fires it; the loser is a no-op.
+        // The supervisor's crash_rx resolves on the first fire and drops the
+        // Child, whose kill_on_drop reaps even a child that has stopped
+        // reading its stdin entirely (which the reader's EOF alone would miss).
+        let crash_tx = Arc::new(StdMutex::new(Some(crash_tx)));
+
         let pkg_id_for_writer = self.pkg_id.clone();
+        let crash_tx_for_writer = crash_tx.clone();
         let mut writer_stdin = stdin;
         tauri::async_runtime::spawn(async move {
             while let Some(buf) = stdin_rx.recv().await {
-                if let Err(e) = writer_stdin.write_all(&buf).await {
-                    log::warn!("[pkg_lifecycle.{pkg_id_for_writer}] stdin write failed: {e}");
-                    break;
+                // Bound each write/flush: a child that has stopped draining
+                // its stdin would otherwise block write_all forever, backing
+                // up the channel and hanging every caller.
+                match timeout(WRITE_TIMEOUT, writer_stdin.write_all(&buf)).await {
+                    Ok(Ok(())) => {}
+                    Ok(Err(e)) => {
+                        log::warn!("[pkg_lifecycle.{pkg_id_for_writer}] stdin write failed: {e}");
+                        break;
+                    }
+                    Err(_) => {
+                        log::warn!(
+                            "[pkg_lifecycle.{pkg_id_for_writer}] stdin write stalled > {WRITE_TIMEOUT:?}; treating child as wedged"
+                        );
+                        break;
+                    }
                 }
-                let _ = writer_stdin.flush().await;
+                let _ = timeout(WRITE_TIMEOUT, writer_stdin.flush()).await;
             }
-            // Dropping writer_stdin closes the child's stdin pipe.
+            // Channel closed, write error, or wedge: this child can no longer
+            // accept input. Fire the crash so the supervisor reaps + restarts.
+            // Dropping writer_stdin also closes the child's stdin pipe.
+            fire_crash(&crash_tx_for_writer);
         });
 
         let pending_for_reader = pending.clone();
         let pkg_id_for_reader = self.pkg_id.clone();
+        let crash_tx_for_reader = crash_tx;
         let blocked_signal_for_reader: Arc<StdMutex<Option<BlockedReason>>> =
             self.blocked_signal_handle();
         tauri::async_runtime::spawn(async move {
@@ -1147,9 +1200,10 @@ impl SupervisedSidecar {
                 blocked_signal_for_reader,
             )
             .await;
-            // Signal the supervisor that the child died. Send is fire-and-
-            // forget — if the receiver is gone (shutdown beat us), no harm.
-            let _ = crash_tx.send(());
+            // Signal the supervisor that the child died. Fire-and-forget — if
+            // the receiver is gone (shutdown beat us) or the writer already
+            // fired, this is a no-op.
+            fire_crash(&crash_tx_for_reader);
         });
 
         // Phase 9: spin up the file watcher iff the manifest declared globs.
@@ -1234,6 +1288,15 @@ enum NextAction {
 }
 
 // ── Read loop ────────────────────────────────────────────────────────────────
+
+/// Fire a shared one-shot crash trigger exactly once. Safe to call from both
+/// the reader (EOF) and writer (wedge) tasks; whichever runs second finds the
+/// slot empty and is a no-op.
+fn fire_crash(slot: &StdMutex<Option<oneshot::Sender<()>>>) {
+    if let Some(tx) = slot.lock().expect("crash_tx poisoned").take() {
+        let _ = tx.send(());
+    }
+}
 
 async fn read_loop<R: tokio::io::AsyncRead + Unpin>(
     mut reader: BufReader<R>,

@@ -464,6 +464,23 @@ async fn ensure_schema(pool: &sqlx::SqlitePool) -> Result<(), String> {
             "0052_social_media_hashtags",
             include_str!("../../migrations/0052_social_media_hashtags.sql"),
         ),
+        // 0053 — atelier wave-4 research domain (com.ikenga.research): extends
+        // research_notes (next_action/target/agent_cycle_id/is_stale/word_count/
+        // owner), adds the research_sources monitored-source register, and a soft
+        // sales_deals.research_item_id link for the Hand-to-sales flow. No FK.
+        (
+            53,
+            "0053_research_domain",
+            include_str!("../../migrations/0053_research_domain.sql"),
+        ),
+        // 0054 — atelier wave-4 strategy domain (com.ikenga.strategy): OKR tables
+        // strategy_objectives / strategy_key_results / strategy_cycles. STRICT,
+        // no FK, soft TEXT links. Board falls back to strategic_initiatives until seeded.
+        (
+            54,
+            "0054_strategy_domain",
+            include_str!("../../migrations/0054_strategy_domain.sql"),
+        ),
     ];
 
     for (id, name, sql) in migrations {
@@ -810,7 +827,7 @@ mod tests {
     /// before). Was stale at 47 while 0048–0050 landed on main without a bump;
     /// 0051 (pa_action_drafts send-state, WP-12) brings it to 51; 0052
     /// (social_queue media/hashtags columns) brings it to 52.
-    const MIGRATION_COUNT: i64 = 52;
+    const MIGRATION_COUNT: i64 = 54;
 
     /// Schema init applies every embedded migration exactly once. The
     /// `_pa_migrations` table must end with one row per migration tuple.
