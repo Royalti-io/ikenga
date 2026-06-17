@@ -31,7 +31,8 @@ use commands::{
     activity_sections_list, activity_sections_remove, activity_sections_update,
     agent_ops_delete_job, agent_ops_list_jobs, agent_ops_run_now, agent_ops_set_enabled,
     agent_ops_tail_run, agent_ops_upsert_job, backup_delete, backup_export, backup_import,
-    backup_list, chat_cancel, chat_engines_list, chat_fork_session, chat_initialize,
+    backup_list, chat_answer_question, chat_cancel, chat_engines_list, chat_fork_session,
+    chat_initialize,
     chat_load_session, chat_new_session, chat_prompt, chat_respond_permission, chat_set_effort,
     chat_set_mode, chat_set_model, chat_thread_move, chat_threads_list_by_project,
     claude_asset_list_pins, claude_asset_pin, claude_asset_unpin, claude_assets_discover,
@@ -454,7 +455,12 @@ pub fn run() {
             // in `capabilities/default.json`; `remote.urls` there grants IPC
             // trust to both candidate localhost URLs.
             #[cfg(debug_assertions)]
-            let window_url = "http://localhost:1420/".to_string();
+            let window_url = {
+                // Dev loads from Vite (:1420); the viewer-server is still started
+                // above for parity, but its port is unused in this build.
+                let _ = viewer_port;
+                "http://localhost:1420/".to_string()
+            };
             #[cfg(not(debug_assertions))]
             let window_url = format!("http://localhost:{viewer_port}/");
             let url: tauri::Url = window_url.parse().expect("static window URL");
@@ -603,7 +609,7 @@ pub fn run() {
             // every switch. Debounced 250ms because rapid ⌘P spamming
             // through the picker emits one event per step.
             {
-                use tauri::{Listener, Manager};
+                use tauri::Listener;
                 let app_for_listener = app.handle().clone();
                 let kernel = kernel_arc_for_listener.clone();
                 let pa_db_for_listener = pa_db.clone();
@@ -789,6 +795,7 @@ pub fn run() {
             chat_cancel,
             // acp permission round-trip (phase 4)
             chat_respond_permission,
+            chat_answer_question,
             // acp session modes (phase 5)
             chat_set_mode,
             // adr-011 phase 3: session-level model + effort (per-turn deferred)
