@@ -442,18 +442,32 @@ impl ClaudeCodeEngine {
                         // wire names. `subtype` is threaded through so the
                         // response envelope mirrors the matching wire shape.
                         if subtype == "permission" || subtype == "can_use_tool" {
-                            self.spawn_permission_round_trip(
-                                app.clone(),
-                                session.clone(),
-                                thread_id.clone(),
-                                request_channel.clone(),
-                                request_id.clone(),
-                                subtype.clone(),
-                                tool_name.clone().unwrap_or_default(),
-                                tool_input.clone(),
-                                tool_use_id.clone(),
-                            )
-                            .await;
+                            let t_name = tool_name.as_deref().unwrap_or_default();
+                            if t_name == "AskUserQuestion" {
+                                self.spawn_question_round_trip(
+                                    app.clone(),
+                                    session.clone(),
+                                    thread_id.clone(),
+                                    request_id.clone(),
+                                    subtype.clone(),
+                                    tool_input.clone().unwrap_or(Value::Null),
+                                    tool_use_id.clone(),
+                                )
+                                .await;
+                            } else {
+                                self.spawn_permission_round_trip(
+                                    app.clone(),
+                                    session.clone(),
+                                    thread_id.clone(),
+                                    request_channel.clone(),
+                                    request_id.clone(),
+                                    subtype.clone(),
+                                    t_name.to_string(),
+                                    tool_input.clone(),
+                                    tool_use_id.clone(),
+                                )
+                                .await;
+                            }
                         } else {
                             log::debug!(
                                 target: "ikenga::engines::claude_code::server",
@@ -622,6 +636,76 @@ impl ClaudeCodeEngine {
                 log::warn!(
                     target: "ikenga::engines::claude_code::server",
                     "send_control_response failed: {e}",
+                );
+            }
+        });
+    }
+
+    /// Phase 3 (ADR-011): `AskUserQuestion` is a first-class inline turn.
+    /// It shares the round-trip state machinery of permissions so `acp_answer_question`
+    /// can resolve it, but it emits `ChatEvent::AskUserQuestion` directly to the
+    /// chat feed instead of an ACP `session/request_permission`.
+    async fn spawn_question_round_trip(
+        &self,
+        app: AppHandle,
+        session: Arc<crate::claude::session::Session>,
+        thread_id: String,
+        request_id: String,
+        subtype: String,
+        tool_input: Value,
+        tool_use_id: Option<String>,
+    ) {
+        let (tx, rx) = oneshot::channel::<RequestPermissionResponse>();
+        let waiters = self.permission_waiters.clone();
+        {
+            let mut guard = waiters.lock().await;
+            guard.insert(request_id.clone(), tx);
+        }
+
+        let questions = tool_input.get("questions").cloned().unwrap_or(Value::Null);
+        
+        let event = ChatEvent::AskUserQuestion {
+            callback_id: request_id.clone(),
+            questions,
+            tool_use_id,
+        };
+        let _ = app.emit(&format!("claude://session/{}", thread_id), &event);
+
+        let waiters_handle = waiters.clone();
+        let request_id_for_task = request_id.clone();
+        let tool_input_for_task = Some(tool_input);
+        let session_for_task = session.clone();
+        
+        let wire = if subtype == "can_use_tool" {
+            crate::claude::session::ControlWire::Modern
+        } else {
+            crate::claude::session::ControlWire::Legacy
+        };
+        
+        tauri::async_runtime::spawn(async move {
+            let response = match tokio::time::timeout(
+                Duration::from_secs(PERMISSION_TIMEOUT_SECS),
+                rx,
+            )
+            .await
+            {
+                Ok(Ok(resp)) => resp,
+                Ok(Err(_)) | Err(_) => {
+                    {
+                        let mut guard = waiters_handle.lock().await;
+                        guard.remove(&request_id_for_task);
+                    }
+                    RequestPermissionResponse::new(RequestPermissionOutcome::Cancelled)
+                }
+            };
+
+            let body = outcome_to_response_body("AskUserQuestion", tool_input_for_task.as_ref(), &response);
+            if let Err(e) =
+                send_control_response(session_for_task, request_id_for_task, body, wire).await
+            {
+                log::warn!(
+                    target: "ikenga::engines::claude_code::server",
+                    "send_control_response (AskUserQuestion) failed: {e}",
                 );
             }
         });

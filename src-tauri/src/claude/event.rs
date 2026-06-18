@@ -103,8 +103,8 @@ pub enum ChatEvent {
     /// Tool-permission control-request from `claude --permission-prompt-tool
     /// stdio`. Two wire shapes seen across claude builds, both normalized
     /// here (see `stream_parser`): the legacy `sdk_control_request`
-    /// (`subtype:"permission"`, `tool_input`, `request_id` nested) and the
-    /// 2.1.x `control_request` (`subtype:"can_use_tool"`, `input`,
+    /// Tool-permission control-request from `claude --permission-prompt-tool stdio`
+    /// (emitted as `sdk_control_request` with either a `permission`
     /// `request_id` top-level, plus a `tool_use_id`). The ACP server routes
     /// either out as a `session/request_permission`.
     ///
@@ -120,6 +120,20 @@ pub enum ChatEvent {
         tool_name: Option<String>,
         #[serde(rename = "toolInput", skip_serializing_if = "Option::is_none")]
         tool_input: Option<Value>,
+        #[serde(rename = "toolUseId", skip_serializing_if = "Option::is_none")]
+        tool_use_id: Option<String>,
+    },
+
+    /// Inline Q&A turn (ADR-011 Phase 3). Split from `ControlRequest` so
+    /// `AskUserQuestion` can be rendered as an interactive compartment in the
+    /// conversation body rather than a blocking modal overlay. Answers are
+    /// returned via the `acp_answer_question` Tauri command.
+    AskUserQuestion {
+        #[serde(rename = "callbackId")]
+        callback_id: String,
+        questions: Value,
+        /// Optional tool use id to correlate the question with the assistant
+        /// turn that produced it.
         #[serde(rename = "toolUseId", skip_serializing_if = "Option::is_none")]
         tool_use_id: Option<String>,
     },

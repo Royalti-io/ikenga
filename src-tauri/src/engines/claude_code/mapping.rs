@@ -128,6 +128,13 @@ pub fn chat_event_to_session_updates(event: &ChatEvent) -> Vec<SessionUpdate> {
         // stream so we don't accidentally double-route it.
         ChatEvent::ControlRequest { .. } => Vec::new(),
 
+        // ADR-011 Phase 3: `AskUserQuestion` is surfaced out-of-band as an
+        // interactive compartment in the conversation body (answers return via
+        // the `chat_answer_question` Tauri command), NOT through the ACP
+        // `SessionUpdate` stream — same pattern as `ControlRequest`. Drop it
+        // here so it isn't double-routed.
+        ChatEvent::AskUserQuestion { .. } => Vec::new(),
+
         ChatEvent::Unknown { raw } => {
             log::warn!(target: "ikenga::engines::claude_code::mapping", "dropping Unknown event: {raw}");
             Vec::new()

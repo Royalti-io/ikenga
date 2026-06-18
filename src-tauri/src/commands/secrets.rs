@@ -433,6 +433,7 @@ pub async fn secrets_vault_status(
 /// Stronghold. Caller is already inside an async command but vault reads off
 /// the cached instance are sub-millisecond, so blocking the runtime briefly
 /// is acceptable. Wrap in `spawn_blocking` if calling on a hot path.
+#[allow(dead_code)]
 pub fn read_secret(
     app: &AppHandle,
     lock: &SecretsLock,
@@ -540,6 +541,7 @@ pub fn scoped_delete_locked_pub(
 // than pulling in a crate.
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum VaultKeyPatternScope {
     Pkg,       // default — bind to the requesting pkg's own scope
     Workspace, // cross-scope: read from workspace
@@ -547,11 +549,13 @@ pub enum VaultKeyPatternScope {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct VaultKeyPattern {
     pub scope: VaultKeyPatternScope,
     pub glob: String, // bare key glob (no scope prefix)
 }
 
+#[allow(dead_code)]
 pub fn parse_vault_key_pattern(pattern: &str) -> VaultKeyPattern {
     if let Some(rest) = pattern.strip_prefix("scope=workspace:") {
         VaultKeyPattern {
@@ -611,6 +615,7 @@ pub fn glob_match(glob: &str, name: &str) -> bool {
 /// `active_project_id` is the resolved project to use for project-scoped
 /// patterns. Pass the pkg's own project_id when the pkg is project-scoped,
 /// otherwise the currently-active project.
+#[allow(dead_code)]
 pub fn read_secret_for_pkg(
     app: &AppHandle,
     lock: &SecretsLock,

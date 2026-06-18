@@ -23,6 +23,7 @@ pub struct AgentCapabilities {
 }
 
 #[derive(Clone, Copy, Debug)]
+#[allow(dead_code)]
 pub enum TargetFamily {
     Any,
     Unix,

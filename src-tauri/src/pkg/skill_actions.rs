@@ -166,6 +166,7 @@ fn parse_action_file(pkg_id: &str, skill: &str, path: &Path) -> Option<SkillActi
 /// Symlinked roots/skill dirs are followed by `std::fs` automatically (we use
 /// `metadata()`, not `symlink_metadata()`), so dev-mounted (symlinked) pkgs
 /// resolve transparently.
+#[allow(dead_code)]
 pub fn discover_actions(pkg_id: &str, pkg_root: &Path, skills_dir: &str) -> Vec<SkillAction> {
     let mut out = Vec::new();
     let skills_root = pkg_root.join(skills_dir);

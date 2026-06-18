@@ -74,7 +74,7 @@ use anyhow::{anyhow, Context, Result};
 use serde::Serialize;
 use serde_json::Value;
 use tauri::{
-    AppHandle, LogicalPosition, LogicalSize, Manager, PhysicalPosition, WebviewUrl, WebviewWindow,
+    AppHandle, LogicalSize, Manager, PhysicalPosition, WebviewUrl, WebviewWindow,
     WindowEvent,
 };
 
@@ -464,13 +464,12 @@ impl WebviewPanesRegistry {
                         Ok(r) => *r,
                         Err(_) => continue,
                     };
-                    if let PaneSurface::TopLevel(w) = &handle.surface {
-                        let _ = w.set_position(PhysicalPosition::new(
-                            main_pos.x + rect.x,
-                            main_pos.y + rect.y,
-                        ));
-                        let _ = w.set_size(LogicalSize::new(rect.w as f64, rect.h as f64));
-                    }
+                    let PaneSurface::TopLevel(w) = &handle.surface;
+                    let _ = w.set_position(PhysicalPosition::new(
+                        main_pos.x + rect.x,
+                        main_pos.y + rect.y,
+                    ));
+                    let _ = w.set_size(LogicalSize::new(rect.w as f64, rect.h as f64));
                 }
             }
             _ => {}
@@ -750,7 +749,7 @@ where
     F: FnOnce() -> Result<R> + Send + 'static,
     R: Send + 'static,
 {
-    use tauri::Manager as _;
+    
     let (tx, rx) = tokio::sync::oneshot::channel();
     app.run_on_main_thread(move || {
         let _ = tx.send(f());

@@ -81,7 +81,7 @@ fn global_manager() -> &'static Arc<StreamingSidecarManager> {
     STREAMING_MANAGER.get_or_init(|| Arc::new(StreamingSidecarManager::new()))
 }
 
-pub struct StreamingSidecarManagerState(pub Arc<StreamingSidecarManager>);
+pub struct StreamingSidecarManagerState(#[allow(dead_code)] pub Arc<StreamingSidecarManager>);
 
 /// FE -> kernel: append one line to the supervised child's stdin. Lazily
 /// spawns the child on first call. The newline terminator is appended by

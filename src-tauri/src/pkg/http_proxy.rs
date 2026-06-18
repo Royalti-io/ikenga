@@ -46,6 +46,7 @@ pub enum FetchRefusal {
     /// More than the redirect budget, or a redirect left the allowlist.
     TooManyRedirects,
     /// Response exceeded the size cap before completing.
+    #[allow(dead_code)]
     ResponseTooLarge,
     /// Network/transport error.
     NetworkError,
@@ -118,6 +119,7 @@ pub fn normalize_method(raw: Option<&str>) -> Result<String, FetchRefusal> {
 
 /// Clamp a requested response-size cap into `[1, MAX_RESPONSE_BYTES]`,
 /// defaulting to `DEFAULT_RESPONSE_BYTES`.
+#[allow(dead_code)]
 pub fn clamp_response_bytes(requested: Option<u64>) -> u64 {
     requested
         .filter(|&n| n > 0)

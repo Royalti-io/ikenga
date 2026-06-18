@@ -16,8 +16,8 @@ use tauri::Manager;
 
 pub use agents::DetectedAgent;
 pub use config_claude::AgentConfigInventory;
-pub use scaffold::{ScaffoldFileResult, ScaffoldRequest, ScaffoldResponse};
-pub use system::{CheckLevel, SystemCheck, SystemReport};
+pub use scaffold::{ScaffoldRequest, ScaffoldResponse};
+pub use system::SystemReport;
 
 #[tauri::command]
 pub async fn detect_system(app: tauri::AppHandle) -> Result<SystemReport, String> {
@@ -135,6 +135,7 @@ pub async fn list_claude_projects() -> Result<Vec<ClaudeProjectEntry>, String> {
 
 /// Pure-string fallback used when no FS probe matches: prepend `/` and
 /// replace every `-` with `/`. Exposed for unit tests.
+#[allow(dead_code)]
 pub fn decode_claude_slug_naive(slug: &str) -> String {
     if slug.starts_with('-') {
         let mut s = String::from("/");

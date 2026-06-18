@@ -177,6 +177,7 @@ pub fn forget(rf: &mut RegistryFile, kind: &str, name: &str) -> bool {
 /// Build an index from the currently-scanned entries, synthesizing `local`
 /// provenance for each — the first-build back-fill. Callers persist the result
 /// with [`save`]. (Read paths do not auto-write; back-fill is an explicit op.)
+#[allow(dead_code)]
 pub fn backfill_local(entries: &[ClaudeStoreEntry]) -> RegistryFile {
     let mut rf = RegistryFile::default();
     rf.entries = entries
