@@ -160,6 +160,37 @@ pub async fn chat_respond_permission(
     }
 }
 
+#[tauri::command]
+pub async fn chat_answer_question(
+    registry: State<'_, EngineRegistryState>,
+    #[allow(non_snake_case)] engineId: Option<String>,
+    #[allow(non_snake_case)] callbackId: String,
+    answers: serde_json::Value,
+) -> Result<(), String> {
+    // Phase 3: AskUserQuestion answers arrive as a structured map.
+    // We synthesize an ACP RequestPermissionResponse with the answers
+    // in meta, matching what PermissionDialog does today but bypassing
+    // the generic permission surface.
+    use agent_client_protocol::schema::{
+        PermissionOptionId, RequestPermissionOutcome, SelectedPermissionOutcome,
+    };
+    let response = RequestPermissionResponse::new(RequestPermissionOutcome::Selected(
+        SelectedPermissionOutcome::new(PermissionOptionId::new("allow_once")),
+    ))
+    .meta({
+        let mut m = serde_json::Map::new();
+        m.insert("answers".into(), answers);
+        m
+    });
+
+    match resolve_engine(&registry, engineId).await? {
+        EngineHandle::ClaudeCode(state) => state.resolve_permission(callbackId, response).await,
+        EngineHandle::GeminiAcp(state) => state.resolve_permission(callbackId, response).await,
+        EngineHandle::CodexPty(state) => state.resolve_permission(callbackId, response).await,
+        EngineHandle::CursorAgent(state) => state.resolve_permission(callbackId, response).await,
+    }
+}
+
 /// Switch a session's permission mode. Gemini accepts mode ids
 /// passthrough; Claude validates against its four canonical ids.
 #[tauri::command]

@@ -535,8 +535,16 @@ export type ChatEvent =
 			subtype: string;
 			toolName?: string;
 			toolInput?: unknown;
-	  }
-	| { kind: 'unknown'; raw: unknown }
+			}
+			| {
+			/** Inline Q&A turn (ADR-011 Phase 3). Rendered as an interactive
+			 *  compartment in the conversation body. */
+			kind: 'ask_user_question';
+			callbackId: string;
+			questions: unknown;
+			toolUseId?: string;
+			}
+			| { kind: 'unknown'; raw: unknown }
 	| { kind: 'parse_error'; message: string; line: string }
 	/** Frontend-synthesized: a user message we wrote to the streaming child's
 	 *  stdin. Persisted to `chat_user_turns` in SQLite (Claude's JSONL doesn't

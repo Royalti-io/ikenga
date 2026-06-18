@@ -60,9 +60,9 @@ pub use backup::{
 #[cfg(debug_assertions)]
 pub use bg_spike::{bg_spike_reply, bg_spike_run, new_state as new_bg_spike_state};
 pub use chat::{
-    chat_cancel, chat_engines_list, chat_fork_session, chat_initialize, chat_load_session,
-    chat_new_session, chat_prompt, chat_respond_permission, chat_set_effort, chat_set_mode,
-    chat_set_model,
+    chat_answer_question, chat_cancel, chat_engines_list, chat_fork_session, chat_initialize,
+    chat_load_session, chat_new_session, chat_prompt, chat_respond_permission, chat_set_effort,
+    chat_set_mode, chat_set_model,
 };
 pub use claude::{
     chat_thread_move, chat_threads_list_by_project, claude_list_sessions, claude_read_jsonl,
@@ -89,7 +89,7 @@ pub use comments::{
     comment_set_status, pin_screenshot_write,
 };
 pub use db::{db_exec, db_query};
-pub use desktop::{iyke_mcp_info, set_dock_badge, IykeMcpInfo};
+pub use desktop::{iyke_mcp_info, set_dock_badge};
 pub use engine_layout::engine_layout;
 pub use fs::{
     fs_exists, fs_kind, fs_list, fs_mime, fs_mkdir, fs_read, fs_rename, fs_search, fs_trash,
