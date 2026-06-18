@@ -131,6 +131,7 @@ impl TrustState {
         matches!(self, TrustState::AutoTrusted)
     }
 
+    #[allow(dead_code)]
     pub fn label(&self) -> &'static str {
         match self {
             TrustState::AutoTrusted => "auto_trusted",
@@ -499,6 +500,7 @@ pub fn trust_required_error(pkg_id: &str) -> anyhow::Error {
 
 /// True when an `anyhow::Error` was produced by `trust_required_error`. Used
 /// by the supervisor surface to translate into a `LifecycleKind::Error`.
+#[allow(dead_code)]
 pub fn is_trust_required_error(e: &anyhow::Error) -> bool {
     e.to_string().starts_with("trust_required:")
 }

@@ -270,7 +270,7 @@ pub struct ClaudeStoreMutation {
 // ─── Kind classification ──────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Kind {
+pub(crate) enum Kind {
     Agent,
     Skill,
     Command,
@@ -2499,6 +2499,7 @@ pub struct NgwaCopyDestination {
     pub scope: String,
     /// Advisory mode the FE computed; ignored for the write, echoed (resolved).
     #[serde(default)]
+    #[allow(dead_code)]
     pub mode: Option<String>,
 }
 

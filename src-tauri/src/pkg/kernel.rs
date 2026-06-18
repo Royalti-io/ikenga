@@ -439,7 +439,8 @@ impl Kernel {
     /// Whether `pkg_id` is currently visible under `active_project_id`.
     /// Workspace-scoped pkgs (project_id None) are always visible.
     /// Returns false for unknown pkg ids.
-    pub fn is_visible_under(&self, pkg_id: &str, active_project_id: &str) -> bool {
+    #[allow(dead_code)]
+pub fn is_visible_under(&self, pkg_id: &str, active_project_id: &str) -> bool {
         self.installed
             .read()
             .ok()

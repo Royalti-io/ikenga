@@ -47,6 +47,7 @@ impl UiRoutesRegistry {
     /// Look up a registered route by its virtual path. Returned entry can be
     /// inspected for `kind` to decide between iframe-mount and (future)
     /// component-mount.
+    #[allow(dead_code)]
     pub fn resolve(&self, virtual_path: &str) -> Option<UiRouteEntry> {
         self.entries.read().ok()?.get(virtual_path).cloned()
     }

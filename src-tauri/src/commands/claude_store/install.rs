@@ -1142,6 +1142,7 @@ pub struct CatalogEntryRef {
     /// `#[serde(default)]` so a non-bundle / pre-WP-18 catalog row (no `members`)
     /// still deserializes. Mirrors `members?` on the TS `PrimitiveCatalogEntry`.
     #[serde(default)]
+    #[allow(dead_code)]
     pub members: Vec<String>,
 }
 

@@ -126,6 +126,7 @@ pub fn acquire(reason: &'static str) -> InflightGuard {
 // `on_window_event` so minimize transitions don't silently flip IsVisible.
 
 #[cfg(windows)]
+#[allow(dead_code)]
 pub fn pin_visible(webview: &tauri::Webview) -> tauri::Result<()> {
     use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Controller;
     webview.with_webview(|wv| unsafe {
@@ -143,6 +144,7 @@ pub fn pin_visible(webview: &tauri::Webview) -> tauri::Result<()> {
 }
 
 #[cfg(not(windows))]
+#[allow(dead_code)]
 pub fn pin_visible(_webview: &tauri::Webview) -> tauri::Result<()> {
     Ok(())
 }

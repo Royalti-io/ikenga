@@ -703,6 +703,7 @@ fn write_png(path: &Path, bytes: &[u8]) -> Result<()> {
 /// `~/.local/share/ikenga/screenshots/{stem}-{ISO8601}.png` on Linux,
 /// platform equivalents elsewhere. Strips `:` from the timestamp so the
 /// filename is portable to FAT/Windows shells.
+#[allow(dead_code)]
 pub fn default_out_path(kind: ScreenshotKind, pane_id: Option<&str>) -> Result<PathBuf> {
     default_out_path_with(kind, pane_id, None)
 }
@@ -710,6 +711,7 @@ pub fn default_out_path(kind: ScreenshotKind, pane_id: Option<&str>) -> Result<P
 /// Same as [`default_out_path`] but lets the caller substitute a user-chosen
 /// directory (from `ScreenshotConfigState`). When `override_dir` is `None` we
 /// fall back to the per-platform default.
+#[allow(dead_code)]
 pub fn default_out_path_with(
     kind: ScreenshotKind,
     pane_id: Option<&str>,

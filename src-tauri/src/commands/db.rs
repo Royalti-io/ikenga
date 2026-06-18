@@ -731,6 +731,7 @@ pub async fn db_exec(
 /// Determinism: `serde_json::Map` preserves insertion order, so tables are
 /// inserted in `name ASC` order and columns in `cid ASC` (PRAGMA's natural
 /// order). The file is pretty-printed for diffability.
+#[allow(dead_code)]
 pub async fn write_tables_manifest(
     pool: &sqlx::SqlitePool,
     dir: &std::path::Path,

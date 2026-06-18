@@ -24,7 +24,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
 use serde::Serialize;
 use serde_json::{json, Value};
 
@@ -73,6 +73,7 @@ impl Default for EngineAssetsRegistry {
 }
 
 impl EngineAssetsRegistry {
+    #[allow(dead_code)]
     pub fn new() -> Self {
         Self::default()
     }

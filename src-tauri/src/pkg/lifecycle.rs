@@ -163,6 +163,8 @@ pub struct SidecarSupervisor {
 }
 
 impl SidecarSupervisor {
+    #[allow(dead_code)]
+    #[allow(dead_code)]
     pub fn new() -> Self {
         Self::default()
     }
@@ -355,7 +357,8 @@ impl BlockedReason {
 #[derive(Debug, Clone)]
 enum State {
     Spawning,
-    Running {
+    #[allow(dead_code)]
+        Running {
         pid: u32,
         started_at: Instant,
         /// Restart count carried forward from the most recent Crashed run.

@@ -107,6 +107,7 @@ pub enum SignatureVerdict {
 
 impl SignatureVerdict {
     /// True only for `Valid`. This is the single bit the trust gate consumes.
+    #[allow(dead_code)]
     pub fn is_valid(&self) -> bool {
         matches!(self, SignatureVerdict::Valid)
     }

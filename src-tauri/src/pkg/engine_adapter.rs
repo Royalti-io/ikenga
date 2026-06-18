@@ -140,6 +140,8 @@ impl EngineAdaptersRegistry {
     }
 
     /// Remove an adapter by id. No-op if not present.
+    #[allow(dead_code)]
+    #[allow(dead_code)]
     pub fn unregister(&self, id: &str) {
         if let Ok(mut g) = self.adapters.write() {
             g.retain(|a| a.id() != id);
@@ -157,10 +159,12 @@ impl EngineAdaptersRegistry {
     }
 
     /// Number of registered adapters. Cheap; for snapshot/debug.
+    #[allow(dead_code)]
     pub fn len(&self) -> usize {
         self.adapters.read().map(|g| g.len()).unwrap_or(0)
     }
 
+    #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
