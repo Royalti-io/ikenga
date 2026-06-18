@@ -38,8 +38,6 @@ on:
         options:
           - all
           - linux-only
-          - mac-arm-only
-          - mac-x64-only
           - mac-only
           - windows-only
         default: all
@@ -80,17 +78,19 @@ jobs:
           if [ -z "$input" ]; then input=all; fi
           echo "Selected platform set: $input"
 
-          mac_arm='{"platform":"macos-latest","target":"aarch64-apple-darwin","arch_label":"macos-arm64"}'
-          mac_x64='{"platform":"macos-latest","target":"x86_64-apple-darwin","arch_label":"macos-x64"}'
+          # Single macOS leg: one universal-apple-darwin build (Intel + Apple
+          # Silicon in one .app) instead of two per-arch jobs. macOS runners
+          # bill at a 10x minute multiplier even on public repos, so halving
+          # the macOS job count removes a full runner's worth of duplicated
+          # checkout + pnpm install + workspace/vite builds per release.
+          mac='{"platform":"macos-latest","target":"universal-apple-darwin","arch_label":"macos-universal"}'
           windows='{"platform":"windows-latest","target":"x86_64-pc-windows-msvc","arch_label":"windows-x64"}'
           linux='{"platform":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","arch_label":"linux-x64"}'
 
           case "$input" in
-            all)            include="[$mac_arm,$mac_x64,$windows,$linux]" ;;
+            all)            include="[$mac,$windows,$linux]" ;;
             linux-only)     include="[$linux]" ;;
-            mac-arm-only)   include="[$mac_arm]" ;;
-            mac-x64-only)   include="[$mac_x64]" ;;
-            mac-only)       include="[$mac_arm,$mac_x64]" ;;
+            mac-only)       include="[$mac]" ;;
             windows-only)   include="[$windows]" ;;
             *) echo "::error::unknown platforms input: $input"; exit 1 ;;
           esac
@@ -172,11 +172,17 @@ jobs:
           ls -la
 
       # ── Toolchains ─────────────────────────────────────────────────────────
+      # `universal-apple-darwin` is not a real rustc target — Tauri lipos two
+      # real targets, so both must be installed for the universal build.
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
+          targets: ${{ matrix.target == 'universal-apple-darwin' && 'aarch64-apple-darwin,x86_64-apple-darwin' || matrix.target }}
 
+      # rust-cache keyed per matrix.target. With the macOS leg consolidated to
+      # one universal target dir (was two per-arch dirs), the repo's total
+      # target/ cache footprint drops below GitHub's 10 GB cache cap, so legs
+      # stop evicting each other and warm-cache compiles actually hit.
       - name: Cache cargo
         uses: swatinem/rust-cache@v2
         with:
@@ -480,11 +486,25 @@ jobs:
             // the AppImage, and install_deb rejected it (InvalidUpdaterFormat)
             // AFTER the progress bar completed. The deb + deb.sig are already
             // built and attached (createUpdaterArtifacts signs them); list them.
+            // macOS is now a single universal-apple-darwin .app. The exact
+            // updater filename for a universal build (e.g. Ikenga.app.tar.gz vs
+            // Ikenga_universal.app.tar.gz) varies by toolchain version, so we
+            // resolve it from the actual .sig attached to the release rather
+            // than hard-coding — a wrong name here silently breaks auto-update.
+            // Both arch keys (and their -app fallbacks) point at the one
+            // universal bundle so existing Intel + Apple-Silicon installs keep
+            // updating from the same artifact.
+            const macSig = fs.readdirSync(dir).find(f => f.endsWith(".app.tar.gz.sig"));
+            if (!macSig) console.log("::warning::no macOS .app.tar.gz.sig on release — darwin updater entries skipped");
+            const macBundle = macSig ? macSig.replace(/\.sig$/, "") : null;
+            const darwin = macSig ? [
+              ["darwin-aarch64",      macSig, macBundle],
+              ["darwin-aarch64-app",  macSig, macBundle],
+              ["darwin-x86_64",       macSig, macBundle],
+              ["darwin-x86_64-app",   macSig, macBundle],
+            ] : [];
             const map = [
-              ["darwin-aarch64",      "Ikenga_aarch64.app.tar.gz.sig",          "Ikenga_aarch64.app.tar.gz"],
-              ["darwin-aarch64-app",  "Ikenga_aarch64.app.tar.gz.sig",          "Ikenga_aarch64.app.tar.gz"],
-              ["darwin-x86_64",       "Ikenga_x64.app.tar.gz.sig",              "Ikenga_x64.app.tar.gz"],
-              ["darwin-x86_64-app",   "Ikenga_x64.app.tar.gz.sig",              "Ikenga_x64.app.tar.gz"],
+              ...darwin,
               ["windows-x86_64",      "Ikenga_" + version + "_x64-setup.exe.sig",  "Ikenga_" + version + "_x64-setup.exe"],
               ["windows-x86_64-nsis", "Ikenga_" + version + "_x64-setup.exe.sig",  "Ikenga_" + version + "_x64-setup.exe"],
               ["linux-x86_64",        "Ikenga_" + version + "_amd64.AppImage.sig", "Ikenga_" + version + "_amd64.AppImage"],
