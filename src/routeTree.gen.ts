@@ -39,6 +39,7 @@ import { Route as SettingsTelemetryRouteImport } from './routes/settings/telemet
 import { Route as SettingsStorageRouteImport } from './routes/settings/storage'
 import { Route as SettingsSecretsRouteImport } from './routes/settings/secrets'
 import { Route as SettingsProjectsRouteImport } from './routes/settings/projects'
+import { Route as SettingsPkgHealthRouteImport } from './routes/settings/pkg-health'
 import { Route as SettingsPkgAuditRouteImport } from './routes/settings/pkg-audit'
 import { Route as SettingsPackagesRouteImport } from './routes/settings/packages'
 import { Route as SettingsOnboardingRouteImport } from './routes/settings/onboarding'
@@ -224,6 +225,11 @@ const SettingsSecretsRoute = SettingsSecretsRouteImport.update({
 const SettingsProjectsRoute = SettingsProjectsRouteImport.update({
   id: '/projects',
   path: '/projects',
+  getParentRoute: () => SettingsRouteRoute,
+} as any)
+const SettingsPkgHealthRoute = SettingsPkgHealthRouteImport.update({
+  id: '/pkg-health',
+  path: '/pkg-health',
   getParentRoute: () => SettingsRouteRoute,
 } as any)
 const SettingsPkgAuditRoute = SettingsPkgAuditRouteImport.update({
@@ -460,6 +466,7 @@ export interface FileRoutesByFullPath {
   '/settings/onboarding': typeof SettingsOnboardingRoute
   '/settings/packages': typeof SettingsPackagesRoute
   '/settings/pkg-audit': typeof SettingsPkgAuditRoute
+  '/settings/pkg-health': typeof SettingsPkgHealthRoute
   '/settings/projects': typeof SettingsProjectsRoute
   '/settings/secrets': typeof SettingsSecretsRoute
   '/settings/storage': typeof SettingsStorageRoute
@@ -524,6 +531,7 @@ export interface FileRoutesByTo {
   '/settings/onboarding': typeof SettingsOnboardingRoute
   '/settings/packages': typeof SettingsPackagesRoute
   '/settings/pkg-audit': typeof SettingsPkgAuditRoute
+  '/settings/pkg-health': typeof SettingsPkgHealthRoute
   '/settings/projects': typeof SettingsProjectsRoute
   '/settings/secrets': typeof SettingsSecretsRoute
   '/settings/storage': typeof SettingsStorageRoute
@@ -593,6 +601,7 @@ export interface FileRoutesById {
   '/settings/onboarding': typeof SettingsOnboardingRoute
   '/settings/packages': typeof SettingsPackagesRoute
   '/settings/pkg-audit': typeof SettingsPkgAuditRoute
+  '/settings/pkg-health': typeof SettingsPkgHealthRoute
   '/settings/projects': typeof SettingsProjectsRoute
   '/settings/secrets': typeof SettingsSecretsRoute
   '/settings/storage': typeof SettingsStorageRoute
@@ -663,6 +672,7 @@ export interface FileRouteTypes {
     | '/settings/onboarding'
     | '/settings/packages'
     | '/settings/pkg-audit'
+    | '/settings/pkg-health'
     | '/settings/projects'
     | '/settings/secrets'
     | '/settings/storage'
@@ -727,6 +737,7 @@ export interface FileRouteTypes {
     | '/settings/onboarding'
     | '/settings/packages'
     | '/settings/pkg-audit'
+    | '/settings/pkg-health'
     | '/settings/projects'
     | '/settings/secrets'
     | '/settings/storage'
@@ -795,6 +806,7 @@ export interface FileRouteTypes {
     | '/settings/onboarding'
     | '/settings/packages'
     | '/settings/pkg-audit'
+    | '/settings/pkg-health'
     | '/settings/projects'
     | '/settings/secrets'
     | '/settings/storage'
@@ -1052,6 +1064,13 @@ declare module '@tanstack/react-router' {
       path: '/projects'
       fullPath: '/settings/projects'
       preLoaderRoute: typeof SettingsProjectsRouteImport
+      parentRoute: typeof SettingsRouteRoute
+    }
+    '/settings/pkg-health': {
+      id: '/settings/pkg-health'
+      path: '/pkg-health'
+      fullPath: '/settings/pkg-health'
+      preLoaderRoute: typeof SettingsPkgHealthRouteImport
       parentRoute: typeof SettingsRouteRoute
     }
     '/settings/pkg-audit': {
@@ -1402,6 +1421,7 @@ interface SettingsRouteRouteChildren {
   SettingsOnboardingRoute: typeof SettingsOnboardingRoute
   SettingsPackagesRoute: typeof SettingsPackagesRoute
   SettingsPkgAuditRoute: typeof SettingsPkgAuditRoute
+  SettingsPkgHealthRoute: typeof SettingsPkgHealthRoute
   SettingsProjectsRoute: typeof SettingsProjectsRoute
   SettingsSecretsRoute: typeof SettingsSecretsRoute
   SettingsStorageRoute: typeof SettingsStorageRoute
@@ -1420,6 +1440,7 @@ const SettingsRouteRouteChildren: SettingsRouteRouteChildren = {
   SettingsOnboardingRoute: SettingsOnboardingRoute,
   SettingsPackagesRoute: SettingsPackagesRoute,
   SettingsPkgAuditRoute: SettingsPkgAuditRoute,
+  SettingsPkgHealthRoute: SettingsPkgHealthRoute,
   SettingsProjectsRoute: SettingsProjectsRoute,
   SettingsSecretsRoute: SettingsSecretsRoute,
   SettingsStorageRoute: SettingsStorageRoute,

@@ -324,6 +324,7 @@ mod tests {
             Some(ChatEvent::SystemHook { .. }) => "system_hook",
             Some(ChatEvent::Artifact { .. }) => "artifact",
             Some(ChatEvent::ControlRequest { .. }) => "control_request",
+            Some(ChatEvent::AskUserQuestion { .. }) => "ask_user_question",
             Some(ChatEvent::Unknown { .. }) => "unknown",
             Some(ChatEvent::ParseError { .. }) => "parse_error",
             None => "<none>",

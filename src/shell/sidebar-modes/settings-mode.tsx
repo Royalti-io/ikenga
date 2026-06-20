@@ -12,6 +12,7 @@ import {
 	ShieldAlert,
 	ShieldCheck,
 	Sparkles,
+	Stethoscope,
 	type LucideIcon,
 } from 'lucide-react';
 
@@ -41,6 +42,7 @@ const NAV: NavSection[] = [
 			{ to: '/settings/agent', label: 'Agent', Icon: Bot },
 			{ to: '/settings/packages', label: 'Packages', Icon: Package },
 			{ to: '/settings/pkg-audit', label: 'Pkg violations', Icon: ShieldAlert },
+			{ to: '/settings/pkg-health', label: 'Pkg health', Icon: Stethoscope },
 			{ to: '/settings/onboarding', label: 'Onboarding', Icon: Sparkles },
 		],
 	},

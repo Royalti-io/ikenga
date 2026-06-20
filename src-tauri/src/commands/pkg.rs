@@ -16,7 +16,9 @@ use tokio::io::AsyncWriteExt;
 use crate::commands::claude_store::{resolve_pkg_requires, CatalogEntryRef, PkgRequiresResult};
 use crate::pkg::manifest::Package;
 use crate::pkg::registries::SettingsRegistry;
-use crate::pkg::{DiscoveredPkg, InstallSource, InstalledSummary, Kernel, KernelStatus};
+use crate::pkg::{
+    DiscoveredPkg, InstallSource, InstalledSummary, Kernel, KernelStatus, PkgHealthIssue,
+};
 
 /// State wrapper so the kernel can be stored in Tauri state behind an Arc.
 /// Derives Clone so the same wrapper can be layered as an axum Extension
@@ -294,6 +296,50 @@ pub fn pkg_db_diag(
         db_path,
         pkg_installed_count: count,
         ids,
+    })
+}
+
+// ─── pkg health (install-integrity check + cleanup) ──────────────────────────
+//
+// Surfaces broken/orphaned `pkg_installed` records the kernel skips at boot
+// (missing/unreadable/unparseable manifest, api-incompatible) plus orphaned
+// child `pkg_*` rows, and offers one-click removal. The kernel is the only
+// writer of `pkg_installed`, so these route straight through it.
+
+/// Scan for broken / orphaned install records. Read-only.
+#[tauri::command]
+pub fn pkg_health_scan(kernel: State<'_, KernelState>) -> Result<Vec<PkgHealthIssue>, String> {
+    kernel.0.health_scan().map_err(|e| format!("{e:#}"))
+}
+
+/// Remove one broken install record (its `pkg_installed` row + child rows).
+#[tauri::command]
+pub fn pkg_health_remove(
+    kernel: State<'_, KernelState>,
+    pkg_id: String,
+) -> Result<(), String> {
+    kernel
+        .0
+        .purge_install_record(&pkg_id)
+        .map_err(|e| format!("{e:#}"))
+}
+
+#[derive(Serialize)]
+pub struct PkgHealthRemoveAllResult {
+    pub removed_records: usize,
+    pub removed_orphans: u64,
+}
+
+/// Remove every currently-detected broken record + orphan row.
+#[tauri::command]
+pub fn pkg_health_remove_all(
+    kernel: State<'_, KernelState>,
+) -> Result<PkgHealthRemoveAllResult, String> {
+    let (removed_records, removed_orphans) =
+        kernel.0.purge_all_broken().map_err(|e| format!("{e:#}"))?;
+    Ok(PkgHealthRemoveAllResult {
+        removed_records,
+        removed_orphans,
     })
 }
 
