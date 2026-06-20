@@ -3085,6 +3085,44 @@ export async function pkgDbDiag(): Promise<PkgDbDiag> {
 	return invoke<PkgDbDiag>('pkg_db_diag');
 }
 
+// ─── pkg health (install-integrity check + cleanup) ──────────────────────────
+// Mirrors the Rust `PkgHealthIssue` / `HealthIssueKind` serde (kernel.rs) — keep
+// in lockstep. `issue.kind` is the tagged-union discriminant.
+export type PkgHealthIssueKind =
+	| { kind: 'manifest_missing' }
+	| { kind: 'manifest_unreadable' }
+	| { kind: 'manifest_unparseable' }
+	| { kind: 'api_incompatible'; ikenga_api: string }
+	| { kind: 'orphan_row'; table: string };
+
+export interface PkgHealthIssue {
+	id: string;
+	install_path: string;
+	enabled: boolean;
+	issue: PkgHealthIssueKind;
+	detail: string;
+}
+
+export interface PkgHealthRemoveAllResult {
+	removed_records: number;
+	removed_orphans: number;
+}
+
+/** Scan for broken / orphaned package install records (read-only). */
+export async function pkgHealthScan(): Promise<PkgHealthIssue[]> {
+	return invoke<PkgHealthIssue[]>('pkg_health_scan');
+}
+
+/** Remove one broken install record (its `pkg_installed` row + child rows). */
+export async function pkgHealthRemove(pkgId: string): Promise<void> {
+	return invoke('pkg_health_remove', { pkgId });
+}
+
+/** Remove every currently-detected broken record + orphan row. */
+export async function pkgHealthRemoveAll(): Promise<PkgHealthRemoveAllResult> {
+	return invoke<PkgHealthRemoveAllResult>('pkg_health_remove_all');
+}
+
 export interface PkgSettingsField {
 	key: string;
 	type: string;

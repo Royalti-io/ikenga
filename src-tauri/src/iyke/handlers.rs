@@ -1176,6 +1176,11 @@ pub struct PkgDevPkgIdBody {
     pub pkg_id: String,
 }
 
+#[derive(Deserialize)]
+pub struct PkgHealthRemoveBody {
+    pub pkg_id: String,
+}
+
 /// Symlink (or, today: register a path-rooted install) under the dev
 /// trust gate. Mirrors `pkg_dev_register` Tauri command for the
 /// `ikenga dev <path>` CLI surface.
@@ -1290,6 +1295,82 @@ pub async fn post_pkg_dev_reload(
                 format!("serialize summary: {e}"),
             )
         })
+}
+
+/// Scan for broken / orphaned install records (read-only). Mirrors the
+/// `pkg_health_scan` Tauri command for the `ikenga doctor` CLI surface.
+pub async fn post_pkg_health_scan(
+    Extension(app): Extension<AppHandle>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    use tauri::Manager;
+    let kernel = app.try_state::<crate::commands::KernelState>().ok_or((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "pkg kernel state not registered".into(),
+    ))?;
+    let kernel_arc = kernel.0.clone();
+    let issues = tokio::task::spawn_blocking(move || kernel_arc.health_scan())
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("scan join: {e}")))?
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")))?;
+    serde_json::to_value(&issues)
+        .map(|v| Json(serde_json::json!({ "issues": v })))
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("serialize issues: {e}"),
+            )
+        })
+}
+
+/// Remove one broken install record. Mirrors `pkg_health_remove`.
+pub async fn post_pkg_health_remove(
+    Extension(app): Extension<AppHandle>,
+    JsonBody(body): JsonBody<PkgHealthRemoveBody>,
+) -> Result<Json<OkResponse>, (StatusCode, String)> {
+    use tauri::Manager;
+    let kernel = app.try_state::<crate::commands::KernelState>().ok_or((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "pkg kernel state not registered".into(),
+    ))?;
+    let kernel_arc = kernel.0.clone();
+    let pkg_id = body.pkg_id;
+    tokio::task::spawn_blocking(move || kernel_arc.purge_install_record(&pkg_id))
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("remove join: {e}"),
+            )
+        })?
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("{e:#}")))?;
+    Ok(ok())
+}
+
+/// Remove every currently-detected broken record + orphan row. Mirrors
+/// `pkg_health_remove_all`; returns the removed counts.
+pub async fn post_pkg_health_remove_all(
+    Extension(app): Extension<AppHandle>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    use tauri::Manager;
+    let kernel = app.try_state::<crate::commands::KernelState>().ok_or((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "pkg kernel state not registered".into(),
+    ))?;
+    let kernel_arc = kernel.0.clone();
+    let (removed_records, removed_orphans) =
+        tokio::task::spawn_blocking(move || kernel_arc.purge_all_broken())
+            .await
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("remove-all join: {e}"),
+                )
+            })?
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")))?;
+    Ok(Json(serde_json::json!({
+        "removed_records": removed_records,
+        "removed_orphans": removed_orphans,
+    })))
 }
 
 pub async fn post_devtools(

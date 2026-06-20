@@ -69,6 +69,181 @@ pub struct InstalledSummary {
     pub project_id: Option<String>,
 }
 
+/// Child tables carrying a `pkg_id` referencing `pkg_installed(id)`. Three
+/// declare `ON DELETE CASCADE` (migration 0007); `pkg_capability_snapshots`
+/// (0021) does NOT — deleting a parent leaves its snapshot orphaned, which is
+/// exactly the drift the health check surfaces. Listed once so purge is
+/// explicit and robust regardless of the connection's `foreign_keys` pragma.
+/// `pkg_permission_violations` is deliberately absent — it is an audit log,
+/// not parent-owned state.
+const PKG_CHILD_TABLES: &[&str] = &[
+    "pkg_capability_snapshots",
+    "pkg_settings",
+    "pkg_permissions_granted",
+    "pkg_migrations",
+];
+
+/// One broken or orphaned install record surfaced by [`scan_health`]. The
+/// cross-boundary contract (Rust serde ↔ the `PkgHealthIssue` TS type in
+/// `tauri-cmd.ts`); keep both in lockstep.
+#[derive(Debug, Serialize, Clone, PartialEq)]
+pub struct PkgHealthIssue {
+    /// pkg id — or the orphan row's `pkg_id` for `OrphanRow`.
+    pub id: String,
+    /// `install_path` from `pkg_installed`; empty for table-only orphans.
+    pub install_path: String,
+    pub enabled: bool,
+    pub issue: HealthIssueKind,
+    /// Human-readable reason, safe to show in the UI / CLI.
+    pub detail: String,
+}
+
+/// Why an install record is unhealthy. Serializes as a tagged union
+/// (`{ "kind": "manifest_missing" }`, `{ "kind": "api_incompatible", "ikenga_api": "9" }`, …).
+#[derive(Debug, Serialize, Clone, PartialEq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum HealthIssueKind {
+    /// `install_path` has no `manifest.json`.
+    ManifestMissing,
+    /// `manifest.json` exists but can't be read (IO/permission error).
+    ManifestUnreadable,
+    /// `manifest.json` exists but failed to parse / validate.
+    ManifestUnparseable,
+    /// Loads fine but `ikenga_api` is outside the supported window.
+    ApiIncompatible { ikenga_api: String },
+    /// A child `pkg_*` row with no parent in `pkg_installed`.
+    OrphanRow { table: String },
+}
+
+/// Scan every `pkg_installed` row (enabled **and** disabled — boot only loads
+/// enabled ones, so disabled-but-broken rows would otherwise never surface)
+/// plus the child `pkg_*` tables, returning every broken/orphaned record.
+/// Read-only — never mutates. The unit-tested core behind `Kernel::health_scan`,
+/// the `pkg_health_*` commands, and `ikenga doctor`.
+pub(crate) async fn scan_health(pool: &sqlx::SqlitePool) -> Result<Vec<PkgHealthIssue>> {
+    let mut issues = Vec::new();
+
+    let rows: Vec<(String, String, i64)> =
+        sqlx::query_as("SELECT id, install_path, enabled FROM pkg_installed")
+            .fetch_all(pool)
+            .await
+            .map_err(|e| anyhow!("read pkg_installed: {e}"))?;
+
+    for (id, install_path, enabled_raw) in rows {
+        let enabled = enabled_raw != 0;
+        let manifest_path = Path::new(&install_path).join("manifest.json");
+        if !manifest_path.exists() {
+            issues.push(PkgHealthIssue {
+                id,
+                detail: format!("no manifest.json at {install_path}"),
+                install_path,
+                enabled,
+                issue: HealthIssueKind::ManifestMissing,
+            });
+            continue;
+        }
+        if let Err(e) = std::fs::read_to_string(&manifest_path) {
+            issues.push(PkgHealthIssue {
+                id,
+                detail: format!("manifest.json unreadable: {e}"),
+                install_path,
+                enabled,
+                issue: HealthIssueKind::ManifestUnreadable,
+            });
+            continue;
+        }
+        match Package::load(Path::new(&install_path)) {
+            Ok(pkg) => {
+                if !pkg.is_compatible() {
+                    let api = pkg.manifest.ikenga_api.clone();
+                    issues.push(PkgHealthIssue {
+                        id,
+                        detail: format!(
+                            "ikenga_api={api} outside supported window {}..={}",
+                            IKENGA_API_MIN_SUPPORTED, IKENGA_API_VERSION
+                        ),
+                        install_path,
+                        enabled,
+                        issue: HealthIssueKind::ApiIncompatible { ikenga_api: api },
+                    });
+                }
+            }
+            Err(e) => {
+                issues.push(PkgHealthIssue {
+                    id,
+                    detail: format!("manifest.json failed to load: {e:#}"),
+                    install_path,
+                    enabled,
+                    issue: HealthIssueKind::ManifestUnparseable,
+                });
+            }
+        }
+    }
+
+    // Orphan child rows: a `pkg_id` with no parent in `pkg_installed`.
+    for table in PKG_CHILD_TABLES {
+        let sql =
+            format!("SELECT pkg_id FROM {table} WHERE pkg_id NOT IN (SELECT id FROM pkg_installed)");
+        let orphans: Vec<(String,)> = sqlx::query_as(&sql)
+            .fetch_all(pool)
+            .await
+            .map_err(|e| anyhow!("scan orphans in {table}: {e}"))?;
+        for (pkg_id,) in orphans {
+            issues.push(PkgHealthIssue {
+                id: pkg_id,
+                install_path: String::new(),
+                enabled: false,
+                issue: HealthIssueKind::OrphanRow {
+                    table: (*table).to_string(),
+                },
+                detail: format!("orphaned row in {table} (no parent pkg_installed)"),
+            });
+        }
+    }
+
+    Ok(issues)
+}
+
+/// Delete a `pkg_installed` row and every child `pkg_*` row for it, in one
+/// transaction. Children are deleted explicitly so this is correct regardless
+/// of the connection's `foreign_keys` pragma — and it clears
+/// `pkg_capability_snapshots`, which has no cascade FK.
+pub(crate) async fn purge_record(pool: &sqlx::SqlitePool, id: &str) -> Result<()> {
+    let mut tx = pool.begin().await.map_err(|e| anyhow!("begin txn: {e}"))?;
+    for table in PKG_CHILD_TABLES {
+        sqlx::query(&format!("DELETE FROM {table} WHERE pkg_id = ?"))
+            .bind(id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| anyhow!("delete {table} for {id}: {e}"))?;
+    }
+    sqlx::query("DELETE FROM pkg_installed WHERE id = ?")
+        .bind(id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| anyhow!("delete pkg_installed for {id}: {e}"))?;
+    tx.commit().await.map_err(|e| anyhow!("commit txn: {e}"))?;
+    Ok(())
+}
+
+/// Delete every child `pkg_*` row whose `pkg_id` has no parent in
+/// `pkg_installed`. Returns the number of rows removed.
+pub(crate) async fn purge_orphans(pool: &sqlx::SqlitePool) -> Result<u64> {
+    let mut total = 0u64;
+    let mut tx = pool.begin().await.map_err(|e| anyhow!("begin txn: {e}"))?;
+    for table in PKG_CHILD_TABLES {
+        let sql =
+            format!("DELETE FROM {table} WHERE pkg_id NOT IN (SELECT id FROM pkg_installed)");
+        let r = sqlx::query(&sql)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| anyhow!("purge orphans in {table}: {e}"))?;
+        total += r.rows_affected();
+    }
+    tx.commit().await.map_err(|e| anyhow!("commit txn: {e}"))?;
+    Ok(total)
+}
+
 pub struct Kernel {
     /// Registries are registered once at construction and never mutate after.
     registries: Vec<Arc<dyn Registry>>,
@@ -104,6 +279,11 @@ pub struct Kernel {
     /// debouncer; dropping it tears down the watcher worker. Keyed by
     /// pkg id so `pkg_dev_unregister` can drop precisely the one it owns.
     dev_watchers: RwLock<HashMap<String, WatcherHandle>>,
+
+    /// Cached install-health snapshot, refreshed by `boot()` and every
+    /// `health_scan()`. Read by the `pkg_health_scan` command so the UI can
+    /// show the last result without re-hitting SQLite.
+    health: RwLock<Vec<PkgHealthIssue>>,
 }
 
 /// Walk the registries in reverse order calling `unregister`. Per the
@@ -164,6 +344,7 @@ impl Kernel {
             db,
             live: RwLock::new(std::collections::HashSet::new()),
             dev_watchers: RwLock::new(HashMap::new()),
+            health: RwLock::new(Vec::new()),
         }
     }
 
@@ -990,7 +1171,94 @@ pub fn is_visible_under(&self, pkg_id: &str, active_project_id: &str) -> bool {
             "[pkg_kernel] boot — {} registries, replayed {replayed}, skipped {skipped}, parked_for_review {parked_for_review}",
             self.registries.len()
         );
+
+        // Stamp the install-health snapshot so the UI / CLI can report broken
+        // and orphaned rows. Boot-time skips (above) only count enabled rows;
+        // this scan covers disabled rows + orphan child tables too.
+        match self.health_scan() {
+            Ok(issues) if !issues.is_empty() => {
+                let broken = issues
+                    .iter()
+                    .filter(|i| !matches!(i.issue, HealthIssueKind::OrphanRow { .. }))
+                    .count();
+                let orphans = issues.len() - broken;
+                log::warn!(
+                    "[pkg_kernel] health: {broken} broken install record(s) + {orphans} orphaned pkg_* row(s) — surface for cleanup (pkg_health_scan / `ikenga doctor`)"
+                );
+            }
+            Ok(_) => {}
+            Err(e) => log::warn!("[pkg_kernel] health scan at boot failed (continuing): {e:#}"),
+        }
+
         Ok(())
+    }
+
+    /// Read-only scan for broken / orphaned install records. Refreshes the
+    /// cached `health` snapshot and returns the issues. Backed by the
+    /// module-level [`scan_health`] (the unit-tested core).
+    pub fn health_scan(&self) -> Result<Vec<PkgHealthIssue>> {
+        let db = self.db.clone();
+        let issues = tauri::async_runtime::block_on(async move {
+            let pool = db.ensure_pool().await.map_err(|e| anyhow!(e))?;
+            scan_health(&pool).await
+        })?;
+        if let Ok(mut g) = self.health.write() {
+            g.clone_from(&issues);
+        }
+        Ok(issues)
+    }
+
+    /// Delete a broken install record — its `pkg_installed` row + every child
+    /// `pkg_*` row — and drop it from the in-memory maps. Serialized against
+    /// install/uninstall via the per-pkg lock. Never touches the filesystem or
+    /// registries: a broken row was never registered, so there is nothing to
+    /// unregister.
+    pub fn purge_install_record(&self, pkg_id: &str) -> Result<()> {
+        let lock = self.lock_for(pkg_id);
+        let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+        let db = self.db.clone();
+        let id = pkg_id.to_string();
+        tauri::async_runtime::block_on(async move {
+            let pool = db.ensure_pool().await.map_err(|e| anyhow!(e))?;
+            purge_record(&pool, &id).await
+        })?;
+        if let Ok(mut g) = self.installed.write() {
+            g.remove(pkg_id);
+        }
+        if let Ok(mut g) = self.live.write() {
+            g.remove(pkg_id);
+        }
+        Ok(())
+    }
+
+    /// Delete every orphaned child `pkg_*` row (no parent in `pkg_installed`).
+    /// Returns the count removed.
+    pub fn purge_orphan_rows(&self) -> Result<u64> {
+        let db = self.db.clone();
+        tauri::async_runtime::block_on(async move {
+            let pool = db.ensure_pool().await.map_err(|e| anyhow!(e))?;
+            purge_orphans(&pool).await
+        })
+    }
+
+    /// Remove every currently-detected broken install record + orphan row.
+    /// Returns `(records_removed, orphan_rows_removed)` and refreshes the cache.
+    pub fn purge_all_broken(&self) -> Result<(usize, u64)> {
+        let issues = self.health_scan()?;
+        let mut broken_ids: Vec<String> = issues
+            .iter()
+            .filter(|i| !matches!(i.issue, HealthIssueKind::OrphanRow { .. }))
+            .map(|i| i.id.clone())
+            .collect();
+        broken_ids.sort();
+        broken_ids.dedup();
+        let records = broken_ids.len();
+        for id in &broken_ids {
+            self.purge_install_record(id)?;
+        }
+        let orphans = self.purge_orphan_rows()?;
+        let _ = self.health_scan();
+        Ok((records, orphans))
     }
 
     /// Trust-review modal (2026-05-15) — run the registry replay for a pkg
@@ -1464,6 +1732,78 @@ mod tests {
             },
             install_path: PathBuf::from("/tmp"),
         }
+    }
+
+    /// WP-04 regression: reproduces the live-install drift this feature was
+    /// built for — a `pkg_installed` row at a vanished path + an orphaned
+    /// `pkg_capability_snapshots` row (no FK, so a parent delete leaves it).
+    /// Asserts detection, targeted purge, orphan purge, and that valid
+    /// neighbours survive. Runs against the free functions (no AppHandle).
+    #[test]
+    fn health_scan_detects_and_purge_cleans_broken_and_orphans() {
+        use sqlx::sqlite::SqlitePoolOptions;
+        tauri::async_runtime::block_on(async {
+            let pool = SqlitePoolOptions::new()
+                .max_connections(1) // single shared in-memory db
+                .connect("sqlite::memory:")
+                .await
+                .expect("open in-memory sqlite");
+
+            // Minimal schema mirroring migrations 0007 + 0021 (columns we touch).
+            for ddl in [
+                "CREATE TABLE pkg_installed (id TEXT PRIMARY KEY, version TEXT, ikenga_api TEXT, manifest_json TEXT, install_path TEXT NOT NULL, installed_at INTEGER, enabled INTEGER NOT NULL DEFAULT 1, signature TEXT, source_json TEXT, project_id TEXT)",
+                "CREATE TABLE pkg_capability_snapshots (pkg_id TEXT PRIMARY KEY, manifest_capabilities_json TEXT NOT NULL, approved_at INTEGER NOT NULL, approved_by_implicit INTEGER NOT NULL DEFAULT 0)",
+                "CREATE TABLE pkg_settings (pkg_id TEXT, key TEXT, value_json TEXT, updated_at INTEGER, PRIMARY KEY (pkg_id, key))",
+                "CREATE TABLE pkg_permissions_granted (pkg_id TEXT, scope TEXT, granted_at INTEGER, PRIMARY KEY (pkg_id, scope))",
+                "CREATE TABLE pkg_migrations (pkg_id TEXT, version TEXT, applied_at INTEGER, PRIMARY KEY (pkg_id, version))",
+            ] {
+                sqlx::query(ddl).execute(&pool).await.expect("create table");
+            }
+
+            // Two install rows (both at vanished paths → ManifestMissing); a child
+            // setting for the one we'll purge; an orphan snapshot (no parent) plus a
+            // snapshot that DOES have a parent (must survive).
+            let ins = "INSERT INTO pkg_installed (id, version, ikenga_api, manifest_json, install_path, installed_at, enabled) VALUES (?,?,?,?,?,?,?)";
+            sqlx::query(ins).bind("com.test.broken").bind("0.1.0").bind("1").bind("{}").bind("/nonexistent/broken").bind(0).bind(1).execute(&pool).await.unwrap();
+            sqlx::query(ins).bind("com.test.keeper").bind("0.1.0").bind("1").bind("{}").bind("/nonexistent/keeper").bind(0).bind(1).execute(&pool).await.unwrap();
+            sqlx::query("INSERT INTO pkg_settings (pkg_id, key, value_json, updated_at) VALUES (?,?,?,?)")
+                .bind("com.test.broken").bind("k").bind("\"v\"").bind(0).execute(&pool).await.unwrap();
+            let snap = "INSERT INTO pkg_capability_snapshots (pkg_id, manifest_capabilities_json, approved_at) VALUES (?,?,?)";
+            sqlx::query(snap).bind("com.test.ghost").bind("{}").bind(0).execute(&pool).await.unwrap(); // orphan
+            sqlx::query(snap).bind("com.test.keeper").bind("{}").bind(0).execute(&pool).await.unwrap(); // has parent
+
+            // ── scan ──
+            let issues = scan_health(&pool).await.expect("scan");
+            assert!(
+                issues.iter().any(|i| i.id == "com.test.broken" && i.issue == HealthIssueKind::ManifestMissing),
+                "broken row should be detected as ManifestMissing; got {issues:?}"
+            );
+            assert!(
+                issues.iter().any(|i| i.id == "com.test.ghost"
+                    && i.issue == HealthIssueKind::OrphanRow { table: "pkg_capability_snapshots".to_string() }),
+                "ghost snapshot should be detected as an OrphanRow; got {issues:?}"
+            );
+            assert!(
+                !issues.iter().any(|i| i.id == "com.test.keeper" && matches!(i.issue, HealthIssueKind::OrphanRow { .. })),
+                "keeper snapshot has a parent — must not be flagged orphan"
+            );
+
+            // ── purge the broken record (targeted) ──
+            purge_record(&pool, "com.test.broken").await.expect("purge_record");
+            let installed_ids: Vec<String> =
+                sqlx::query_scalar("SELECT id FROM pkg_installed ORDER BY id").fetch_all(&pool).await.unwrap();
+            assert_eq!(installed_ids, vec!["com.test.keeper".to_string()], "only keeper remains");
+            let settings_left: i64 =
+                sqlx::query_scalar("SELECT COUNT(*) FROM pkg_settings").fetch_one(&pool).await.unwrap();
+            assert_eq!(settings_left, 0, "broken's child setting cascaded away");
+
+            // ── purge orphans ──
+            let removed = purge_orphans(&pool).await.expect("purge_orphans");
+            assert_eq!(removed, 1, "exactly the ghost snapshot removed");
+            let snap_ids: Vec<String> =
+                sqlx::query_scalar("SELECT pkg_id FROM pkg_capability_snapshots ORDER BY pkg_id").fetch_all(&pool).await.unwrap();
+            assert_eq!(snap_ids, vec!["com.test.keeper".to_string()], "keeper snapshot survives; ghost gone");
+        });
     }
 
     #[test]

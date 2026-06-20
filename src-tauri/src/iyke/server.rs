@@ -38,7 +38,8 @@ use super::handlers::{
     get_dom, get_iframe_state, get_logs, get_network, get_pkg_list, get_query_cache, get_state,
     get_terminal_read, post_click, post_close, post_devtools, post_focus, post_go,
     post_iframe_message, post_key, post_mode, post_oba_install_local, post_open,
-    post_pkg_dev_register, post_pkg_dev_reload, post_pkg_dev_unregister, post_pkg_install,
+    post_pkg_dev_register, post_pkg_dev_reload, post_pkg_dev_unregister, post_pkg_health_remove,
+    post_pkg_health_remove_all, post_pkg_health_scan, post_pkg_install,
     post_pkg_scope_set, post_pkg_uninstall, post_refresh, post_resize, post_screenshot_pane,
     post_screenshot_window, post_split, post_terminal_send, post_type, post_wait,
 };
@@ -126,6 +127,9 @@ pub async fn serve(
         .route("/iyke/pkg/dev/register", post(post_pkg_dev_register))
         .route("/iyke/pkg/dev/unregister", post(post_pkg_dev_unregister))
         .route("/iyke/pkg/dev/reload", post(post_pkg_dev_reload))
+        .route("/iyke/pkg/health/scan", post(post_pkg_health_scan))
+        .route("/iyke/pkg/health/remove", post(post_pkg_health_remove))
+        .route("/iyke/pkg/health/remove-all", post(post_pkg_health_remove_all))
         .route("/iyke/iframe-state", get(get_iframe_state))
         .route("/iyke/iframe-message", post(post_iframe_message))
         // pkg-browser bridge (kernel-direct + eval).

@@ -26,7 +26,9 @@ pub mod trust;
 pub mod webview;
 
 pub use engine_adapter::EngineAdaptersRegistry;
-pub use kernel::{DiscoveredPkg, InstalledSummary, Kernel, KernelStatus};
+pub use kernel::{
+    DiscoveredPkg, InstalledSummary, Kernel, KernelStatus, PkgHealthIssue,
+};
 pub use lifecycle::SidecarSupervisor;
 pub use registry::Registry;
 pub use source::InstallSource;
