@@ -1,5 +1,5 @@
 ---
-"ikenga-desktop": minor
+"ikenga-desktop": patch
 ---
 
 0.2.9 — release the 12 commits accumulated since v0.2.8:
