@@ -74,17 +74,17 @@ use anyhow::{anyhow, Context, Result};
 use serde::Serialize;
 use serde_json::Value;
 use tauri::{
-    AppHandle, LogicalSize, Manager, PhysicalPosition, WebviewUrl, WebviewWindow,
+    AppHandle, LogicalSize, Manager, WebviewUrl, WebviewWindow,
     WindowEvent,
 };
 
 #[cfg(target_os = "linux")]
-use tauri::WebviewWindowBuilder;
+use tauri::{PhysicalPosition, WebviewWindowBuilder};
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 use tauri::{
     webview::{PageLoadEvent, WebviewBuilder},
-    Webview,
+    LogicalPosition, Webview,
 };
 
 use crate::pkg::manifest::Package;
