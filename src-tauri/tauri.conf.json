@@ -7,6 +7,7 @@
     "beforeDevCommand": "bun run dev",
     "devUrl": "http://localhost:1420",
     "beforeBuildCommand": "bun run build",
+    "beforeBundleCommand": "node scripts/clean-appimage-appdir.mjs",
     "frontendDist": "../dist"
   },
   "app": {

@@ -28,6 +28,9 @@ bun run iyke:bundle                 # bundles the iyke iframe-bridge entry
 bun run iyke:mcp:build              # bundles the mcp-iyke server JS into the builtin pkg dir
 
 # Production builds (unsigned, personal-use install — see README.md)
+# Linux .AppImage prereq: `sudo apt-get install -y patchelf` (linuxdeploy's
+# gstreamer plugin needs it; without it the AppImage step fails with
+# "Failed to run plugin: gstreamer (exit code: 2)" — the .deb still builds).
 bunx tauri build --target x86_64-unknown-linux-gnu && ./scripts/install-linux.sh
 bunx tauri build --target aarch64-apple-darwin && ./scripts/install-mac.sh
 ```
