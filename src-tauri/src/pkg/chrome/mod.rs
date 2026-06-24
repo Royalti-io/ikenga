@@ -16,6 +16,7 @@
 
 pub mod detect;
 pub mod launcher;
+pub mod profile;
 
 // Re-exports form the module's public API for later WPs (lifecycle, snapshot,
 // actions, routing). Unused until those land — allow so the foundation lands
@@ -24,3 +25,5 @@ pub mod launcher;
 pub use detect::{detect_chrome, ChromeInstall, DetectError};
 #[allow(unused_imports)]
 pub use launcher::{launch_managed, LaunchOptions, ManagedChrome};
+#[allow(unused_imports)]
+pub use profile::managed_profile_dir;

@@ -32,6 +32,7 @@ use tokio::process::{Child, Command};
 use tokio::task::JoinHandle;
 
 use super::detect::{detect_chrome, ChromeInstall};
+use super::profile;
 
 /// How long to wait for the CDP HTTP endpoint to start serving after spawn.
 const CDP_READY_TIMEOUT: Duration = Duration::from_secs(20);
@@ -99,10 +100,9 @@ impl Default for LaunchOptions {
 pub async fn launch_managed(opts: LaunchOptions) -> Result<ManagedChrome> {
     let install = detect_chrome().context("detect installed Chrome")?;
 
+    // profile::managed_profile_dir creates the dir if absent — no separate create_dir_all needed.
     let profile_dir =
-        managed_profile_dir(&opts.profile_name).context("resolve managed profile dir")?;
-    std::fs::create_dir_all(&profile_dir)
-        .with_context(|| format!("create profile dir {}", profile_dir.display()))?;
+        profile::managed_profile_dir(&opts.profile_name).context("resolve managed profile dir")?;
 
     // Pick the CDP port. `--remote-debugging-port=0` makes Chrome bind a free
     // port and write the chosen one to `<user-data-dir>/DevToolsActivePort`;
@@ -242,32 +242,14 @@ async fn wait_for_cdp(port: u16) -> Result<CdpVersion> {
     }
 }
 
-// ── Mock contract 1: profile-dir resolver (owned by WP-03) ───────────────────
-//
-// WP-02 codes against this frozen signature and stubs it with a temp dir. WP-03
-// replaces the body with the real `app_data_dir`-rooted resolver (one-line swap
-// at the call site if the signature holds).
-//
-// TODO(WP-03): replace stub with the real resolver (app_data_dir-rooted,
-// SQLite-tracked managed profiles).
-fn managed_profile_dir(profile_name: &str) -> anyhow::Result<std::path::PathBuf> {
-    Ok(std::env::temp_dir().join(format!("ikenga-managed-{profile_name}")))
-}
+// The profile-dir resolver now lives in `super::profile::managed_profile_dir`
+// (WP-03). The stub that was here (temp-dir based) has been replaced by the
+// real app_data_dir-rooted resolver. See `chrome/profile.rs` for full docs +
+// unit tests.
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn stub_profile_dir_is_namespaced_under_temp() {
-        let dir = managed_profile_dir("acme").unwrap();
-        assert!(dir.starts_with(std::env::temp_dir()));
-        assert!(dir
-            .file_name()
-            .and_then(|s| s.to_str())
-            .map(|s| s == "ikenga-managed-acme")
-            .unwrap_or(false));
-    }
 
     #[test]
     fn launch_options_default_is_os_picked_port() {
