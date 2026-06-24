@@ -36,7 +36,7 @@
 //! | fill         | `DOM.focus` (+ optional select-all clear) → `Input.insertText` |
 //! | select       | `DOM.resolveNode` → `Runtime.callFunctionOn` set-`<option>` (no native CDP verb) |
 //! | press_key    | `Input.dispatchKeyEvent` (US-layout key map + modifier bits) |
-//! | eval         | `Runtime.evaluate` (returns the JSON value)               |
+//! | eval         | `Runtime.evaluate` of `(() => {{ <script> }})()` — IIFE parity with WebKit (script must `return`) |
 //! | screenshot   | `Page.captureScreenshot` → base64 PNG (FIRST engine to satisfy `/screenshot`) |
 //! | wait_for     | poll `location.href` / re-snapshot until predicate or timeout |
 //! | focus (pane) | **caller maps to** [`bring_to_front`] = `Page.bringToFront` (NOT shell-pane focus) |
@@ -272,12 +272,22 @@ pub async fn press_key(page: &Page, store: &RefStore, e_ref: Option<&str>, combo
 // Inspection / escape-hatch verbs.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// `eval` — run an arbitrary JS expression in the page and return the JSON value
-/// (`Value::Null` for `undefined`/non-serializable results). `return_by_value`
-/// so we get the value inline, not a remote handle.
+/// `eval` — run an arbitrary JS *function body* in the page and return the JSON
+/// value (`Value::Null` for `undefined`/non-serializable results).
+///
+/// The script is wrapped in an IIFE so it must `return` to produce a value —
+/// byte-identical semantics to the WebKit eval path
+/// (`(() => {{ {} }})()` in `crate::iyke::browser_handlers::post_browser_eval`),
+/// so the *same* `browser_eval` script works on both engines. Without the
+/// wrapper, CDP `Runtime.evaluate` treats `script` as a bare expression and a
+/// top-level `return` is a SyntaxError → `null`, silently diverging from the
+/// documented `browser_eval` contract. `return_by_value` gives us the value
+/// inline (not a remote handle); `await_promise` preserves the "or a Promise
+/// resolving to one" behavior the WebKit path also allows.
 pub async fn eval(page: &Page, script: &str) -> Result<Value> {
+    let wrapped = format!("(() => {{ {script} }})()");
     let params = EvaluateParams::builder()
-        .expression(script.to_string())
+        .expression(wrapped)
         .return_by_value(true)
         .await_promise(true)
         .build()
