@@ -331,17 +331,26 @@ pub fn run() {
             // bridge handlers can hold an Arc to it via an Extension layer.
             let webview_panes_reg = Arc::new(pkg::webview::WebviewPanesRegistry::new());
 
-            // Chrome-engine registry: the parallel kernel for `engine=chrome`
-            // panes (Managed Chrome over CDP). Constructed before iyke::start so
-            // the `/iyke/browser/*` dispatch branches can hold an Arc to it via
-            // an Extension layer; `.manage()`d after so Tauri commands can too.
-            let chrome_engine_reg = Arc::new(iyke::chrome_engine::ChromeEngineRegistry::new());
+
+            // Playwright reverse-proxy: lazy-spawns the `@ikenga/sidecar-
+            // playwright-browser` Bun sidecar on the first chrome request and
+            // forwards every `engine=chrome` verb to it. Constructed before
+            // iyke::start so the `/iyke/browser/*` handlers can hold an Arc to it
+            // via an Extension layer; `.manage()`d after so Tauri commands can
+            // too. Sidecar entry resolves from `IKENGA_PW_SIDECAR`, falling back
+            // to the in-workspace sidecar source.
+            let pw_sidecar_entry = std::env::var("IKENGA_PW_SIDECAR").unwrap_or_else(|_| {
+                "/home/nedjamez/royalti-co/ikenga/ikenga-pkgs/packages/sidecars/playwright-browser/src/sidecar.ts".to_string()
+            });
+            let playwright_proxy = Arc::new(iyke::playwright_proxy::PlaywrightProxy::new(
+                std::path::PathBuf::from(pw_sidecar_entry),
+            ));
 
             let iyke_state_for_start = iyke_state.clone();
             let iyke_rpc_for_start = iyke_rpc.clone();
             let browser_rpc_for_start = browser_rpc.clone();
             let webview_panes_for_start = webview_panes_reg.clone();
-            let chrome_engine_for_start = chrome_engine_reg.clone();
+            let playwright_proxy_for_start = playwright_proxy.clone();
             let pa_db_for_iyke = pa_db.clone();
             let app_handle_for_iyke = app.handle().clone();
             let pending_for_iyke = screenshot_pending.clone();
@@ -353,7 +362,7 @@ pub fn run() {
                     iyke_rpc_for_start,
                     browser_rpc_for_start,
                     webview_panes_for_start,
-                    chrome_engine_for_start,
+                    playwright_proxy_for_start,
                     pa_db_for_iyke,
                     control_path,
                     app_handle_for_iyke,
@@ -612,9 +621,9 @@ pub fn run() {
                 StreamingSidecarManager::new(),
             )));
             app.manage(WebviewPanesState(webview_panes_reg));
-            // Chrome-engine registry — managed as the bare Arc so any Tauri
-            // command (and the iyke Extension layer) resolves the same handle.
-            app.manage(chrome_engine_reg);
+            // Playwright reverse-proxy — managed as the bare Arc so the iyke
+            // Extension layer and any Tauri command resolve the same handle.
+            app.manage(playwright_proxy);
 
             // Phase 2 (projects-first-class): subscribe to
             // `projects:active-changed` and reconcile pkg liveness on

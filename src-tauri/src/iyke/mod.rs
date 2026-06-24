@@ -15,7 +15,6 @@ pub mod auth;
 pub mod browser_handlers;
 pub mod browser_rpc;
 pub mod browser_sessions;
-pub mod chrome_engine;
 pub mod claude;
 pub mod comments;
 pub mod handlers;
@@ -25,6 +24,7 @@ pub mod memory;
 pub mod pa_actions;
 pub mod permissions_audit;
 pub mod pkg_dispatch;
+pub mod playwright_proxy;
 pub mod projects;
 pub mod rpc;
 pub mod secrets;
@@ -135,7 +135,7 @@ pub async fn start(
     rpc: IykeRpc,
     browser_rpc: BrowserRpc,
     webview_panes: Arc<crate::pkg::webview::WebviewPanesRegistry>,
-    chrome_engine: Arc<chrome_engine::ChromeEngineRegistry>,
+    playwright_proxy: Arc<playwright_proxy::PlaywrightProxy>,
     pa_db: Arc<crate::commands::db::PaDb>,
     control_path: PathBuf,
     app_handle: AppHandle,
@@ -150,7 +150,7 @@ pub async fn start(
         rpc,
         browser_rpc,
         webview_panes,
-        chrome_engine,
+        playwright_proxy,
         pa_db,
         token.clone(),
         app_handle,
