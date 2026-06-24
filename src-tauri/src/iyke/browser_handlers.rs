@@ -35,7 +35,6 @@ use serde_json::Value;
 use crate::pkg::webview::{PaneRect, WebviewPanesRegistry};
 
 use super::browser_rpc::{BrowserRpc, ReplyAck, ReplyEnvelope};
-use super::chrome_engine::PaneEngine;
 use super::playwright_proxy::PlaywrightProxy;
 
 /// Hop to the GTK / NSApplication main thread to invoke a `WebviewPanesRegistry`
@@ -144,7 +143,7 @@ pub async fn post_browser_open(
     // Engine is decided here at open and remembered (chrome panes are tracked by
     // the Playwright proxy; absence there means webkit). Subsequent verbs
     // dispatch off that recorded engine.
-    if PaneEngine::parse(body.engine.as_deref()) == PaneEngine::Chrome {
+    if body.engine.as_deref() == Some("chrome") {
         // Managed Chrome owns its own OS window — `rect` is ignored (G-05).
         // The managed-profile name doubles as the partition.
         let partition = body.partition.clone().unwrap_or_else(|| "default".to_string());

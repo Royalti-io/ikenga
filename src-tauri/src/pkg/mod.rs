@@ -11,7 +11,6 @@ pub mod cap_snapshot;
 // wiring lands in later WPs (WP-04 lifecycle, WP-07 routing). Allow dead-code so
 // the unconsumed public API doesn't warn in the interim.
 #[allow(dead_code)]
-pub mod chrome;
 pub mod engine_adapter;
 pub mod engine_adapters;
 pub mod file_watcher;

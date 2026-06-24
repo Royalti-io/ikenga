@@ -331,11 +331,6 @@ pub fn run() {
             // bridge handlers can hold an Arc to it via an Extension layer.
             let webview_panes_reg = Arc::new(pkg::webview::WebviewPanesRegistry::new());
 
-            // Chrome-engine registry: the legacy in-process chromiumoxide
-            // parallel kernel. Retained (constructed + `.manage()`d) for WP-06's
-            // teardown but NO LONGER drives `/iyke/browser/*` — the cutover
-            // (WP-04) routes `engine=chrome` through the Playwright proxy below.
-            let chrome_engine_reg = Arc::new(iyke::chrome_engine::ChromeEngineRegistry::new());
 
             // Playwright reverse-proxy: lazy-spawns the `@ikenga/sidecar-
             // playwright-browser` Bun sidecar on the first chrome request and
@@ -626,10 +621,6 @@ pub fn run() {
                 StreamingSidecarManager::new(),
             )));
             app.manage(WebviewPanesState(webview_panes_reg));
-            // Chrome-engine registry — managed as the bare Arc so any Tauri
-            // command resolves the same handle. No longer wired into the iyke
-            // browser Extension layer (the Playwright proxy took over WP-04).
-            app.manage(chrome_engine_reg);
             // Playwright reverse-proxy — managed as the bare Arc so the iyke
             // Extension layer and any Tauri command resolve the same handle.
             app.manage(playwright_proxy);

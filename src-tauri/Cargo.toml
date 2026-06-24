@@ -147,15 +147,6 @@ minisign-verify = "=0.2.5"
 # crates; pinning explicitly so usage in pkg/webview.rs is direct.
 url = "2"
 
-# Managed-mode browser engine (pkg-browser Chrome / WP-02). chromiumoxide is the
-# Rust CDP client (DEC-A in plans/chrome-pkg/06-cdp-engine-decisions.md): as of
-# 0.9.x it is tokio-only (async-std fully removed — no runtime feature flag, no
-# conflict with the Tauri tokio runtime) and exposes `Browser::connect(ws_url)`
-# for attach-to-running, which is how the shell drives a Chrome process it owns
-# itself (we manage the OS process so the lifecycle WP can reconcile it). The
-# returned `Handler` is a Stream we drive on a tokio task. We do NOT enable the
-# `fetcher` feature — we launch the user's installed Chrome, never download one.
-chromiumoxide = "0.9"
 
 # Agent Client Protocol — types + traits for our in-process ACP server
 # implementation. The wire-framing/JSON-RPC layer is not used today (we
