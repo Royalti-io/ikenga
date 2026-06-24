@@ -16,6 +16,7 @@
 
 pub mod detect;
 pub mod launcher;
+pub mod lifecycle;
 pub mod profile;
 
 // Re-exports form the module's public API for later WPs (lifecycle, snapshot,
@@ -25,5 +26,7 @@ pub mod profile;
 pub use detect::{detect_chrome, ChromeInstall, DetectError};
 #[allow(unused_imports)]
 pub use launcher::{launch_managed, LaunchOptions, ManagedChrome};
+#[allow(unused_imports)]
+pub use lifecycle::{reconcile_on_boot, ChromeState, ManagedRecord, ReconcileOutcome};
 #[allow(unused_imports)]
 pub use profile::managed_profile_dir;
