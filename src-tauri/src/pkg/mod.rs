@@ -7,6 +7,11 @@
 //! the `pkg_*` Tauri commands in `commands::pkg`.
 
 pub mod cap_snapshot;
+// WP-02 foundation: detection + launcher are standalone until the kernel/command
+// wiring lands in later WPs (WP-04 lifecycle, WP-07 routing). Allow dead-code so
+// the unconsumed public API doesn't warn in the interim.
+#[allow(dead_code)]
+pub mod chrome;
 pub mod engine_adapter;
 pub mod engine_adapters;
 pub mod file_watcher;
