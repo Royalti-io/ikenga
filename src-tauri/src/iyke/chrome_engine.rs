@@ -70,6 +70,8 @@ pub enum PaneEngine {
 }
 
 impl PaneEngine {
+    /// Wire string for the engine. Part of the type's API; not yet on a hot path.
+    #[allow(dead_code)]
     pub fn as_str(self) -> &'static str {
         match self {
             PaneEngine::Webkit => "webkit",
@@ -113,6 +115,8 @@ impl PaneKeyOwned {
 pub struct ChromePane {
     /// The launched + CDP-attached Chrome backing this pane. Owned so a `close`
     /// can deliberately reap the process; dropping it severs the CDP pump.
+    /// Never read by name — held purely for that ownership/`Drop` side-effect.
+    #[allow(dead_code)]
     pub managed: ManagedChrome,
     /// The CDP page handle WP-06 action verbs drive. Cloned from
     /// `managed.browser` at open. **Load-bearing** — without it no verb works.
@@ -187,6 +191,8 @@ impl ChromeEngineRegistry {
 
     /// Engine of a pane. `None` = no chrome pane under this key (falls through
     /// to WebKit). `Some(Chrome)` otherwise. We never track WebKit panes here.
+    /// Registry API exercised by tests; the hot dispatch path uses `is_chrome`.
+    #[allow(dead_code)]
     pub async fn engine_of(&self, pkg_id: &str, pane_id: &str) -> Option<PaneEngine> {
         self.inner
             .lock()
@@ -353,6 +359,8 @@ impl ChromeEngineRegistry {
             .unwrap_or(false)
     }
 
+    /// Count of live chrome panes. Registry API exercised by tests.
+    #[allow(dead_code)]
     pub async fn len(&self) -> usize {
         self.inner.lock().await.len()
     }
