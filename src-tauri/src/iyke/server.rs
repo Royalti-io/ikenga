@@ -75,6 +75,7 @@ pub async fn serve(
     rpc: IykeRpc,
     browser_rpc: BrowserRpc,
     webview_panes: Arc<WebviewPanesRegistry>,
+    chrome_engine: Arc<super::chrome_engine::ChromeEngineRegistry>,
     pa_db: Arc<PaDb>,
     token: String,
     app_handle: AppHandle,
@@ -249,6 +250,7 @@ pub async fn serve(
         .layer(Extension(rpc))
         .layer(Extension(browser_rpc))
         .layer(Extension(webview_panes))
+        .layer(Extension(chrome_engine))
         .layer(Extension(pa_db))
         .layer(Extension(BrowserPort(port)))
         .layer(Extension(auth_state))

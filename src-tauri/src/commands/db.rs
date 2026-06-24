@@ -481,6 +481,14 @@ async fn ensure_schema(pool: &sqlx::SqlitePool) -> Result<(), String> {
             "0054_strategy_domain",
             include_str!("../../migrations/0054_strategy_domain.sql"),
         ),
+        // 0055 — pkg-browser WP-03: Managed Chrome dedicated-profile registry.
+        // chrome_profiles maps friendly profile names to their on-disk --user-data-dir
+        // paths. Parallel to browser_sessions (0014) for the WebKit partition model.
+        (
+            55,
+            "0055_chrome_profiles",
+            include_str!("../../migrations/0055_chrome_profiles.sql"),
+        ),
     ];
 
     for (id, name, sql) in migrations {

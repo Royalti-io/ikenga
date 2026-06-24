@@ -357,6 +357,23 @@ pub struct SupabaseCapability {
     pub required: bool,
 }
 
+/// Which underlying browser engine backs a pane. `webkit` (default) is the
+/// in-shell child-webview; `chrome` is Managed mode (the shell launches the
+/// user's installed Chrome with a dedicated `--user-data-dir` +
+/// `--remote-debugging-port` and drives it over CDP). Mirrors `BrowserEngine`
+/// in `@ikenga/contract` (`browser.ts`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum BrowserEngine {
+    #[default]
+    Webkit,
+    Chrome,
+}
+
+fn default_engines() -> Vec<BrowserEngine> {
+    vec![BrowserEngine::Webkit]
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct WebviewCapability {
     /// Whether this pkg requests the right to create child webviews via the
@@ -370,6 +387,13 @@ pub struct WebviewCapability {
     /// implicit "default" partition.
     #[serde(default)]
     pub partitions: Vec<String>,
+    /// Browser engines this pkg may open panes with. `webkit` (default) is the
+    /// in-shell child-webview; `chrome` is Managed mode (installed Chrome over
+    /// CDP, its own OS window). Defaults to `["webkit"]` so existing manifests
+    /// are unchanged. Mirrors `engines` in `WebviewCapabilitySchema`
+    /// (`@ikenga/contract`).
+    #[serde(default = "default_engines")]
+    pub engines: Vec<BrowserEngine>,
 }
 
 /// host.fetch capability (ADR-017). URL allowlist reuses `permissions.net`; an
