@@ -14,6 +14,7 @@
 //! (WP-05), and action verbs (WP-06) as sibling modules here. This module is
 //! standalone — it is not yet wired into the kernel, registries, or commands.
 
+pub mod actions;
 pub mod detect;
 pub mod launcher;
 pub mod lifecycle;
@@ -33,3 +34,8 @@ pub use lifecycle::{reconcile_on_boot, ChromeState, ManagedRecord, ReconcileOutc
 pub use profile::managed_profile_dir;
 #[allow(unused_imports)]
 pub use snapshot::{take_snapshot, BrowserSnapshot, BrowserSnapshotNode, RefStore};
+#[allow(unused_imports)]
+pub use actions::{
+    back, bring_to_front, click, eval, fill, forward, goto, press_key, reload, screenshot, select,
+    wait_for, Screenshot, WaitFor, WaitOutcome,
+};
