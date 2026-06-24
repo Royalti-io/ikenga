@@ -18,6 +18,7 @@ pub mod detect;
 pub mod launcher;
 pub mod lifecycle;
 pub mod profile;
+pub mod snapshot;
 
 // Re-exports form the module's public API for later WPs (lifecycle, snapshot,
 // actions, routing). Unused until those land — allow so the foundation lands
@@ -30,3 +31,5 @@ pub use launcher::{launch_managed, LaunchOptions, ManagedChrome};
 pub use lifecycle::{reconcile_on_boot, ChromeState, ManagedRecord, ReconcileOutcome};
 #[allow(unused_imports)]
 pub use profile::managed_profile_dir;
+#[allow(unused_imports)]
+pub use snapshot::{take_snapshot, BrowserSnapshot, BrowserSnapshotNode, RefStore};
