@@ -1,13 +1,22 @@
 #!/usr/bin/env bash
 # Personal-use installer for Linux. Wraps `dpkg -i` against the .deb that
-# `bunx tauri build` produces. AppImage was the original primary path but
-# linuxdeploy chokes on the bundled bun-compiled iyke-mcp binary
-# (self-contained ELF that ldd can't parse), so .deb is the supported
-# install path until the AppImage tooling is fixed.
+# `bunx tauri build` produces. Both .deb and .AppImage build fine — CI ships a
+# working signed AppImage every release. This script just covers the .deb
+# system-install path (registers with dpkg, lands /usr/bin/ikenga-desktop). For
+# a no-root portable install, grab the .AppImage from the GitHub release or the
+# local bundle/appimage/ output instead.
 #
 # Build first:
 #   cd ikenga/shell
 #   bunx tauri build --target x86_64-unknown-linux-gnu
+#
+# AppImage build prereq: the .AppImage target runs linuxdeploy's gtk +
+# gstreamer plugins (gstreamer is pulled in by tauri.conf.json's
+# linux.appimage.bundleMediaFramework). The gstreamer plugin needs `patchelf`
+# on PATH or it fails with `Error: patchelf not found` →
+# `Failed to run plugin: gstreamer (exit code: 2)` and no .AppImage is emitted.
+# CI installs it (see .github/workflows/release.yml). Locally:
+#   sudo apt-get install -y patchelf
 #
 # Requires sudo to invoke dpkg. The install lands the binary at
 # /usr/bin/ikenga-desktop and the .desktop entry under
