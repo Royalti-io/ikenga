@@ -19,8 +19,9 @@ use tower_http::cors::{Any, CorsLayer};
 
 use super::auth::{require_token, AuthState};
 use super::browser_handlers::{
-    get_browser_list, post_browser_back, post_browser_click, post_browser_close, post_browser_eval,
-    post_browser_fill, post_browser_focus, post_browser_forward, post_browser_goto,
+    get_browser_list, get_browser_profiles, get_browser_targets, post_browser_back,
+    post_browser_click, post_browser_close, post_browser_eval, post_browser_fill,
+    post_browser_focus, post_browser_forward, post_browser_goto, post_browser_launch_profile,
     post_browser_open, post_browser_pause, post_browser_press_key, post_browser_read_text,
     post_browser_reload, post_browser_reply, post_browser_resume, post_browser_screenshot,
     post_browser_select, post_browser_snapshot, post_browser_wait_for, BrowserPort,
@@ -137,6 +138,10 @@ pub async fn serve(
         .route("/iyke/browser/open", post(post_browser_open))
         .route("/iyke/browser/close", post(post_browser_close))
         .route("/iyke/browser/list", get(get_browser_list))
+        // Attach picker data (chrome-only global queries — no pane).
+        .route("/iyke/browser/profiles", get(get_browser_profiles))
+        .route("/iyke/browser/targets", get(get_browser_targets))
+        .route("/iyke/browser/launch_profile", post(post_browser_launch_profile))
         .route("/iyke/browser/focus", post(post_browser_focus))
         .route("/iyke/browser/goto", post(post_browser_goto))
         .route("/iyke/browser/back", post(post_browser_back))

@@ -5,6 +5,7 @@ import {
 	FileText,
 	FolderKanban,
 	FolderOpen,
+	Globe,
 	Inbox,
 	Layers,
 	Mail,
@@ -28,6 +29,7 @@ import type { PaneNode, PaneView } from '@/lib/panes/types';
 import { fuzzyMatchSection, slugifySectionId, usePinsStore } from '@/lib/shell/pins-store';
 import { useShellStore } from '@/lib/shell/shell-store';
 import { createTerminalSession } from '@/terminal/single-terminal';
+import { ChromePickerDialog } from './chrome-picker/chrome-picker-dialog';
 
 export type PaletteMode = 'all' | 'views' | 'switcher' | 'projects';
 
@@ -44,6 +46,17 @@ export function CommandPalette({ open, mode, onOpenChange }: CommandPaletteProps
 	// (replaces the old window.prompt/confirm/alert chain, which hijacked AT
 	// focus). Holds the route path being pinned.
 	const [pinTarget, setPinTarget] = useState<string | null>(null);
+
+	// The Attach-Chrome picker is a sibling dialog opened from a palette row. It
+	// must outlive the palette panel (which unmounts on `open=false`), so its
+	// state lives here and the dialog renders above the early `!open` guard.
+	const [chromePickerOpen, setChromePickerOpen] = useState(false);
+
+	function startAttachChrome() {
+		onOpenChange(false);
+		// Defer so the palette unmounts before the picker grabs focus.
+		setTimeout(() => setChromePickerOpen(true), 0);
+	}
 
 	function go(to: string) {
 		onOpenChange(false);
@@ -102,7 +115,13 @@ export function CommandPalette({ open, mode, onOpenChange }: CommandPaletteProps
 		return () => cancelAnimationFrame(id);
 	}, [open]);
 
-	if (!open) return null;
+	// The Attach-Chrome picker renders independently of the palette panel so it
+	// survives the palette closing (the row that opens it closes the palette).
+	const chromePicker = (
+		<ChromePickerDialog open={chromePickerOpen} onOpenChange={setChromePickerOpen} />
+	);
+
+	if (!open) return chromePicker;
 
 	const placeholder =
 		mode === 'views'
@@ -114,186 +133,194 @@ export function CommandPalette({ open, mode, onOpenChange }: CommandPaletteProps
 					: 'Type a command or search…';
 
 	return (
-		<div
-			className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh]"
-			onClick={() => onOpenChange(false)}
-		>
+		<>
+			{chromePicker}
 			<div
-				className="absolute inset-0 bg-black/50 transition-opacity duration-[var(--motion-fast)] ease-[var(--ease-calm)]"
-				aria-hidden
-			/>
-			<div
-				ref={panelRef}
-				role="dialog"
-				aria-modal="true"
-				aria-label={pinTarget !== null ? 'Pin to activity bar' : 'Command palette'}
-				tabIndex={-1}
-				data-open={entered ? 'true' : 'false'}
-				className="relative w-full max-w-xl overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground shadow-2xl outline-none transition-[opacity,transform] duration-[var(--motion-fast)] ease-[var(--ease-calm)] data-[open=false]:-translate-y-2 data-[open=false]:opacity-0 data-[open=true]:translate-y-0 data-[open=true]:opacity-100"
-				onClick={(e) => e.stopPropagation()}
+				className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh]"
+				onClick={() => onOpenChange(false)}
 			>
-				{pinTarget !== null ? (
-					<PinForm
-						target={pinTarget}
-						onClose={() => {
-							setPinTarget(null);
-							onOpenChange(false);
-						}}
-						onCancel={() => setPinTarget(null)}
-					/>
-				) : (
-					<Command label="Command palette" className="flex flex-col">
-						<Command.Input
-							autoFocus
-							placeholder={placeholder}
-							className="w-full border-b border-border bg-transparent px-4 py-3 text-sm outline-none placeholder:text-muted-foreground"
+				<div
+					className="absolute inset-0 bg-black/50 transition-opacity duration-[var(--motion-fast)] ease-[var(--ease-calm)]"
+					aria-hidden
+				/>
+				<div
+					ref={panelRef}
+					role="dialog"
+					aria-modal="true"
+					aria-label={pinTarget !== null ? 'Pin to activity bar' : 'Command palette'}
+					tabIndex={-1}
+					data-open={entered ? 'true' : 'false'}
+					className="relative w-full max-w-xl overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground shadow-2xl outline-none transition-[opacity,transform] duration-[var(--motion-fast)] ease-[var(--ease-calm)] data-[open=false]:-translate-y-2 data-[open=false]:opacity-0 data-[open=true]:translate-y-0 data-[open=true]:opacity-100"
+					onClick={(e) => e.stopPropagation()}
+				>
+					{pinTarget !== null ? (
+						<PinForm
+							target={pinTarget}
+							onClose={() => {
+								setPinTarget(null);
+								onOpenChange(false);
+							}}
+							onCancel={() => setPinTarget(null)}
 						/>
-						<Command.List className="max-h-[50vh] overflow-y-auto p-2">
-							<Command.Empty className="py-8 text-center text-sm text-muted-foreground">
-								No results.
-							</Command.Empty>
+					) : (
+						<Command label="Command palette" className="flex flex-col">
+							<Command.Input
+								autoFocus
+								placeholder={placeholder}
+								className="w-full border-b border-border bg-transparent px-4 py-3 text-sm outline-none placeholder:text-muted-foreground"
+							/>
+							<Command.List className="max-h-[50vh] overflow-y-auto p-2">
+								<Command.Empty className="py-8 text-center text-sm text-muted-foreground">
+									No results.
+								</Command.Empty>
 
-							{mode === 'switcher' ? (
-								<SwitcherGroup onClose={() => onOpenChange(false)} />
-							) : mode === 'projects' ? (
-								<ProjectsGroup onClose={() => onOpenChange(false)} />
-							) : (
-								<>
-									<Command.Group
-										heading="In focused pane"
-										className="text-xs text-muted-foreground"
-									>
-										<PaletteItem
-											onSelect={() =>
-												addToFocused(() => ({
-													kind: 'terminal',
-													sessionId: createTerminalSession(),
-												}))
-											}
-											Icon={Plus}
-											label="New Terminal"
-											shortcut="⌃T"
-										/>
-										<PaletteItem
-											onSelect={() =>
-												addToFocused(() => ({
-													kind: 'terminal',
-													sessionId: createTerminalSession({
-														cmd: ['claude'],
-														title: 'claude',
-													}),
-												}))
-											}
-											Icon={Plus}
-											label="New Claude Terminal"
-											shortcut="⌃⇧T"
-										/>
-										<PaletteItem
-											onSelect={() => go('/projects/new-artifact')}
-											Icon={Sparkles}
-											label="New artifact…"
-											shortcut="⌘⇧N"
-										/>
-										<PaletteItem
-											onSelect={newClaudeSession}
-											Icon={Bot}
-											label="New Chat / Claude Session"
-										/>
-										<PaletteItem
-											onSelect={() => onOpenChange(false)}
-											disabled={true}
-											Icon={RefreshCw}
-											label="Switch Adapter (coming soon)"
-											shortcut="⌘⇧A"
-										/>
-										<PaletteItem
-											onSelect={() => onOpenChange(false)}
-											Icon={FolderOpen}
-											label="Open File (use Files mode for now)"
-										/>
-										<PaletteItem
-											onSelect={startPinFlow}
-											Icon={PinIconGlyph}
-											label="Pin focused route to activity bar…"
-										/>
-									</Command.Group>
-
-									{mode === 'all' && (
-										<Command.Group heading="Navigate" className="text-xs text-muted-foreground">
+								{mode === 'switcher' ? (
+									<SwitcherGroup onClose={() => onOpenChange(false)} />
+								) : mode === 'projects' ? (
+									<ProjectsGroup onClose={() => onOpenChange(false)} />
+								) : (
+									<>
+										<Command.Group
+											heading="In focused pane"
+											className="text-xs text-muted-foreground"
+										>
 											<PaletteItem
-												onSelect={() => go('/mail/inbox')}
-												Icon={Inbox}
-												label="Go to Inbox"
+												onSelect={() =>
+													addToFocused(() => ({
+														kind: 'terminal',
+														sessionId: createTerminalSession(),
+													}))
+												}
+												Icon={Plus}
+												label="New Terminal"
+												shortcut="⌃T"
 											/>
 											<PaletteItem
-												onSelect={() => go('/mail/triage')}
-												Icon={Inbox}
-												label="Go to Triage"
+												onSelect={() =>
+													addToFocused(() => ({
+														kind: 'terminal',
+														sessionId: createTerminalSession({
+															cmd: ['claude'],
+															title: 'claude',
+														}),
+													}))
+												}
+												Icon={Plus}
+												label="New Claude Terminal"
+												shortcut="⌃⇧T"
 											/>
 											<PaletteItem
-												onSelect={() => go('/mail/drafts')}
-												Icon={Mail}
-												label="Go to Reply Drafts"
+												onSelect={() => go('/projects/new-artifact')}
+												Icon={Sparkles}
+												label="New artifact…"
+												shortcut="⌘⇧N"
 											/>
 											<PaletteItem
-												onSelect={() => go('/tasks')}
-												Icon={CheckSquare}
-												label="Go to Tasks"
+												onSelect={newClaudeSession}
+												Icon={Bot}
+												label="New Chat / Claude Session"
 											/>
 											<PaletteItem
-												onSelect={() => go('/pkg/com.ikenga.work/delegations')}
-												Icon={Users}
-												label="Go to Delegations"
+												onSelect={() => onOpenChange(false)}
+												disabled={true}
+												Icon={RefreshCw}
+												label="Switch Adapter (coming soon)"
+												shortcut="⌘⇧A"
 											/>
 											<PaletteItem
-												onSelect={() => go('/finance')}
-												Icon={Wallet}
-												label="Go to Finance"
+												onSelect={() => onOpenChange(false)}
+												Icon={FolderOpen}
+												label="Open File (use Files mode for now)"
 											/>
 											<PaletteItem
-												onSelect={() => go('/outbox/email')}
-												Icon={Mail}
-												label="Go to Outbox · Email"
+												onSelect={startPinFlow}
+												Icon={PinIconGlyph}
+												label="Pin focused route to activity bar…"
 											/>
 											<PaletteItem
-												onSelect={() => go('/outbox/newsletter')}
-												Icon={Newspaper}
-												label="Go to Outbox · Newsletter"
-											/>
-											<PaletteItem
-												onSelect={() => go('/outbox/social')}
-												Icon={MessageSquare}
-												label="Go to Outbox · Social"
-											/>
-											<PaletteItem
-												onSelect={() => go('/outbox/sent')}
-												Icon={Mail}
-												label="Go to Outbox · Sent"
-											/>
-											<PaletteItem
-												onSelect={() => go('/outbox/approvals')}
-												Icon={CheckSquare}
-												label="Go to Outbox · Approvals"
-											/>
-											<PaletteItem
-												onSelect={() => go('/sessions')}
-												Icon={TerminalIcon}
-												label="Go to Sessions"
-											/>
-											<PaletteItem
-												onSelect={() => go('/settings')}
-												Icon={Settings}
-												label="Go to Settings"
+												onSelect={startAttachChrome}
+												Icon={Globe}
+												label="Attach Chrome profile / tab…"
 											/>
 										</Command.Group>
-									)}
-								</>
-							)}
-						</Command.List>
-					</Command>
-				)}
+
+										{mode === 'all' && (
+											<Command.Group heading="Navigate" className="text-xs text-muted-foreground">
+												<PaletteItem
+													onSelect={() => go('/mail/inbox')}
+													Icon={Inbox}
+													label="Go to Inbox"
+												/>
+												<PaletteItem
+													onSelect={() => go('/mail/triage')}
+													Icon={Inbox}
+													label="Go to Triage"
+												/>
+												<PaletteItem
+													onSelect={() => go('/mail/drafts')}
+													Icon={Mail}
+													label="Go to Reply Drafts"
+												/>
+												<PaletteItem
+													onSelect={() => go('/tasks')}
+													Icon={CheckSquare}
+													label="Go to Tasks"
+												/>
+												<PaletteItem
+													onSelect={() => go('/pkg/com.ikenga.work/delegations')}
+													Icon={Users}
+													label="Go to Delegations"
+												/>
+												<PaletteItem
+													onSelect={() => go('/finance')}
+													Icon={Wallet}
+													label="Go to Finance"
+												/>
+												<PaletteItem
+													onSelect={() => go('/outbox/email')}
+													Icon={Mail}
+													label="Go to Outbox · Email"
+												/>
+												<PaletteItem
+													onSelect={() => go('/outbox/newsletter')}
+													Icon={Newspaper}
+													label="Go to Outbox · Newsletter"
+												/>
+												<PaletteItem
+													onSelect={() => go('/outbox/social')}
+													Icon={MessageSquare}
+													label="Go to Outbox · Social"
+												/>
+												<PaletteItem
+													onSelect={() => go('/outbox/sent')}
+													Icon={Mail}
+													label="Go to Outbox · Sent"
+												/>
+												<PaletteItem
+													onSelect={() => go('/outbox/approvals')}
+													Icon={CheckSquare}
+													label="Go to Outbox · Approvals"
+												/>
+												<PaletteItem
+													onSelect={() => go('/sessions')}
+													Icon={TerminalIcon}
+													label="Go to Sessions"
+												/>
+												<PaletteItem
+													onSelect={() => go('/settings')}
+													Icon={Settings}
+													label="Go to Settings"
+												/>
+											</Command.Group>
+										)}
+									</>
+								)}
+							</Command.List>
+						</Command>
+					)}
+				</div>
 			</div>
-		</div>
+		</>
 	);
 }
 
