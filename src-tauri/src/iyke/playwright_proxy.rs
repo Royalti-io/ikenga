@@ -20,9 +20,9 @@
 //! precise install-offer error instead of hanging (WP-A1.4). If `node` itself is
 //! missing, a precise Node-prerequisite error surfaces (WP-A1.5).
 //!
-//! Not yet wired into `browser_handlers` (that atomic rewire is the cutover step,
-//! gated G-CUTOVER + the WP-02 Attach validation); this module is the compiling
-//! foundation.
+//! This is the live forwarder behind `/iyke/browser/*` — every `engine=chrome`
+//! verb in `browser_handlers` routes through `proxy_post`/`proxy_get`. The A1
+//! lazy by-id resolution is the only delta over the original cutover.
 #![allow(dead_code)]
 
 use std::collections::HashSet;
@@ -242,7 +242,11 @@ impl PlaywrightProxy {
             .send()
             .await
             .with_context(|| format!("proxy GET {path} to playwright sidecar"))?;
+        let status = resp.status();
         let text = resp.text().await.context("read sidecar response")?;
+        if !status.is_success() {
+            return Err(anyhow!("sidecar {path} returned {status}: {text}"));
+        }
         serde_json::from_str(&text).context("parse sidecar response")
     }
 
