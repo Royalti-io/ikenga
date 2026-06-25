@@ -129,6 +129,12 @@ pub struct OpenBody {
     /// ignored on the webkit path and in managed mode.
     #[serde(default)]
     pub attach_target: Option<String>,
+    /// Managed-mode window visibility (`engine="chrome"` + `mode="managed"`):
+    /// omit/`false` → HEADFUL (visible, for human review/login — the default);
+    /// `true` → headless (autonomous). Forwarded to the sidecar; ignored on the
+    /// webkit + attach paths.
+    #[serde(default)]
+    pub headless: Option<bool>,
 }
 
 #[derive(Serialize)]
