@@ -61,17 +61,16 @@ impl PlaywrightProxy {
         }
         // Runtime = NODE, not Bun: Playwright's `connectOverCDP` (attach mode)
         // hangs on Bun's WebSocket transport; Node connects fine (managed mode
-        // works on both). cwd is the pkg root so `node --import tsx` resolves
-        // `tsx` + `playwright` from the pkg's node_modules.
+        // works on both). `sidecar_entry` points at the prebuilt `dist/sidecar.js`
+        // (no `tsx` at runtime). cwd is the pkg root (`dist/`'s parent) so node
+        // resolves `playwright` from the pkg's `node_modules`.
         let pkg_dir = self
             .sidecar_entry
             .parent()
             .and_then(|p| p.parent())
             .map(|p| p.to_path_buf());
         let mut cmd = Command::new("node");
-        cmd.arg("--import")
-            .arg("tsx")
-            .arg(&self.sidecar_entry)
+        cmd.arg(&self.sidecar_entry)
             .env("IKENGA_PW_HEADLESS", "1")
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
@@ -81,7 +80,7 @@ impl PlaywrightProxy {
         }
         let mut child = cmd
             .spawn()
-            .with_context(|| format!("spawn playwright sidecar: node --import tsx {:?}", self.sidecar_entry))?;
+            .with_context(|| format!("spawn playwright sidecar: node {:?}", self.sidecar_entry))?;
 
         let stdout = child
             .stdout

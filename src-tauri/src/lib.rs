@@ -338,9 +338,11 @@ pub fn run() {
             // iyke::start so the `/iyke/browser/*` handlers can hold an Arc to it
             // via an Extension layer; `.manage()`d after so Tauri commands can
             // too. Sidecar entry resolves from `IKENGA_PW_SIDECAR`, falling back
-            // to the in-workspace sidecar source.
+            // to the prebuilt `dist/sidecar.js` in the in-workspace sidecar pkg.
+            // TODO(productionize): resolve from a bundled builtin-pkg / installed
+            // pkg path instead of this dev default (see plans/playwright-adoption).
             let pw_sidecar_entry = std::env::var("IKENGA_PW_SIDECAR").unwrap_or_else(|_| {
-                "/home/nedjamez/royalti-co/ikenga/ikenga-pkgs/packages/sidecars/playwright-browser/src/sidecar.ts".to_string()
+                "/home/nedjamez/royalti-co/ikenga/ikenga-pkgs/packages/sidecars/playwright-browser/dist/sidecar.js".to_string()
             });
             let playwright_proxy = Arc::new(iyke::playwright_proxy::PlaywrightProxy::new(
                 std::path::PathBuf::from(pw_sidecar_entry),
