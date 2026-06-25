@@ -122,6 +122,13 @@ pub struct OpenBody {
     /// for chrome (Managed Chrome owns its own OS window — G-05), hence optional.
     #[serde(default)]
     pub rect: Option<PaneRect>,
+    /// Attach-mode target selection (`engine="chrome"` + `mode="attach"` only):
+    /// `"new"` (default) opens a fresh tab without disturbing existing ones,
+    /// `"active"` adopts the first open tab (the pre-WP behavior), or a specific
+    /// CDP `<targetId>` adopts that page. Forwarded verbatim to the sidecar;
+    /// ignored on the webkit path and in managed mode.
+    #[serde(default)]
+    pub attach_target: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -265,6 +272,66 @@ pub async fn get_browser_list(
 
     out.insert("panes".into(), Value::Array(entries));
     Json(Value::Object(out))
+}
+
+// ── chrome-only global queries (profiles / targets / launch_profile) ─────────
+//
+// These three verbs are chrome-engine-only and need NO pane — they query OS
+// Chrome state, not a Playwright session. The shell just forwards to the
+// sidecar (which owns the cross-OS Local-State read, the CDP `/json` probe, and
+// the Chrome spawn). The proxy lazy-spawns the sidecar on first call, so the
+// FE picker can open before any chrome pane exists.
+
+/// `GET /iyke/browser/profiles` → `{ profiles: [{ dir, name, running }] }`.
+/// OS Chrome profiles from the user-data-dir's `Local State` — distinct from
+/// the Ikenga named partitions under `/iyke/browser/session/*`.
+pub async fn get_browser_profiles(
+    Extension(proxy): Extension<Arc<PlaywrightProxy>>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let v = proxy
+        .proxy_get("/iyke/browser/profiles", "")
+        .await
+        .map_err(err500)?;
+    Ok(Json(v))
+}
+
+/// `GET /iyke/browser/targets` → `{ endpoint, targets: [{ targetId, title, url, kind }] }`.
+/// Probes the attach CDP endpoint; `endpoint: null` + `targets: []` when no
+/// debug Chrome is reachable (the FE uses that to show the launch hint). The
+/// sidecar never throws here.
+pub async fn get_browser_targets(
+    Extension(proxy): Extension<Arc<PlaywrightProxy>>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let v = proxy
+        .proxy_get("/iyke/browser/targets", "")
+        .await
+        .map_err(err500)?;
+    Ok(Json(v))
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct LaunchProfileBody {
+    pub dir: String,
+    #[serde(default)]
+    pub port: Option<u16>,
+}
+
+/// `POST /iyke/browser/launch_profile` → `{ ok, endpoint }`. Spawns the
+/// installed Chrome for the chosen on-disk profile with a remote-debugging
+/// port so it becomes attachable. The sidecar refuses (clear error) if that
+/// profile is already running (singleton lock).
+pub async fn post_browser_launch_profile(
+    Extension(proxy): Extension<Arc<PlaywrightProxy>>,
+    JsonBody(body): JsonBody<LaunchProfileBody>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let v = proxy
+        .proxy_post(
+            "/iyke/browser/launch_profile",
+            &serde_json::to_value(&body).map_err(err500)?,
+        )
+        .await
+        .map_err(err500)?;
+    Ok(Json(v))
 }
 
 // ── navigation ───────────────────────────────────────────────────────────────
