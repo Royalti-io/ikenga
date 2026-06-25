@@ -2,7 +2,7 @@
 //! WP-04 + A1). This is the replacement for the in-process chromiumoxide engine:
 //! the shell no longer drives Chrome itself — it forwards the `engine=chrome`
 //! (later `mode:attach|managed`) `/iyke/browser/*` requests to a long-lived Node
-//! sidecar (`@ikenga/sidecar-playwright-browser`) that owns the Playwright
+//! sidecar (`@ikenga/pkg-browser`) that owns the Playwright
 //! sessions.
 //!
 //! Lifecycle: lazy-spawn `node <sidecar.js>` on the first chrome request, read
@@ -51,9 +51,9 @@ const DEV_FALLBACK_ENTRY: &str = "/home/nedjamez/royalti-co/ikenga/ikenga-pkgs/p
 /// registry yet, so we point at the working npm + env path instead (see the
 /// pkg README). Update to `ikenga add …` once the registry entry lands.
 const NOT_INSTALLED_MSG: &str =
-    "browser engine not installed — install it with: npm i -g @ikenga/sidecar-playwright-browser \
-     && export IKENGA_PW_SIDECAR=\"$(npm root -g)/@ikenga/sidecar-playwright-browser/dist/sidecar.js\" \
-     (needs Node + Google Chrome; see the @ikenga/sidecar-playwright-browser README)";
+    "browser engine not installed — install it with: npm i -g @ikenga/pkg-browser \
+     && export IKENGA_PW_SIDECAR=\"$(npm root -g)/@ikenga/pkg-browser/dist/sidecar.js\" \
+     (needs Node + Google Chrome; see the @ikenga/pkg-browser README)";
 
 /// User-facing message when `node` isn't on PATH (WP-A1.5).
 const NODE_MISSING_MSG: &str =
