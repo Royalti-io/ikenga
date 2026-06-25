@@ -47,8 +47,13 @@ const SIDECAR_PKG_ID: &str = "com.ikenga.sidecar-playwright-browser";
 const DEV_FALLBACK_ENTRY: &str = "/home/nedjamez/royalti-co/ikenga/ikenga-pkgs/packages/sidecars/playwright-browser/dist/sidecar.js";
 
 /// User-facing message when no sidecar entry resolves (WP-A1.4).
+/// NB: `ikenga add` is registry-gated and this pkg isn't in the signed Ọba
+/// registry yet, so we point at the working npm + env path instead (see the
+/// pkg README). Update to `ikenga add …` once the registry entry lands.
 const NOT_INSTALLED_MSG: &str =
-    "browser engine not installed — run: ikenga add @ikenga/sidecar-playwright-browser";
+    "browser engine not installed — install it with: npm i -g @ikenga/sidecar-playwright-browser \
+     && export IKENGA_PW_SIDECAR=\"$(npm root -g)/@ikenga/sidecar-playwright-browser/dist/sidecar.js\" \
+     (needs Node + Google Chrome; see the @ikenga/sidecar-playwright-browser README)";
 
 /// User-facing message when `node` isn't on PATH (WP-A1.5).
 const NODE_MISSING_MSG: &str =
