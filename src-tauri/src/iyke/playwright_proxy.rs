@@ -172,9 +172,11 @@ impl PlaywrightProxy {
         // Augment PATH the same way agent spawns do so an nvm-managed `node`
         // (invisible to the app's inherited GUI-launch PATH) still resolves
         // (WP-A1.5; ADR-013 §Addendum Decision 2).
+        // NOTE: we no longer force IKENGA_PW_HEADLESS — managed mode defaults to
+        // HEADFUL so a human can watch / log in / review (Need-1). Autonomous
+        // callers opt into headless per-pane via the `headless` field on open.
         cmd.arg(&entry)
             .env("PATH", crate::runtime::augmented_path())
-            .env("IKENGA_PW_HEADLESS", "1")
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
             .kill_on_drop(true);
