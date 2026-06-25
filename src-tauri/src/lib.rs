@@ -333,17 +333,16 @@ pub fn run() {
 
 
             // Playwright reverse-proxy: lazy-spawns the `@ikenga/sidecar-
-            // playwright-browser` Bun sidecar on the first chrome request and
+            // playwright-browser` Node sidecar on the first chrome request and
             // forwards every `engine=chrome` verb to it. Constructed before
             // iyke::start so the `/iyke/browser/*` handlers can hold an Arc to it
             // via an Extension layer; `.manage()`d after so Tauri commands can
-            // too. Sidecar entry resolves from `IKENGA_PW_SIDECAR`, falling back
-            // to the in-workspace sidecar source.
-            let pw_sidecar_entry = std::env::var("IKENGA_PW_SIDECAR").unwrap_or_else(|_| {
-                "/home/nedjamez/royalti-co/ikenga/ikenga-pkgs/packages/sidecars/playwright-browser/src/sidecar.ts".to_string()
-            });
+            // too. The proxy holds a `PaDb` handle (G2: `pa_db` exists above) and
+            // resolves the sidecar entry by-id on first spawn (A1, WP-A1.1):
+            // `IKENGA_PW_SIDECAR` → `pkg_installed.install_path` for
+            // `com.ikenga.sidecar-playwright-browser` → in-workspace dev fallback.
             let playwright_proxy = Arc::new(iyke::playwright_proxy::PlaywrightProxy::new(
-                std::path::PathBuf::from(pw_sidecar_entry),
+                pa_db.clone(),
             ));
 
             let iyke_state_for_start = iyke_state.clone();

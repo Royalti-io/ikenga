@@ -7,8 +7,9 @@
 	"description": "Ikenga — Tauri 2 desktop app (control plane for terminals, chat, viewer)",
 	"scripts": {
 		"changeset:version": "bunx @changesets/cli version && node scripts/sync-version.mjs",
-		"dev": "bun run bun:fetch && bun run iyke:bundle && bun run artifact:bundle && bun run tokens:copy && bun run iyke:mcp:build && vite",
+		"dev": "bun run bun:fetch && bun run iyke:bundle && bun run artifact:bundle && bun run tokens:copy && bun run iyke:mcp:build && bun run pw:sidecar:build && vite",
 		"build": "bun run iyke:bundle && bun run artifact:bundle && bun run tokens:copy && bun run iyke:mcp:build && vite build",
+		"pw:sidecar:build": "bash scripts/build-playwright-sidecar.sh",
 		"bun:fetch": "bash scripts/fetch-bun.sh",
 		"iyke:bundle": "bun build src/lib/iyke/iframe-bridge.entry.ts --outfile src-tauri/resources/iyke-iframe-bridge.js --target browser --format esm --minify",
 		"artifact:bundle": "bun build src/lib/artifact/bridge.entry.ts --outfile src-tauri/resources/artifact-iframe-bridge.js --target browser --format esm --minify",
