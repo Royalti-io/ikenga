@@ -319,6 +319,10 @@ async fn emit_and_await(
         pane_id,
         force_fe,
     };
+    // TODO(multi-window): broadcast today — the pane→owning-window map isn't
+    // available here, so every window's screenshot listener receives this and
+    // the first to reply wins (research 03). Route to the owning window via
+    // `emit_to` once panes carry their window label end-to-end.
     if let Err(e) = app.emit(REQUEST_EVENT, &payload) {
         pending.lock().await.remove(&request_id);
         return Err(anyhow!("emit screenshot request: {e}"));
@@ -416,6 +420,10 @@ struct WindowGeom {
 /// — so stealing focus there would be a pointless flicker on every pane
 /// screenshot (pane capture was historically focus-independent).
 async fn capture_window_png(app: &AppHandle, focus_window: bool) -> Result<(Vec<u8>, WindowGeom)> {
+    // Native window capture targets the PRIMARY window. Reached from the CLI
+    // `--screenshot=window` intercept (which runs before any window is focused)
+    // and the FE screenshot path. TODO(multi-window): thread a target label to
+    // capture a non-primary window.
     let window = app
         .get_webview_window("main")
         .ok_or_else(|| anyhow!("main webview window not found"))?;

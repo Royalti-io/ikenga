@@ -343,6 +343,9 @@ pub async fn post_resize(
     Extension(app): Extension<AppHandle>,
     JsonBody(body): JsonBody<ResizeBody>,
 ) -> Result<Json<OkResponse>, (StatusCode, String)> {
+    // iyke bridge is app-level (single identity) — drives the PRIMARY window
+    // today. TODO(multi-window): route to a target window once the bridge is
+    // window-aware (research 03).
     let window = app.get_webview_window("main").ok_or((
         StatusCode::INTERNAL_SERVER_ERROR,
         "main window not found".into(),
@@ -1376,6 +1379,8 @@ pub async fn post_pkg_health_remove_all(
 pub async fn post_devtools(
     Extension(app): Extension<AppHandle>,
 ) -> Result<Json<OkResponse>, (StatusCode, String)> {
+    // DevTools on the PRIMARY window (debug builds). TODO(multi-window): accept
+    // a target label once the iyke bridge is window-aware.
     let window = app.get_webview_window("main").ok_or((
         StatusCode::INTERNAL_SERVER_ERROR,
         "main window not found".into(),

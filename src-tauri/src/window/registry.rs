@@ -146,6 +146,33 @@ impl WindowRegistry {
     }
 }
 
+/// Emit `topic` to the currently-focused window only, falling back to a
+/// broadcast if no window reports focus. Used for global-shortcut-driven
+/// events (`screenshot://shortcut`) that must reach the window the user is
+/// looking at, not race across every window (research 03 — the broadcast
+/// shortcut made every window's screenshot listener respond simultaneously).
+pub fn emit_to_focused<T: Serialize + Clone>(
+    app: &AppHandle,
+    topic: &str,
+    payload: T,
+) -> Result<()> {
+    let focused = app.webview_windows().into_iter().find_map(|(label, w)| {
+        if w.is_focused().unwrap_or(false) {
+            Some(label)
+        } else {
+            None
+        }
+    });
+    match focused {
+        Some(label) => app
+            .emit_to(&label, topic, payload)
+            .map_err(|e| anyhow!("emit_to '{label}': {e}")),
+        None => app
+            .emit(topic, payload)
+            .map_err(|e| anyhow!("broadcast '{topic}': {e}")),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

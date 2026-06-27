@@ -66,9 +66,9 @@
 //! `capabilities.webview.child_webviews = true`. Partition names are
 //! validated against `capabilities.webview.partitions`.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::{Arc, OnceLock, RwLock, Weak};
+use std::sync::{Arc, RwLock, Weak};
 
 use anyhow::{anyhow, Context, Result};
 use serde::Serialize;
@@ -193,6 +193,11 @@ impl PaneSurface {
 struct PaneHandle {
     surface: PaneSurface,
     label: String,
+    /// Label of the window this pane is parented to / tracked against. "main"
+    /// for the primary window; a detached label otherwise (multi-window:
+    /// WP-04). Read on Linux by the parent-tracking listener + `set_surface_rect`
+    /// to resolve the correct parent window's screen coords.
+    parent_label: String,
     partition: String,
     current_url: RwLock<Option<String>>,
     /// The rect the FE measured. Held so `set_rect` and (on Linux) the
@@ -208,9 +213,11 @@ struct PaneHandle {
 pub struct WebviewPanesRegistry {
     panes: RwLock<HashMap<(String, String), Arc<PaneHandle>>>,
     pkg_capabilities: RwLock<HashMap<String, PkgCapability>>,
-    /// Linux only: set once on first create, gates installing the
-    /// parent-window event listener.
-    parent_listener_installed: OnceLock<()>,
+    /// Linux only: labels of parent windows that already have a move/resize
+    /// listener installed. One listener per distinct parent window — a pane in
+    /// a non-`main` window needs its own listener watching that window's
+    /// geometry, otherwise it would never reposition (multi-window: WP-04).
+    parent_listeners: RwLock<HashSet<String>>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -235,6 +242,7 @@ impl WebviewPanesRegistry {
         url: &str,
         rect: PaneRect,
         partition: Option<&str>,
+        parent_label: &str,
     ) -> Result<String> {
         // ── Common scaffolding ────────────────────────────────────────────
         let cap = self
@@ -263,8 +271,15 @@ impl WebviewPanesRegistry {
         // Idempotency hook for FE strict-mode double-mount.
         self.destroy(pkg_id, pane_id).ok();
 
-        let main_window = app.get_webview_window("main").ok_or_else(|| {
-            anyhow!("no main webview window — kernel called before setup completed?")
+        // Parent the pane to the window that asked for it — the calling FE
+        // window for the Tauri command, "main" for the agent-driven iyke
+        // bridge — NOT the literal "main", so panes can live in any window
+        // (multi-window: WP-04).
+        let parent_window = app.get_webview_window(parent_label).ok_or_else(|| {
+            anyhow!(
+                "no webview window labeled `{parent_label}` — pane parent missing \
+                 (kernel called before setup completed, or window closed?)"
+            )
         })?;
 
         let label = webview_label(pkg_id, pane_id);
@@ -277,7 +292,7 @@ impl WebviewPanesRegistry {
         // ── Build the OS-specific surface ────────────────────────────────
         let surface = build_surface(
             app,
-            &main_window,
+            &parent_window,
             &label,
             parsed_url,
             rect,
@@ -295,6 +310,7 @@ impl WebviewPanesRegistry {
         let handle = Arc::new(PaneHandle {
             surface,
             label: label.clone(),
+            parent_label: parent_label.to_string(),
             partition: partition.to_string(),
             current_url: RwLock::new(Some(url.to_string())),
             stored_rect: RwLock::new(rect),
@@ -306,7 +322,7 @@ impl WebviewPanesRegistry {
             .insert((pkg_id.to_string(), pane_id.to_string()), handle);
 
         #[cfg(target_os = "linux")]
-        self.install_parent_listener(&main_window);
+        self.install_parent_listener(&parent_window);
 
         log::info!(
             "[pkg_webview] created `{label}` pkg={pkg_id} pane={pane_id} \
@@ -396,7 +412,7 @@ impl WebviewPanesRegistry {
             *r = rect;
         }
 
-        set_surface_rect(&handle.surface, &handle.label, rect)
+        set_surface_rect(&handle.surface, &handle.label, &handle.parent_label, rect)
     }
 
     fn lookup(&self, pkg_id: &str, pane_id: &str) -> Option<Arc<PaneHandle>> {
@@ -440,18 +456,28 @@ impl WebviewPanesRegistry {
     /// top-level surface is a separate OS window that needs to be moved
     /// in lockstep with the main window; this listener does that.
     #[cfg(target_os = "linux")]
-    fn install_parent_listener(self: &Arc<Self>, main_window: &WebviewWindow) {
-        if self.parent_listener_installed.get().is_some() {
-            return;
-        }
-        if self.parent_listener_installed.set(()).is_err() {
-            return;
+    fn install_parent_listener(self: &Arc<Self>, parent_window: &WebviewWindow) {
+        let parent_label = parent_window.label().to_string();
+        // One listener per distinct parent window (idempotent for the same
+        // label). Previously this was a single OnceLock listener bound to
+        // "main", so panes in any other window never repositioned on move /
+        // resize (multi-window: WP-04).
+        {
+            let mut installed = match self.parent_listeners.write() {
+                Ok(g) => g,
+                Err(_) => return,
+            };
+            // `insert` returns false if the label was already present.
+            if !installed.insert(parent_label.clone()) {
+                return;
+            }
         }
         let registry = self.clone();
-        let main = main_window.clone();
-        main_window.on_window_event(move |event| match event {
+        let parent = parent_window.clone();
+        let listener_label = parent_label.clone();
+        parent_window.on_window_event(move |event| match event {
             WindowEvent::Moved(_) | WindowEvent::Resized(_) => {
-                let main_pos = match main.inner_position() {
+                let parent_pos = match parent.inner_position() {
                     Ok(p) => p,
                     Err(_) => return,
                 };
@@ -460,21 +486,27 @@ impl WebviewPanesRegistry {
                     Err(_) => return,
                 };
                 for handle in panes.values() {
+                    // Only reposition panes parented to THIS window.
+                    if handle.parent_label != listener_label {
+                        continue;
+                    }
                     let rect = match handle.stored_rect.read() {
                         Ok(r) => *r,
                         Err(_) => continue,
                     };
                     let PaneSurface::TopLevel(w) = &handle.surface;
                     let _ = w.set_position(PhysicalPosition::new(
-                        main_pos.x + rect.x,
-                        main_pos.y + rect.y,
+                        parent_pos.x + rect.x,
+                        parent_pos.y + rect.y,
                     ));
                     let _ = w.set_size(LogicalSize::new(rect.w as f64, rect.h as f64));
                 }
             }
             _ => {}
         });
-        log::info!("[pkg_webview] Linux parent-window event listener installed");
+        log::info!(
+            "[pkg_webview] Linux parent-window event listener installed for `{parent_label}`"
+        );
     }
 
     pub fn statuses(&self) -> Vec<WebviewPaneStatus> {
@@ -567,7 +599,7 @@ impl Registry for WebviewPanesRegistry {
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 fn build_surface(
     _app: &AppHandle,
-    main_window: &WebviewWindow,
+    parent_window: &WebviewWindow,
     label: &str,
     parsed_url: url::Url,
     rect: PaneRect,
@@ -604,7 +636,7 @@ fn build_surface(
     #[cfg(target_os = "windows")]
     let _ = (pkg_id, partition);
 
-    let webview = main_window
+    let webview = parent_window
         .as_ref()
         .window()
         .add_child(
@@ -620,7 +652,7 @@ fn build_surface(
 #[cfg(target_os = "linux")]
 fn build_surface(
     app: &AppHandle,
-    main_window: &WebviewWindow,
+    parent_window: &WebviewWindow,
     label: &str,
     parsed_url: url::Url,
     rect: PaneRect,
@@ -628,14 +660,14 @@ fn build_surface(
     _pkg_id: &str,
     data_dir: PathBuf,
 ) -> Result<PaneSurface> {
-    // Translate pane rect (main-window-client coords) → screen coords for
+    // Translate pane rect (parent-window-client coords) → screen coords for
     // the borderless top-level window. inner_position is the screen
-    // position of the main webview's client area (excludes OS frame).
-    let main_pos = main_window
+    // position of the parent webview's client area (excludes OS frame).
+    let parent_pos = parent_window
         .inner_position()
-        .context("read main window inner_position")?;
-    let screen_x = main_pos.x + rect.x;
-    let screen_y = main_pos.y + rect.y;
+        .context("read parent window inner_position")?;
+    let screen_x = parent_pos.x + rect.x;
+    let screen_y = parent_pos.y + rect.y;
 
     let builder = WebviewWindowBuilder::new(app, label, WebviewUrl::External(parsed_url))
         .decorations(false)
@@ -644,7 +676,7 @@ fn build_surface(
         .position(screen_x as f64, screen_y as f64)
         .inner_size(rect.w as f64, rect.h as f64)
         .data_directory(data_dir)
-        .parent(main_window)
+        .parent(parent_window)
         .context("set parent window for child webview")?;
 
     let window = builder.build().with_context(|| format!("build {label}"))?;
@@ -675,7 +707,14 @@ fn surface_inner_window(surface: &PaneSurface) -> Option<WebviewWindow> {
 }
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
-fn set_surface_rect(surface: &PaneSurface, label: &str, rect: PaneRect) -> Result<()> {
+fn set_surface_rect(
+    surface: &PaneSurface,
+    label: &str,
+    _parent_label: &str,
+    rect: PaneRect,
+) -> Result<()> {
+    // In-window children track their parent automatically — pane-relative
+    // coords, parent label unused.
     let PaneSurface::InWindow(w) = surface;
     w.set_position(LogicalPosition::new(rect.x as f64, rect.y as f64))
         .with_context(|| format!("set_position `{label}`"))?;
@@ -685,18 +724,26 @@ fn set_surface_rect(surface: &PaneSurface, label: &str, rect: PaneRect) -> Resul
 }
 
 #[cfg(target_os = "linux")]
-fn set_surface_rect(surface: &PaneSurface, label: &str, rect: PaneRect) -> Result<()> {
+fn set_surface_rect(
+    surface: &PaneSurface,
+    label: &str,
+    parent_label: &str,
+    rect: PaneRect,
+) -> Result<()> {
     let PaneSurface::TopLevel(w) = surface;
     let app = w.app_handle();
-    let main_window = app
-        .get_webview_window("main")
-        .ok_or_else(|| anyhow!("no main webview window"))?;
-    let main_pos = main_window
+    // Resolve the pane's OWN parent window — not the literal "main" — so a
+    // pane in a detached window translates against the right client origin
+    // (multi-window: WP-04).
+    let parent_window = app
+        .get_webview_window(parent_label)
+        .ok_or_else(|| anyhow!("no webview window labeled `{parent_label}` for pane `{label}`"))?;
+    let parent_pos = parent_window
         .inner_position()
-        .context("read main window inner_position")?;
+        .context("read parent window inner_position")?;
     w.set_position(PhysicalPosition::new(
-        main_pos.x + rect.x,
-        main_pos.y + rect.y,
+        parent_pos.x + rect.x,
+        parent_pos.y + rect.y,
     ))
     .with_context(|| format!("set_position `{label}`"))?;
     w.set_size(LogicalSize::new(rect.w as f64, rect.h as f64))

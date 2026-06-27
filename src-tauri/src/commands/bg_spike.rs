@@ -98,6 +98,9 @@ pub async fn bg_spike_run(
     interval_ms: u64,
     per_ping_timeout_ms: u64,
 ) -> Result<BgSpikeReport, String> {
+    // Debug harness pings the PRIMARY window. Parameterizing the target label
+    // (a child / non-`main` window) is WP-01's measurement-spike concern — see
+    // the `webview_label` field doc above; intentionally left "main".
     let label = "main";
     let window = app
         .get_webview_window(label)

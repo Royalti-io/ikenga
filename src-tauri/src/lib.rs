@@ -20,7 +20,7 @@ mod window;
 
 use std::sync::Arc;
 
-use tauri::{Emitter, Manager};
+use tauri::Manager;
 // tauri-plugin-sql is loaded as a plugin (below) so the frontend's
 // `@tauri-apps/plugin-sql` callers resolve, but it does NOT own the
 // migration list — that lives in `commands::db::ensure_schema`.
@@ -1125,6 +1125,9 @@ fn global_shortcut_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
                 return;
             }
             if shortcut == &summon {
+                // Summon always targets the PRIMARY window — "bring Ikenga to
+                // the front" means the main window, not whatever is focused
+                // (multi-window: intentionally stays "main").
                 if let Some(window) = app.get_webview_window("main") {
                     let visible = window.is_visible().unwrap_or(false);
                     if visible && window.is_focused().unwrap_or(false) {
@@ -1136,12 +1139,17 @@ fn global_shortcut_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
                     }
                 }
             } else if shortcut == &shot_window {
-                let _ = app.emit(
+                // Target the FOCUSED window, not every window — otherwise all
+                // windows' screenshot listeners race (research 03; multi-window:
+                // WP-04). Falls back to broadcast if no window reports focus.
+                let _ = crate::window::emit_to_focused(
+                    app,
                     "screenshot://shortcut",
                     serde_json::json!({ "kind": "window" }),
                 );
             } else if shortcut == &shot_pane {
-                let _ = app.emit(
+                let _ = crate::window::emit_to_focused(
+                    app,
                     "screenshot://shortcut",
                     serde_json::json!({ "kind": "pane-focused" }),
                 );
