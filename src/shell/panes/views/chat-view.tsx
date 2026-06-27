@@ -1,6 +1,9 @@
-import { MessageSquare } from 'lucide-react';
+import { useCallback } from 'react';
+import { ArrowUpRight, MessageSquare } from 'lucide-react';
 import { AdapterSwitcher, Composer, Thread, useThread } from '@/chat';
 import { FeedbackState } from '@/components/ui/feedback-state';
+import { IconButton } from '@/components/ui/icon-button';
+import { spawnWindow } from '@/lib/tauri-cmd';
 
 interface ChatViewProps {
 	/** Stable thread id (frontend-minted uuid). For back-compat with v1
@@ -29,6 +32,23 @@ export function ChatView({ sessionId }: ChatViewProps) {
 
 function ChatViewBody({ threadId }: { threadId: string }) {
 	const { loading, error } = useThread(threadId);
+
+	// Pop-out: spawn a thin single-surface window for this chat thread.
+	// The threadId is encoded in the surface_set entry ("chat:<threadId>") so
+	// the detached ChatSurface can extract it from ctx.surfaces[0].
+	// A timestamp suffix makes the label unique even if the user pops out
+	// multiple sessions simultaneously.
+	const handlePopOut = useCallback(() => {
+		const label = `detached-chat-${Date.now().toString(36)}`;
+		void spawnWindow({
+			label,
+			kind: 'single-surface',
+			surface_set: [`chat:${threadId}`],
+			project_id: null,
+			layout_key: label,
+		}).catch((e) => console.warn('pop-out chat:', e));
+	}, [threadId]);
+
 	return (
 		<div className="flex h-full w-full flex-col">
 			<div className="flex shrink-0 items-center justify-between border-b border-border bg-muted/20 px-3 py-1.5">
@@ -36,7 +56,16 @@ function ChatViewBody({ threadId }: { threadId: string }) {
 					<MessageSquare className="h-3 w-3" />
 					<span className="font-mono">{threadId.slice(0, 8)}…</span>
 				</div>
-				<AdapterSwitcher />
+				<div className="flex items-center gap-1">
+					<IconButton
+						onClick={handlePopOut}
+						title="Pop out — open this chat in a detached window"
+						aria-label="Pop out chat"
+					>
+						<ArrowUpRight className="h-3.5 w-3.5" />
+					</IconButton>
+					<AdapterSwitcher />
+				</div>
 			</div>
 			{loading ? (
 				<FeedbackState variant="loading" fill heading="Loading…" />
