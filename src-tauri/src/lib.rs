@@ -14,6 +14,11 @@ mod pty;
 mod runtime;
 pub mod vault_key;
 mod viewer_server;
+// Multi-window substrate (plans/multi-window). WP-02 lands the G-WINDOW-MODEL
+// contract only; the registry/commands that consume it land in WP-03, so the
+// types are not referenced yet.
+#[allow(dead_code)]
+mod window;
 
 use std::sync::Arc;
 
