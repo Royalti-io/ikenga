@@ -14,10 +14,8 @@ mod pty;
 mod runtime;
 pub mod vault_key;
 mod viewer_server;
-// Multi-window substrate (plans/multi-window). WP-02 lands the G-WINDOW-MODEL
-// contract only; the registry/commands that consume it land in WP-03, so the
-// types are not referenced yet.
-#[allow(dead_code)]
+// Multi-window substrate (plans/multi-window): the G-WINDOW-MODEL contract
+// (WP-02) + the window registry / spawn-close-list commands (WP-03).
 mod window;
 
 use std::sync::Arc;
@@ -78,7 +76,8 @@ use commands::{
     settings_set, skill_roster_read, spike_grant_fs_read, spike_setup_test_file,
     studio_message_append,
     studio_message_list, studio_thread_delete, studio_thread_get, studio_thread_get_or_create,
-    studio_thread_list_recent, KernelState, PkgContentState, PkgSettingsState,
+    studio_thread_list_recent, window_close, window_list, window_spawn, KernelState,
+    PkgContentState, PkgSettingsState,
     SidecarSupervisorState, SidecarsRegistryState, StreamingSidecarManager,
     StreamingSidecarManagerState, WebviewPanesState,
 };
@@ -218,6 +217,7 @@ pub fn run() {
         .manage(engine_registry)
         .manage(screenshot_pending.clone())
         .manage(SecretsLock::new())
+        .manage(window::WindowRegistry::new())
         .setup(move |app| {
             // Resolve the bundled Bun (per ADR-010) before anything spawns
             // sidecars or MCP children. Idempotent; safe even if the binary
@@ -783,6 +783,10 @@ pub fn run() {
             pty_kill,
             pty_foreground,
             pty_foreground_snapshot,
+            // multi-window substrate (plans/multi-window WP-03)
+            window_spawn,
+            window_close,
+            window_list,
             // fs
             fs_read,
             fs_write,

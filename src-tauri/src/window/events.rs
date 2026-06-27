@@ -58,7 +58,8 @@ pub mod topics {
 }
 
 /// Channels that MUST be window-targeted (`emit_to`) rather than broadcast.
-/// Mirrors `WINDOW_TARGETED_CHANNELS`.
+/// Mirrors `WINDOW_TARGETED_CHANNELS`. Consumed by WP-04's channel migration.
+#[allow(dead_code)]
 pub const WINDOW_TARGETED_CHANNELS: &[&str] =
     &["screenshot://request", "screenshot://shortcut", "projects:active-changed"];
 

@@ -1,0 +1,17 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "window-detached",
+  "description": "Minimal capability set for thin detached windows (labels matching `detached-*`) — the single-surface Flavor-C windows from plans/multi-window. Per G-04 these get a TIGHT permission set, NOT the primary window's full `default` grant: they may use core IPC + the event bus (to sync over the shared Rust core) and READ-ONLY SQLite (chat/viewer surfaces read their data), but NOT `sql:allow-execute`, `stronghold`, `dialog`, or `shell` — a detached surface never writes secrets or runs shell. Loaded from the same localhost app URL as `main`.",
+  "windows": ["detached-*"],
+  "remote": {
+    "urls": ["http://localhost:*"]
+  },
+  "permissions": [
+    "core:default",
+    "core:event:default",
+    "core:window:default",
+    "core:webview:default",
+    "sql:allow-select",
+    "sql:allow-load"
+  ]
+}

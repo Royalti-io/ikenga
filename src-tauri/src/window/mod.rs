@@ -10,13 +10,15 @@
 
 pub mod descriptor;
 pub mod events;
+pub mod registry;
 
-// Re-exports consumed by WP-03 (the window registry). Not referenced yet in the
-// WP-02 contract-only commit.
 #[allow(unused_imports)]
 pub use descriptor::{WindowDescriptor, WindowKind};
+// Some re-exports (WINDOW_CONTRACT_VERSION, WINDOW_TARGETED_CHANNELS) are
+// consumed by WP-04's channel migration, not yet here.
 #[allow(unused_imports)]
 pub use events::{
     topics, WindowEventEnvelope, WindowEventTarget, WINDOW_CONTRACT_VERSION,
     WINDOW_TARGETED_CHANNELS,
 };
+pub use registry::WindowRegistry;
