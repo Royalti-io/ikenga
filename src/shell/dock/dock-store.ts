@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { type PaneView } from '@/lib/panes/types';
+import type { PaneView } from '@/lib/panes/types';
+import { scopedPersistName } from '@/lib/window/window-context';
 
 export type DockState = 'collapsed' | 'expanded' | 'hidden';
 
@@ -72,7 +73,11 @@ export const useDockStore = create<DockStoreState>()(
 				}),
 		}),
 		{
-			name: 'ikenga-dock',
+			// Window-namespaced (plans/multi-window WP-05). The dock is primary-
+			// window chrome today (not mounted in the thin detached path), but a
+			// future Flavor-B second workspace window would otherwise share this
+			// per-window UI state via localStorage — scope it now for free.
+			name: scopedPersistName('ikenga-dock'),
 			version: 2,
 			migrate: (persisted: unknown, version) => {
 				const p = (persisted ?? {}) as Record<string, unknown>;
