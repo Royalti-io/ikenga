@@ -1139,17 +1139,23 @@ fn global_shortcut_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
                     }
                 }
             } else if shortcut == &shot_window {
-                // Target the FOCUSED window, not every window — otherwise all
-                // windows' screenshot listeners race (research 03; multi-window:
-                // WP-04). Falls back to broadcast if no window reports focus.
-                let _ = crate::window::emit_to_focused(
+                // Route to "main" — the screenshot FE listener
+                // (useScreenshotListener) lives only in the primary window.
+                // emit_to_focused would mis-route to a focused pkg-pane
+                // (Linux TopLevel WebviewWindow) or detached window, which has
+                // no listener → the shortcut would silently no-op. Targeting a
+                // detached/focused window is a future enhancement that also
+                // needs the listener + capture_window_png de-"main"'d.
+                let _ = crate::window::emit_to_label(
                     app,
+                    "main",
                     "screenshot://shortcut",
                     serde_json::json!({ "kind": "window" }),
                 );
             } else if shortcut == &shot_pane {
-                let _ = crate::window::emit_to_focused(
+                let _ = crate::window::emit_to_label(
                     app,
+                    "main",
                     "screenshot://shortcut",
                     serde_json::json!({ "kind": "pane-focused" }),
                 );

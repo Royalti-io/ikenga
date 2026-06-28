@@ -40,10 +40,10 @@ function parse(): WindowContext {
 		rawKind && (VALID_KINDS as readonly string[]).includes(rawKind)
 			? (rawKind as WindowKind)
 			: 'primary';
-	const surfaces = (params.get('surfaces') ?? '')
-		.split(',')
-		.map((s) => s.trim())
-		.filter(Boolean);
+	// One repeated `surfaces` param per entry (registry.rs appends them that
+	// way) — NOT a comma-joined CSV: a surface id can contain a comma (e.g.
+	// `viewer:/a/b,c.md`), which a comma-split would fracture.
+	const surfaces = params.getAll('surfaces').map((s) => s.trim()).filter(Boolean);
 	const projectId = params.get('project');
 	return {
 		label,

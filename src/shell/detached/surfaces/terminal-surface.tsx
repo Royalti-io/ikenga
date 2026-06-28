@@ -22,6 +22,10 @@
 // replayed (a few stale bytes may flicker at the top on first paint); live
 // output is correct.
 
+// xterm's base stylesheet is otherwise imported only in boot/primary.tsx — a
+// chunk the detached graph never loads — so the detached terminal would render
+// without scroll/selection styling. Import it here, scoped to this lazy chunk.
+import '@xterm/xterm/css/xterm.css';
 import { Terminal } from 'lucide-react';
 import { useEffect, useState } from 'react';
 

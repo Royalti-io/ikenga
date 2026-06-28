@@ -21,4 +21,5 @@ pub use events::{
     topics, WindowEventEnvelope, WindowEventTarget, WINDOW_CONTRACT_VERSION,
     WINDOW_TARGETED_CHANNELS,
 };
-pub use registry::{emit_to_focused, WindowRegistry};
+#[allow(unused_imports)]
+pub use registry::{emit_to_focused, emit_to_label, WindowRegistry};

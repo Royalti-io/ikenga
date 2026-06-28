@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "window-detached",
-  "description": "Minimal capability set for thin detached windows (labels matching `detached-*`) — the single-surface Flavor-C windows from plans/multi-window. Per G-04 these get a TIGHT permission set, NOT the primary window's full `default` grant: they may use core IPC + the event bus (to sync over the shared Rust core) and READ-ONLY SQLite (chat/viewer surfaces read their data), but NOT `sql:allow-execute`, `stronghold`, `dialog`, or `shell` — a detached surface never writes secrets or runs shell. Loaded from the same localhost app URL as `main`.",
+  "description": "Capability for thin detached windows (labels matching `detached-*`) — the single-surface Flavor-C windows from plans/multi-window. Loaded from the same localhost app URL as `main`. SCOPE OF THIS FILE: the Tauri ACL `permissions` array gates only PLUGIN + core commands, so withholding `sql:allow-execute`, `stronghold`, `dialog`, and `shell` here blocks the `@tauri-apps/plugin-*` JS paths for those plugins. IMPORTANT — this is NOT a containment boundary for the app's own `#[tauri::command]`s (secrets_*, db_exec, pty_*, supabase_config_*, fs_write, etc.): Tauri's ACL does not gate custom commands, so a detached window has the same custom-command reach as `main`. Real per-window restriction of those must be enforced IN the command (inject `tauri::WebviewWindow` + reject non-privileged labels), tracked as a follow-up — do not rely on this file for it. The granted plugin perms are kept minimal (core IPC + event bus + read-only `sql:allow-select`/`allow-load`) as defense-in-depth.",
   "windows": ["detached-*"],
   "remote": {
     "urls": ["http://localhost:*"]

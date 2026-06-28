@@ -62,7 +62,13 @@ impl WindowRegistry {
             qp.clear();
             qp.append_pair("window", &desc.label);
             qp.append_pair("kind", kind_str(&desc.kind));
-            qp.append_pair("surfaces", &desc.surface_set.join(","));
+            // One repeated `surfaces` param per entry — do NOT comma-join: a
+            // surface id can legally contain a comma (e.g. `viewer:/a/b,c.md`),
+            // which a comma-split on the FE would fracture. The FE reads them
+            // with `params.getAll('surfaces')`.
+            for s in &desc.surface_set {
+                qp.append_pair("surfaces", s);
+            }
             if let Some(p) = &desc.project_id {
                 qp.append_pair("project", p);
             }
@@ -151,6 +157,26 @@ impl WindowRegistry {
 /// events (`screenshot://shortcut`) that must reach the window the user is
 /// looking at, not race across every window (research 03 — the broadcast
 /// shortcut made every window's screenshot listener respond simultaneously).
+/// Emit to a specific window label, falling back to a broadcast if no window
+/// with that label exists. Use this when a topic has exactly ONE consumer
+/// window (e.g. `screenshot://shortcut`, whose FE listener lives only in the
+/// primary window) — `emit_to_focused` would mis-route to a focused pkg-pane /
+/// detached window that has no listener.
+pub fn emit_to_label<T: Serialize + Clone>(
+    app: &AppHandle,
+    label: &str,
+    topic: &str,
+    payload: T,
+) -> Result<()> {
+    if app.get_webview_window(label).is_some() {
+        app.emit_to(label, topic, payload)
+            .map_err(|e| anyhow!("emit_to '{label}': {e}"))
+    } else {
+        app.emit(topic, payload)
+            .map_err(|e| anyhow!("broadcast '{topic}': {e}"))
+    }
+}
+
 pub fn emit_to_focused<T: Serialize + Clone>(
     app: &AppHandle,
     topic: &str,
