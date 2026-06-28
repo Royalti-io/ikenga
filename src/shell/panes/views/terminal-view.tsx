@@ -5,12 +5,15 @@
 // a placeholder pointing at the owning Studio (D4). `SingleTerminal` stays
 // ownership-agnostic so Studio can mount it directly without the gate.
 
-import { ExternalLink, Undo2 } from 'lucide-react';
+import { ArrowUpRight, ExternalLink, Undo2 } from 'lucide-react';
+import { useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { FeedbackState } from '@/components/ui/feedback-state';
+import { IconButton } from '@/components/ui/icon-button';
 import { SingleTerminal } from '@/terminal/single-terminal';
 import { useTerminalStore, type TerminalTab } from '@/terminal/session-store';
 import { usePaneStore } from '@/lib/panes/pane-store';
+import { spawnWindow } from '@/lib/tauri-cmd';
 
 interface TerminalViewProps {
 	sessionId: string;
@@ -18,6 +21,24 @@ interface TerminalViewProps {
 
 export function TerminalView({ sessionId }: TerminalViewProps) {
 	const tab = useTerminalStore((s) => s.tabs.find((t) => t.id === sessionId));
+
+	// Pop-out: spawn a thin single-surface window that ATTACHES to this
+	// terminal's live core PTY. Encodes the real PTY id (not the pane session
+	// id) in the surface_set so the detached TerminalSurface can attach over
+	// the shared `pty://<id>` stream. (plans/multi-window WP-08.)
+	const ptyId = tab?.ptyId ?? null;
+	const handlePopOut = useCallback(() => {
+		if (!ptyId) return;
+		const label = `detached-terminal-${Date.now().toString(36)}`;
+		void spawnWindow({
+			label,
+			kind: 'single-surface',
+			surface_set: [`terminal:${ptyId}`],
+			project_id: null,
+			layout_key: label,
+		}).catch((e) => console.warn('pop-out terminal:', e));
+	}, [ptyId]);
+
 	if (tab && tab.owner.kind === 'studio') {
 		const ownerPaneId = tab.owner.paneId;
 		return (
@@ -31,7 +52,18 @@ export function TerminalView({ sessionId }: TerminalViewProps) {
 		);
 	}
 	return (
-		<div className="h-full w-full">
+		<div className="relative h-full w-full">
+			{ptyId && (
+				<div className="absolute right-1.5 top-1.5 z-50">
+					<IconButton
+						onClick={handlePopOut}
+						title="Pop out — open this terminal in a detached window"
+						aria-label="Pop out terminal"
+					>
+						<ArrowUpRight className="h-3.5 w-3.5" />
+					</IconButton>
+				</div>
+			)}
 			<SingleTerminal sessionId={sessionId} />
 		</div>
 	);

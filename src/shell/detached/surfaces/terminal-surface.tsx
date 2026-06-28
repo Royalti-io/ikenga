@@ -1,0 +1,118 @@
+// Detached terminal surface (plans/multi-window WP-08).
+//
+// Renders a live terminal in a thin detached window by ATTACHING to the
+// existing core PTY — no activity-bar, sidebar, or pane-group chrome.
+//
+// The PTY lives in the shared Rust core; its `pty://<id>` data stream is
+// broadcast to every window, so the detached window attaches its own xterm
+// host to the same PTY (`Pty.attach`, non-owning) and both windows drive the
+// same shell — keystrokes in either flow to the one PTY. Closing the detached
+// window only detaches; the origin pane still owns + kills the PTY.
+//
+// Surface-set id convention: `"terminal:<ptyId>"` (the real PTY id, not the
+// pane/session id), encoded by the pop-out in `pane/views/terminal-view.tsx`.
+//
+// WORKS (WP-08, live-verified 2026-06-28): pop out a terminal → this window
+// attaches to the shared PTY and renders live; a command run in the origin
+// terminal streams here (both windows drive the same shell). KEY FIX: the
+// detached terminal must use the CANVAS renderer — WebGL "loads" in a secondary
+// WebKitGTK webview but paints no glyphs (only the cursor) and never fires
+// onContextLoss, so the terminal stays blank. We pass `disableWebgl` to
+// XTermHost below. v1 limitation: scrollback emitted before the attach isn't
+// replayed (a few stale bytes may flicker at the top on first paint); live
+// output is correct.
+
+import { Terminal } from 'lucide-react';
+import { useEffect, useState } from 'react';
+
+import { FeedbackState } from '@/components/ui/feedback-state';
+import { Pty } from '@/terminal/pty-bridge';
+import { XTermHost } from '@/terminal/xterm-host';
+
+import type { DetachedSurfaceProps } from '../registry';
+
+/** Extract the PTY id encoded in `"terminal:<ptyId>"` by the pop-out. */
+function parsePtyId(surfaces: string[]): string | null {
+	const entry = surfaces[0] ?? '';
+	const colon = entry.indexOf(':');
+	if (colon < 1) return null;
+	const id = entry.slice(colon + 1);
+	return id.length > 0 ? id : null;
+}
+
+export default function TerminalSurface({ ctx }: DetachedSurfaceProps) {
+	const ptyId = parsePtyId(ctx.surfaces);
+	const [pty, setPty] = useState<Pty | null>(null);
+	const [error, setError] = useState<string | null>(null);
+
+	useEffect(() => {
+		if (!ptyId) return;
+		let cancelled = false;
+		let attached: Pty | null = null;
+		(async () => {
+			try {
+				const p = await Pty.attach(ptyId, `pty:${ptyId.slice(0, 8)}`);
+				if (cancelled) {
+					await p.dispose().catch(() => {});
+					return;
+				}
+				attached = p;
+				// Defer xterm mount until fonts + layout are settled. In a fresh
+				// detached webview, xterm otherwise measures the character cell
+				// before the monospace font/layout is ready → giant cells, ~1
+				// column, invisible text. Waiting for fonts.ready + a layout frame
+				// lets CharSizeService measure correctly.
+				if (typeof document !== 'undefined' && document.fonts?.ready) {
+					await document.fonts.ready;
+				}
+				await new Promise<void>((r) => requestAnimationFrame(() => r()));
+				if (cancelled) {
+					await p.dispose().catch(() => {});
+					return;
+				}
+				setPty(p);
+			} catch (e) {
+				if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+			}
+		})();
+		return () => {
+			cancelled = true;
+			// Non-owning: detaches the listener, never kills the core PTY.
+			attached?.dispose().catch(() => {});
+		};
+	}, [ptyId]);
+
+	if (!ptyId) {
+		return (
+			<FeedbackState
+				variant="empty"
+				fill
+				icon={Terminal}
+				heading="No terminal"
+				body="Open this window via the terminal pane pop-out button."
+			/>
+		);
+	}
+	if (error) {
+		return <FeedbackState variant="error" fill heading="Terminal attach failed" body={error} />;
+	}
+
+	return (
+		<div className="flex h-full w-full flex-col">
+			<header
+				className="flex shrink-0 items-center gap-2 border-b border-border bg-muted/20 px-3 py-1.5 font-mono text-[11px] text-muted-foreground"
+				style={{ height: 'var(--tab-h, 32px)' }}
+			>
+				<Terminal className="h-3 w-3 shrink-0" />
+				<span title={ptyId}>terminal {ptyId.slice(0, 8)}…</span>
+			</header>
+			<div className="min-h-0 flex-1">
+				{pty ? (
+					<XTermHost pty={pty} disableWebgl />
+				) : (
+					<FeedbackState variant="loading" fill heading="Attaching…" />
+				)}
+			</div>
+		</div>
+	);
+}

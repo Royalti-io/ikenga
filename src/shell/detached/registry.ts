@@ -71,6 +71,15 @@ const SURFACES: Record<string, DetachedSurface> = {
 		title: 'Viewer',
 		component: lazy(() => import('./surfaces/viewer-surface')),
 	},
+	// WP-08: terminal pop-out. Attaches to the shared core PTY over its
+	// broadcast `pty://<id>` stream (the live-sync topic); both windows drive
+	// the same shell.
+	terminal: {
+		id: 'terminal',
+		title: 'Terminal',
+		topic: 'pty://*',
+		component: lazy(() => import('./surfaces/terminal-surface')),
+	},
 };
 
 /**

@@ -42,6 +42,12 @@ export class Pty {
 	private unlisten: (() => void) | null = null;
 	private disposed = false;
 	/**
+	 * Owning PTYs (created via `spawn`) kill the core PTY on `dispose`. Attached
+	 * PTYs (created via `attach`, e.g. a terminal popped out into a detached
+	 * window) only unsubscribe — the origin pane still owns + kills the PTY.
+	 */
+	private owning = true;
+	/**
 	 * Bytes received before any subscriber registered. Held so the first
 	 * `onData()` consumer can catch up on everything the PTY has emitted so
 	 * far — without this, the spawn-before-mount race leaves xterm blank.
@@ -112,6 +118,35 @@ export class Pty {
 	}
 
 	/**
+	 * Attach to an EXISTING PTY by id (a terminal popped out into a detached
+	 * window). Subscribes to the live `pty://<id>` stream without spawning —
+	 * the origin pane still owns the PTY, so `dispose()` here only unsubscribes
+	 * and never kills it. New output + keystrokes flow live and write back to
+	 * the shared shell (both windows drive the same PTY). Scrollback emitted
+	 * before this attach stays in the origin window for now (v1).
+	 */
+	static async attach(id: string, label: string): Promise<Pty> {
+		const pty = new Pty(id, label);
+		pty.owning = false;
+		pty.unlisten = await ptyListen(
+			id,
+			(bytes) => pty.deliverData(bytes),
+			(code) => {
+				pty.exited = true;
+				pty.exitCode = code;
+				for (const sub of pty.exitSubs) {
+					try {
+						sub(code);
+					} catch (err) {
+						console.error('[pty] exit handler threw', err);
+					}
+				}
+			}
+		);
+		return pty;
+	}
+
+	/**
 	 * Subscribe to data bytes. Returns an unsubscribe function. If bytes have
 	 * already been buffered (received before any subscriber attached), the new
 	 * handler receives them synchronously before subscribing to the live stream.
@@ -177,7 +212,9 @@ export class Pty {
 		this.unlisten = null;
 		this.dataSubs.clear();
 		this.exitSubs.clear();
-		if (!this.exited) {
+		// Attached (non-owning) PTYs only detach their listener; the origin pane
+		// owns the PTY lifecycle. Only an owning PTY kills the core process.
+		if (this.owning && !this.exited) {
 			await ptyKill(this.id).catch(() => {});
 		}
 	}
