@@ -29,6 +29,13 @@ interface Props {
 	onExit?: (code: number | null) => void;
 	/** Called once a PTY has been created in spawn-mode. */
 	onPtyId?: (id: string) => void;
+	/**
+	 * Force the canvas/DOM renderer instead of WebGL. Detached windows
+	 * (plans/multi-window WP-08) set this: WebGL "loads" in a secondary
+	 * WebKitGTK webview but renders no glyphs (only the cursor) without ever
+	 * firing onContextLoss, so the auto-fallback never triggers. Canvas works.
+	 */
+	disableWebgl?: boolean;
 }
 
 const DARK_THEME: ITheme = {
@@ -108,7 +115,7 @@ function readThemeFromCssVars(dark: boolean): ITheme {
 	};
 }
 
-export function XTermHost({ spec, pty, onStatus, onExit, onPtyId }: Props) {
+export function XTermHost({ spec, pty, onStatus, onExit, onPtyId, disableWebgl }: Props) {
 	const containerRef = useRef<HTMLDivElement | null>(null);
 	const [searchOpen, setSearchOpen] = useState(false);
 	const [searchTerm, setSearchTerm] = useState('');
@@ -188,18 +195,22 @@ export function XTermHost({ spec, pty, onStatus, onExit, onPtyId }: Props) {
 
 		let webglUsed = false;
 		let webglAddon: WebglAddon | null = null;
-		try {
-			webglAddon = new WebglAddon();
-			webglAddon.onContextLoss(() => {
-				webglAddon?.dispose();
-				webglAddon = null;
-				status('webgl context lost — fell back to canvas');
-			});
-			term.loadAddon(webglAddon);
-			webglUsed = true;
-		} catch (err) {
-			console.warn('[xterm] webgl addon failed, using canvas fallback', err);
-			status('webgl unavailable — canvas renderer');
+		if (disableWebgl) {
+			status('canvas renderer (webgl disabled)');
+		} else {
+			try {
+				webglAddon = new WebglAddon();
+				webglAddon.onContextLoss(() => {
+					webglAddon?.dispose();
+					webglAddon = null;
+					status('webgl context lost — fell back to canvas');
+				});
+				term.loadAddon(webglAddon);
+				webglUsed = true;
+			} catch (err) {
+				console.warn('[xterm] webgl addon failed, using canvas fallback', err);
+				status('webgl unavailable — canvas renderer');
+			}
 		}
 
 		// Defer fit() until after the renderer's first paint. xterm's renderer

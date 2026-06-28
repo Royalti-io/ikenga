@@ -114,6 +114,9 @@ pub async fn post_project_set_active(
     set_active_project_id(&pool, &body.id)
         .await
         .map_err(map_err)?;
+    // Broadcast: single app-wide active project, so every window invalidates
+    // its cache (research 03). TODO(multi-window): per-window project binding
+    // (Flavor B) will need `emit_to` the bound window.
     let _ = app.emit("projects:active-changed", json!({ "id": body.id }));
     Ok(Json(json!({ "ok": true, "id": body.id })))
 }

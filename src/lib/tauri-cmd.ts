@@ -10,6 +10,7 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import type { WindowDescriptor } from '@ikenga/contract';
 
 // ─── PTY ──────────────────────────────────────────────────────────────────────
 
@@ -4521,4 +4522,23 @@ export function onPaActionRejected(
 	callback: (e: PaActionRejectedEvent) => void
 ): Promise<UnlistenFn> {
 	return listen<PaActionRejectedEvent>('pa-action-rejected', (e) => callback(e.payload));
+}
+
+// ── multi-window substrate (plans/multi-window WP-03) ────────────────────────
+// Mirrors `commands/window.rs`. The descriptor type is the `G-WINDOW-MODEL`
+// contract from `@ikenga/contract` (WP-02).
+
+/** Spawn a labeled window from a descriptor; resolves to the window label. */
+export async function spawnWindow(descriptor: WindowDescriptor): Promise<string> {
+	return invoke<string>('window_spawn', { descriptor });
+}
+
+/** Close a spawned window by label (`main` is refused). */
+export async function closeWindow(label: string): Promise<void> {
+	return invoke('window_close', { label });
+}
+
+/** List descriptors of all currently-spawned windows. */
+export async function listWindows(): Promise<WindowDescriptor[]> {
+	return invoke<WindowDescriptor[]>('window_list');
 }

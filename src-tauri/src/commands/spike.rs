@@ -38,6 +38,8 @@ pub fn spike_grant_fs_read(
     path: String,
 ) -> Result<String, String> {
     let cap = CapabilityBuilder::new(&capability_id)
+        // Debug ACL spike — grants to the PRIMARY window only (single-window
+        // probe). TODO(multi-window): n/a for this harness.
         .window("main")
         // plugin-fs splits text/binary reads into separate permissions:
         // `read_text_file` checks `fs:allow-read-text-file`, NOT

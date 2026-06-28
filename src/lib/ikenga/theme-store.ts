@@ -18,6 +18,7 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 
 import { settingsGetAll, settingsSet } from '@/lib/tauri-cmd';
+import { scopedPersistName } from '@/lib/window/window-context';
 
 /** Palette variants. A=default (Iroko/dusk), B=Kola amber, C=verdigris. */
 export type IkengaTheme = 'A' | 'B' | 'C';
@@ -164,7 +165,12 @@ export const useIkengaStore = create<IkengaState>()(
 			},
 		}),
 		{
-			name: 'ikenga.theme',
+			// Window-namespaced (plans/multi-window WP-05) so a detached window's
+			// instant-paint theme cache doesn't clobber the primary's via shared
+			// localStorage. The authoritative appearance still comes from the
+			// shared Rust settings_kv via `hydrateAppearanceFromRust`, so a
+			// detached window converges on the primary's theme once that resolves.
+			name: scopedPersistName('ikenga.theme'),
 			storage: createJSONStorage(() => localStorage),
 			version: 1,
 		}

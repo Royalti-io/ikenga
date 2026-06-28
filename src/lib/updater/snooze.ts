@@ -11,6 +11,8 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
+import { scopedPersistName } from '@/lib/window/window-context';
+
 const SNOOZE_MS = 24 * 60 * 60 * 1000; // 24h
 
 interface UpdaterSnoozeState {
@@ -38,6 +40,8 @@ export const useUpdaterSnooze = create<UpdaterSnoozeState>()(
 				return snoozeUntil > Date.now();
 			},
 		}),
-		{ name: 'ikenga.updater-snooze' }
+		// Window-namespaced (plans/multi-window WP-05) — a detached window must
+		// not clobber the primary's snooze via shared same-origin localStorage.
+		{ name: scopedPersistName('ikenga.updater-snooze') }
 	)
 );

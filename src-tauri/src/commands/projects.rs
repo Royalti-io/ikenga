@@ -592,6 +592,10 @@ pub async fn project_set_active(
 ) -> Result<(), String> {
     let pool = db.ensure_pool().await?;
     set_active_project_id(&pool, &id).await?;
+    // Broadcast: today there is ONE app-wide active project, so every window
+    // must invalidate its query cache (research 03 — broadcast is correct for
+    // the single-project model). TODO(multi-window): per-window project binding
+    // (Flavor B) will need `emit_to` the bound window instead.
     let _ = app.emit("projects:active-changed", serde_json::json!({ "id": id }));
     Ok(())
 }

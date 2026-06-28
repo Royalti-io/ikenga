@@ -13,9 +13,16 @@
 
 import type Database from '@tauri-apps/plugin-sql';
 import { loadAppDb } from '@/lib/sql-db';
+import { scopedLsPrefix, windowLabel } from '@/lib/window/window-context';
 
 const SQL_TIMEOUT_MS = 1500;
-const LS_PREFIX = '__lstate__:';
+// Window-namespaced (plans/multi-window WP-05). The primary `main` window keeps
+// the bare `__lstate__:` prefix (existing shadows preserved); a detached window
+// inserts its label (`__lstate__:detached-1:`) so the localStorage fallback —
+// shared across all same-origin Tauri windows (research 03) — can't clobber the
+// primary's layout shadow. The SQLite copy is window-scoped separately via the
+// `scopedKey` label fold below.
+const LS_PREFIX = scopedLsPrefix('__lstate__:');
 
 let dbPromise: Promise<Database | null> | null = null;
 
@@ -154,7 +161,14 @@ export function debounce<A extends unknown[]>(
 // works unchanged.
 
 export function scopedKey(key: string, projectId: string): string {
-	return `${key}.${projectId}`;
+	// Window-scope folded in (plans/multi-window WP-05, G-03 — a KEY-STRING
+	// suffix, NOT a new SQL column). The primary `main` window keeps the bare
+	// `${key}.${projectId}` key so existing per-project layout state is
+	// preserved; a detached window appends `@${label}` so its layout lands in
+	// a distinct partition of the shared `layout_state` table.
+	const base = `${key}.${projectId}`;
+	const label = windowLabel();
+	return label === 'main' ? base : `${base}@${label}`;
 }
 
 export function loadScopedLayoutState<T>(key: string, projectId: string, fallback: T): Promise<T> {

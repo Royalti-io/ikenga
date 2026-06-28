@@ -195,6 +195,10 @@ pub async fn post_browser_open(
             &url,
             rect,
             partition_opt.as_deref(),
+            // Agent-driven (iyke bridge) panes parent to the PRIMARY window —
+            // the bridge is app-level, not window-scoped yet (multi-window:
+            // WP-04; WP-05 will route to a target window).
+            "main",
         )
     })
     .await?

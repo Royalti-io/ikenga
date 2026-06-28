@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { scopedPersistName } from '@/lib/window/window-context';
 import {
 	fsRootsAdd,
 	fsRootsList,
@@ -830,7 +831,12 @@ export const useShellStore = create<ShellState>()(
 		//     modes; a stale one (pkg uninstalled) reconciles → 'app' at runtime
 		//     in the activity bar. Additive — no persisted user holds a pkg mode.
 		{
-			name: 'shell-store',
+			// Window-namespaced (plans/multi-window WP-05): the primary `main`
+			// window keeps the bare `shell-store` key (existing persisted state
+			// preserved); a detached window gets a `::<label>` suffix so its
+			// `activeMode`/onboarding writes don't clobber the primary's via the
+			// localStorage that all same-origin Tauri windows share (research 03).
+			name: scopedPersistName('shell-store'),
 			version: 14,
 			migrate: (persisted, version) => migrateShellStore(persisted, version) as ShellState,
 			// `projects` + `activeProjectId` are owned by Rust (migration 0015)

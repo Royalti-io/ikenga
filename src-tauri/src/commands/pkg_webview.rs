@@ -23,7 +23,7 @@
 use std::sync::Arc;
 
 use serde::Serialize;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, State, WebviewWindow};
 
 use crate::pkg::keep_awake;
 use crate::pkg::webview::{run_on_main, PaneRect, WebviewPanesRegistry};
@@ -42,6 +42,10 @@ pub struct PkgWebviewCreateResult {
 #[allow(clippy::too_many_arguments)]
 pub async fn pkg_webview_create(
     app: AppHandle,
+    // The window that invoked this command — the pane parents to it, not the
+    // literal "main" (multi-window: WP-04). "main" for the normal shell, a
+    // detached label when a Flavor C/B window mounts a pkg pane.
+    calling_window: WebviewWindow,
     state: State<'_, WebviewPanesState>,
     pkg_id: String,
     pane_id: String,
@@ -52,6 +56,7 @@ pub async fn pkg_webview_create(
     let _guard = keep_awake::acquire("ikenga pkg_webview_create");
     let panes = state.0.clone();
     let app_for_main = app.clone();
+    let parent_label = calling_window.label().to_string();
     let webview_label = run_on_main(&app, move || {
         panes.create(
             &app_for_main,
@@ -60,6 +65,7 @@ pub async fn pkg_webview_create(
             &url,
             rect,
             partition.as_deref(),
+            &parent_label,
         )
     })
     .await

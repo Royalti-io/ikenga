@@ -14,10 +14,13 @@ mod pty;
 mod runtime;
 pub mod vault_key;
 mod viewer_server;
+// Multi-window substrate (plans/multi-window): the G-WINDOW-MODEL contract
+// (WP-02) + the window registry / spawn-close-list commands (WP-03).
+mod window;
 
 use std::sync::Arc;
 
-use tauri::{Emitter, Manager};
+use tauri::Manager;
 // tauri-plugin-sql is loaded as a plugin (below) so the frontend's
 // `@tauri-apps/plugin-sql` callers resolve, but it does NOT own the
 // migration list — that lives in `commands::db::ensure_schema`.
@@ -73,7 +76,8 @@ use commands::{
     settings_set, skill_roster_read, spike_grant_fs_read, spike_setup_test_file,
     studio_message_append,
     studio_message_list, studio_thread_delete, studio_thread_get, studio_thread_get_or_create,
-    studio_thread_list_recent, KernelState, PkgContentState, PkgSettingsState,
+    studio_thread_list_recent, window_close, window_list, window_spawn, KernelState,
+    PkgContentState, PkgSettingsState,
     SidecarSupervisorState, SidecarsRegistryState, StreamingSidecarManager,
     StreamingSidecarManagerState, WebviewPanesState,
 };
@@ -213,6 +217,7 @@ pub fn run() {
         .manage(engine_registry)
         .manage(screenshot_pending.clone())
         .manage(SecretsLock::new())
+        .manage(window::WindowRegistry::new())
         .setup(move |app| {
             // Resolve the bundled Bun (per ADR-010) before anything spawns
             // sidecars or MCP children. Idempotent; safe even if the binary
@@ -778,6 +783,10 @@ pub fn run() {
             pty_kill,
             pty_foreground,
             pty_foreground_snapshot,
+            // multi-window substrate (plans/multi-window WP-03)
+            window_spawn,
+            window_close,
+            window_list,
             // fs
             fs_read,
             fs_write,
@@ -1116,6 +1125,9 @@ fn global_shortcut_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
                 return;
             }
             if shortcut == &summon {
+                // Summon always targets the PRIMARY window — "bring Ikenga to
+                // the front" means the main window, not whatever is focused
+                // (multi-window: intentionally stays "main").
                 if let Some(window) = app.get_webview_window("main") {
                     let visible = window.is_visible().unwrap_or(false);
                     if visible && window.is_focused().unwrap_or(false) {
@@ -1127,12 +1139,23 @@ fn global_shortcut_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
                     }
                 }
             } else if shortcut == &shot_window {
-                let _ = app.emit(
+                // Route to "main" — the screenshot FE listener
+                // (useScreenshotListener) lives only in the primary window.
+                // emit_to_focused would mis-route to a focused pkg-pane
+                // (Linux TopLevel WebviewWindow) or detached window, which has
+                // no listener → the shortcut would silently no-op. Targeting a
+                // detached/focused window is a future enhancement that also
+                // needs the listener + capture_window_png de-"main"'d.
+                let _ = crate::window::emit_to_label(
+                    app,
+                    "main",
                     "screenshot://shortcut",
                     serde_json::json!({ "kind": "window" }),
                 );
             } else if shortcut == &shot_pane {
-                let _ = app.emit(
+                let _ = crate::window::emit_to_label(
+                    app,
+                    "main",
                     "screenshot://shortcut",
                     serde_json::json!({ "kind": "pane-focused" }),
                 );

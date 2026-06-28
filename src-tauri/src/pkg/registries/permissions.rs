@@ -232,6 +232,12 @@ impl PermissionsRegistry {
         for perm in perms {
             let cap_id = self.cap_id_perm(pkg, kind, perm, idx);
             let builder = CapabilityBuilder::new(&cap_id)
+                // Grant targets the PRIMARY window only. Detached windows use
+                // the minimal `window-detached.json` capability and don't drive
+                // pkg FS reads in Phase 1; extending this to a `detached-*` glob
+                // would broaden the surface WP-03 deliberately minimized.
+                // TODO(multi-window): grant per-window when a detached surface
+                // needs dynamic FS.
                 .window("main")
                 .permission_scoped(
                     *perm,
