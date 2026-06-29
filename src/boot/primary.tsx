@@ -6,20 +6,20 @@
 // a thin window doesn't pay the parse cost of the router tree, every route, or
 // the workspace chrome.
 
-import React from 'react';
-import ReactDOM from 'react-dom/client';
-import { RouterProvider, createRouter } from '@tanstack/react-router';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
-
-import { routeTree } from '../routeTree.gen';
-import { queryClient } from '@/lib/query-client';
-import { installIkengaDomSync, useIkengaStore } from '@/lib/ikenga/theme-store';
-import { installNativeMenu } from '@/shell/native-menu';
-import { initDefaultCwd } from '@/lib/shell/default-cwd';
-import { useShellStore } from '@/lib/shell/shell-store';
+import { createRouter, RouterProvider } from '@tanstack/react-router';
+import React from 'react';
+import ReactDOM from 'react-dom/client';
 import { bootDefaultChatAdapterId } from '@/chat/default-adapter';
 import { bootUserTurnVariant } from '@/chat/user-turn-variant';
+import { installIkengaDomSync, useIkengaStore } from '@/lib/ikenga/theme-store';
+import { queryClient } from '@/lib/query-client';
+import { initDefaultCwd } from '@/lib/shell/default-cwd';
+import { useShellStore } from '@/lib/shell/shell-store';
+import { initDetachedSurfaceTracking } from '@/lib/window/detached-surfaces';
+import { installNativeMenu } from '@/shell/native-menu';
+import { routeTree } from '../routeTree.gen';
 
 import '@xterm/xterm/css/xterm.css';
 
@@ -73,6 +73,12 @@ export function bootPrimary(): void {
 	// Phase 0). The Rust side owns the truth; this just seeds the in-memory
 	// Zustand mirror for the activity-bar indicator and command palette.
 	void useShellStore.getState().refreshProjects();
+
+	// Track which surfaces are popped out into detached windows so the primary
+	// window renders a reclaim placeholder instead of a live duplicate
+	// (plans/multi-window). Primary-window only; seeds + subscribes to the
+	// window:// lifecycle bus.
+	initDetachedSurfaceTracking();
 
 	ReactDOM.createRoot(document.getElementById('root')!).render(
 		<React.StrictMode>

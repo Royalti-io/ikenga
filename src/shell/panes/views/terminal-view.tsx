@@ -10,10 +10,16 @@ import { useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { FeedbackState } from '@/components/ui/feedback-state';
 import { IconButton } from '@/components/ui/icon-button';
-import { SingleTerminal } from '@/terminal/single-terminal';
-import { useTerminalStore, type TerminalTab } from '@/terminal/session-store';
 import { usePaneStore } from '@/lib/panes/pane-store';
 import { spawnWindow } from '@/lib/tauri-cmd';
+import {
+	markSurfaceDetached,
+	syncDetachedSurfaces,
+	useIsSurfaceDetached,
+} from '@/lib/window/detached-surfaces';
+import { type TerminalTab, useTerminalStore } from '@/terminal/session-store';
+import { SingleTerminal } from '@/terminal/single-terminal';
+import { DetachedSurfacePlaceholder } from './detached-placeholder';
 
 interface TerminalViewProps {
 	sessionId: string;
@@ -27,17 +33,26 @@ export function TerminalView({ sessionId }: TerminalViewProps) {
 	// id) in the surface_set so the detached TerminalSurface can attach over
 	// the shared `pty://<id>` stream. (plans/multi-window WP-08.)
 	const ptyId = tab?.ptyId ?? null;
+	const surfaceId = ptyId ? `terminal:${ptyId}` : null;
+	const isDetached = useIsSurfaceDetached(surfaceId);
 	const handlePopOut = useCallback(() => {
-		if (!ptyId) return;
+		if (!ptyId || !surfaceId) return;
 		const label = `detached-terminal-${Date.now().toString(36)}`;
+		// Optimistically mark detached so this pane swaps to the placeholder
+		// immediately instead of briefly duplicating the live terminal.
+		markSurfaceDetached(surfaceId, label);
 		void spawnWindow({
 			label,
 			kind: 'single-surface',
-			surface_set: [`terminal:${ptyId}`],
+			surface_set: [surfaceId],
 			project_id: null,
 			layout_key: label,
-		}).catch((e) => console.warn('pop-out terminal:', e));
-	}, [ptyId]);
+		}).catch((e) => {
+			console.warn('pop-out terminal:', e);
+			// Reconcile the optimistic mark if the window never opened.
+			void syncDetachedSurfaces();
+		});
+	}, [ptyId, surfaceId]);
 
 	if (tab && tab.owner.kind === 'studio') {
 		const ownerPaneId = tab.owner.paneId;
@@ -51,6 +66,13 @@ export function TerminalView({ sessionId }: TerminalViewProps) {
 			/>
 		);
 	}
+
+	// Popped out into its own window — render the reclaim placeholder, not the
+	// live duplicate (both windows would otherwise drive the same core PTY).
+	if (isDetached && surfaceId) {
+		return <DetachedSurfacePlaceholder surfaceId={surfaceId} noun="terminal" />;
+	}
+
 	return (
 		<div className="relative h-full w-full">
 			{ptyId && (
