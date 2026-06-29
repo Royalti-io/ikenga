@@ -446,10 +446,22 @@ async fn inject_iyke_bridge(req: Request<Body>, next: Next) -> Response {
     let script =
         format!("{IYKE_INJECT_MARKER}\n<script type=\"module\">\n{IYKE_BRIDGE_JS}\n</script>\n");
     let mut out = String::with_capacity(html.len() + script.len());
-    if let Some(idx) = html.find("</head>") {
-        out.push_str(&html[..idx]);
+    // Anchor on the OPENING `<head>` tag — NOT `</head>`. A self-contained
+    // artifact can inline a library whose source contains an HTML string
+    // literal (e.g. DOMPurify ships `'<html xmlns="…"><head></head><body>'`),
+    // so the first `</head>` (and the first `<body`) in the byte stream can be
+    // *inside that `<script>`*. Splicing the bridge there closes the inlined
+    // `<script>` early and leaks the rest of the bundle as visible text. The
+    // opening `<head>` reliably precedes any such script content, matching how
+    // `inject_artifact_bridge` already anchors. The bridge is `type="module"`
+    // (deferred), so head placement still runs after the document parses.
+    let head_open = html
+        .find("<head")
+        .and_then(|i| html[i..].find('>').map(|j| i + j + 1));
+    if let Some(insert_at) = head_open {
+        out.push_str(&html[..insert_at]);
         out.push_str(&script);
-        out.push_str(&html[idx..]);
+        out.push_str(&html[insert_at..]);
     } else if let Some(idx) = html.find("<body") {
         // No <head> — inject just before <body> so it runs before page scripts.
         out.push_str(&html[..idx]);
