@@ -4,6 +4,7 @@
 [![Version](https://img.shields.io/badge/version-v0.0.7-blue.svg)](https://github.com/Royalti-io/ikenga/releases)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Discussions](https://img.shields.io/badge/community-discussions-5865F2.svg)](https://github.com/Royalti-io/ikenga/discussions)
+[![Newsletter](https://img.shields.io/badge/newsletter-Building%20in%20the%20Loop-e8590c.svg)](https://buildingintheloop.substack.com/subscribe)
 
 > An open-source desktop workspace for the multi-agent way of working — your agents,
 > skills, commands, scheduled jobs, and memory in one window, all aware of each other.
@@ -295,6 +296,7 @@ scale.
 - [`ikenga-pkgs`](https://github.com/Royalti-io/ikenga-pkgs) — first-party pkg monorepo (working examples per archetype)
 - [`ikenga-contract`](https://github.com/Royalti-io/ikenga-contract) — manifest schema, RPC types, capability scopes
 - [`CLAUDE.md`](CLAUDE.md) — detailed architecture for contributors
+- [Building in the Loop](https://buildingintheloop.substack.com/subscribe) — biweekly letters on running a real multi-agent Claude Code system
 
 ## License
 
@@ -304,4 +306,6 @@ Apache-2.0 — both the platform and the first-party pkgs. See [`LICENSE`](LICEN
 
 Issues and PRs welcome — see [`.github/CONTRIBUTING.md`](.github/CONTRIBUTING.md). Start a
 thread in [Discussions](https://github.com/Royalti-io/ikenga/discussions); report security
-issues per [`.github/SECURITY.md`](.github/SECURITY.md).
+issues per [`.github/SECURITY.md`](.github/SECURITY.md). For workflow deep-dives and
+build-in-public notes from the founder, subscribe to
+[Building in the Loop](https://buildingintheloop.substack.com/subscribe) — biweekly.
