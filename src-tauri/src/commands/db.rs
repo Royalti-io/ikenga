@@ -835,8 +835,11 @@ mod tests {
     /// silently being dropped from the embedded list (a class of bug we've hit
     /// before). Was stale at 47 while 0048–0050 landed on main without a bump;
     /// 0051 (pa_action_drafts send-state, WP-12) brings it to 51; 0052
-    /// (social_queue media/hashtags columns) brings it to 52.
-    const MIGRATION_COUNT: i64 = 54;
+    /// (social_queue media/hashtags columns) brings it to 52; 0053/0054
+    /// (research + strategy domains, atelier wave-4) bring it to 54; 0055
+    /// (chrome_profiles, pkg-browser WP-03) brings it to 55 — it landed
+    /// without a bump, the exact drift this guard exists to catch.
+    const MIGRATION_COUNT: i64 = 55;
 
     /// Schema init applies every embedded migration exactly once. The
     /// `_pa_migrations` table must end with one row per migration tuple.
