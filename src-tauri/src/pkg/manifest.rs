@@ -586,6 +586,15 @@ pub struct Permissions {
 
     #[serde(default, rename = "vault.keys")]
     pub vault_keys: Vec<String>, // key-name globs in encrypted vault
+
+    /// Engine scopes this pkg may exercise from its iframe (FE-gated host.*
+    /// verbs — see `pkgDeclaresScope` in pkg-iframe-host.tsx). `"invoke"`
+    /// gates `host.sendToActiveSession` / `host.startChatSession`. Install-time
+    /// sensitive: surfaces in the trust prompt like other permission lists.
+    /// Mirrors `PermissionsSchema.engine` in `@ikenga/contract/src/manifest.ts`
+    /// — keep in lockstep.
+    #[serde(default)]
+    pub engine: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
