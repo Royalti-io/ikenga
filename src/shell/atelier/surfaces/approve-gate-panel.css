@@ -479,6 +479,13 @@
 	border: 1px solid var(--border-soft);
 	border-radius: var(--radius-md);
 	padding: var(--space-3);
+	transition: border-color 120ms ease;
+}
+.ob-quick-edit:hover:not(:focus-within) {
+	border-color: var(--border);
+}
+.ob-quick-edit:focus-within {
+	border-color: color-mix(in srgb, var(--tint-fg-active, var(--primary)) 45%, var(--border-soft));
 }
 .ob-quick-edit-head {
 	display: flex;
@@ -508,8 +515,12 @@
 	font-size: var(--text-body);
 	line-height: 1.6;
 	outline: none;
-	resize: vertical;
+	/* Auto-grown to content by useAutoGrowTextarea — the pane (.ob-detail)
+	   scrolls as one document; no inner scrollbox, no drag handle. */
+	resize: none;
+	overflow: hidden;
 	min-height: 240px;
+	display: block;
 }
 .ob-quick-edit textarea::placeholder {
 	color: var(--fg-faint);

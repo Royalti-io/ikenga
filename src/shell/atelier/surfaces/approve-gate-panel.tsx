@@ -19,6 +19,7 @@ import {
 	type PointerEvent as ReactPointerEvent,
 	useCallback,
 	useEffect,
+	useLayoutEffect,
 	useMemo,
 	useRef,
 	useState,
@@ -115,6 +116,9 @@ export function ApproveGatePanel(props: ApproveGatePanelProps) {
 
 	const splitRef = useRef<HTMLDivElement>(null);
 	const rowRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+	const bodyRef = useAutoGrowTextarea(
+		selectedId ? (edits[selectedId]?.body ?? drafts.find((d) => d.id === selectedId)?.body ?? '') : ''
+	);
 
 	// Keep selection valid as rows arrive/resolve. Auto-select the first draft
 	// when nothing is selected (or the selection went stale) — `drafts` arrives
@@ -637,6 +641,7 @@ export function ApproveGatePanel(props: ApproveGatePanelProps) {
 										</span>
 									</div>
 									<textarea
+										ref={bodyRef}
 										aria-label="Email body"
 										value={draftBody(selected)}
 										onChange={(e) => patchEdit(selected.id, { body: e.target.value }, selected)}
@@ -742,6 +747,31 @@ export function ApproveGatePanel(props: ApproveGatePanelProps) {
 }
 
 // ── helpers ─────────────────────────────────────────────────────────────────────────────────
+
+// Body editor sizing: a fixed-height textarea with an inner scrollbar reads as
+// a cramped form field; sized to its content it reads as the email itself, and
+// `.ob-detail` (the pane) owns the scrolling like a document. Re-fits on value
+// and selection change and on pane resize (the split is user-draggable).
+function useAutoGrowTextarea(value: string, minHeight = 240) {
+	const ref = useRef<HTMLTextAreaElement>(null);
+	const fit = useCallback(() => {
+		const el = ref.current;
+		if (!el) return;
+		el.style.height = 'auto';
+		el.style.height = `${Math.max(minHeight, el.scrollHeight)}px`;
+	}, [minHeight]);
+	useLayoutEffect(fit, [fit, value]);
+	useEffect(() => {
+		// jsdom (vitest) has no ResizeObserver; the value-keyed fit still runs.
+		if (typeof ResizeObserver === 'undefined') return;
+		const el = ref.current;
+		if (!el) return;
+		const ro = new ResizeObserver(fit);
+		ro.observe(el.parentElement ?? el);
+		return () => ro.disconnect();
+	}, [fit]);
+	return ref;
+}
 
 function groupBySection(drafts: PausedDraft[]): Array<[string, PausedDraft[]]> {
 	const order = ['Overdue', 'Today', 'This week'];
