@@ -642,6 +642,48 @@ fn bind_params<'q>(
     q
 }
 
+/// `s` begins with `kw` followed by a non-identifier char (or end of input).
+/// Used to reject `SELECTFOO`/`WITHX` while accepting `SELECT(1)`, `WITH cte`.
+fn starts_with_keyword(s: &str, kw: &str) -> bool {
+    match s.strip_prefix(kw) {
+        Some(rest) => rest
+            .chars()
+            .next()
+            .is_none_or(|c| !c.is_alphanumeric() && c != '_'),
+        None => false,
+    }
+}
+
+/// Returns `true` when `sql` is a read-only statement (`SELECT` or a `WITH`
+/// CTE), ignoring leading whitespace and SQL comments. `db_query` runs on the
+/// read-only reader pool and must never mutate; this guard stops a caller that
+/// reaches the command directly (not via the `host.dbQuery` FE bridge, which
+/// has its own allowlist) from smuggling a write/DDL through the read path.
+/// SQLite has no data-modifying CTEs, so a `WITH`-led statement always resolves
+/// to a SELECT.
+fn is_read_only_sql(sql: &str) -> bool {
+    let mut s = sql.trim_start();
+    // Strip any run of leading line (`-- …`) and block (`/* … */`) comments so
+    // a comment prefix can't disguise the real leading keyword.
+    loop {
+        if let Some(rest) = s.strip_prefix("--") {
+            match rest.find('\n') {
+                Some(nl) => s = rest[nl + 1..].trim_start(),
+                None => return false, // comment-only input — no statement
+            }
+        } else if let Some(rest) = s.strip_prefix("/*") {
+            match rest.find("*/") {
+                Some(end) => s = rest[end + 2..].trim_start(),
+                None => return false, // unterminated block comment
+            }
+        } else {
+            break;
+        }
+    }
+    let lower = s.to_ascii_lowercase();
+    starts_with_keyword(&lower, "select") || starts_with_keyword(&lower, "with")
+}
+
 #[tauri::command]
 pub async fn db_query(
     db: State<'_, Arc<PaDb>>,
@@ -649,6 +691,12 @@ pub async fn db_query(
     params: Vec<Value>,
 ) -> Result<Vec<Value>, String> {
     use sqlx::{Column, Row, TypeInfo, ValueRef};
+
+    // Read-only guard: `db_query` must never mutate. Reject anything that isn't
+    // a SELECT/WITH read before it touches the reader pool.
+    if !is_read_only_sql(&sql) {
+        return Err("db_query: only SELECT/WITH read statements are allowed".to_string());
+    }
 
     // Reads go through the dedicated multi-connection reader pool so they run
     // concurrently with the serialized writer (WP-01).
@@ -1199,5 +1247,48 @@ mod tests {
             total, 280,
             "all writes should have committed (180 single + 20*5 tx)"
         );
+    }
+
+    /// WP-09: the Rust `db_query` read-only guard accepts SELECT/WITH reads
+    /// (including leading whitespace/comment noise and mixed case) and rejects
+    /// every mutating / DDL statement, so a direct caller can't push a write
+    /// through the reader pool.
+    #[test]
+    fn db_query_guard_allows_reads_rejects_writes() {
+        // Allowed: SELECT / WITH in any case, past leading whitespace + comments.
+        for sql in [
+            "SELECT * FROM tasks",
+            "select 1",
+            "  \n\t SELECT id FROM tasks",
+            "WITH recent AS (SELECT * FROM tasks) SELECT * FROM recent",
+            "with x as (select 1) select * from x",
+            "-- a leading line comment\nSELECT * FROM tasks",
+            "/* block */ SELECT * FROM tasks",
+            "/* a */\n-- b\n  select 1",
+            "SELECT(1)",
+        ] {
+            assert!(is_read_only_sql(sql), "expected read-only: {sql:?}");
+        }
+
+        // Rejected: writes, DDL, PRAGMA/ATTACH, keyword-prefixed identifiers,
+        // and comment-only input.
+        for sql in [
+            "INSERT INTO tasks (id) VALUES ('x')",
+            "UPDATE tasks SET status = 'done'",
+            "DELETE FROM tasks",
+            "DROP TABLE tasks",
+            "CREATE TABLE t (id INTEGER)",
+            "PRAGMA journal_mode",
+            "ATTACH DATABASE 'x' AS y",
+            "VACUUM",
+            "REPLACE INTO tasks (id) VALUES ('x')",
+            "SELECTFOO", // keyword-prefixed identifier, not the SELECT keyword
+            "WITHOUT rowid stuff",
+            "-- comment only\n",
+            "/* unterminated",
+            "",
+        ] {
+            assert!(!is_read_only_sql(sql), "expected rejected: {sql:?}");
+        }
     }
 }
