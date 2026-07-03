@@ -73,7 +73,7 @@ use commands::{
     screenshot_window, secrets_delete, secrets_delete_scoped, secrets_get, secrets_get_scoped,
     secrets_list_keys, secrets_list_keys_scoped, secrets_set, secrets_set_scoped,
     secrets_vault_status, set_dock_badge, settings_clear_all, settings_get, settings_get_all,
-    settings_set, atelier_file_read, spike_grant_fs_read, spike_setup_test_file,
+    settings_set, atelier_file_read, atelier_file_write, spike_grant_fs_read, spike_setup_test_file,
     studio_message_append,
     studio_message_list, studio_thread_delete, studio_thread_get, studio_thread_get_or_create,
     studio_thread_list_recent, window_close, window_list, window_spawn, KernelState,
@@ -912,6 +912,9 @@ pub fn run() {
             // atelier skill files (WP-16b / WP-10) — generic reader for
             // <project_root>/.atelier/<skill>/<file>; the Tasks roster read is one caller.
             atelier_file_read,
+            // atelier instance write path (WP-18b) — the setup-chat confirm-write
+            // persists <project_root>/.atelier/<skill>/manifest.json through here.
+            atelier_file_write,
             // supabase config (URL + anon key manifest)
             supabase_config_get,
             supabase_config_set,

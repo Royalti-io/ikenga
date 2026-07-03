@@ -56,6 +56,10 @@ import {
 	agentOpsUpsertJob,
 	dbExec,
 	dbQuery,
+	paActionsCommit,
+	paActionsReject,
+	paActionsRetry,
+	paActionsUpdate,
 	pkgContentHtml,
 	pkgContentRevoke,
 	pkgFetch,
@@ -659,6 +663,70 @@ export async function dispatchHostCall(
 			content: [{ type: 'text', text: `sent to ${res.threadId}` }],
 			structuredContent: { ok: true, threadId: res.threadId },
 		};
+	}
+
+	// ─── approve-gate write verbs (host.paActions.*) — WP-18a ───────────────────
+	// Four thin wrappers over the existing, tested `pa_actions_*` Rust commands
+	// (the same ones the /outbox/approvals route calls). The outbound pkg's
+	// bridge extension (bridge.ext.outbound.js) already calls these verb names
+	// (`host.paActions.commit|reject|retry|update`); this closes its dead-verb
+	// gap. The pkg never gets raw write access to pa_action_drafts —
+	// commit/event/wake/normalization stay Rust-owned. Gated on the same
+	// `engine:invoke` scope `host.sendToActiveSession` uses (host.* verbs bypass
+	// kernel scope enforcement, so the check happens here and fails closed). The
+	// bridge helper resolves only when `structuredContent.ok === true`, so
+	// success returns `{ ok: true }` and any failure carries `ok: false` + a
+	// human-readable `error`/`reason`. Each verb operates on a pa_action_drafts
+	// row `id` (the `draftId` argument).
+	if (
+		name === 'host.paActions.commit' ||
+		name === 'host.paActions.reject' ||
+		name === 'host.paActions.retry' ||
+		name === 'host.paActions.update'
+	) {
+		const verb = name.slice('host.paActions.'.length);
+		const draftId = typeof args.draftId === 'string' ? args.draftId : null;
+		if (!draftId) {
+			return errResult(`${name}: missing required \`draftId\` argument`);
+		}
+		if (!(await pkgDeclaresScope(pkgId, 'engine', 'invoke'))) {
+			return {
+				content: [{ type: 'text', text: `${name}: pkg lacks the 'engine:invoke' scope` }],
+				isError: true,
+				structuredContent: { ok: false, reason: 'scope-denied' },
+			};
+		}
+		try {
+			if (verb === 'commit') {
+				await paActionsCommit(draftId);
+			} else if (verb === 'reject') {
+				await paActionsReject(draftId);
+			} else if (verb === 'retry') {
+				await paActionsRetry(draftId);
+			} else {
+				// update — the Rust command validates the patch; nothing extra
+				// enforced here. Thread through subject/body when present.
+				const rawPatch =
+					args.patch && typeof args.patch === 'object'
+						? (args.patch as Record<string, unknown>)
+						: {};
+				const patch: { subject?: string; body?: string } = {};
+				if (typeof rawPatch.subject === 'string') patch.subject = rawPatch.subject;
+				if (typeof rawPatch.body === 'string') patch.body = rawPatch.body;
+				await paActionsUpdate(draftId, patch);
+			}
+			return {
+				content: [{ type: 'text', text: `${verb} ${draftId}` }],
+				structuredContent: { ok: true },
+			};
+		} catch (e) {
+			const msg = (e as Error).message ?? String(e);
+			return {
+				content: [{ type: 'text', text: `${name} failed: ${msg}` }],
+				isError: true,
+				structuredContent: { ok: false, error: msg },
+			};
+		}
 	}
 
 	// ─── agent-ops host bridge (WP-09 / G-TRIGGER) ──────────────────────────────

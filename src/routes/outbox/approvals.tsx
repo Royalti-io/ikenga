@@ -6,20 +6,30 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
 import { useMemo } from 'react';
 import { openSessionDialog } from '@/components/pkg/open-session-dialog';
-import { paActionsListQueryOptions, pausedDraftFromRow } from '@/lib/queries/pa-actions';
+import {
+	deriveWorkerHealth,
+	paActionsListQueryOptions,
+	pausedDraftFromRow,
+} from '@/lib/queries/pa-actions';
 import { queryKeys } from '@/lib/query-keys';
 import { paActionsCommit, paActionsReject, paActionsRetry, paActionsUpdate } from '@/lib/tauri-cmd';
 import { ApproveGatePanel } from '@/shell/atelier/surfaces/approve-gate-panel';
 
 function ApprovalsPage() {
 	const qc = useQueryClient();
-	const { data } = useQuery(paActionsListQueryOptions());
+	// WP-11: poll while the surface is open so the client-side worker-liveness
+	// derivation stays live (the strip's only clock is this query's freshness).
+	const { data } = useQuery({ ...paActionsListQueryOptions(), refetchInterval: 15_000 });
 
 	const drafts = useMemo(
 		() =>
 			(data ?? []).map(pausedDraftFromRow).filter((d): d is NonNullable<typeof d> => d !== null),
 		[data]
 	);
+
+	// WP-11: worker health is a pure client-side derivation over the same rows —
+	// no new IPC, no daemon heartbeat (design's honest-dead default).
+	const health = useMemo(() => deriveWorkerHealth(data ?? []), [data]);
 
 	const invalidate = () => qc.invalidateQueries({ queryKey: queryKeys.paActions.all });
 
@@ -48,6 +58,7 @@ function ApprovalsPage() {
 		<div className="h-full bg-background">
 			<ApproveGatePanel
 				drafts={drafts}
+				health={health}
 				onApprove={onApprove}
 				onReject={onReject}
 				onEdit={onEdit}

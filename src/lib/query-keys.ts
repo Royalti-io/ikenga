@@ -45,4 +45,20 @@ export const queryKeys = {
 		all: ['pa_actions'] as const,
 		list: (status?: string | null) => ['pa_actions', 'list', status ?? 'active'] as const,
 	},
+	// Every installed skill's actions (list_all_skill_actions), backing the ⌘K
+	// palette Actions group. No pkg-install Tauri event exists to invalidate on,
+	// so the hook leans on a ~30s staleTime (WP-18a).
+	skillActions: {
+		all: ['skill_actions', 'all'] as const,
+	},
+	// WP-18c — Obi home live widgets. Direct `db_query` reads against the
+	// domain tables the mock widgets used to fake (tasks / mail / finance).
+	// These are shell-side reads (not the pkg-iframe `host.dbQuery` bridge), so
+	// no `sqlite.tables` capability check applies — see `lib/queries/home-widgets.ts`.
+	home: {
+		tasks: () => ['home', 'tasks'] as const,
+		inbox: () => ['home', 'inbox'] as const,
+		finance: () => ['home', 'finance'] as const,
+		boardsPkgStatus: () => ['home', 'boards', 'pkg-status'] as const,
+	},
 } as const;

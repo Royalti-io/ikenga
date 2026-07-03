@@ -4093,6 +4093,29 @@ export async function skillRosterRead(projectRoot: string | null): Promise<strin
 	return atelierFileRead(projectRoot, 'skill-tasks', 'roster.json');
 }
 
+/** Atomically write `<projectRoot>/.atelier/<skill>/<file>` with `content`
+ *  (WP-18b R12/R13 — the write-path sibling of {@link atelierFileRead}). The
+ *  Rust command creates parent dirs, writes to a sibling temp file, then
+ *  renames over the target so a concurrent read never sees a half-written file.
+ *
+ *  Unlike the reader (which swallows every error into `null` so consumers fall
+ *  back to defaults), the write **rejects** on failure — the setup-chat surface
+ *  must know whether the confirm-write actually landed. Resolves to the written
+ *  absolute path on success.
+ *
+ *  The command is intentionally generic: it writes whatever bytes it is given.
+ *  Envelope shape (`skill` / `template_version` / `configured_at` / `settings`)
+ *  and the `configured_at` stamp are the caller's responsibility (see
+ *  `setup-chat-panel.tsx`), mirroring how the reader leaves parsing to the FE. */
+export async function atelierFileWrite(
+	projectRoot: string | null,
+	skill: string,
+	file: string,
+	content: string
+): Promise<string> {
+	return invoke<string>('atelier_file_write', { projectRoot, skill, file, content });
+}
+
 // ─── Bun runtime fetch (B+A hybrid) ───────────────────────────────────────────
 //
 // The shell no longer bundles bun; on a fresh install it's fetched after the

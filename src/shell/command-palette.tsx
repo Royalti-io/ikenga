@@ -30,6 +30,7 @@ import { fuzzyMatchSection, slugifySectionId, usePinsStore } from '@/lib/shell/p
 import { useShellStore } from '@/lib/shell/shell-store';
 import { createTerminalSession } from '@/terminal/single-terminal';
 import { ChromePickerDialog } from './chrome-picker/chrome-picker-dialog';
+import { ActionsGroup } from './palette-actions';
 
 export type PaletteMode = 'all' | 'views' | 'switcher' | 'projects';
 
@@ -243,6 +244,8 @@ export function CommandPalette({ open, mode, onOpenChange }: CommandPaletteProps
 												label="Attach Chrome profile / tab…"
 											/>
 										</Command.Group>
+
+										{mode === 'all' && <ActionsGroup onClose={() => onOpenChange(false)} />}
 
 										{mode === 'all' && (
 											<Command.Group heading="Navigate" className="text-xs text-muted-foreground">

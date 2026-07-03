@@ -1,47 +1,50 @@
-// WP-13: one skill-action button.
+// WP-13 · WP-18b: one skill-action button.
 //
-// Dispatch-only lighthouse — only `uxMode === 'confirm'` actions are active.
-// Clicking one routes the action's `chat_prompt` through the shell's reusable
-// New-Session dialog (`openSessionDialog`, the `host.openSessionDialog` verb's
-// core). The dialog is the consent surface: it pre-fills an editable prompt
-// (source-stamped `[via: groundwork/skill-action]`), lets the operator pick a
-// target (Chat / Terminal / Agent) + engine, and on Start mints + focuses +
-// seeds a *fresh* session by id.
+// Dispatch routes the action through the shell's reusable New-Session dialog
+// (`openSessionDialog`, the `host.openSessionDialog` verb's core). The dialog is
+// the consent surface: it pre-fills an editable prompt (source-stamped
+// `[via: groundwork/<source>]`), lets the operator pick a target (Chat /
+// Terminal / Agent) + engine, and on Start mints + focuses + seeds a *fresh*
+// session by id.
+//
+// Dispatchable modes: `confirm` (seed → review → send) and `approve` (run →
+// pause at the approve gate). WP-18b adds the well-known `setup` action: it
+// ships `ux_mode: streaming` but is enabled by *name*, dispatching into the
+// setup-chat flow (§1-§4). Every *other* streaming action stays disabled — a
+// visible placeholder with a mode badge.
 //
 // Why the dialog rather than `sendToActiveSession`: that core targets the
 // *currently-focused* pane-store chat, but clicking this button (a native pane
-// node) steals pane focus to the pkg pane first (pane.tsx `onMouseDownCapture`
-// / the iyke click's `el.focus()`), so there is no focused chat at dispatch
-// time. `sendToActiveSession` works only for iframe-isolated callers (artifact
-// channel / pkg AppBridge) whose clicks never reach the pane focus-capture.
-// The dialog sidesteps the steal entirely — it opens its own session and seeds
-// by thread id, independent of pane focus. (Caught in WP-13 live-verify.)
-//
-// Every other mode renders disabled with a small mode badge — a visible
-// placeholder for the streaming / approve / setup flows landing in later WPs.
+// node) steals pane focus to the pkg pane first, so there is no focused chat at
+// dispatch time. The dialog opens its own session and seeds by thread id,
+// independent of pane focus. (Caught in WP-13 live-verify.)
 
 import { useState } from 'react';
 
 import { cn } from '@/components/ui/utils';
 import type { SkillAction } from '@/lib/tauri-cmd';
-import { dispatchAction, isDispatchable } from './action-runner';
+import { dispatchAction, isDispatchable, isSetupAction } from './action-runner';
+import { setupButtonLabel, useSetupState } from './use-setup-state';
 
 export function ActionButton({ action }: { action: SkillAction }) {
 	const isConfirm = action.uxMode === 'confirm';
 	const isApprove = action.uxMode === 'approve';
-	const canDispatch = isDispatchable(action.uxMode);
+	const isSetup = isSetupAction(action);
+	const canDispatch = isDispatchable(action);
+	const setupState = useSetupState(action);
 	const [pending, setPending] = useState(false);
 	const [note, setNote] = useState<string | null>(null);
 
-	async function dispatch() {
+	// Setup's label reflects instance state (R14): fresh vs re-run vs migrate.
+	const label = isSetup ? setupButtonLabel(setupState) : action.name;
+	// Hold Alt (or Shift) when clicking Set up to force the interview flow
+	// instead of the ai-infer default (§5). Ignored for non-setup actions.
+	async function dispatch(interview: boolean) {
 		if (pending) return;
 		setPending(true);
 		setNote(null);
 		try {
-			// `confirm` seeds a chat for the operator to review + send; `approve`
-			// runs the action and its drafts pause at /outbox/approvals. Both open
-			// the New-Session dialog as the dispatch surface (see action-runner).
-			const res = await dispatchAction(action);
+			const res = await dispatchAction(action, { interview });
 			if (!res.ok && res.reason === 'scope-denied') {
 				setNote('Scope denied');
 			}
@@ -52,20 +55,23 @@ export function ActionButton({ action }: { action: SkillAction }) {
 		}
 	}
 
+	const title = isSetup
+		? `${label} — runs as a Chi conversation in the dock`
+		: canDispatch
+			? isApprove
+				? `${action.name} — runs, then pauses at the approve gate`
+				: (action.description ?? action.name)
+			: `${action.name} — ${action.uxMode} mode not yet available`;
+
 	return (
 		<button
 			type="button"
 			data-mode={action.uxMode}
+			data-setup={isSetup ? setupState.status : undefined}
 			data-active={canDispatch ? 'true' : 'false'}
 			disabled={!canDispatch || pending}
-			title={
-				canDispatch
-					? isApprove
-						? `${action.name} — runs, then pauses at the approve gate`
-						: (action.description ?? action.name)
-					: `${action.name} — ${action.uxMode} mode not yet available`
-			}
-			onClick={canDispatch ? dispatch : undefined}
+			title={title}
+			onClick={canDispatch ? (e) => dispatch(e.altKey || e.shiftKey) : undefined}
 			className={cn(
 				'inline-flex items-center gap-1.5 rounded-md border px-3 py-1 text-sm font-medium transition-colors',
 				canDispatch
@@ -74,8 +80,10 @@ export function ActionButton({ action }: { action: SkillAction }) {
 				pending && 'opacity-60'
 			)}
 		>
-			<span className="truncate">{action.name}</span>
-			{!isConfirm && (
+			<span className="truncate">{label}</span>
+			{/* Non-setup streaming/silent/form placeholders keep their mode badge;
+			    setup is enabled so it shows none. */}
+			{!isConfirm && !isSetup && (
 				<span className="rounded border border-border px-1 text-[10px] uppercase tracking-wide text-muted-foreground">
 					{action.uxMode}
 				</span>

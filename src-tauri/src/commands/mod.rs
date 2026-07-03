@@ -149,7 +149,7 @@ pub use secrets::{
     secrets_list_keys_scoped, secrets_set, secrets_set_scoped, secrets_vault_status, SecretsLock,
 };
 pub use settings_kv::{settings_clear_all, settings_get, settings_get_all, settings_set};
-pub use skill_roster::atelier_file_read;
+pub use skill_roster::{atelier_file_read, atelier_file_write};
 pub use spike::{spike_grant_fs_read, spike_setup_test_file};
 pub use studio_threads::{
     studio_message_append, studio_message_list, studio_thread_delete, studio_thread_get,
