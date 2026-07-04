@@ -44,6 +44,7 @@ import { Route as SettingsPkgAuditRouteImport } from './routes/settings/pkg-audi
 import { Route as SettingsPackagesRouteImport } from './routes/settings/packages'
 import { Route as SettingsOnboardingRouteImport } from './routes/settings/onboarding'
 import { Route as SettingsIntegrationsRouteImport } from './routes/settings/integrations'
+import { Route as SettingsDataHealthRouteImport } from './routes/settings/data-health'
 import { Route as SettingsBackupRouteImport } from './routes/settings/backup'
 import { Route as SettingsArtifactGridRouteImport } from './routes/settings/artifact-grid'
 import { Route as SettingsAppearanceRouteImport } from './routes/settings/appearance'
@@ -250,6 +251,11 @@ const SettingsOnboardingRoute = SettingsOnboardingRouteImport.update({
 const SettingsIntegrationsRoute = SettingsIntegrationsRouteImport.update({
   id: '/integrations',
   path: '/integrations',
+  getParentRoute: () => SettingsRouteRoute,
+} as any)
+const SettingsDataHealthRoute = SettingsDataHealthRouteImport.update({
+  id: '/data-health',
+  path: '/data-health',
   getParentRoute: () => SettingsRouteRoute,
 } as any)
 const SettingsBackupRoute = SettingsBackupRouteImport.update({
@@ -462,6 +468,7 @@ export interface FileRoutesByFullPath {
   '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/artifact-grid': typeof SettingsArtifactGridRoute
   '/settings/backup': typeof SettingsBackupRoute
+  '/settings/data-health': typeof SettingsDataHealthRoute
   '/settings/integrations': typeof SettingsIntegrationsRoute
   '/settings/onboarding': typeof SettingsOnboardingRoute
   '/settings/packages': typeof SettingsPackagesRoute
@@ -527,6 +534,7 @@ export interface FileRoutesByTo {
   '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/artifact-grid': typeof SettingsArtifactGridRoute
   '/settings/backup': typeof SettingsBackupRoute
+  '/settings/data-health': typeof SettingsDataHealthRoute
   '/settings/integrations': typeof SettingsIntegrationsRoute
   '/settings/onboarding': typeof SettingsOnboardingRoute
   '/settings/packages': typeof SettingsPackagesRoute
@@ -597,6 +605,7 @@ export interface FileRoutesById {
   '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/artifact-grid': typeof SettingsArtifactGridRoute
   '/settings/backup': typeof SettingsBackupRoute
+  '/settings/data-health': typeof SettingsDataHealthRoute
   '/settings/integrations': typeof SettingsIntegrationsRoute
   '/settings/onboarding': typeof SettingsOnboardingRoute
   '/settings/packages': typeof SettingsPackagesRoute
@@ -668,6 +677,7 @@ export interface FileRouteTypes {
     | '/settings/appearance'
     | '/settings/artifact-grid'
     | '/settings/backup'
+    | '/settings/data-health'
     | '/settings/integrations'
     | '/settings/onboarding'
     | '/settings/packages'
@@ -733,6 +743,7 @@ export interface FileRouteTypes {
     | '/settings/appearance'
     | '/settings/artifact-grid'
     | '/settings/backup'
+    | '/settings/data-health'
     | '/settings/integrations'
     | '/settings/onboarding'
     | '/settings/packages'
@@ -802,6 +813,7 @@ export interface FileRouteTypes {
     | '/settings/appearance'
     | '/settings/artifact-grid'
     | '/settings/backup'
+    | '/settings/data-health'
     | '/settings/integrations'
     | '/settings/onboarding'
     | '/settings/packages'
@@ -1099,6 +1111,13 @@ declare module '@tanstack/react-router' {
       path: '/integrations'
       fullPath: '/settings/integrations'
       preLoaderRoute: typeof SettingsIntegrationsRouteImport
+      parentRoute: typeof SettingsRouteRoute
+    }
+    '/settings/data-health': {
+      id: '/settings/data-health'
+      path: '/data-health'
+      fullPath: '/settings/data-health'
+      preLoaderRoute: typeof SettingsDataHealthRouteImport
       parentRoute: typeof SettingsRouteRoute
     }
     '/settings/backup': {
@@ -1417,6 +1436,7 @@ interface SettingsRouteRouteChildren {
   SettingsAppearanceRoute: typeof SettingsAppearanceRoute
   SettingsArtifactGridRoute: typeof SettingsArtifactGridRoute
   SettingsBackupRoute: typeof SettingsBackupRoute
+  SettingsDataHealthRoute: typeof SettingsDataHealthRoute
   SettingsIntegrationsRoute: typeof SettingsIntegrationsRoute
   SettingsOnboardingRoute: typeof SettingsOnboardingRoute
   SettingsPackagesRoute: typeof SettingsPackagesRoute
@@ -1436,6 +1456,7 @@ const SettingsRouteRouteChildren: SettingsRouteRouteChildren = {
   SettingsAppearanceRoute: SettingsAppearanceRoute,
   SettingsArtifactGridRoute: SettingsArtifactGridRoute,
   SettingsBackupRoute: SettingsBackupRoute,
+  SettingsDataHealthRoute: SettingsDataHealthRoute,
   SettingsIntegrationsRoute: SettingsIntegrationsRoute,
   SettingsOnboardingRoute: SettingsOnboardingRoute,
   SettingsPackagesRoute: SettingsPackagesRoute,

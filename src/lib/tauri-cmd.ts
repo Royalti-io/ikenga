@@ -3146,6 +3146,32 @@ export async function pkgHealthRemoveAll(): Promise<PkgHealthRemoveAllResult> {
 	return invoke<PkgHealthRemoveAllResult>('pkg_health_remove_all');
 }
 
+// ─── data health (Atelier/PA domain soft-FK orphan audit) ────────────────────
+// Mirrors the Rust `OrphanReport` serde (commands/data_health.rs) — keep in
+// lockstep. Read-only: the `0025`–`0054` migrations declare zero FK constraints,
+// so cross-domain links are plain TEXT "soft links". This surfaces child rows
+// whose non-null soft-FK value has no matching parent (a dangling reference).
+// Never mutates — these are real business records; the user decides the fix.
+export interface OrphanReport {
+	/** The child table holding the dangling references. */
+	table: string;
+	/** The soft-FK column whose value has no matching parent. */
+	column: string;
+	/** The table the column conceptually references (`parent_table.id`). */
+	parent_table: string;
+	/** How many child rows have a non-null value absent from the parent. */
+	orphan_count: number;
+	/** Up to ~5 child-row ids, for locating the affected records. */
+	sample_ids: string[];
+}
+
+/** Scan the domain soft-links for dangling references (read-only). Returns one
+ *  report per soft-link that currently has one or more orphans; clean links are
+ *  omitted (the FE renders those as a green check). */
+export async function dataHealthScan(): Promise<OrphanReport[]> {
+	return invoke<OrphanReport[]>('data_health_scan');
+}
+
 export interface PkgSettingsField {
 	key: string;
 	type: string;
