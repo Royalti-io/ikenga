@@ -125,7 +125,7 @@ export interface DraftDelivery {
  *  fixtures and pre-worker rows omit it (the chip simply doesn't render). */
 export type PausedDraftView = PausedDraft & { delivery?: DraftDelivery };
 
-export type WorkerHealthState = 'alive' | 'degraded' | 'dead';
+export type WorkerHealthState = 'alive' | 'idle' | 'degraded' | 'dead';
 
 /**
  * Client-side worker-liveness snapshot derived purely from the existing
@@ -231,6 +231,11 @@ export function deriveWorkerHealth(rows: PaActionDraftRow[], now: number = Date.
 		failuresThisHour >= DEGRADED_FAILURES
 	) {
 		state = 'degraded';
+	} else if (silent) {
+		// Nothing due AND no (or stale) heartbeat: the worker may well be fine,
+		// but claiming green "Alive" beside "last activity 30h ago" reads as a
+		// contradiction. Idle is the honest verdict — no signal, nothing owed.
+		state = 'idle';
 	} else {
 		state = 'alive';
 	}

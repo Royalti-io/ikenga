@@ -223,7 +223,21 @@ describe('deriveWorkerHealth (WP-11 liveness legend)', () => {
 		const h = deriveWorkerHealth(rows, NOW);
 		expect(h.scheduled).toBe(1);
 		expect(h.queued).toBe(0);
-		expect(h.state).toBe('alive'); // no due backlog ⇒ not dead even with no activity
+		expect(h.state).toBe('idle'); // no due backlog + no heartbeat ⇒ honest idle, not green alive
+	});
+
+	it('reads IDLE (not alive) when activity is stale but nothing is due — the 30h-ago case', () => {
+		// Visual-review finding: 4 old failures, last attempt 30h ago, empty queue
+		// rendered a green "Alive" beside "last worker activity 30h ago".
+		const rows = [
+			makeRow({ id: 'f1', status: 'failed', lastAttemptAt: ago(30 * 60 * MIN), attempts: 2 }),
+			makeRow({ id: 'f2', status: 'failed', lastAttemptAt: ago(31 * 60 * MIN), attempts: 5 }),
+		];
+		const h = deriveWorkerHealth(rows, NOW);
+		expect(h.failed).toBe(2);
+		expect(h.failuresThisHour).toBe(0);
+		expect(h.queued).toBe(0);
+		expect(h.state).toBe('idle');
 	});
 });
 

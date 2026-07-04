@@ -636,6 +636,9 @@
 .dh-lamp.is-alive {
 	background: var(--live);
 }
+.dh-lamp.is-idle {
+	background: var(--fg-faint);
+}
 .dh-lamp.is-degraded {
 	background: var(--achievement);
 }
@@ -679,6 +682,9 @@
 }
 .dh-state.is-alive {
 	color: var(--live);
+}
+.dh-state.is-idle {
+	color: var(--fg-muted);
 }
 .dh-state.is-degraded {
 	color: var(--achievement);

@@ -894,6 +894,7 @@ const DIAG_CMD = 'systemctl --user status agent-scheduler';
 
 const HEALTH_STATE_LABEL: Record<WorkerHealth['state'], string> = {
 	alive: 'Alive',
+	idle: 'Idle',
 	degraded: 'Degraded',
 	dead: 'No signal',
 };
@@ -901,7 +902,7 @@ const HEALTH_STATE_LABEL: Record<WorkerHealth['state'], string> = {
 /** Suppress the strip when there's nothing delivery-relevant to report — an alive
  *  worker with an empty pipeline is unobservable, not newsworthy. */
 function shouldShowHealthStrip(h: WorkerHealth): boolean {
-	return h.state !== 'alive' || h.sending + h.queued + h.failed > 0;
+	return (h.state !== 'alive' && h.state !== 'idle') || h.sending + h.queued + h.failed > 0;
 }
 
 function isSendPipelineStatus(dbStatus: string): boolean {

@@ -889,8 +889,8 @@ function FinanceBody() {
 						color: 'var(--fg-faint)',
 					}}
 				>
-					<span>cash ${cashUsd != null ? (cashUsd / 1000).toFixed(1) : '—'}k</span>
-					<span>burn ${burnUsd30d != null ? (burnUsd30d / 1000).toFixed(1) : '—'}k/mo</span>
+					<span>{cashUsd != null ? `cash $${(cashUsd / 1000).toFixed(1)}k` : 'cash —'}</span>
+					<span>{burnUsd30d != null ? `burn $${(burnUsd30d / 1000).toFixed(1)}k/mo` : 'burn —'}</span>
 				</div>
 			)}
 			<div
