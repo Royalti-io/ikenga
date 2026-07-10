@@ -8,6 +8,7 @@
 // subscription and republishes via `host-context-changed` notifications on
 // changes; this builder is the one-shot snapshot for the initialize handshake.
 
+import type { OperatorIdentity } from '@ikenga/contract/host-context';
 import type { McpUiHostContext, McpUiStyles } from '@modelcontextprotocol/ext-apps/app-bridge';
 
 import { useIkengaStore } from '@/lib/ikenga/theme-store';
@@ -93,6 +94,11 @@ export function buildHostContext(opts: {
 	/** Suite-style pkg state: which feature the shell sidebar last picked.
 	 *  Re-emitted on every change so the iframe can swap its mounted view. */
 	suite?: RoyaltiSuiteContext;
+	/** Resolved by `<PkgIframeHost>` from `useShellStore().userName`, falling
+	 *  back to the OS username (`osUsername()`) when unset. Absent only while
+	 *  that async resolution hasn't landed yet on first connect — the
+	 *  host-context-changed re-emit carries it once resolved. */
+	operator?: OperatorIdentity;
 }): McpUiHostContext {
 	const state = useIkengaStore.getState();
 	const ctx: McpUiHostContext = {
@@ -125,6 +131,9 @@ export function buildHostContext(opts: {
 	}
 	if (opts.suite) {
 		(ctx as McpUiHostContext & { royaltiSuite: RoyaltiSuiteContext }).royaltiSuite = opts.suite;
+	}
+	if (opts.operator) {
+		(ctx as McpUiHostContext & { operator: OperatorIdentity }).operator = opts.operator;
 	}
 	return ctx;
 }
