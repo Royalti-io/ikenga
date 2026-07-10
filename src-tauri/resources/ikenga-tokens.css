@@ -30,6 +30,10 @@
   --space-5: 20px;
   --space-6: 24px;
   --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --space-20: 80px;
 
   /* Radii */
   --radius-xs: 3px;
@@ -39,19 +43,65 @@
   --radius-xl: 14px;
   --radius-pill: 999px;
 
-  /* Typography */
+  /* Typography. --font-sans kept for back-compat; --font-body/-display/-mono are
+     the Atelier faces the shell already loads (Inter / Fraunces / JetBrains Mono).
+     Type *sizes* stay on the shipped package scale — the shell renders on these;
+     the app-kit + panes inherit them via var(). */
   --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
-  --font-display: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
-  --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --font-body: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-display: 'Fraunces', ui-serif, Georgia, serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --text-micro: 11px;
   --text-caption: 11.5px;
+  --text-body-sm: 13px;
   --text-body: 13px;
+  --text-body-lg: 16px;
+  --text-code: 13px;
+  --text-h4: 14px;
   --text-h3: 16px;
   --text-h2: 20px;
   --text-h1: 28px;
+  --text-display: 40px;
+  --text-display-xl: 56px;
+  /* line-heights (leading), paired with the sizes above */
+  --lead-micro: 1.4;
+  --lead-caption: 1.45;
+  --lead-body-sm: 1.5;
+  --lead-body: 1.55;
+  --lead-body-lg: 1.6;
+  --lead-code: 1.55;
+  --lead-h3: 1.35;
+  --lead-h2: 1.2;
+  --lead-h1: 1.15;
+  --lead-display: 1.08;
+  --lead-display-xl: 1.02;
 
   /* Layout */
   --header-height: 44px;
   --sidebar-width: 240px;
+
+  /* Motion — added for the app-kit (the tasks pkg shim previously hardcoded
+     --motion-fast / --ease-calm). */
+  --motion-fast: 120ms;
+  --motion-base: 180ms;
+  --motion-slow: 260ms;
+  --motion-slower: 360ms;
+  --ease-calm: cubic-bezier(0.2, 0.6, 0.2, 1);
+  --ease-decisive: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-soft-bounce: cubic-bezier(0.34, 1.32, 0.64, 1);
+
+  /* Density (default: comfortable). Chrome heights derive from this; the
+     [data-density] blocks below override for compact / spacious. */
+  --row-h: 36px;
+  --row-pad-y: 8px;
+  --gap: var(--space-2);
+  --body-size: var(--text-body);
+  --body-lead: var(--lead-body);
+  --tab-h: 38px;
+  --btn-h: 32px;
+  --btn-h-sm: 26px;
+  --btn-h-lg: 40px;
+  --input-h: 32px;
 
   /* Default mode is dark — ensures correct rendering even without
      [data-mode] attribute set on <html>. */
@@ -69,6 +119,18 @@
   --verdigris: hsl(170, 30%, 38%);
 }
 
+/* ─── density variants (override the comfortable defaults in :root) ───────── */
+[data-density='compact'] {
+  --row-h: 28px; --row-pad-y: 5px; --gap: var(--space-1);
+  --body-size: var(--text-body-sm); --body-lead: 1.4;
+  --tab-h: 32px; --btn-h: 28px; --btn-h-sm: 22px; --btn-h-lg: 34px; --input-h: 28px;
+}
+[data-density='spacious'] {
+  --row-h: 44px; --row-pad-y: 11px; --gap: var(--space-3);
+  --body-size: var(--text-body-lg); --body-lead: 1.6;
+  --tab-h: 44px; --btn-h: 36px; --btn-h-sm: 30px; --btn-h-lg: 44px; --input-h: 36px;
+}
+
 /* ─── dark mode (DEFAULT) ─────────────────────────────────────────────────── */
 :root,
 :root[data-mode='dark'] {
@@ -82,6 +144,7 @@
   --fg: hsl(0, 0%, 96%);
   --fg-muted: hsl(220, 8%, 58%);
   --fg-subtle: hsl(220, 8%, 42%);
+  --fg-faint: var(--fg-subtle);
 
   /* Borders */
   --border: hsl(220, 13%, 20%);
@@ -98,6 +161,10 @@
   --warning: hsl(38, 92%, 60%);
   --danger: hsl(0, 72%, 60%);
   --agent: hsl(280, 70%, 65%);
+  --agent-soft: color-mix(in srgb, var(--agent) 14%, transparent);
+  --live: var(--success);
+  --live-soft: color-mix(in srgb, var(--success) 14%, transparent);
+  --live-fg: hsl(150, 45%, 10%);
 
   /* Tints (subtle backgrounds for active/hovered states) */
   --tint-bg-active: hsl(220, 90%, 60%, 0.08);
@@ -193,6 +260,7 @@
   --fg: hsl(220, 14%, 12%);
   --fg-muted: hsl(220, 10%, 45%);
   --fg-subtle: hsl(220, 8%, 60%);
+  --fg-faint: var(--fg-subtle);
 
   --border: hsl(220, 13%, 88%);
   --border-soft: hsl(220, 13%, 93%);
@@ -207,6 +275,10 @@
   --warning: hsl(38, 88%, 48%);
   --danger: hsl(0, 65%, 48%);
   --agent: hsl(280, 65%, 50%);
+  --agent-soft: color-mix(in srgb, var(--agent) 14%, transparent);
+  --live: var(--success);
+  --live-soft: color-mix(in srgb, var(--success) 14%, transparent);
+  --live-fg: hsl(150, 24%, 97%);
 
   --tint-bg-active: hsl(220, 90%, 52%, 0.10);
   --tint-fg-active: hsl(220, 90%, 42%);
@@ -259,6 +331,8 @@
   --achievement: hsl(42,78%,54%); --achievement-soft: hsl(42,48%,18%);
   --danger: hsl(8,68%,46%); --danger-fg: hsl(0,0%,98%); --danger-soft: hsl(8,50%,16%);
   --systemic: hsl(170,28%,34%); --systemic-soft: hsl(170,22%,16%);
+  --agent: hsl(265,52%,64%); --agent-soft: hsl(265,32%,20%);
+  --live:  hsl(150,48%,52%); --live-soft:  hsl(150,30%,18%); --live-fg: hsl(150,50%,9%);
   --shadow-1: 0 1px 2px rgba(0,0,0,.55), 0 0 0 1px rgba(0,0,0,.25);
   --shadow-2: 0 4px 12px -2px rgba(0,0,0,.55);
   --shadow-3: 0 12px 28px -8px rgba(0,0,0,.6);
@@ -273,6 +347,8 @@
   --achievement: hsl(42,78%,42%); --achievement-soft: hsl(42,60%,90%);
   --danger: hsl(8,68%,42%); --danger-fg: hsl(0,0%,98%); --danger-soft: hsl(8,60%,92%);
   --systemic: hsl(170,36%,32%); --systemic-soft: hsl(170,30%,90%);
+  --agent: hsl(265,55%,44%); --agent-soft: hsl(265,40%,92%);
+  --live:  hsl(150,55%,32%); --live-soft:  hsl(150,40%,92%); --live-fg: hsl(0,0%,100%);
   --shadow-1: 0 1px 2px rgba(28,18,8,.08);
   --shadow-2: 0 4px 12px -2px rgba(28,18,8,.10);
   --shadow-3: 0 12px 28px -8px rgba(28,18,8,.14);

@@ -32,7 +32,7 @@ const ATTACHED = new WeakMap<HTMLIFrameElement, () => void>();
 
 export function attachElementPicker(
 	iframe: HTMLIFrameElement,
-	onPick: (result: PickResult) => void
+	onPick: (result: PickResult, anchor: { x: number; y: number }) => void
 ): () => void {
 	// Tear down any prior listener — replacing the callback is the common
 	// case (composer state changes, parent re-renders the picker).
@@ -58,8 +58,12 @@ export function attachElementPicker(
 		if (el === doc.documentElement || el === doc.body) return;
 		ev.preventDefault();
 		ev.stopPropagation();
+		// Cursor position in the *parent* viewport = iframe offset + the
+		// in-iframe client coords. Used to anchor the host context menu.
+		const r = iframe.getBoundingClientRect();
+		const anchor = { x: r.left + ev.clientX, y: r.top + ev.clientY };
 		void capture(iframe, el)
-			.then(onPick)
+			.then((result) => onPick(result, anchor))
 			.catch((err) => {
 				// Surface the failure in the console; the host modal stays closed.
 				// Cropping an element should be reliable on a same-origin doc;

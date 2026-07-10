@@ -9,9 +9,16 @@ import {
 	viewerStop,
 	type ViewerHandle,
 } from '@/lib/tauri-cmd';
+import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { registerIykeIframe } from '@/lib/iyke/iframe-registry';
 import { usePaneStore } from '@/lib/panes/pane-store';
 import { cn } from '@/components/ui/utils';
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { pickViewerRoot } from '../lib/relative-root';
 import {
 	attachElementPicker,
@@ -162,6 +169,12 @@ export function HtmlFrame({ path, paneId }: HtmlFrameProps) {
 	// thumbnails (which have `pointer-events-none` and pass no paneId)
 	// shouldn't be capturing contextmenu events.
 	const [pick, setPick] = useState<PickResult | null>(null);
+	// Right-clicking inside the artifact opens a host context menu anchored at
+	// the cursor; "Add pin / comment here" is one item (it opens the composer
+	// with the captured `pick`). Replaces the old behaviour of jumping straight
+	// to the pin composer on every right-click.
+	const [menu, setMenu] = useState<{ x: number; y: number; pick: PickResult } | null>(null);
+	const replaceView = usePaneStore((s) => s.replaceActiveViewAndPushHistory);
 	useEffect(() => {
 		if (!paneId || !readySrc) return;
 		const el = iframeRef.current;
@@ -172,7 +185,9 @@ export function HtmlFrame({ path, paneId }: HtmlFrameProps) {
 		let detach: (() => void) | undefined;
 		const wireUp = () => {
 			detach?.();
-			detach = attachElementPicker(el, (p) => setPick(p));
+			detach = attachElementPicker(el, (p, anchor) =>
+				setMenu({ x: anchor.x, y: anchor.y, pick: p })
+			);
 		};
 		// Attach immediately in case it's already loaded (re-mount races).
 		wireUp();
@@ -220,6 +235,54 @@ export function HtmlFrame({ path, paneId }: HtmlFrameProps) {
 				artifactPath={path}
 				onClose={() => setPick(null)}
 			/>
+			{/* Right-click on an iframe-internal element can't use a real DOM
+			    contextmenu-on-trigger anchor (the event fires in the iframe's own
+			    document), so this is a controlled DropdownMenu with a hidden,
+			    cursor-positioned virtual trigger rather than Radix's ContextMenu. */}
+			<DropdownMenu
+				open={menu !== null}
+				onOpenChange={(open) => {
+					if (!open) setMenu(null);
+				}}
+			>
+				<DropdownMenuTrigger asChild>
+					<span
+						aria-hidden
+						className="pointer-events-none fixed h-0 w-0"
+						style={{ left: menu?.x ?? 0, top: menu?.y ?? 0 }}
+					/>
+				</DropdownMenuTrigger>
+				{menu && (
+					<DropdownMenuContent align="start" sideOffset={0}>
+						<DropdownMenuItem onSelect={() => setPick(menu.pick)}>
+							Add pin / comment here…
+						</DropdownMenuItem>
+						<DropdownMenuItem onSelect={() => void writeText(path).catch(() => {})}>
+							Copy path
+						</DropdownMenuItem>
+						{paneId && isHtmlPath(path) && (
+							<DropdownMenuItem
+								onSelect={() =>
+									replaceView(paneId, { kind: 'artifact-studio', path, density: 'loupe' })
+								}
+							>
+								Open in Studio
+							</DropdownMenuItem>
+						)}
+						<DropdownMenuItem
+							onSelect={() => {
+								try {
+									iframeRef.current?.contentWindow?.location.reload();
+								} catch {
+									/* cross-origin or detached — ignore */
+								}
+							}}
+						>
+							Reload
+						</DropdownMenuItem>
+					</DropdownMenuContent>
+				)}
+			</DropdownMenu>
 		</div>
 	);
 }
