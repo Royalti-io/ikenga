@@ -1,9 +1,22 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use base64::Engine;
+use serde::Serialize;
 use tauri::{AppHandle, State};
 
 use crate::pty::{foreground::ForegroundProcess, PtyManager, SpawnOpts};
+
+/// Trailing scrollback of a PTY's emitted stream. `data` is base64 (same
+/// encoding as the `pty://{id}` live events); `endOffset` is the cumulative
+/// byte count those bytes end at, so the frontend can drop the overlap with
+/// any live bytes it buffered while attaching.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PtyScrollback {
+    data: String,
+    end_offset: u64,
+}
 
 #[tauri::command]
 pub async fn pty_spawn(
@@ -59,6 +72,23 @@ pub async fn pty_resize(
 #[tauri::command]
 pub async fn pty_kill(manager: State<'_, Arc<PtyManager>>, id: String) -> Result<(), String> {
     manager.kill(&id).map_err(|e| format!("kill failed: {e}"))
+}
+
+/// Trailing scrollback for a PTY, replayed by a window that attaches after the
+/// PTY has already emitted output (a popped-out terminal). Returns `None` once
+/// the session has exited and been reaped.
+#[tauri::command]
+pub async fn pty_scrollback(
+    manager: State<'_, Arc<PtyManager>>,
+    id: String,
+) -> Result<Option<PtyScrollback>, String> {
+    Ok(manager.scrollback(&id).map(|(bytes, end_offset)| {
+        let engine = base64::engine::general_purpose::STANDARD;
+        PtyScrollback {
+            data: engine.encode(&bytes),
+            end_offset,
+        }
+    }))
 }
 
 /// Foreground command for a single PTY. Returns `None` when the PTY is gone

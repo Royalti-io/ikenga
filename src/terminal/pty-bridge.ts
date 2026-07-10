@@ -12,6 +12,7 @@ import {
 	ptyKill,
 	ptyListen,
 	ptyResize,
+	ptyScrollback,
 	ptySpawn,
 	ptyWrite,
 	type PtySpawnOpts as RawPtySpawnOpts,
@@ -29,7 +30,7 @@ export type PtyExitHandler = (code: number | null) => void;
  * Re-exports of the raw command wrappers, in case anyone wants the imperative
  * API without the class.
  */
-export { ptySpawn, ptyWrite, ptyResize, ptyKill, ptyListen };
+export { ptySpawn, ptyWrite, ptyResize, ptyKill, ptyListen, ptyScrollback };
 
 export class Pty {
 	readonly id: string;
@@ -53,6 +54,21 @@ export class Pty {
 	 * far — without this, the spawn-before-mount race leaves xterm blank.
 	 */
 	private replayBuffer: Uint8Array = new Uint8Array(0);
+	/**
+	 * Absolute stream offset of `replayBuffer[0]` (cumulative bytes emitted
+	 * before it), or `null` when the buffer is empty. Used by `applyScrollback`
+	 * to splice a scrollback snapshot in front of live bytes buffered during a
+	 * detached attach without overlap. Reset to `null` whenever the buffer
+	 * drains.
+	 */
+	private replayStartOffset: number | null = null;
+	/**
+	 * When set, drop any live bytes whose absolute offset is below this value —
+	 * they were already covered by a replayed scrollback snapshot. Set by
+	 * `applyScrollback` when the snapshot arrives before any live bytes; cleared
+	 * as soon as a live chunk crosses the threshold (offsets are monotonic).
+	 */
+	private dedupUpTo: number | null = null;
 
 	private constructor(id: string, label: string) {
 		this.id = id;
@@ -60,12 +76,32 @@ export class Pty {
 	}
 
 	/**
-	 * Internal fanout. If no subscriber has registered yet, the bytes are
-	 * appended to `replayBuffer` so the eventual `onData()` consumer can catch
-	 * up; once a subscriber exists, bytes flow live.
+	 * Internal fanout. `endOffset` is the cumulative byte count this chunk ends
+	 * at (its absolute start is `endOffset - bytes.length`). If no subscriber
+	 * has registered yet, the bytes are appended to `replayBuffer` so the
+	 * eventual `onData()` consumer can catch up; once a subscriber exists, bytes
+	 * flow live. `dedupUpTo` trims bytes already delivered by a replayed
+	 * scrollback snapshot (the overlap window during a detached attach).
 	 */
-	private deliverData(bytes: Uint8Array) {
+	private deliverData(bytes: Uint8Array, endOffset: number) {
+		if (this.dedupUpTo !== null) {
+			const start = endOffset - bytes.length;
+			if (endOffset <= this.dedupUpTo) {
+				// Wholly inside the replayed snapshot — drop it. Clear the
+				// threshold once we're exactly at its edge (next chunk is above).
+				if (endOffset === this.dedupUpTo) this.dedupUpTo = null;
+				return;
+			}
+			if (start < this.dedupUpTo) {
+				bytes = bytes.subarray(this.dedupUpTo - start);
+			}
+			// This chunk crosses the threshold; all later ones are above it.
+			this.dedupUpTo = null;
+		}
 		if (this.dataSubs.size === 0) {
+			if (this.replayStartOffset === null) {
+				this.replayStartOffset = endOffset - bytes.length;
+			}
 			const next = new Uint8Array(this.replayBuffer.length + bytes.length);
 			next.set(this.replayBuffer, 0);
 			next.set(bytes, this.replayBuffer.length);
@@ -79,6 +115,46 @@ export class Pty {
 				console.error('[pty] data handler threw', err);
 			}
 		}
+	}
+
+	/**
+	 * Splice a scrollback snapshot in front of whatever live bytes were buffered
+	 * while attaching, so a detached (non-owning) terminal replays recent
+	 * scrollback before the live stream. Called from `attach` after the live
+	 * listener is registered — any bytes that arrived in between are already in
+	 * `replayBuffer`, tagged by `replayStartOffset`, so the overlap between them
+	 * and the snapshot is dropped by offset rather than duplicated.
+	 *
+	 * `snapEnd` is the cumulative byte count the snapshot ends at; its first
+	 * byte's absolute offset is `snapEnd - snapData.length`. Because the live
+	 * listener was registered *before* the snapshot was taken, the union of the
+	 * two covers the stream with no gap: any byte below `snapEnd` is either in
+	 * the snapshot's tail or was received live, and everything at/above `snapEnd`
+	 * arrives live. Must run before any subscriber attaches (guaranteed by the
+	 * detached surface, which only mounts xterm after `attach` resolves).
+	 */
+	private applyScrollback(snapData: Uint8Array, snapEnd: number) {
+		if (snapData.length === 0) return;
+		const snapStart = snapEnd - snapData.length;
+		if (this.replayStartOffset === null) {
+			// No live bytes buffered yet: replay the snapshot, and trim the
+			// overlap off whatever live bytes arrive next.
+			this.replayBuffer = snapData;
+			this.replayStartOffset = snapStart;
+			this.dedupUpTo = snapEnd;
+			return;
+		}
+		// Live bytes already buffered. Keep only the snapshot prefix that
+		// precedes them; the live buffer already carries the overlap forward.
+		const liveStart = this.replayStartOffset;
+		const prefixLen = Math.max(0, Math.min(snapEnd, liveStart) - snapStart);
+		const prefix = snapData.subarray(0, prefixLen);
+		const merged = new Uint8Array(prefix.length + this.replayBuffer.length);
+		merged.set(prefix, 0);
+		merged.set(this.replayBuffer, prefix.length);
+		this.replayBuffer = merged;
+		this.replayStartOffset = Math.min(snapStart, liveStart);
+		this.dedupUpTo = null;
 	}
 
 	/**
@@ -96,7 +172,7 @@ export class Pty {
 		try {
 			pty.unlisten = await ptyListen(
 				id,
-				(bytes) => pty.deliverData(bytes),
+				(bytes, endOffset) => pty.deliverData(bytes, endOffset),
 				(code) => {
 					pty.exited = true;
 					pty.exitCode = code;
@@ -122,15 +198,23 @@ export class Pty {
 	 * window). Subscribes to the live `pty://<id>` stream without spawning —
 	 * the origin pane still owns the PTY, so `dispose()` here only unsubscribes
 	 * and never kills it. New output + keystrokes flow live and write back to
-	 * the shared shell (both windows drive the same PTY). Scrollback emitted
-	 * before this attach stays in the origin window for now (v1).
+	 * the shared shell (both windows drive the same PTY).
+	 *
+	 * Scrollback: the live listener is registered FIRST, then a scrollback
+	 * snapshot is fetched and spliced in front of any bytes that arrived in the
+	 * meantime (`applyScrollback` drops the overlap by offset). This closes the
+	 * gap where a popped-out terminal started blank until fresh output arrived.
+	 * The replayed bytes are the raw trailing stream, so — like any terminal
+	 * reattach — mid-state escape sequences render against a fresh screen; a few
+	 * stale bytes may flicker at the top on first paint. Scrollback older than
+	 * the Rust ring cap (256KB) is not replayed.
 	 */
 	static async attach(id: string, label: string): Promise<Pty> {
 		const pty = new Pty(id, label);
 		pty.owning = false;
 		pty.unlisten = await ptyListen(
 			id,
-			(bytes) => pty.deliverData(bytes),
+			(bytes, endOffset) => pty.deliverData(bytes, endOffset),
 			(code) => {
 				pty.exited = true;
 				pty.exitCode = code;
@@ -143,6 +227,14 @@ export class Pty {
 				}
 			}
 		);
+		// Replay recent scrollback before any subscriber attaches. Registered
+		// after the live listener so the union covers the stream gap-free.
+		try {
+			const sb = await ptyScrollback(id);
+			if (sb) pty.applyScrollback(sb.data, sb.endOffset);
+		} catch (err) {
+			console.warn('[pty] scrollback fetch failed', err);
+		}
 		return pty;
 	}
 
@@ -163,6 +255,7 @@ export class Pty {
 			// re-subscribe (Studio attach window), new bytes go into a fresh
 			// buffer and drain into the late subscriber once it attaches.
 			this.replayBuffer = new Uint8Array(0);
+			this.replayStartOffset = null;
 		}
 		this.dataSubs.add(handler);
 		return () => {

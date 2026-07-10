@@ -18,9 +18,11 @@
 // detached terminal must use the CANVAS renderer — WebGL "loads" in a secondary
 // WebKitGTK webview but paints no glyphs (only the cursor) and never fires
 // onContextLoss, so the terminal stays blank. We pass `disableWebgl` to
-// XTermHost below. v1 limitation: scrollback emitted before the attach isn't
-// replayed (a few stale bytes may flicker at the top on first paint); live
-// output is correct.
+// XTermHost below. Scrollback: `Pty.attach` replays the origin PTY's recent
+// output (Rust ring, ≤256KB) into xterm before the live stream, so the popped-
+// out terminal no longer starts blank. Caveat: the replayed tail is raw bytes
+// against a fresh screen (like any terminal reattach) — a few stale escape
+// sequences may flicker at the top on first paint; live output is correct.
 
 // xterm's base stylesheet is otherwise imported only in boot/primary.tsx — a
 // chunk the detached graph never loads — so the detached terminal would render
