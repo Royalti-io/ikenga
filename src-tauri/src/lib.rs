@@ -56,7 +56,7 @@ use commands::{
     oba_dependents, oba_forget, oba_install_bundle, oba_install_git, oba_install_local,
     oba_install_npx, oba_install_with_deps, oba_missing_requires, oba_relink_dependents,
     oba_safe_delete,
-    oba_set_auto_update, oba_unlink_one, oba_update, pin_screenshot_write, pkg_content_html,
+    oba_set_auto_update, oba_unlink_one, oba_update, os_username, pin_screenshot_write, pkg_content_html,
     pkg_content_revoke, pkg_content_url, pkg_db_diag, pkg_dev_register, pkg_dev_reload,
     pkg_dev_unregister, pkg_discover_workspace, pkg_fetch, pkg_health_remove,
     pkg_health_remove_all, pkg_health_scan, pkg_install_from_path,
@@ -68,7 +68,7 @@ use commands::{
     pkg_webview_destroy, pkg_webview_navigate, pkg_webview_set_rect, project_archive,
     project_artifacts_walk, project_create, project_get_active, project_inventory, project_list,
     project_scaffold_claude, project_set_active, project_skills_list, project_update,
-    pty_foreground, pty_foreground_snapshot, pty_kill, pty_resize, pty_spawn, pty_write,
+    pty_foreground, pty_foreground_snapshot, pty_kill, pty_resize, pty_scrollback, pty_spawn, pty_write,
     runtime_retry_bun_fetch, screenshot_capture_done, screenshot_capture_failed,
     screenshot_capture_native_crop, screenshot_get_config, screenshot_pane, screenshot_set_dir,
     screenshot_window, secrets_delete, secrets_delete_scoped, secrets_get, secrets_get_scoped,
@@ -767,6 +767,18 @@ pub fn run() {
                 });
             }
 
+            // Emit `window://focus-changed` for the PRIMARY window too —
+            // detached windows get theirs in `WindowRegistry::spawn`, but the
+            // main window is owned here, so hook its focus transitions directly.
+            if let Some(main_window) = app.get_webview_window("main") {
+                let app_for_focus = app.handle().clone();
+                main_window.on_window_event(move |ev| {
+                    if let tauri::WindowEvent::Focused(focused) = ev {
+                        crate::window::emit_focus_changed(&app_for_focus, "main", *focused);
+                    }
+                });
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -782,6 +794,7 @@ pub fn run() {
             pty_write,
             pty_resize,
             pty_kill,
+            pty_scrollback,
             pty_foreground,
             pty_foreground_snapshot,
             // multi-window substrate (plans/multi-window WP-03)
@@ -877,6 +890,7 @@ pub fn run() {
             oba_update,
             oba_auto_update_all,
             oba_set_auto_update,
+            os_username,
             // Ngwa Phase-2 cross-system — G-ADAPTER engine layout descriptor
             engine_layout,
             // viewer
@@ -1145,23 +1159,31 @@ fn global_shortcut_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
                     }
                 }
             } else if shortcut == &shot_window {
-                // Route to "main" — the screenshot FE listener
-                // (useScreenshotListener) lives only in the primary window.
-                // emit_to_focused would mis-route to a focused pkg-pane
-                // (Linux TopLevel WebviewWindow) or detached window, which has
-                // no listener → the shortcut would silently no-op. Targeting a
-                // detached/focused window is a future enhancement that also
-                // needs the listener + capture_window_png de-"main"'d.
+                // Target the focused window that actually hosts the screenshot
+                // listener (`useScreenshotListener`, mounted only inside
+                // `<Workspace/>`). `focused_listener_window_label` returns a
+                // focused `Workspace`-kind spawned window (Flavor B) if any,
+                // else `None` — deliberately never a `single-surface`/`pane-set`
+                // detached window or a pkg-pane child webview, which have no
+                // listener. `None` → "main", exactly today's behavior; on
+                // WebKitGTK `is_focused` can under-report, which also falls back
+                // to "main" (safe). Detached-window capture also needs the
+                // listener + `capture_window_png` de-"main"'d before it lights
+                // up in practice.
+                let target = crate::window::focused_listener_window_label(app)
+                    .unwrap_or_else(|| "main".to_string());
                 let _ = crate::window::emit_to_label(
                     app,
-                    "main",
+                    &target,
                     "screenshot://shortcut",
                     serde_json::json!({ "kind": "window" }),
                 );
             } else if shortcut == &shot_pane {
+                let target = crate::window::focused_listener_window_label(app)
+                    .unwrap_or_else(|| "main".to_string());
                 let _ = crate::window::emit_to_label(
                     app,
-                    "main",
+                    &target,
                     "screenshot://shortcut",
                     serde_json::json!({ "kind": "pane-focused" }),
                 );

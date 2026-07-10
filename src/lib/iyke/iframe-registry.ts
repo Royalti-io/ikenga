@@ -15,6 +15,9 @@ import {
 	type OpenSessionDialogOptions,
 } from '@/components/pkg/open-session-dialog';
 import { sendToActiveSession } from '@/components/pkg/send-to-active-session';
+import { usePaneStore } from '@/lib/panes/pane-store';
+import { findLeaf } from '@/lib/panes/pane-reducer';
+import { resolvePath } from '@/lib/paths/file-paths';
 
 export interface IframeRegistration {
 	paneId: string;
@@ -290,6 +293,62 @@ export function installIykeIframeMessageListener() {
 				}
 				const source = typeof payload.source === 'string' ? payload.source : undefined;
 				void sendToActiveSession({ prompt, source }).then(respond);
+				return;
+			}
+			// First-party artifact channel: open a sibling artifact (a
+			// plans-index "Explorer / Board / Spec" drill-in) as a NEW tab in the
+			// focused pane. The sandboxed viewer iframe can't reach the pane store
+			// and `target="_blank"` is popup-blocked, so the groundwork artifacts
+			// post this verb. `href` is relative to the *current* artifact (the
+			// plans-index), so resolve it against that tab's path — same
+			// `kind:'artifact'` open the terminal path-links use.
+			case 'host.openArtifact': {
+				const reqId = data.request_id;
+				const src = e.source as Window | null;
+				const respond = (result: unknown) => {
+					if (!reqId || !src) return;
+					try {
+						src.postMessage(
+							{
+								__iyke: true,
+								kind: 'host.openArtifact:result',
+								request_id: reqId,
+								payload: result,
+							},
+							'*'
+						);
+					} catch {}
+				};
+				const payload = (data.payload ?? {}) as Record<string, unknown>;
+				const href = typeof payload.href === 'string' ? payload.href : null;
+				if (!href) {
+					respond({ ok: false, reason: 'missing-href' });
+					return;
+				}
+				if (!reg) {
+					respond({ ok: false, reason: 'no-artifact-base' });
+					return;
+				}
+				const store = usePaneStore.getState();
+				const leaf = findLeaf(store.root, reg.paneId);
+				const active = leaf?.tabs[leaf.activeTabIdx];
+				if (!active || active.kind !== 'artifact') {
+					respond({ ok: false, reason: 'no-artifact-base' });
+					return;
+				}
+				// Absolute href passes through; relative resolves against the
+				// sender's own pane's active artifact directory — iframe-internal
+				// clicks never focus the pane, so store.focusedId is the wrong base.
+				const base = active.path;
+				const slashIdx = base.lastIndexOf('/');
+				if (slashIdx === -1) {
+					respond({ ok: false, reason: 'no-artifact-base' });
+					return;
+				}
+				const cwd = base.slice(0, slashIdx);
+				const resolved = resolvePath(href, cwd);
+				store.addTab(reg.paneId, { kind: 'artifact', path: resolved });
+				respond({ ok: true, path: resolved });
 				return;
 			}
 			case 'dom-response':

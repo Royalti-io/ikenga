@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useRef, type ReactNode, type HTMLAttributes } from 'react';
+import {
+	forwardRef,
+	useCallback,
+	useEffect,
+	useRef,
+	type ReactNode,
+	type HTMLAttributes,
+} from 'react';
 import { Pin, PinOff, X } from 'lucide-react';
 
 import { cn } from '@/components/ui/utils';
@@ -219,116 +226,127 @@ const AFFORDANCE = cn(
 
 /** One tab. A `<div role="tab">` so the pin/close affordances can be real,
  *  keyboard-operable `<button>`s (a `<button>` can't nest in a `<button>`). */
-export function Tab({
-	index,
-	active,
-	label,
-	ws,
-	glyph,
-	title,
-	pinned = false,
-	closable = false,
-	onActivate,
-	onClose,
-	onTogglePin,
-	onMiddleClick,
-	draggable = false,
-	dragHandlers,
-	dropEdge,
-	variant = 'default',
-	className,
-	labelClassName,
-	style,
-}: TabProps) {
-	return (
-		<div
-			role="tab"
-			aria-selected={active}
-			tabIndex={active ? 0 : -1}
-			data-tab-index={index}
-			data-ws={ws}
-			data-active={active ? 'true' : 'false'}
-			draggable={draggable}
-			title={title}
-			onClick={onActivate}
-			onAuxClick={(e) => {
-				if (e.button === 1 && onMiddleClick) {
-					e.preventDefault();
-					onMiddleClick();
-				}
-			}}
-			onKeyDown={(e) => {
-				if (e.key === 'Enter' || e.key === ' ') {
-					e.preventDefault();
-					onActivate();
-				} else if ((e.key === 'Delete' || e.key === 'Backspace') && closable && onClose) {
-					e.preventDefault();
-					onClose();
-				} else if ((e.key === 'p' || e.key === 'P') && onTogglePin) {
-					e.preventDefault();
-					onTogglePin();
-				}
-			}}
-			{...dragHandlers}
-			className={cn(
-				'group relative flex shrink-0 cursor-default select-none items-center gap-2',
-				'outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
-				'motion-reduce:transition-none',
-				variant === 'rail' ? 'text-[10px] uppercase tracking-wider' : 'text-xs',
-				active
-					? 'bg-background text-foreground'
-					: 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
-				className
-			)}
-			style={style}
-		>
-			{/* Pane pins show a leading rotated-pin indicator; glyph variants
-			    (dock/rail) signal pinned state via the persistent pin button. */}
-			{pinned && !glyph && <Pin className="h-3 w-3 shrink-0 -rotate-45 text-foreground/70" />}
-			{glyph}
-			<span className={cn('truncate', variant === 'rail' && 'font-mono', labelClassName)}>
-				{label}
-			</span>
-			{onTogglePin && (
-				<button
-					type="button"
-					tabIndex={-1}
-					aria-label={pinned ? 'Unpin tab' : 'Pin tab'}
-					onClick={(e) => {
-						e.stopPropagation();
-						onTogglePin();
-					}}
-					className={cn(AFFORDANCE, (pinned || active) && 'opacity-100')}
-				>
-					{pinned ? <PinOff className="h-3 w-3" /> : <Pin className="h-3 w-3" />}
-				</button>
-			)}
-			{closable && onClose && (
-				<button
-					type="button"
-					tabIndex={-1}
-					aria-label="Close tab"
-					onClick={(e) => {
-						e.stopPropagation();
+export const Tab = forwardRef<HTMLDivElement, TabProps & HTMLAttributes<HTMLDivElement>>(
+	function Tab(
+		{
+			index,
+			active,
+			label,
+			ws,
+			glyph,
+			title,
+			pinned = false,
+			closable = false,
+			onActivate,
+			onClose,
+			onTogglePin,
+			onMiddleClick,
+			draggable = false,
+			dragHandlers,
+			dropEdge,
+			variant = 'default',
+			className,
+			labelClassName,
+			style,
+			// `...rest` carries the props a Radix <ContextMenuTrigger asChild>
+			// injects (onContextMenu / onPointerDown / aria-*); spread first so
+			// the explicit handlers below still win.
+			...rest
+		},
+		ref
+	) {
+		return (
+			<div
+				ref={ref}
+				{...rest}
+				role="tab"
+				aria-selected={active}
+				tabIndex={active ? 0 : -1}
+				data-tab-index={index}
+				data-ws={ws}
+				data-active={active ? 'true' : 'false'}
+				draggable={draggable}
+				title={title}
+				onClick={onActivate}
+				onAuxClick={(e) => {
+					if (e.button === 1 && onMiddleClick) {
+						e.preventDefault();
+						onMiddleClick();
+					}
+				}}
+				onKeyDown={(e) => {
+					if (e.key === 'Enter' || e.key === ' ') {
+						e.preventDefault();
+						onActivate();
+					} else if ((e.key === 'Delete' || e.key === 'Backspace') && closable && onClose) {
+						e.preventDefault();
 						onClose();
-					}}
-					className={cn(AFFORDANCE, active && 'opacity-60')}
-				>
-					<X className="h-3 w-3" />
-				</button>
-			)}
-			{dropEdge && (
-				<span
-					aria-hidden="true"
-					className={cn(
-						'pointer-events-none absolute top-0 z-10 h-full w-0.5 bg-primary',
-						dropEdge === 'before' ? 'left-0' : 'right-0'
-					)}
-				/>
-			)}
-		</div>
-	);
-}
+					} else if ((e.key === 'p' || e.key === 'P') && onTogglePin) {
+						e.preventDefault();
+						onTogglePin();
+					}
+				}}
+				{...dragHandlers}
+				className={cn(
+					'group relative flex shrink-0 cursor-default select-none items-center gap-2',
+					'outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
+					'motion-reduce:transition-none',
+					variant === 'rail' ? 'text-[10px] uppercase tracking-wider' : 'text-xs',
+					active
+						? 'bg-background text-foreground'
+						: 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+					className
+				)}
+				style={style}
+			>
+				{/* Pane pins show a leading rotated-pin indicator; glyph variants
+			    (dock/rail) signal pinned state via the persistent pin button. */}
+				{pinned && !glyph && <Pin className="h-3 w-3 shrink-0 -rotate-45 text-foreground/70" />}
+				{glyph}
+				<span className={cn('truncate', variant === 'rail' && 'font-mono', labelClassName)}>
+					{label}
+				</span>
+				{onTogglePin && (
+					<button
+						type="button"
+						tabIndex={-1}
+						aria-label={pinned ? 'Unpin tab' : 'Pin tab'}
+						onClick={(e) => {
+							e.stopPropagation();
+							onTogglePin();
+						}}
+						className={cn(AFFORDANCE, (pinned || active) && 'opacity-100')}
+					>
+						{pinned ? <PinOff className="h-3 w-3" /> : <Pin className="h-3 w-3" />}
+					</button>
+				)}
+				{closable && onClose && (
+					<button
+						type="button"
+						tabIndex={-1}
+						aria-label="Close tab"
+						onClick={(e) => {
+							e.stopPropagation();
+							onClose();
+						}}
+						className={cn(AFFORDANCE, active && 'opacity-60')}
+					>
+						<X className="h-3 w-3" />
+					</button>
+				)}
+				{dropEdge && (
+					<span
+						aria-hidden="true"
+						className={cn(
+							'pointer-events-none absolute top-0 z-10 h-full w-0.5 bg-primary',
+							dropEdge === 'before' ? 'left-0' : 'right-0'
+						)}
+					/>
+				)}
+			</div>
+		);
+	}
+);
 
 export interface TabRailProps {
 	label: string;

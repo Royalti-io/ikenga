@@ -27,8 +27,13 @@ pub fn window_close(
     registry.close(&app, &label).map_err(|e| e.to_string())
 }
 
-/// List descriptors of all currently-spawned windows.
+/// List descriptors of all currently-spawned windows. Reconciles against the
+/// OS first so a window whose `Destroyed` event was missed can't linger as a
+/// permanent ghost.
 #[tauri::command]
-pub fn window_list(registry: State<'_, WindowRegistry>) -> Vec<WindowDescriptor> {
-    registry.list()
+pub fn window_list(
+    app: AppHandle,
+    registry: State<'_, WindowRegistry>,
+) -> Vec<WindowDescriptor> {
+    registry.list_live(&app)
 }

@@ -1,8 +1,14 @@
-import { useCallback } from 'react';
 import { ArrowUpRight } from 'lucide-react';
-import { ViewerRouter } from '@/viewer/auto-router';
+import { useCallback } from 'react';
 import { IconButton } from '@/components/ui/icon-button';
 import { spawnWindow } from '@/lib/tauri-cmd';
+import {
+	markSurfaceDetached,
+	syncDetachedSurfaces,
+	useIsSurfaceDetached,
+} from '@/lib/window/detached-surfaces';
+import { ViewerRouter } from '@/viewer/auto-router';
+import { DetachedSurfacePlaceholder } from './detached-placeholder';
 
 interface ArtifactViewProps {
 	path: string;
@@ -18,16 +24,31 @@ export function ArtifactView({ path, paneId }: ArtifactViewProps) {
 	// The path is encoded in the surface_set entry ("viewer:<path>") so the
 	// detached ViewerSurface can extract it from ctx.surfaces[0].
 	// First-colon split only, so absolute paths starting with "/" survive.
+	const surfaceId = `viewer:${path}`;
+	const isDetached = useIsSurfaceDetached(surfaceId);
 	const handlePopOut = useCallback(() => {
-		const label = `detached-viewer-${Date.now().toString(36)}`;
+		const label = `detached-viewer-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+		// Optimistically mark detached so this pane swaps to the placeholder
+		// immediately instead of briefly duplicating the viewer.
+		markSurfaceDetached(surfaceId, label);
 		void spawnWindow({
 			label,
 			kind: 'single-surface',
-			surface_set: [`viewer:${path}`],
+			surface_set: [surfaceId],
 			project_id: null,
 			layout_key: label,
-		}).catch((e) => console.warn('pop-out viewer:', e));
-	}, [path]);
+		}).catch((e) => {
+			console.warn('pop-out viewer:', e);
+			// Reconcile the optimistic mark if the window never opened.
+			void syncDetachedSurfaces();
+		});
+	}, [surfaceId]);
+
+	// Popped out into its own window — render the reclaim placeholder, not the
+	// live duplicate.
+	if (isDetached) {
+		return <DetachedSurfacePlaceholder surfaceId={surfaceId} noun="file" />;
+	}
 
 	return (
 		<div className="relative flex h-full w-full flex-col">

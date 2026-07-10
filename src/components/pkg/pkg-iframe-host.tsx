@@ -32,6 +32,7 @@
 // instance is keyed by ref and torn down + recreated cleanly on each effect
 // run; no useRef-mount-guard + cancelled-flag combination.
 
+import type { OperatorIdentity } from '@ikenga/contract/host-context';
 import { AppBridge, PostMessageTransport } from '@modelcontextprotocol/ext-apps/app-bridge';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { useEffect, useRef, useState } from 'react';
@@ -56,6 +57,7 @@ import {
 	agentOpsUpsertJob,
 	dbExec,
 	dbQuery,
+	osUsername,
 	paActionsCommit,
 	paActionsReject,
 	paActionsRetry,
@@ -922,9 +924,7 @@ export async function dispatchHostCall(
 				content: [
 					{
 						type: 'text',
-						text: res.ok
-							? `${res.status} ${url}`
-							: `host.fetch: ${res.reason ?? 'failed'}`,
+						text: res.ok ? `${res.status} ${url}` : `host.fetch: ${res.reason ?? 'failed'}`,
 					},
 				],
 				structuredContent: res as unknown as Record<string, unknown>,
@@ -960,7 +960,9 @@ export async function dispatchHostCall(
 				content: [
 					{
 						type: 'text',
-						text: res.ok ? `ok (exit ${res.exitCode ?? 0})` : `host.invoke: ${res.error ?? 'failed'}`,
+						text: res.ok
+							? `ok (exit ${res.exitCode ?? 0})`
+							: `host.invoke: ${res.error ?? 'failed'}`,
 					},
 				],
 				structuredContent: res as unknown as Record<string, unknown>,
@@ -1084,6 +1086,19 @@ export function PkgIframeHost({ pkgId, source, onInitialized }: PkgIframeHostPro
 	// delivering the previous project's roster (caught in WP-16b live-verify).
 	const [rosterGen, setRosterGen] = useState(0);
 
+	// Operator identity for `hostContext.operator`: the onboarding display name
+	// (`useShellStore().userName`), falling back to the OS username via the
+	// `os_username` Tauri command when unset. `undefined` means UNKNOWN — never
+	// fabricate a default identity (per the schema's fail-safe contract).
+	// Resolved async (the OS-username lookup is a Tauri command) and cached in
+	// a ref like supabase/secrets so appearance re-emits reuse it without
+	// re-resolving; the Step-3 re-emit keys on `operatorGen` for the same
+	// reason `rosterGen` exists — a plain dep on `userName` would re-push
+	// before the async fallback resolved.
+	const operatorRef = useRef<OperatorIdentity | undefined>(undefined);
+	const [operatorGen, setOperatorGen] = useState(0);
+	const userName = useShellStore((s) => s.userName);
+
 	// Stabilize onInitialized via ref so effect deps stay constant. Without
 	// this, every parent re-render recreates the callback → effect re-runs →
 	// bridge is torn down + reattached, and we miss the iframe's initialize.
@@ -1131,6 +1146,30 @@ export function PkgIframeHost({ pkgId, source, onInitialized }: PkgIframeHostPro
 			cancelled = true;
 		};
 	}, [activeProjectRoot]);
+
+	// Operator resolution: onboarding `userName` if set, else the OS username.
+	// Re-resolves whenever `userName` changes (e.g. the user fills it in from
+	// onboarding after a pkg pane is already mounted).
+	useEffect(() => {
+		let cancelled = false;
+		(async () => {
+			const trimmed = userName.trim();
+			let id = trimmed;
+			if (!id) {
+				try {
+					id = (await osUsername()).trim();
+				} catch {
+					id = '';
+				}
+			}
+			if (cancelled) return;
+			operatorRef.current = id ? { id } : undefined;
+			setOperatorGen((g) => g + 1);
+		})();
+		return () => {
+			cancelled = true;
+		};
+	}, [userName]);
 
 	// Step 1: read the iframe HTML + mint a subresource token (per-mount).
 	// `reloadKey` is included so the dev-mode `pkg-reloaded` event re-runs
@@ -1221,6 +1260,7 @@ export function PkgIframeHost({ pkgId, source, onInitialized }: PkgIframeHostPro
 					authToken: authTokenRef.current,
 					supabase: supabaseConfigRef.current,
 					secrets: secretsConfigRef.current,
+					operator: operatorRef.current,
 					suite: {
 						activeFeature: usePkgMenuStore.getState().activeFeatures[pkgId],
 						activeProject: activeProjectSnapshot(),
@@ -1311,7 +1351,7 @@ export function PkgIframeHost({ pkgId, source, onInitialized }: PkgIframeHostPro
 	// (theme / mode / tint / workspace) or the active suite-feature changes.
 	// The pkg's onhostcontextchanged handler re-applies the `--color-*` palette
 	// and reads `royaltiSuite.activeFeature` to swap its internal view.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: rosterGen re-pushes after the roster fetch resolves (value read from rosterRef); activeProjectId/Name re-push on a project switch (activeProject itself is rebuilt each render, so it can't be a stable dep — its primitive sources stand in).
+	// biome-ignore lint/correctness/useExhaustiveDependencies: rosterGen/operatorGen re-push after the roster/operator fetch resolves (values read from rosterRef/operatorRef); activeProjectId/Name re-push on a project switch (activeProject itself is rebuilt each render, so it can't be a stable dep — its primitive sources stand in).
 	useEffect(() => {
 		const repush = () => {
 			const bridge = bridgeRef.current;
@@ -1331,6 +1371,7 @@ export function PkgIframeHost({ pkgId, source, onInitialized }: PkgIframeHostPro
 						authToken: authTokenRef.current,
 						supabase: supabaseConfigRef.current,
 						secrets: secretsConfigRef.current,
+						operator: operatorRef.current,
 						suite: {
 							activeFeature,
 							// Re-emitted on project switch via the widened effect deps
@@ -1368,11 +1409,12 @@ export function PkgIframeHost({ pkgId, source, onInitialized }: PkgIframeHostPro
 		return () => observer.disconnect();
 		// `rosterGen` (bumped when the roster-fetch effect RESOLVES) re-pushes the
 		// new project's roster after the async read lands (keying on the project id
-		// alone fired before the read and delivered the previous roster). The
-		// `activeProjectId` / `activeProjectName` deps additionally re-push the
+		// alone fired before the read and delivered the previous roster).
+		// `operatorGen` is the same pattern for the operator-identity resolution.
+		// The `activeProjectId` / `activeProjectName` deps additionally re-push the
 		// widened `royaltiSuite.activeProject` on every project switch — including
 		// one that keeps `root_path` null, which wouldn't bump `rosterGen`.
-	}, [pkgId, activeFeature, rosterGen, activeProjectId, activeProjectName]);
+	}, [pkgId, activeFeature, rosterGen, operatorGen, activeProjectId, activeProjectName]);
 
 	// Step 4: revoke the content token on full unmount.
 	useEffect(() => {

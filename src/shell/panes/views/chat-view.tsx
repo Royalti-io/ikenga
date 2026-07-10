@@ -1,9 +1,15 @@
-import { useCallback } from 'react';
 import { ArrowUpRight, MessageSquare } from 'lucide-react';
+import { useCallback } from 'react';
 import { AdapterSwitcher, Composer, Thread, useThread } from '@/chat';
 import { FeedbackState } from '@/components/ui/feedback-state';
 import { IconButton } from '@/components/ui/icon-button';
 import { spawnWindow } from '@/lib/tauri-cmd';
+import {
+	markSurfaceDetached,
+	syncDetachedSurfaces,
+	useIsSurfaceDetached,
+} from '@/lib/window/detached-surfaces';
+import { DetachedSurfacePlaceholder } from './detached-placeholder';
 
 interface ChatViewProps {
 	/** Stable thread id (frontend-minted uuid). For back-compat with v1
@@ -36,18 +42,34 @@ function ChatViewBody({ threadId }: { threadId: string }) {
 	// Pop-out: spawn a thin single-surface window for this chat thread.
 	// The threadId is encoded in the surface_set entry ("chat:<threadId>") so
 	// the detached ChatSurface can extract it from ctx.surfaces[0].
-	// A timestamp suffix makes the label unique even if the user pops out
-	// multiple sessions simultaneously.
+	// A timestamp + random suffix keeps the label unique even if the user pops
+	// out multiple sessions within the same millisecond (Tauri window labels
+	// must be unique; a collision would reject the second spawn).
+	const surfaceId = `chat:${threadId}`;
+	const isDetached = useIsSurfaceDetached(surfaceId);
 	const handlePopOut = useCallback(() => {
-		const label = `detached-chat-${Date.now().toString(36)}`;
+		const label = `detached-chat-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+		// Optimistically mark detached so this pane swaps to the placeholder
+		// immediately instead of briefly duplicating the live chat.
+		markSurfaceDetached(surfaceId, label);
 		void spawnWindow({
 			label,
 			kind: 'single-surface',
-			surface_set: [`chat:${threadId}`],
+			surface_set: [surfaceId],
 			project_id: null,
 			layout_key: label,
-		}).catch((e) => console.warn('pop-out chat:', e));
-	}, [threadId]);
+		}).catch((e) => {
+			console.warn('pop-out chat:', e);
+			// Reconcile the optimistic mark if the window never opened.
+			void syncDetachedSurfaces();
+		});
+	}, [surfaceId]);
+
+	// Popped out into its own window — render the reclaim placeholder, not the
+	// live duplicate.
+	if (isDetached) {
+		return <DetachedSurfacePlaceholder surfaceId={surfaceId} noun="chat" />;
+	}
 
 	return (
 		<div className="flex h-full w-full flex-col">

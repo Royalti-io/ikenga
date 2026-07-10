@@ -89,14 +89,20 @@ impl WindowRegistry {
             .unwrap()
             .insert(desc.label.clone(), desc.clone());
 
-        // Cleanup + closed event when the OS window is destroyed (user close).
+        // Cleanup + closed event when the OS window is destroyed (user close),
+        // plus focus-changed on every focus transition (part of the frozen
+        // window contract the FE cross-window bus subscribes to).
         let app_for_close = app.clone();
         let label_for_close = desc.label.clone();
-        window.on_window_event(move |ev| {
-            if matches!(ev, WindowEvent::Destroyed) {
+        window.on_window_event(move |ev| match ev {
+            WindowEvent::Destroyed => {
                 if let Some(reg) = app_for_close.try_state::<WindowRegistry>() {
                     reg.inner.write().unwrap().remove(&label_for_close);
                 }
+                // A pkg pane parented to this window would otherwise leak in the
+                // panes map (macOS/Windows) or as a top-level surface + listener
+                // entry (Linux) until pkg uninstall.
+                cleanup_panes_for_parent(&app_for_close, &label_for_close);
                 let env = WindowEventEnvelope::new(
                     topics::CLOSED,
                     "core",
@@ -105,6 +111,10 @@ impl WindowRegistry {
                 );
                 let _ = app_for_close.emit(topics::CLOSED, env);
             }
+            WindowEvent::Focused(focused) => {
+                emit_focus_changed(&app_for_close, &label_for_close, *focused);
+            }
+            _ => {}
         });
 
         let opened = WindowEventEnvelope::new(
@@ -132,8 +142,46 @@ impl WindowRegistry {
         Ok(())
     }
 
-    /// Descriptors of all currently-spawned windows.
+    /// Descriptors of all currently-spawned windows (raw in-memory view; may
+    /// contain a ghost if a `Destroyed` event was missed). Prefer `list_live`
+    /// wherever an `AppHandle` is available.
     pub fn list(&self) -> Vec<WindowDescriptor> {
+        self.inner.read().unwrap().values().cloned().collect()
+    }
+
+    /// Like `list`, but reconciles against the OS: any tracked label that no
+    /// longer resolves via `get_webview_window` is dropped (and its panes /
+    /// listeners cleaned up), so a missed `Destroyed` event can't leave a
+    /// permanent ghost in the registry.
+    pub fn list_live(&self, app: &AppHandle) -> Vec<WindowDescriptor> {
+        let dead: Vec<String> = {
+            let g = self.inner.read().unwrap();
+            g.keys()
+                .filter(|label| app.get_webview_window(label).is_none())
+                .cloned()
+                .collect()
+        };
+        if !dead.is_empty() {
+            {
+                let mut g = self.inner.write().unwrap();
+                for label in &dead {
+                    g.remove(label);
+                }
+            }
+            for label in &dead {
+                tracing::warn!(
+                    "[window] reconciled ghost window `{label}` (Destroyed event missed)"
+                );
+                cleanup_panes_for_parent(app, label);
+                let env = WindowEventEnvelope::new(
+                    topics::CLOSED,
+                    "core",
+                    WindowEventTarget::Broadcast,
+                    serde_json::json!({ "label": label }),
+                );
+                let _ = app.emit(topics::CLOSED, env);
+            }
+        }
         self.inner.read().unwrap().values().cloned().collect()
     }
 
@@ -177,6 +225,10 @@ pub fn emit_to_label<T: Serialize + Clone>(
     }
 }
 
+// Superseded for the screenshot shortcut by `focused_listener_window_label` +
+// `emit_to_label` (this walks ALL `webview_windows`, which mis-routes to focused
+// pkg-pane child webviews on Linux). Kept as the generic WP-04 primitive.
+#[allow(dead_code)]
 pub fn emit_to_focused<T: Serialize + Clone>(
     app: &AppHandle,
     topic: &str,
@@ -196,6 +248,53 @@ pub fn emit_to_focused<T: Serialize + Clone>(
         None => app
             .emit(topic, payload)
             .map_err(|e| anyhow!("broadcast '{topic}': {e}")),
+    }
+}
+
+/// Emit the canonical `window://focus-changed` broadcast for `label`. Called
+/// from every window's `Focused` hook (main in `lib.rs` setup, detached in
+/// `spawn`). Broadcast (not window-targeted) — focus-changed isn't in
+/// `WINDOW_TARGETED_CHANNELS`; each window filters its own subscription.
+pub fn emit_focus_changed(app: &AppHandle, label: &str, focused: bool) {
+    let env = WindowEventEnvelope::new(
+        topics::FOCUS_CHANGED,
+        "core",
+        WindowEventTarget::Broadcast,
+        serde_json::json!({ "label": label, "focused": focused }),
+    );
+    let _ = app.emit(topics::FOCUS_CHANGED, env);
+}
+
+/// Label of the currently-focused window that actually hosts the screenshot
+/// listener (`useScreenshotListener`, mounted only inside `<Workspace/>`).
+///
+/// Only `Workspace`-kind spawned windows qualify: `single-surface` / `pane-set`
+/// detached windows render the thin `DetachedRoot` (no listener), and pkg-pane
+/// child webviews (Linux `TopLevel` surfaces) also appear in
+/// `app.webview_windows()` but carry no shell listeners — routing a shortcut to
+/// either silently no-ops (the `emit_to_focused` regression pinned to "main" in
+/// 86a766a). Returns `None` when no such window is focused — including whenever
+/// `main` itself is focused, or when WebKitGTK's `is_focused` under-reports — so
+/// the caller falls back to "main", preserving today's behavior exactly.
+pub fn focused_listener_window_label(app: &AppHandle) -> Option<String> {
+    let reg = app.try_state::<WindowRegistry>()?;
+    reg.list()
+        .into_iter()
+        .filter(|d| matches!(d.kind, WindowKind::Workspace))
+        .map(|d| d.label)
+        .find(|label| {
+            app.get_webview_window(label)
+                .and_then(|w| w.is_focused().ok())
+                .unwrap_or(false)
+        })
+}
+
+/// Tear down any pkg-webview panes parented to a now-destroyed window. Bridges
+/// the window registry to `WebviewPanesRegistry` without either owning the
+/// other; a no-op if the panes state isn't managed yet (early boot).
+fn cleanup_panes_for_parent(app: &AppHandle, parent_label: &str) {
+    if let Some(panes) = app.try_state::<crate::commands::pkg_webview::WebviewPanesState>() {
+        panes.0.cleanup_for_parent(parent_label);
     }
 }
 

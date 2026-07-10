@@ -68,20 +68,27 @@ export async function ptyForegroundSnapshot(): Promise<Record<string, Foreground
 }
 
 /**
- * Subscribe to PTY byte stream + exit. Backend emits the data chunk as a
- * base64 string because Tauri's event system serializes payloads as JSON and
- * Uint8Array doesn't survive cleanly.
+ * Subscribe to PTY byte stream + exit. Backend emits each data chunk as
+ * `"<endOffset>:<base64>"` — base64 because Tauri serializes payloads as JSON
+ * and Uint8Array doesn't survive cleanly, and the offset prefix is the
+ * cumulative byte count the chunk ends at (so `endOffset - bytes.length` is its
+ * absolute start). `onData` receives that offset; consumers that don't dedup
+ * against a scrollback snapshot can ignore it.
  */
 export async function ptyListen(
 	id: string,
-	onData: (bytes: Uint8Array) => void,
+	onData: (bytes: Uint8Array, endOffset: number) => void,
 	onExit: (code: number | null) => void
 ): Promise<UnlistenFn> {
 	const dataUnlisten = await listen<string>(`pty://${id}`, (e) => {
-		const bin = atob(e.payload);
+		const raw = e.payload;
+		const sep = raw.indexOf(':');
+		const endOffset = sep >= 0 ? Number(raw.slice(0, sep)) : 0;
+		const b64 = sep >= 0 ? raw.slice(sep + 1) : raw;
+		const bin = atob(b64);
 		const arr = new Uint8Array(bin.length);
 		for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
-		onData(arr);
+		onData(arr, endOffset);
 	});
 	const exitUnlisten = await listen<number | null>(`pty://${id}/exit`, (e) => {
 		onExit(e.payload);
@@ -90,6 +97,25 @@ export async function ptyListen(
 		dataUnlisten();
 		exitUnlisten();
 	};
+}
+
+/** Trailing scrollback of a PTY, replayed by a window that attaches after the
+ *  PTY has already produced output (a popped-out terminal). `endOffset` is the
+ *  cumulative byte count `data` ends at, so `endOffset - data.length` is the
+ *  absolute offset of its first byte — the caller aligns it with live-event
+ *  offsets to drop the overlap. `null` once the PTY has exited + been reaped. */
+export interface PtyScrollback {
+	data: Uint8Array;
+	endOffset: number;
+}
+
+export async function ptyScrollback(id: string): Promise<PtyScrollback | null> {
+	const res = await invoke<{ data: string; endOffset: number } | null>('pty_scrollback', { id });
+	if (!res) return null;
+	const bin = atob(res.data);
+	const arr = new Uint8Array(bin.length);
+	for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+	return { data: arr, endOffset: res.endOffset };
 }
 
 // ─── FS ───────────────────────────────────────────────────────────────────────
@@ -216,6 +242,13 @@ export async function fsRootsRemove(path: string): Promise<string[]> {
 
 export async function fsRootsReset(): Promise<string[]> {
 	return invoke('fs_roots_reset');
+}
+
+/** OS-level username fallback (`$USER`/`%USERNAME%`, or `"unknown"`). Used
+ *  to populate `hostContext.operator` when the onboarding display name
+ *  (`useShellStore().userName`) is empty. */
+export async function osUsername(): Promise<string> {
+	return invoke('os_username');
 }
 
 export async function fsUnwatch(watcherId: string): Promise<void> {
@@ -536,16 +569,16 @@ export type ChatEvent =
 			subtype: string;
 			toolName?: string;
 			toolInput?: unknown;
-			}
-			| {
+	  }
+	| {
 			/** Inline Q&A turn (ADR-011 Phase 3). Rendered as an interactive
 			 *  compartment in the conversation body. */
 			kind: 'ask_user_question';
 			callbackId: string;
 			questions: unknown;
 			toolUseId?: string;
-			}
-			| { kind: 'unknown'; raw: unknown }
+	  }
+	| { kind: 'unknown'; raw: unknown }
 	| { kind: 'parse_error'; message: string; line: string }
 	/** Frontend-synthesized: a user message we wrote to the streaming child's
 	 *  stdin. Persisted to `chat_user_turns` in SQLite (Claude's JSONL doesn't
@@ -3355,7 +3388,7 @@ export interface PkgInvokeResult {
 export async function pkgInvoke(
 	pkgId: string,
 	command: string,
-	args: string[],
+	args: string[]
 ): Promise<PkgInvokeResult> {
 	return invoke<PkgInvokeResult>('pkg_invoke', { pkgId, command, args });
 }

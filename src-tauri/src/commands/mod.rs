@@ -20,6 +20,7 @@ pub mod desktop;
 pub mod engine_layout;
 pub mod fs;
 pub mod fs_roots;
+pub mod identity;
 pub mod iyke;
 pub mod pa_actions;
 pub mod permissions_audit;
@@ -99,6 +100,7 @@ pub use fs::{
     fs_unwatch, fs_watch, fs_write,
 };
 pub use fs_roots::{fs_roots_add, fs_roots_list, fs_roots_remove, fs_roots_reset};
+pub use identity::os_username;
 pub use iyke::{
     iyke_action_done, iyke_dom_done, iyke_dom_query, iyke_endpoint, iyke_log_push,
     iyke_network_push, iyke_query_cache_done, iyke_set_shell, iyke_terminal_read_done,
@@ -138,7 +140,8 @@ pub use projects::{
     project_list, project_scaffold_claude, project_set_active, project_skills_list, project_update,
 };
 pub use pty::{
-    pty_foreground, pty_foreground_snapshot, pty_kill, pty_resize, pty_spawn, pty_write,
+    pty_foreground, pty_foreground_snapshot, pty_kill, pty_resize, pty_scrollback, pty_spawn,
+    pty_write,
 };
 pub use runtime::runtime_retry_bun_fetch;
 pub use screenshot::{

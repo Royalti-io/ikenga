@@ -21,6 +21,7 @@ import { usePaneStore } from '@/lib/panes/pane-store';
 import { fsList, fsRename, fsSearch, fsTrash, type FileEntry } from '@/lib/tauri-cmd';
 import { createTerminalSession } from '@/terminal/single-terminal';
 import { openArtifactGrid } from '@/lib/shell/artifact-grid-recents';
+import { PinArtifactDialog } from '@/shell/panes/pin-artifact-dialog';
 import { queryKeys } from '@/lib/query-keys';
 import { ListRow, RowAction } from '@/components/ui/list-row';
 import { cn } from '@/components/ui/utils';
@@ -138,6 +139,7 @@ function TreeNode({ entry, depth, filter }: TreeNodeProps) {
 	const [renaming, setRenaming] = useState(false);
 	const [renameValue, setRenameValue] = useState(entry.name);
 	const [actionError, setActionError] = useState<string | null>(null);
+	const [pinOpen, setPinOpen] = useState(false);
 	const renameInputRef = useRef<HTMLInputElement | null>(null);
 	const rowRef = useRef<HTMLDivElement | null>(null);
 
@@ -334,6 +336,8 @@ function TreeNode({ entry, depth, filter }: TreeNodeProps) {
 								Open Below
 							</ContextMenuItem>
 							<ContextMenuSeparator />
+							<ContextMenuItem onSelect={() => setPinOpen(true)}>Pin to Sidebar…</ContextMenuItem>
+							<ContextMenuSeparator />
 						</>
 					)}
 					{entry.isDir && (
@@ -366,6 +370,16 @@ function TreeNode({ entry, depth, filter }: TreeNodeProps) {
 					</ContextMenuItem>
 				</ContextMenuContent>
 			</ContextMenu>
+			{pinOpen && (
+				<PinArtifactDialog
+					open
+					onOpenChange={(o) => {
+						if (!o) setPinOpen(false);
+					}}
+					path={entry.path}
+					onPinned={() => setPinOpen(false)}
+				/>
+			)}
 			{actionError && (
 				<div
 					role="alert"

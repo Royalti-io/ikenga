@@ -509,6 +509,41 @@ impl WebviewPanesRegistry {
         );
     }
 
+    /// Tear down every pane parented to `parent_label` (that window was
+    /// destroyed) and prune its parent-tracking bookkeeping. Cross-OS: on
+    /// macOS/Windows the in-window child dies with the parent but its panes-map
+    /// entry would otherwise linger until pkg uninstall; on Linux the top-level
+    /// child surface plus the `parent_listeners` entry both leak (the label
+    /// would stay in the set forever, so a future window reusing the label
+    /// would never get a move/resize listener). Called from the window
+    /// registry's Destroyed hook and its liveness reconcile.
+    pub fn cleanup_for_parent(&self, parent_label: &str) {
+        let keys: Vec<(String, String)> = match self.panes.read() {
+            Ok(g) => g
+                .iter()
+                .filter(|(_, h)| h.parent_label == parent_label)
+                .map(|(k, _)| k.clone())
+                .collect(),
+            Err(_) => return,
+        };
+        for (pkg_id, pane_id) in &keys {
+            if let Err(e) = self.destroy(pkg_id, pane_id) {
+                tracing::warn!(
+                    "[pkg_webview] parent `{parent_label}` gone; pane ({pkg_id},{pane_id}) cleanup failed: {e}"
+                );
+            }
+        }
+        if let Ok(mut installed) = self.parent_listeners.write() {
+            installed.remove(parent_label);
+        }
+        if !keys.is_empty() {
+            tracing::info!(
+                "[pkg_webview] cleaned up {} pane(s) parented to destroyed `{parent_label}`",
+                keys.len()
+            );
+        }
+    }
+
     pub fn statuses(&self) -> Vec<WebviewPaneStatus> {
         let g = match self.panes.read() {
             Ok(g) => g,

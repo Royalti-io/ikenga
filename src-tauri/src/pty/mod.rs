@@ -26,6 +26,45 @@ use uuid::Uuid;
 
 const CHUNK_SIZE: usize = 8 * 1024;
 const FLUSH_INTERVAL_MS: u64 = 8; // ≈120 Hz
+/// Cap on the per-session scrollback ring. A late-attaching window (a popped-out
+/// terminal) replays at most this many trailing bytes before subscribing live.
+const SCROLLBACK_CAP: usize = 256 * 1024;
+
+/// Bounded ring of the bytes emitted on `pty://{id}`, plus a monotonic `total`
+/// of every byte ever emitted. `total` keeps growing after the tail is trimmed
+/// so a scrollback snapshot's end offset stays comparable with the offsets
+/// carried on live events — the frontend uses that to drop the overlap between
+/// a snapshot and the first live bytes it buffered while attaching.
+struct ScrollbackRing {
+    buf: std::collections::VecDeque<u8>,
+    total: u64,
+}
+
+impl ScrollbackRing {
+    fn new() -> Self {
+        Self {
+            buf: std::collections::VecDeque::new(),
+            total: 0,
+        }
+    }
+
+    /// Record freshly-emitted bytes; returns the cumulative end offset
+    /// (including this push) so the caller can tag the matching live event.
+    fn push(&mut self, data: &[u8]) -> u64 {
+        self.total += data.len() as u64;
+        self.buf.extend(data.iter().copied());
+        while self.buf.len() > SCROLLBACK_CAP {
+            self.buf.pop_front();
+        }
+        self.total
+    }
+
+    /// (trailing bytes, end offset). `end - bytes.len()` is the absolute offset
+    /// of the first returned byte.
+    fn snapshot(&self) -> (Vec<u8>, u64) {
+        (self.buf.iter().copied().collect(), self.total)
+    }
+}
 
 /// Wrapper for `MasterPty::process_group_leader`, which is `#[cfg(unix)]` in
 /// portable-pty 0.8. On Windows there's no PTY foreground-PG concept, so we
@@ -66,6 +105,9 @@ struct PtySession {
     /// kept as a `Mutex<Option<_>>` rather than baked into the spawn opts so
     /// callers without a subscriber don't pay any cost.
     subscriber: Mutex<Option<ByteSubscriber>>,
+    /// Trailing scrollback of the emitted `pty://{id}` stream, so a window that
+    /// attaches late can replay it before subscribing live.
+    scrollback: Mutex<ScrollbackRing>,
 }
 
 pub struct PtyManager {
@@ -159,6 +201,7 @@ impl PtyManager {
             killed: killed.clone(),
             child_killer: Mutex::new(child_killer),
             subscriber: Mutex::new(subscriber),
+            scrollback: Mutex::new(ScrollbackRing::new()),
         });
 
         self.sessions.insert(id.clone(), session.clone());
@@ -195,11 +238,24 @@ impl PtyManager {
             }
         });
 
-        // --- Emitter task: batch → base64 → Tauri event ---
+        // --- Emitter task: batch → ring + base64 → Tauri event ---
         let app_for_emit = app.clone();
         let event_name_for_emit = event_name.clone();
+        let session_for_emit = session.clone();
         tokio::spawn(async move {
             let engine = base64::engine::general_purpose::STANDARD;
+            // Record the chunk in the scrollback ring and emit it tagged with its
+            // cumulative end offset (`<endOffset>:<base64>`). The offset lets a
+            // late-attaching window reconcile a scrollback snapshot against the
+            // first live bytes it buffers without duplicating the overlap.
+            let emit_chunk = |bytes: &[u8]| {
+                let end_offset = match session_for_emit.scrollback.lock() {
+                    Ok(mut sb) => sb.push(bytes),
+                    Err(_) => return,
+                };
+                let payload = engine.encode(bytes);
+                let _ = app_for_emit.emit(&event_name_for_emit, format!("{end_offset}:{payload}"));
+            };
             let mut pending: Vec<u8> = Vec::with_capacity(CHUNK_SIZE);
             let mut interval = tokio::time::interval(Duration::from_millis(FLUSH_INTERVAL_MS));
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -212,8 +268,7 @@ impl PtyManager {
                             None => {
                                 // Channel closed, flush remainder and exit.
                                 if !pending.is_empty() {
-                                    let payload = engine.encode(&pending);
-                                    let _ = app_for_emit.emit(&event_name_for_emit, payload);
+                                    emit_chunk(&pending);
                                 }
                                 break;
                             }
@@ -221,14 +276,12 @@ impl PtyManager {
                         // Flush eagerly if we have a full chunk.
                         while pending.len() >= CHUNK_SIZE {
                             let chunk: Vec<u8> = pending.drain(..CHUNK_SIZE).collect();
-                            let payload = engine.encode(&chunk);
-                            let _ = app_for_emit.emit(&event_name_for_emit, payload);
+                            emit_chunk(&chunk);
                         }
                     }
                     _ = interval.tick() => {
                         if !pending.is_empty() {
-                            let payload = engine.encode(&pending);
-                            let _ = app_for_emit.emit(&event_name_for_emit, payload);
+                            emit_chunk(&pending);
                             pending.clear();
                         }
                     }
@@ -336,6 +389,17 @@ impl PtyManager {
             }
         }
         out
+    }
+
+    /// Snapshot the trailing scrollback for a session: `(bytes, end_offset)`
+    /// where `end_offset` is the cumulative number of bytes ever emitted on
+    /// `pty://{id}` and the returned bytes are the last ≤`SCROLLBACK_CAP` of
+    /// them (so the first byte's absolute offset is `end_offset - bytes.len()`).
+    /// `None` once the session has exited and been reaped.
+    pub fn scrollback(&self, id: &str) -> Option<(Vec<u8>, u64)> {
+        let session = self.sessions.get(id)?.clone();
+        let sb = session.scrollback.lock().ok()?;
+        Some(sb.snapshot())
     }
 
     pub fn kill(&self, id: &str) -> Result<()> {
