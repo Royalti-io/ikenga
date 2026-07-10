@@ -42,12 +42,13 @@ function ChatViewBody({ threadId }: { threadId: string }) {
 	// Pop-out: spawn a thin single-surface window for this chat thread.
 	// The threadId is encoded in the surface_set entry ("chat:<threadId>") so
 	// the detached ChatSurface can extract it from ctx.surfaces[0].
-	// A timestamp suffix makes the label unique even if the user pops out
-	// multiple sessions simultaneously.
+	// A timestamp + random suffix keeps the label unique even if the user pops
+	// out multiple sessions within the same millisecond (Tauri window labels
+	// must be unique; a collision would reject the second spawn).
 	const surfaceId = `chat:${threadId}`;
 	const isDetached = useIsSurfaceDetached(surfaceId);
 	const handlePopOut = useCallback(() => {
-		const label = `detached-chat-${Date.now().toString(36)}`;
+		const label = `detached-chat-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 		// Optimistically mark detached so this pane swaps to the placeholder
 		// immediately instead of briefly duplicating the live chat.
 		markSurfaceDetached(surfaceId, label);

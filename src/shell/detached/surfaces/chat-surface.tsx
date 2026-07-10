@@ -5,10 +5,12 @@
 //
 // Session ownership STAYS in the Rust core (`chat_sessions` SQLite +
 // `chat://session/…` event channels); this surface SUBSCRIBES and renders,
-// it NEVER forks session state. The Thread + Composer components read from
-// the shared Zustand chat store, which the adapter keeps in sync over the
-// existing `chat://session/<id>` Tauri event channel — same wire as the
-// primary window, no mirroring needed.
+// it NEVER forks session state. Each OS window — this one included — has its
+// OWN Zustand chat store and its own `chat://session/<id>` subscription
+// (Tauri events are per-window, not shared across windows). Sync with the
+// primary window works because that event channel is a broadcast emit every
+// window's adapter subscribes to independently, not because of a shared
+// store.
 //
 // The pop-out affordance in `pane/views/chat-view.tsx` encodes the threadId
 // in the `surface_set` entry: `"chat:<threadId>"`. The surface registry
@@ -45,11 +47,7 @@ export default function ChatSurface({ ctx }: DetachedSurfaceProps) {
 			>
 				<div className="flex items-center gap-2 font-mono text-[11px] text-muted-foreground">
 					<MessageSquare className="h-3 w-3 shrink-0" />
-					{threadId ? (
-						<span title={threadId}>{threadId.slice(0, 8)}…</span>
-					) : (
-						<span>chat</span>
-					)}
+					{threadId ? <span title={threadId}>{threadId.slice(0, 8)}…</span> : <span>chat</span>}
 				</div>
 				<AdapterSwitcher />
 			</header>
@@ -69,10 +67,12 @@ export default function ChatSurface({ ctx }: DetachedSurfaceProps) {
 }
 
 function ChatBody({ threadId }: { threadId: string }) {
-	// useThread hydrates the thread from SQLite + JSONL and attaches the live
-	// event subscription (same path as the primary-window ChatView). Because the
-	// adapter writes into the shared Zustand store keyed by threadId, events
-	// flowing in the primary window will land here too — no second subscription.
+	// useThread hydrates the thread from SQLite + JSONL and attaches this
+	// window's own live `chat://session/<id>` subscription (same path as the
+	// primary-window ChatView, but its own listener into this window's own
+	// store, not a second read of a shared one). The primary and detached
+	// windows stay in sync because the Rust core broadcasts on that channel
+	// and each window's subscription applies it independently.
 	const { loading, error } = useThread(threadId);
 
 	if (loading) {

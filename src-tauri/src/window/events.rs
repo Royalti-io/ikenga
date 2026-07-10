@@ -54,9 +54,8 @@ impl<T> WindowEventEnvelope<T> {
 pub mod topics {
     pub const OPENED: &str = "window://opened";
     pub const CLOSED: &str = "window://closed";
-    // Emitted once the FE event bus tracks focus across windows (WP-05/WP-06);
-    // part of the frozen contract, no Rust consumer yet.
-    #[allow(dead_code)]
+    // Emitted on every window's `Focused(true/false)` transition (main +
+    // detached) so the FE cross-window bus (WP-05/WP-06) can track focus.
     pub const FOCUS_CHANGED: &str = "window://focus-changed";
 }
 

@@ -27,7 +27,7 @@ export function ArtifactView({ path, paneId }: ArtifactViewProps) {
 	const surfaceId = `viewer:${path}`;
 	const isDetached = useIsSurfaceDetached(surfaceId);
 	const handlePopOut = useCallback(() => {
-		const label = `detached-viewer-${Date.now().toString(36)}`;
+		const label = `detached-viewer-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 		// Optimistically mark detached so this pane swaps to the placeholder
 		// immediately instead of briefly duplicating the viewer.
 		markSurfaceDetached(surfaceId, label);

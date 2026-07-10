@@ -22,4 +22,7 @@ pub use events::{
     WINDOW_TARGETED_CHANNELS,
 };
 #[allow(unused_imports)]
-pub use registry::{emit_to_focused, emit_to_label, WindowRegistry};
+pub use registry::{
+    emit_focus_changed, emit_to_focused, emit_to_label, focused_listener_window_label,
+    WindowRegistry,
+};

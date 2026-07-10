@@ -323,6 +323,26 @@ async fn serve_file(root: &PathBuf, rel_path: &str, mut req: Request<Body>) -> R
 /// only takes effect if our IIFE has already populated the polyfill global).
 /// Inserting at `</head>` would put the bridge after the inline polyfill,
 /// defeating the handoff.
+/// Byte offset just past the opening `<head …>` tag, or `None` if the document
+/// has no `<head>`. Only a real `<head` element matches: the char after `<head`
+/// must be `>`, ASCII whitespace, or `/`, so `<header>` (and any other
+/// `<head*` element) is skipped rather than false-matched.
+fn find_head_insert(html: &str) -> Option<usize> {
+    let bytes = html.as_bytes();
+    let mut from = 0;
+    while let Some(rel) = html[from..].find("<head") {
+        let i = from + rel;
+        match bytes.get(i + 5) {
+            Some(b'>') | Some(b'/') => return html[i..].find('>').map(|j| i + j + 1),
+            Some(c) if c.is_ascii_whitespace() => {
+                return html[i..].find('>').map(|j| i + j + 1)
+            }
+            _ => from = i + 5,
+        }
+    }
+    None
+}
+
 async fn inject_artifact_bridge(req: Request<Body>, next: Next) -> Response {
     // Scope to viewer routes only. In prod the same server also handles the
     // shell's frontend dist via the asset-resolver fallback — those HTML
@@ -372,11 +392,9 @@ async fn inject_artifact_bridge(req: Request<Body>, next: Next) -> Response {
     );
     let mut out = String::with_capacity(html.len() + script.len());
     // Inject right after `<head>` (allowing attributes like `<head class="…">`)
-    // — scan for the opening tag then the `>` that closes it.
-    let head_open = html
-        .find("<head")
-        .and_then(|i| html[i..].find('>').map(|j| i + j + 1));
-    if let Some(insert_at) = head_open {
+    // — scan for the opening tag then the `>` that closes it. `find_head_insert`
+    // rejects `<header>` so we don't splice into the middle of a page.
+    if let Some(insert_at) = find_head_insert(html) {
         out.push_str(&html[..insert_at]);
         out.push_str(&script);
         out.push_str(&html[insert_at..]);
@@ -455,10 +473,8 @@ async fn inject_iyke_bridge(req: Request<Body>, next: Next) -> Response {
     // opening `<head>` reliably precedes any such script content, matching how
     // `inject_artifact_bridge` already anchors. The bridge is `type="module"`
     // (deferred), so head placement still runs after the document parses.
-    let head_open = html
-        .find("<head")
-        .and_then(|i| html[i..].find('>').map(|j| i + j + 1));
-    if let Some(insert_at) = head_open {
+    // `find_head_insert` also rejects `<header>` false-matches.
+    if let Some(insert_at) = find_head_insert(html) {
         out.push_str(&html[..insert_at]);
         out.push_str(&script);
         out.push_str(&html[insert_at..]);
