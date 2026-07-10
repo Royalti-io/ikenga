@@ -32,6 +32,7 @@ pub mod pkg_invoke;
 pub mod pkg_mcp;
 pub mod pkg_sidecar;
 pub mod pkg_sidecar_stream;
+pub mod pkg_studio;
 pub mod pkg_trust;
 pub mod pkg_webview;
 pub mod projects;
@@ -130,6 +131,7 @@ pub use pkg_sidecar_stream::{
     pkg_sidecar_rpc_send, pkg_sidecar_rpc_shutdown, StreamingSidecarManager,
     StreamingSidecarManagerState,
 };
+pub use pkg_studio::pkg_studio_request_project_access;
 pub use pkg_trust::{pkg_trust_approve, pkg_trust_list_pending, pkg_trust_reject};
 pub use pkg_webview::{
     pkg_webview_create, pkg_webview_destroy, pkg_webview_navigate, pkg_webview_set_rect,

@@ -64,7 +64,8 @@ use commands::{
     pkg_is_trusted_for_elevated, pkg_kernel_status, pkg_mcp_call, pkg_preview_manifest,
     pkg_screenshot, pkg_set_enabled,
     pkg_set_scope, pkg_settings_get, pkg_settings_set, pkg_sidecar_call, pkg_sidecar_rpc_send,
-    pkg_sidecar_rpc_shutdown, pkg_supervisor_restart, pkg_uninstall, pkg_webview_create,
+    pkg_sidecar_rpc_shutdown, pkg_studio_request_project_access, pkg_supervisor_restart,
+    pkg_uninstall, pkg_webview_create,
     pkg_webview_destroy, pkg_webview_navigate, pkg_webview_set_rect, project_archive,
     project_artifacts_walk, project_create, project_get_active, project_inventory, project_list,
     project_scaffold_claude, project_set_active, project_skills_list, project_update,
@@ -943,6 +944,8 @@ pub fn run() {
             pkg_trust_list_pending,
             pkg_trust_approve,
             pkg_trust_reject,
+            // per-folder Studio project-access gate (WP-04)
+            pkg_studio_request_project_access,
             // runtime-ACL violations audit (2026-05-15)
             pkg_permission_violations_list,
             pkg_permission_violations_clear,

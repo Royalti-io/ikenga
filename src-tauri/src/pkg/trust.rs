@@ -43,6 +43,18 @@ use crate::pkg::source::InstallSource;
 /// only writes `fs.read`/`fs.write`/`shell.execute` rows.
 const TRUST_SCOPE_KIND: &str = "__manifest_trust";
 
+/// Sentinel scope_kind reserved for per-folder Studio project-access grants
+/// (WP-04). Double-underscored + project-scoped so it never collides with a
+/// real capability scope kind (`fs.read`/`fs.write`/`net`/…) nor with the
+/// `__manifest_trust` sentinel above. `scope_value` is the **canonical**
+/// filesystem path the user granted `com.ikenga.studio` access to.
+pub const STUDIO_PROJECT_SCOPE_KIND: &str = "__studio_project";
+
+/// The one pkg id that per-folder Studio grants are keyed to. The gate is
+/// deliberately single-pkg — only the studio launcher / sidecar asks — so the
+/// pkg id is a constant rather than a parameter.
+pub const STUDIO_PKG_ID: &str = "com.ikenga.studio";
+
 /// Plain-English summary of one declared permission set, for the trust
 /// dialog and the `iyke_pkg_trust_*` MCP tools. Lists only the entries
 /// that triggered the trust requirement, not the full perms block.
@@ -417,6 +429,52 @@ pub async fn grant(
     .execute(pool)
     .await
     .context("insert pkg_permissions_granted (trust)")?;
+    Ok(())
+}
+
+/// True when `com.ikenga.studio` already holds a granted per-folder access
+/// row for `canonical_path` (WP-04). Constant-time single-row lookup keyed by
+/// the PRIMARY KEY `(pkg_id, scope_kind, scope_value)`, so a re-hit on an
+/// already-granted folder is O(1) and prompts nothing. `canonical_path` MUST
+/// be the canonicalized form (see `commands::pkg_studio::canonicalize`); the
+/// grant row stores canonical paths, so a raw/uncanonicalized lookup would
+/// spuriously miss.
+pub async fn has_studio_project_grant(pool: &SqlitePool, canonical_path: &str) -> Result<bool> {
+    let row: Option<(i64,)> = sqlx::query_as(
+        "SELECT 1
+           FROM pkg_permissions_granted
+          WHERE pkg_id = ? AND scope_kind = ? AND scope_value = ? AND trust_state = 'granted'
+          LIMIT 1",
+    )
+    .bind(STUDIO_PKG_ID)
+    .bind(STUDIO_PROJECT_SCOPE_KIND)
+    .bind(canonical_path)
+    .fetch_optional(pool)
+    .await
+    .context("read studio project grant")?;
+    Ok(row.is_some())
+}
+
+/// Record a per-folder Studio access grant for `canonical_path` (WP-04).
+/// Idempotent under the PRIMARY KEY `(pkg_id, scope_kind, scope_value)` —
+/// re-granting the same folder is `INSERT OR REPLACE`, which bumps
+/// `granted_at` and leaves exactly one row. `version` is unused for
+/// folder-scoped grants (they don't invalidate on manifest bumps the way the
+/// sensitive-perms snapshot does), so it is stored NULL.
+pub async fn record_studio_project_grant(pool: &SqlitePool, canonical_path: &str) -> Result<()> {
+    let now = chrono::Utc::now().timestamp_millis();
+    sqlx::query(
+        "INSERT OR REPLACE INTO pkg_permissions_granted
+            (pkg_id, scope_kind, scope_value, granted_at, version, trust_state)
+            VALUES (?, ?, ?, ?, NULL, 'granted')",
+    )
+    .bind(STUDIO_PKG_ID)
+    .bind(STUDIO_PROJECT_SCOPE_KIND)
+    .bind(canonical_path)
+    .bind(now)
+    .execute(pool)
+    .await
+    .context("insert studio project grant")?;
     Ok(())
 }
 
@@ -1186,6 +1244,97 @@ mod tests {
             }
             other => panic!("expected PermissionsChanged, got {other:?}"),
         }
+    }
+
+    // ── WP-04: per-folder Studio project-access grant storage ────────────────
+    //
+    // These exercise `has_studio_project_grant` / `record_studio_project_grant`
+    // directly (the storage seam the `pkg_studio_request_project_access` command
+    // is a thin wrapper over). The native trust prompt itself can't run
+    // headlessly, so the command's grant/decline branches are asserted here at
+    // the storage level: grant ⇒ `record_*` called (row written); decline ⇒
+    // `record_*` NOT called (no row). Path canonicalization is covered by the
+    // inline tests in `commands/pkg_studio.rs`.
+
+    /// Helper: count granted `__studio_project` rows for a given path.
+    async fn studio_grant_rows(pool: &SqlitePool, path: &str) -> i64 {
+        let (n,): (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM pkg_permissions_granted
+              WHERE pkg_id = ? AND scope_kind = ? AND scope_value = ? AND trust_state = 'granted'",
+        )
+        .bind(STUDIO_PKG_ID)
+        .bind(STUDIO_PROJECT_SCOPE_KIND)
+        .bind(path)
+        .fetch_one(pool)
+        .await
+        .expect("count studio grant rows");
+        n
+    }
+
+    /// insert-once: a single `record_studio_project_grant` writes exactly one
+    /// row, and calling it again for the same path stays at exactly one row
+    /// (INSERT OR REPLACE on the composite PK — idempotent, no duplicates).
+    #[tokio::test]
+    async fn studio_grant_inserts_once_and_is_idempotent() {
+        let pool = open_test_pool().await;
+        let path = "/home/me/Projects/Album A";
+
+        assert_eq!(studio_grant_rows(&pool, path).await, 0, "no row before grant");
+        record_studio_project_grant(&pool, path).await.expect("grant");
+        assert_eq!(studio_grant_rows(&pool, path).await, 1, "one row after grant");
+
+        // Re-grant the same folder — idempotent, still exactly one row.
+        record_studio_project_grant(&pool, path).await.expect("re-grant");
+        assert_eq!(
+            studio_grant_rows(&pool, path).await,
+            1,
+            "re-granting the same path must not duplicate the row"
+        );
+    }
+
+    /// skip-on-rehit: after a grant, `has_studio_project_grant` returns true for
+    /// that exact canonical path — this is the constant-time short-circuit the
+    /// command uses to skip the prompt on re-open. A *different* path is
+    /// unaffected (grants are per-folder, not global).
+    #[tokio::test]
+    async fn studio_has_grant_true_after_grant_and_scoped_per_path() {
+        let pool = open_test_pool().await;
+        let granted = "/home/me/Projects/Album A";
+        let other = "/home/me/Projects/Album B";
+
+        assert!(
+            !has_studio_project_grant(&pool, granted).await.expect("check"),
+            "no grant before record"
+        );
+        record_studio_project_grant(&pool, granted).await.expect("grant");
+        assert!(
+            has_studio_project_grant(&pool, granted).await.expect("check"),
+            "re-hit on the granted folder must short-circuit (has_grant == true)"
+        );
+        assert!(
+            !has_studio_project_grant(&pool, other).await.expect("check"),
+            "a different folder must NOT inherit the grant"
+        );
+    }
+
+    /// decline-no-row: the decline branch of the command never calls
+    /// `record_studio_project_grant`, so `has_studio_project_grant` stays false
+    /// and no row exists. Modeled here as "check without a preceding record".
+    #[tokio::test]
+    async fn studio_decline_leaves_no_row() {
+        let pool = open_test_pool().await;
+        let path = "/home/me/Projects/Declined";
+
+        // Decline == record_* was never called.
+        assert!(
+            !has_studio_project_grant(&pool, path).await.expect("check"),
+            "declined folder must report no grant"
+        );
+        assert_eq!(
+            studio_grant_rows(&pool, path).await,
+            0,
+            "declined folder must leave zero rows"
+        );
     }
 
     #[tokio::test]
