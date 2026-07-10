@@ -1,18 +1,24 @@
 // Renderer interface — pluggable surface for the three Studio densities.
 //
-// One implementation per kind (html / pdf / slides / storyboard). The loupe
-// + compare layouts use `pickRenderer(path, manifestKind?)` to mount the
-// matching component; the grid density renders thumbnails directly via
-// HTML iframe today and may grow to use this same Map later.
+// One implementation per kind (html / pdf / slides). The loupe + compare
+// layouts use `pickRenderer(path, manifestKind?)` to mount the matching
+// component; the grid density renders thumbnails directly via HTML
+// iframe today and may grow to use this same Map later.
 //
-// v0 ships HTML only (Phase 2). pdf.js / slides / storyboard land in
-// Phase 5 behind the same interface.
+// v0 ships HTML only (Phase 2). pdf.js / slides land in Phase 5 behind
+// the same interface.
+//
+// Note: the legacy flat-frame storyboard renderer (read-only
+// `{title?, frames: []}` parser, no beats/rungs/editing) was removed in
+// WP-12 (studio sub-plan) — see plans/studio/12-appendix-pattern-lifts.md
+// for the deletion commit hash and pattern-lift notes. The pkg-based
+// storyboard route lands separately per WP-07.
 
 import type { ComponentType } from 'react';
 
 export type Density = 'grid' | 'loupe' | 'compare';
 
-export type RendererKind = 'html' | 'pdf' | 'slides' | 'storyboard';
+export type RendererKind = 'html' | 'pdf' | 'slides';
 
 export interface RendererMountProps {
 	path: string;

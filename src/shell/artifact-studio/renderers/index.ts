@@ -5,14 +5,12 @@
 import { htmlRenderer } from './html';
 import { pdfRenderer } from './pdf';
 import { slidesRenderer } from './slides';
-import { storyboardRenderer } from './storyboard';
 import type { Renderer, RendererKind } from './types';
 
 const REGISTRY = new Map<RendererKind, Renderer>([
 	// Order matters when manifest kind is unset — first matching pattern
-	// wins. Storyboard / slides extensions are more specific than `.html`,
-	// so they precede the HTML fallback.
-	['storyboard', storyboardRenderer],
+	// wins. Slides extensions are more specific than `.html`, so they
+	// precede the HTML fallback.
 	['slides', slidesRenderer],
 	['pdf', pdfRenderer],
 	['html', htmlRenderer],
