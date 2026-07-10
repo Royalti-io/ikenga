@@ -1,15 +1,21 @@
-// Home — composable free-form canvas. Shell built-ins (greeting, sessions,
-// quick actions, scratchpad) live alongside pkg-contributed widgets (tasks,
-// inbox, boards, finance). Read-only by default; `Customize` flips edit mode
-// with a drag palette, drag-to-reposition, and layout persistence.
+// Home ("Obi" — the hearth, the room you enter first) — composable free-form
+// canvas. Shell built-ins (greeting, sessions, quick actions, scratchpad)
+// live alongside pkg-contributed widgets (tasks, inbox, boards, finance).
+// Read-only by default; `Customize` flips edit mode with a drag palette,
+// drag-to-reposition, and layout persistence.
 //
 // Design source: design/shell/concepts/03-screens/16-home.html (concept) +
 // 16-home.artifact.html (live artifact). This file is the shell-native port:
 // no bridge polyfill, layout persisted via localStorage (will move to SQLite
-// once a `home_layout` migration lands), widget bodies use placeholder data
-// pending the pkg-source wiring.
+// once a `home_layout` migration lands).
+//
+// WP-18c (plans/atelier-parity/designs/parity-obi-home-live.html) ported
+// tasks/inbox/finance onto real `lib/queries/home-widgets.ts` queries and
+// quick actions onto the shared skill-actions query; boards stays a "pkg
+// installed?" check (no boards/frames table exists — see `BoardsBody`).
+// Sessions + scratchpad were already live before this WP.
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
 	Canvas,
@@ -19,9 +25,22 @@ import {
 	type Placement,
 	type Viewport,
 } from '@ikenga/contract/canvas';
+import { dispatchAction, isDispatchable } from '@/components/pkg/actions/action-runner';
 import { dailyAddress, quoteOfTheDay, partOfDay } from '@/lib/lore';
+import { usePaneStore } from '@/lib/panes/pane-store';
+import {
+	homeBoardsPkgStatusQueryOptions,
+	homeFinanceQueryOptions,
+	homeInboxQueryOptions,
+	homeTasksQueryOptions,
+	RUNWAY_TARGET_MONTHS,
+	type HomeInboxRow,
+	type HomeTaskRow,
+} from '@/lib/queries/home-widgets';
 import { sessionsListQueryOptions, type SessionSummary } from '@/lib/queries/sessions';
 import { listScratchpads } from '@/lib/iyke/memory';
+import { useAllSkillActions } from '@/shell/palette-actions';
+import type { SkillAction } from '@/lib/tauri-cmd';
 
 // ───────────────────────── session helpers ─────────────────────────
 // Map a SessionSummary's last activity timestamp to a coarse state used by
@@ -194,41 +213,136 @@ const PALETTE_PKG = [
 
 const LS_LAYOUT = 'ikenga:home:layout';
 
-// ───────────────────────── placeholder widget data ─────────────────────────
-// Sessions + scratchpad are wired to real shell sources below; the remaining
-// MOCK_* blocks back pkg-contributed widgets that land when each pkg is
-// installed (tasks, inbox, boards, finance). Quick actions stays mock until
-// the command-palette grows a usage-history table.
+// ───────────────────────── shared widget-body state helpers ─────────────────
+// WP-18c ports the four mock widgets (tasks / inbox / boards / finance) onto
+// real `home-widgets.ts` queries. There is no CSS backing the shipped
+// `home-widget`/`w-row`/`w-dot` DOM contract anywhere in the codebase yet
+// (checked — not in styles.css, not in @ikenga/tokens); SessionsBody/PadBody
+// already work around that with inline `style` objects for their loading/empty
+// text, so the new bodies below follow the same convention rather than
+// introducing global classnames (skeleton-row/w-error/na-cell) nothing else
+// reads. See the WP-18c report for the full list of styling gaps this doesn't
+// attempt to fix.
 
-const MOCK_TASKS = [
-	{ id: 't1', title: 'Review Q2 board', due: '2h', priority: 'high' },
-	{ id: 't2', title: 'Sign off vendor agreement', due: 'EOD', priority: 'med' },
-	{ id: 't3', title: 'Follow up · Iyke', due: 'Wed', priority: 'med' },
-	{ id: 't4', title: 'Approve Mar royalty run', due: 'Wed', priority: 'low' },
-];
+const CENTER_NOTE_STYLE: CSSProperties = {
+	color: 'var(--fg-faint)',
+	fontSize: 12,
+	padding: '20px 0',
+	textAlign: 'center',
+};
 
-const MOCK_INBOX = [
-	{ id: 'm1', from: 'Sarah', subject: 'Q2 close timing', time: '10:14', sev: 'warn' },
-	{ id: 'm2', from: 'DSP partner', subject: 'Revised partnership', time: '09:02', sev: 'info' },
-	{ id: 'm3', from: 'Newsletter', subject: 'Draft feedback', time: 'Mon', sev: 'info' },
-	{ id: 'm4', from: 'Tenant 590', subject: 'Contract redlines', time: 'Mon', sev: 'info' },
-];
+function CenterNote({ children }: { children: ReactNode }) {
+	return <div style={CENTER_NOTE_STYLE}>{children}</div>;
+}
 
-const MOCK_BOARDS = [
-	{ id: 'b1', name: 'Q2 strategic shift', frames: 3, state: 'active' },
-	{ id: 'b2', name: 'Tenant 590 close', frames: 7, state: 'active' },
-	{ id: 'b3', name: 'Brand sketch v3', frames: 4, state: 'paused' },
-];
+const SKELETON_ROW_STYLE: CSSProperties = {
+	display: 'flex',
+	alignItems: 'center',
+	gap: 12,
+	padding: '8px 0',
+};
+const SKELETON_DOT_STYLE: CSSProperties = {
+	width: 7,
+	height: 7,
+	borderRadius: '50%',
+	background: 'var(--bg-raised)',
+	flexShrink: 0,
+};
+const SKELETON_BAR_STYLE: CSSProperties = {
+	height: 9,
+	borderRadius: 3,
+	background: 'var(--bg-raised)',
+};
 
-const MOCK_FINANCE = { wtd: 28400, change: 12, series: [3.2, 4.1, 5.0, 5.8, 6.3, 6.9, 7.1] };
+/** Row-shaped loading placeholder (dot + label bar + meta bar). Matches the
+ *  shipped `SessionsBody`/`PadBody` "Loading…" convention in spirit — plain,
+ *  no shimmer keyframes (would need a new global CSS animation this file
+ *  can't cheaply add without a stylesheet to hold it). */
+function SkeletonRows({ count = 3 }: { count?: number }) {
+	return (
+		<>
+			{Array.from({ length: count }).map((_, i) => (
+				<div key={i} style={SKELETON_ROW_STYLE}>
+					<span style={SKELETON_DOT_STYLE} />
+					<span style={{ ...SKELETON_BAR_STYLE, flex: 1, width: '60%' }} />
+					<span style={{ ...SKELETON_BAR_STYLE, width: 28 }} />
+				</div>
+			))}
+		</>
+	);
+}
 
-const MOCK_COMMANDS = [
-	{ label: 'New Claude session', keybind: '⌘ N', hint: 'recent' },
-	{ label: 'Open scratchpad', keybind: '⌘ ⇧ N', hint: 'recent' },
-	{ label: 'Triage inbox', keybind: '⌘ I', hint: '3 unread' },
-	{ label: 'Storyboard · Q2 shift', keybind: '⌘ E', hint: 'last opened' },
-	{ label: 'Run royalty refresh', keybind: '⌘ R', hint: 'weekly' },
-];
+/** Danger-toned error panel + Retry, for the net-new `isError` handling none
+ *  of the shipped widget bodies had before (design honesty note: "no widget
+ *  body handles isError today"). */
+function WidgetError({
+	title,
+	detail,
+	onRetry,
+}: {
+	title: string;
+	detail?: string;
+	onRetry: () => void;
+}) {
+	return (
+		<div
+			style={{
+				margin: '4px 0',
+				padding: 10,
+				borderRadius: 8,
+				border: '1px solid var(--danger)',
+				background: 'var(--danger-soft)',
+				display: 'flex',
+				flexDirection: 'column',
+				gap: 8,
+			}}
+		>
+			<div
+				style={{
+					display: 'flex',
+					alignItems: 'center',
+					gap: 8,
+					fontSize: 12.5,
+					fontWeight: 500,
+					color: 'var(--fg)',
+				}}
+			>
+				<svg
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke="currentColor"
+					strokeWidth="1.6"
+					style={{ width: 14, height: 14, color: 'var(--danger)', flexShrink: 0 }}
+					aria-hidden={true}
+				>
+					<path d="M12 9v4" />
+					<path d="M12 17h.01" />
+					<circle cx="12" cy="12" r="9" />
+				</svg>
+				{title}
+			</div>
+			{detail && <div style={{ fontSize: 11.5, color: 'var(--fg-muted)' }}>{detail}</div>}
+			<button
+				type="button"
+				onClick={onRetry}
+				style={{
+					alignSelf: 'flex-start',
+					fontFamily: 'var(--font-body, inherit)',
+					fontSize: 11.5,
+					fontWeight: 500,
+					padding: '3px 10px',
+					borderRadius: 5,
+					border: '1px solid var(--border)',
+					background: 'var(--bg-surface)',
+					color: 'var(--fg)',
+					cursor: 'pointer',
+				}}
+			>
+				Retry
+			</button>
+		</div>
+	);
+}
 
 // ───────────────────────── widget bodies ─────────────────────────
 
@@ -269,6 +383,34 @@ function GreetingBody({ name }: { name: string }) {
 				: `${live + warm} session${(live + warm) === 1 ? '' : 's'} still ${live ? 'open' : 'paused'}.`;
 	return (
 		<>
+			<div
+				style={{
+					display: 'flex',
+					alignItems: 'center',
+					gap: 8,
+					marginBottom: 12,
+					fontFamily: 'var(--font-mono, ui-monospace)',
+					fontSize: 10,
+					letterSpacing: '0.16em',
+					textTransform: 'uppercase',
+					color: 'var(--fg-faint)',
+				}}
+			>
+				<svg
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke="currentColor"
+					strokeWidth="1.6"
+					style={{ width: 16, height: 16, color: 'var(--achievement)' }}
+					aria-hidden={true}
+				>
+					<path d="M3 11l9-7 9 7" />
+					<path d="M5 10v10h14V10" />
+					<path d="M10 20v-6h4v6" />
+				</svg>
+				<b style={{ color: 'var(--achievement)', fontWeight: 600, letterSpacing: '0.1em' }}>Obi</b>{' '}
+				· the hearth
+			</div>
 			<h1>
 				{tod.igbo}, <em>{name}</em>.
 			</h1>
@@ -349,16 +491,117 @@ function SessionsBody() {
 	);
 }
 
+const QROW_STYLE: CSSProperties = {
+	display: 'grid',
+	gridTemplateColumns: '1fr auto auto',
+	gap: 12,
+	alignItems: 'center',
+	padding: '7px 0',
+	background: 'none',
+	border: 0,
+	width: '100%',
+	textAlign: 'left',
+	cursor: 'pointer',
+	color: 'inherit',
+	font: 'inherit',
+};
+const QMETA_STYLE: CSSProperties = {
+	color: 'var(--fg-faint)',
+	fontFamily: 'var(--font-mono, ui-monospace)',
+	fontSize: 10.5,
+};
+const KBD_STYLE: CSSProperties = {
+	display: 'inline-block',
+	padding: '2px 6px',
+	background: 'var(--bg-raised)',
+	border: '1px solid var(--border)',
+	borderRadius: 3,
+	color: 'var(--fg-muted)',
+	fontFamily: 'var(--font-mono, ui-monospace)',
+	fontSize: 10,
+};
+
+/** Fixed shell verbs that are always dispatchable — no fetch, so no
+ *  loading/error state applies to this half of the list (mirrors the design's
+ *  "Quick actions has no error state — local in-memory registry" note). Real
+ *  navigation, not decorative: each `go` is `usePaneStore`'s `navigateFocused`. */
+function shellQuickActions(go: (to: string) => void): Array<{
+	key: string;
+	label: string;
+	meta: string;
+	keybind: string;
+	onSelect: () => void;
+}> {
+	return [
+		{
+			key: 'new-session',
+			label: 'New Claude session',
+			meta: 'start',
+			keybind: '⌘ N',
+			onSelect: () => go('/sessions?new=1'),
+		},
+		{
+			key: 'open-scratchpad',
+			label: 'Open scratchpad',
+			meta: 'start',
+			keybind: '⌘ ⇧ N',
+			onSelect: () => go('/scratchpads'),
+		},
+	];
+}
+
+/**
+ * Quick actions — real commands, not a mock list. The always-available shell
+ * verbs (new session / scratchpad) are local and instant; the rest are every
+ * installed skill's dispatchable actions via the same `list_all_skill_actions`
+ * query the ⌘K palette's `ActionsGroup` uses (`useAllSkillActions`,
+ * `src/shell/palette-actions.tsx`). No `command_usage` table exists yet (per
+ * shell memory / the design's honesty notes), so there is no real "recent" —
+ * the shell verbs are simply always first, and skill actions follow in
+ * whatever order the host returns them.
+ */
 function QuickBody() {
+	const navigateFocused = usePaneStore((s) => s.navigateFocused);
+	const { data, isLoading, isError, refetch } = useAllSkillActions();
+	const shellActions = shellQuickActions((to) => navigateFocused(to));
+	const skillActions = (data ?? []).filter(isDispatchable).slice(0, 4);
+
 	return (
 		<>
-			{MOCK_COMMANDS.map((c, i) => (
-				<div className="qrow" key={i}>
-					<span>{c.label}</span>
-					<span className="qmeta">{c.hint}</span>
-					<span className="kbd">{c.keybind}</span>
-				</div>
+			{shellActions.map((a) => (
+				<button key={a.key} type="button" style={QROW_STYLE} onClick={a.onSelect}>
+					<span>{a.label}</span>
+					<span style={QMETA_STYLE}>{a.meta}</span>
+					<span style={KBD_STYLE}>{a.keybind}</span>
+				</button>
 			))}
+			{isLoading && <SkeletonRows count={2} />}
+			{isError && (
+				<div style={{ ...QMETA_STYLE, padding: '6px 0' }}>
+					Skill actions unavailable.{' '}
+					<button
+						type="button"
+						onClick={() => void refetch()}
+						style={{ ...QMETA_STYLE, textDecoration: 'underline', cursor: 'pointer', border: 0, background: 'none', padding: 0 }}
+					>
+						Retry
+					</button>
+				</div>
+			)}
+			{!isLoading &&
+				!isError &&
+				skillActions.map((action: SkillAction) => (
+					<button
+						key={`${action.pkgId}::${action.skill}/${action.verb}`}
+						type="button"
+						style={QROW_STYLE}
+						onClick={() => void dispatchAction(action)}
+					>
+						<span>{action.name}</span>
+						<span style={QMETA_STYLE}>skill</span>
+						<span style={KBD_STYLE}>↵</span>
+					</button>
+				))}
 		</>
 	);
 }
@@ -406,73 +649,190 @@ function PadBody() {
 	);
 }
 
+/** "today" / "overdue" / weekday-short from a `due_date` (date-only string).
+ *  Real tasks carry a date, not the mock's hour-granular "2h"/"EOD" labels —
+ *  this is the honest downgrade from that fixture precision. */
+function taskDueLabel(due: string, now: Date): { text: string; overdue: boolean } {
+	const d = new Date(due);
+	if (Number.isNaN(d.getTime())) return { text: due, overdue: false };
+	const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+	const diffDays = Math.round((d.getTime() - startOfToday.getTime()) / 86_400_000);
+	if (diffDays < 0) return { text: 'overdue', overdue: true };
+	if (diffDays === 0) return { text: 'today', overdue: false };
+	return { text: d.toLocaleDateString(undefined, { weekday: 'short' }), overdue: false };
+}
+
 function TasksBody() {
-	const dot = (p: string) => (p === 'high' ? 'warm' : '');
+	const { data, isLoading, isError, refetch } = useQuery(homeTasksQueryOptions());
+	if (isLoading) return <SkeletonRows />;
+	if (isError) {
+		return (
+			<WidgetError
+				title="Tasks unavailable"
+				detail="Query to tasks failed — pkg may be uninstalled or DB locked."
+				onRetry={() => void refetch()}
+			/>
+		);
+	}
+	const tasks = data ?? [];
+	if (tasks.length === 0) {
+		return <CenterNote>Nothing due today. A clear board.</CenterNote>;
+	}
+	const now = new Date();
 	return (
 		<>
-			{MOCK_TASKS.map((t) => (
-				<div className="w-row" key={t.id}>
-					<DotSpan
-						cls={dot(t.priority)}
-						label={t.priority === 'high' ? 'High priority' : 'Normal priority'}
-					/>
-					<span className="w-label">{t.title}</span>
-					<span className="w-meta">{t.due}</span>
-				</div>
-			))}
+			{tasks.map((t: HomeTaskRow) => {
+				const blocked = t.status === 'blocked';
+				const cls = blocked ? 'danger' : t.priority === 'high' ? 'warm' : '';
+				const label = blocked ? 'Blocked' : t.priority === 'high' ? 'High priority' : 'Normal priority';
+				const due = t.due_date ? taskDueLabel(t.due_date, now) : null;
+				return (
+					<div className="w-row" key={t.id}>
+						<DotSpan cls={cls} label={label} />
+						<span className="w-label">{t.title}</span>
+						<span
+							className="w-meta"
+							style={blocked || due?.overdue ? { color: 'var(--danger)' } : undefined}
+						>
+							{blocked ? 'blocked' : (due?.text ?? '')}
+						</span>
+					</div>
+				);
+			})}
 		</>
 	);
+}
+
+/** Time label matching the design's "10:14 today / Mon earlier" split. */
+function inboxTimeLabel(receivedAt: string, now: Date): string {
+	const d = new Date(receivedAt);
+	if (Number.isNaN(d.getTime())) return '';
+	const sameDay = d.toDateString() === now.toDateString();
+	if (sameDay) return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+	const diffDays = Math.round((now.getTime() - d.getTime()) / 86_400_000);
+	if (diffDays < 7) return d.toLocaleDateString(undefined, { weekday: 'short' });
+	return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+/** `from_address` is the only sender field the table carries (no display
+ *  name column) — the local-part before `@` stands in for it, matching the
+ *  design's "From · subject" shape without inventing a name. */
+function fromLabel(fromAddress: string): string {
+	const at = fromAddress.indexOf('@');
+	return at > 0 ? fromAddress.slice(0, at) : fromAddress;
+}
+
+/** `triage_category` is free-form agent-assigned text (no documented enum) —
+ *  best-effort mapping to a dot state. Anything else falls through to the
+ *  default (uncoloured) dot rather than guessing. */
+function inboxDotCls(category: string | null): { cls: string; label: string } {
+	if (category === 'urgent') return { cls: 'danger', label: 'Urgent' };
+	if (category === 'needs_reply' || category === 'warn') return { cls: 'warm', label: 'Needs reply' };
+	return { cls: '', label: 'Info' };
 }
 
 function InboxBody() {
-	const dot = (s: string) => (s === 'warn' ? 'warm' : s === 'danger' ? 'danger' : '');
+	const { data, isLoading, isError, refetch } = useQuery(homeInboxQueryOptions());
+	if (isLoading) return <SkeletonRows />;
+	if (isError) {
+		return (
+			<WidgetError
+				title="Mail pkg unreachable"
+				detail="Read of email_messages timed out. Last sync unknown."
+				onRetry={() => void refetch()}
+			/>
+		);
+	}
+	const threads = data ?? [];
+	if (threads.length === 0) {
+		return <CenterNote>Inbox clear. No unread threads.</CenterNote>;
+	}
+	const now = new Date();
 	return (
 		<>
-			{MOCK_INBOX.map((m) => (
-				<div className="w-row" key={m.id}>
-					<DotSpan
-						cls={dot(m.sev)}
-						label={m.sev === 'warn' ? 'Warning' : m.sev === 'danger' ? 'Urgent' : 'Info'}
-					/>
-					<span className="w-label">
-						{m.from} · {m.subject}
-					</span>
-					<span className="w-meta">{m.time}</span>
-				</div>
-			))}
+			{threads.map((m: HomeInboxRow) => {
+				const { cls, label } = inboxDotCls(m.triage_category);
+				return (
+					<div className="w-row" key={m.id}>
+						<DotSpan cls={cls} label={label} />
+						<span className="w-label">
+							{fromLabel(m.from_address)} · {m.subject || '(no subject)'}
+						</span>
+						<span className="w-meta">{inboxTimeLabel(m.received_at, now)}</span>
+					</div>
+				);
+			})}
 		</>
 	);
 }
 
+/**
+ * Boards — the least-grounded widget (design honesty notes: the studio pkg's
+ * board/frame query surface isn't finalized; open question for the founder —
+ * studio storyboards vs strategy-cycle boards). No boards/frames table exists
+ * in `src-tauri/migrations/` to query, so this can only check whether
+ * `com.ikenga.studio` is installed (a real, live signal) and render the
+ * honest states around that absence rather than fabricate board rows. That
+ * open question stays open — deferred, not resolved here.
+ */
 function BoardsBody() {
-	return (
-		<>
-			{MOCK_BOARDS.map((b) => (
-				<div className="w-row" key={b.id}>
-					<DotSpan
-						cls={b.state === 'active' ? 'agent' : ''}
-						label={b.state === 'active' ? 'Active' : 'Paused'}
-					/>
-					<span className="w-label">{b.name}</span>
-					<span className="w-meta">{b.frames} frames</span>
-				</div>
-			))}
-		</>
-	);
+	const { data: installed, isLoading, isError, refetch } = useQuery(homeBoardsPkgStatusQueryOptions());
+	if (isLoading) return <SkeletonRows count={2} />;
+	if (isError) {
+		return (
+			<WidgetError
+				title="Pkg status unavailable"
+				detail="Could not read the pkg kernel to check for com.ikenga.studio."
+				onRetry={() => void refetch()}
+			/>
+		);
+	}
+	if (!installed) {
+		return (
+			<div style={{ ...CENTER_NOTE_STYLE, fontStyle: 'italic' }}>
+				Studio pkg not installed.
+				<br />
+				This widget lights up once it's installed — board/frame query surface
+				still TBD (design open question).
+			</div>
+		);
+	}
+	// Installed, but there is no boards/frames query surface yet to populate
+	// this with real rows — see the module doc comment above.
+	return <CenterNote>No active boards. Start one in Studio.</CenterNote>;
 }
 
+const SEVERITY_DOT: Record<string, string> = { crit: 'danger', warn: 'warm' };
+
+/**
+ * Finance — re-grounded to runway + top open alert per the design (replacing
+ * the shipped WTD-revenue-sparkline mock, which `apps/finance` doesn't
+ * actually compute). Cash is USD-only (no FX conversion — the local
+ * `latest_account_balances` view has no cross-currency total, and inventing
+ * one risks showing a wrong number for real money); burn is a trailing-30-day
+ * net-outflow estimate; the 12-month target is a placeholder constant (no
+ * config table carries a real one yet). The design's conservative/optimistic
+ * scenario bands are DEFERRED — there's no burn-variance model in any local
+ * table to derive them from honestly; this legend row shows the real cash +
+ * burn figures instead. See the WP-18c report.
+ */
 function FinanceBody() {
-	const { wtd, change, series } = MOCK_FINANCE;
-	const max = Math.max(...series);
-	const min = Math.min(...series);
-	const span = Math.max(0.0001, max - min);
-	const pts = series
-		.map((v, i) => {
-			const x = (i / Math.max(1, series.length - 1)) * 400;
-			const y = 32 - ((v - min) / span) * 28 - 2;
-			return `${x},${y.toFixed(1)}`;
-		})
-		.join(' ');
+	const { data, isLoading, isError, refetch } = useQuery(homeFinanceQueryOptions());
+	if (isLoading) return <SkeletonRows count={1} />;
+	if (isError) {
+		return (
+			<WidgetError
+				title="Finance pkg unreachable"
+				detail="finance_alerts / latest_account_balances read failed."
+				onRetry={() => void refetch()}
+			/>
+		);
+	}
+	if (!data || !data.hasAnyData) {
+		return <CenterNote>No finance data yet.</CenterNote>;
+	}
+	const { cashUsd, burnUsd30d, runwayMonths, topAlert } = data;
+	const dotCls = topAlert ? (SEVERITY_DOT[topAlert.severity] ?? '') : 'live';
 	return (
 		<>
 			<div
@@ -483,29 +843,73 @@ function FinanceBody() {
 					fontFamily: 'var(--font-mono, ui-monospace)',
 				}}
 			>
-				Mon → today · USD
+				Runway · trailing 30d burn
 			</div>
 			<div className="figure">
-				${(wtd / 1000).toFixed(1)}k <em>+{change}%</em>
+				{runwayMonths != null ? (
+					<>
+						{runwayMonths.toFixed(1)}
+						<span style={{ fontSize: 16, color: 'var(--fg-muted)', marginLeft: 2 }}>mo</span>{' '}
+						<em style={runwayMonths < RUNWAY_TARGET_MONTHS ? { color: 'var(--danger)' } : undefined}>
+							of {RUNWAY_TARGET_MONTHS} target
+						</em>
+					</>
+				) : (
+					<span style={{ fontSize: 20 }}>—</span>
+				)}
 			</div>
-			<svg
-				className="spark"
-				viewBox="0 0 400 32"
-				preserveAspectRatio="none"
-				role="img"
-				aria-label={`Revenue sparkline: Mon to today, ${(wtd / 1000).toFixed(1)}k USD, ${change > 0 ? '+' : ''}${change}%`}
+			{runwayMonths != null && (
+				<div
+					style={{
+						height: 6,
+						borderRadius: 999,
+						background: 'var(--bg-sunken)',
+						border: '1px solid var(--border-soft)',
+						overflow: 'hidden',
+					}}
+				>
+					<div
+						style={{
+							height: '100%',
+							borderRadius: 999,
+							width: `${Math.min(100, (runwayMonths / RUNWAY_TARGET_MONTHS) * 100)}%`,
+							background: 'linear-gradient(90deg, var(--danger), var(--achievement))',
+						}}
+					/>
+				</div>
+			)}
+			{(cashUsd != null || burnUsd30d != null) && (
+				<div
+					style={{
+						display: 'flex',
+						justifyContent: 'space-between',
+						marginTop: 5,
+						fontFamily: 'var(--font-mono, ui-monospace)',
+						fontSize: 10,
+						color: 'var(--fg-faint)',
+					}}
+				>
+					<span>{cashUsd != null ? `cash $${(cashUsd / 1000).toFixed(1)}k` : 'cash —'}</span>
+					<span>{burnUsd30d != null ? `burn $${(burnUsd30d / 1000).toFixed(1)}k/mo` : 'burn —'}</span>
+				</div>
+			)}
+			<div
+				style={{
+					display: 'flex',
+					alignItems: 'flex-start',
+					gap: 8,
+					marginTop: 12,
+					paddingTop: 8,
+					borderTop: '1px solid var(--border-soft)',
+					fontSize: 12,
+					color: 'var(--fg-muted)',
+				}}
 			>
-				{/* role="img" + aria-label on the svg makes it a leaf in the a11y
-				    tree, so these polylines are already presentational — no
-				    per-child aria-hidden needed (and Biome flags it as unsafe). */}
-				<polyline
-					points={pts}
-					fill="none"
-					stroke="var(--achievement, hsl(42,78%,54%))"
-					strokeWidth="1.6"
-				/>
-				<polyline points={`${pts} 400,32 0,32`} fill="var(--achievement-soft)" />
-			</svg>
+				<span style={{ marginTop: 3 }}>
+					<DotSpan cls={dotCls} label={topAlert ? topAlert.severity : 'Clear'} />
+				</span>
+				<span>{topAlert ? topAlert.message : 'All clear — no open alerts.'}</span>
+			</div>
 		</>
 	);
 }
@@ -659,7 +1063,7 @@ export function Home() {
 			editMode={editMode}
 			selectedId={selectedId}
 			gridSnap={12}
-			ariaLabel="Home canvas"
+			ariaLabel="Obi home canvas"
 			renderItem={renderItem}
 			onLayoutChange={(rec) => setLayout((L) => applyRecord(L, rec))}
 			onViewportChange={setViewport}
@@ -668,7 +1072,7 @@ export function Home() {
 		>
 			<div className="ikenga-canvas-bar">
 				<div className="crumb">
-					App · <b>Home</b>
+					App · <b>Obi</b>
 				</div>
 				<div className="hint">
 					<span className="kbd">space</span> drag · <span className="kbd">↑↓←→</span> pan ·{' '}

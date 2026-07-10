@@ -45,7 +45,8 @@ use commands::{
     claude_primitive_enable_for, claude_primitive_move, claude_primitive_remove,
     claude_primitive_remove_for, claude_read_jsonl, claude_store_import, claude_store_list,
     comment_create, comment_delete, comment_get, comment_list, comment_record_routing,
-    comment_route, comment_set_status, db_exec, db_export_ndjson, db_import_ndjson, db_query,
+    comment_route, comment_set_status, data_health_scan, db_exec, db_export_ndjson,
+    db_import_ndjson, db_query,
     dev_bind_port, dev_release_port, engine_layout, fs_exists, fs_kind, fs_list, fs_mime, fs_mkdir,
     fs_read, fs_rename, fs_roots_add, fs_roots_list, fs_roots_remove, fs_roots_reset, fs_search,
     fs_trash, fs_unwatch, fs_watch, fs_write, iyke_action_done, iyke_dom_done, iyke_dom_query,
@@ -73,7 +74,7 @@ use commands::{
     screenshot_window, secrets_delete, secrets_delete_scoped, secrets_get, secrets_get_scoped,
     secrets_list_keys, secrets_list_keys_scoped, secrets_set, secrets_set_scoped,
     secrets_vault_status, set_dock_badge, settings_clear_all, settings_get, settings_get_all,
-    settings_set, skill_roster_read, spike_grant_fs_read, spike_setup_test_file,
+    settings_set, atelier_file_read, atelier_file_write, spike_grant_fs_read, spike_setup_test_file,
     studio_message_append,
     studio_message_list, studio_thread_delete, studio_thread_get, studio_thread_get_or_create,
     studio_thread_list_recent, window_close, window_list, window_spawn, KernelState,
@@ -923,9 +924,12 @@ pub fn run() {
             project_skills_list,
             project_scaffold_claude,
             project_artifacts_walk,
-            // atelier skill roster (WP-16b) — reads .atelier/skill-tasks/roster.json
-            // from the active project root and injects it into the Tasks pkg hostContext.
-            skill_roster_read,
+            // atelier skill files (WP-16b / WP-10) — generic reader for
+            // <project_root>/.atelier/<skill>/<file>; the Tasks roster read is one caller.
+            atelier_file_read,
+            // atelier instance write path (WP-18b) — the setup-chat confirm-write
+            // persists <project_root>/.atelier/<skill>/manifest.json through here.
+            atelier_file_write,
             // supabase config (URL + anon key manifest)
             supabase_config_get,
             supabase_config_set,
@@ -952,6 +956,8 @@ pub fn run() {
             // db
             db_query,
             db_exec,
+            // data health (orphan audit)
+            data_health_scan,
             // iyke
             iyke_endpoint,
             iyke_set_shell,

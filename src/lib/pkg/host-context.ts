@@ -62,6 +62,15 @@ export interface TasksRoster {
 	agents: RosterAgent[];
 }
 
+/** The shell's currently-active project, threaded into hostContext so a pkg can
+ *  scope its reads/writes to it. `root` is the absolute project root_path, or
+ *  `null` for the seed Default project (no root configured). */
+export interface HostActiveProject {
+	id: string;
+	name: string;
+	root: string | null;
+}
+
 /** Custom Royalti namespace inside the spec's `[key: string]: unknown`
  *  passthrough. Carries pkg-mode shell state the iframe needs to react to. */
 export interface RoyaltiSuiteContext {
@@ -76,6 +85,10 @@ export interface RoyaltiSuiteContext {
 	 *  The Tasks pkg's `resolveRoster` validates and falls back to static
 	 *  defaults when this field is absent. */
 	tasksRoster?: TasksRoster;
+	/** The shell's active project (id / display name / root path). Re-emitted on
+	 *  `host-context-changed` whenever the active project switches, so a pkg can
+	 *  scope its data. `null` when no project is active. */
+	activeProject?: HostActiveProject | null;
 }
 
 export function buildHostContext(opts: {

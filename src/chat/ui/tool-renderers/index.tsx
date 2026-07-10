@@ -14,6 +14,7 @@ import { WriteEditRenderer } from './write-edit';
 import { TaskRenderer } from './task';
 import { GenericJsonRenderer } from './generic-json';
 import { AskUserQuestionRenderer } from './ask-user-question';
+import { isSetupProposeTool, SetupProposalRenderer } from './setup-proposal';
 
 interface DispatchProps {
 	pair: PairedToolCall;
@@ -36,5 +37,8 @@ export function ToolRendererDispatch({ pair, threadId, density }: DispatchProps)
 	if (name === 'AskUserQuestion' || name.endsWith('AskUserQuestion')) {
 		return <AskUserQuestionRenderer pair={pair} threadId={threadId} />;
 	}
+	// WP-18b R9: the setup proposal card (net-new). Keyed on the setup "propose"
+	// tool name; unknown tools fall through to generic-json (safe degradation).
+	if (isSetupProposeTool(name)) return <SetupProposalRenderer pair={pair} />;
 	return <GenericJsonRenderer pair={pair} density={density} />;
 }

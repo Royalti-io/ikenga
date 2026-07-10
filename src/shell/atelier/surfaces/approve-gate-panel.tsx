@@ -19,12 +19,19 @@ import {
 	type PointerEvent as ReactPointerEvent,
 	useCallback,
 	useEffect,
+	useLayoutEffect,
 	useMemo,
 	useRef,
 	useState,
 } from 'react';
 import './approve-gate-panel.css';
 import { CHANNEL_LABEL, type DraftChannel, type PausedDraft } from '@ikenga/contract';
+import {
+	type DeliveryChipState,
+	deliveryChipState,
+	type PausedDraftView,
+	type WorkerHealth,
+} from '@/lib/queries/pa-actions';
 
 // ── Types ─────────────────────────────────────────────────────────────────────────────────────
 // PausedDraft / DraftChannel are the shared run-then-pause contract — the renderer injects them
@@ -33,7 +40,7 @@ import { CHANNEL_LABEL, type DraftChannel, type PausedDraft } from '@ikenga/cont
 export type { DraftChannel, PausedDraft };
 
 export interface ApproveGatePanelProps {
-	drafts: PausedDraft[];
+	drafts: PausedDraftView[];
 	/** Host fires the side effect after its 10s undo window (host.paActionsCommit). */
 	onApprove: (draftId: string) => void;
 	/** pa-action-reject — draft discarded. */
@@ -44,6 +51,12 @@ export interface ApproveGatePanelProps {
 	onEdit?: (draftId: string, patch: { subject?: string; body?: string }) => void;
 	/** Re-queue a failed draft for another worker attempt (WP-12 / G-09). */
 	onRetry?: (draftId: string) => void;
+	/**
+	 * WP-11 — client-side worker-liveness snapshot (derived by the route from the
+	 * same `paActionsList` query). When present and there is delivery-relevant
+	 * activity, the panel renders the delivery-health strip above the split.
+	 */
+	health?: WorkerHealth;
 }
 
 const LIST_W_DEFAULT = 420;
@@ -100,9 +113,12 @@ const IcoRefresh = svg(
 // ── Component ─────────────────────────────────────────────────────────────────────────────────
 
 export function ApproveGatePanel(props: ApproveGatePanelProps) {
-	const { drafts, onApprove, onReject, onSendToChat, onContinueSession, onEdit, onRetry } = props;
+	const { drafts, onApprove, onReject, onSendToChat, onContinueSession, onEdit, onRetry, health } =
+		props;
 
 	const [resolved, setResolved] = useState<Set<string>>(() => new Set());
+	// WP-11 — id of the row whose delivery-error popover is open (single-open).
+	const [openErrId, setOpenErrId] = useState<string | null>(null);
 	const visible = useMemo(() => drafts.filter((d) => !resolved.has(d.id)), [drafts, resolved]);
 
 	const [selectedId, setSelectedId] = useState<string | null>(visible[0]?.id ?? null);
@@ -115,6 +131,9 @@ export function ApproveGatePanel(props: ApproveGatePanelProps) {
 
 	const splitRef = useRef<HTMLDivElement>(null);
 	const rowRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+	const bodyRef = useAutoGrowTextarea(
+		selectedId ? (edits[selectedId]?.body ?? drafts.find((d) => d.id === selectedId)?.body ?? '') : ''
+	);
 
 	// Keep selection valid as rows arrive/resolve. Auto-select the first draft
 	// when nothing is selected (or the selection went stale) — `drafts` arrives
@@ -131,6 +150,23 @@ export function ApproveGatePanel(props: ApproveGatePanelProps) {
 	}, [visible, selectedId]);
 
 	const selected = visible.find((d) => d.id === selectedId) ?? null;
+
+	// WP-11 — dismiss the delivery-error popover on any outside click or Escape.
+	// The chip button + popover body stop propagation, so a bubbled click here is
+	// always "outside". Only mounts a listener while a popover is open.
+	useEffect(() => {
+		if (!openErrId) return;
+		const close = () => setOpenErrId(null);
+		const onKey = (e: KeyboardEvent) => {
+			if (e.key === 'Escape') setOpenErrId(null);
+		};
+		document.addEventListener('click', close);
+		document.addEventListener('keydown', onKey);
+		return () => {
+			document.removeEventListener('click', close);
+			document.removeEventListener('keydown', onKey);
+		};
+	}, [openErrId]);
 
 	// display order = sections (Overdue → Today → This week), flattened.
 	// J/K navigation and the "N of M" counter follow THIS order, not the prop order.
@@ -321,6 +357,7 @@ export function ApproveGatePanel(props: ApproveGatePanelProps) {
 
 	return (
 		<section className="ob-surface" aria-label="Draft approvals" onKeyDown={onSurfaceKeyDown}>
+			{health && shouldShowHealthStrip(health) && <DeliveryHealthStrip health={health} />}
 			<div className="ob-split" ref={splitRef} style={splitStyle}>
 				{/* ── Left: draft queue ─────────────────────────────────────────────── */}
 				<div className="ob-list" role="list" aria-label="Drafts awaiting approval">
@@ -426,6 +463,15 @@ export function ApproveGatePanel(props: ApproveGatePanelProps) {
 											<div className="ob-row-subject">{draftSubject(d)}</div>
 											<div className="ob-row-preview">{d.bodyPreview}</div>
 											<div className="ob-row-chips">
+												<DeliveryChip
+													draft={d}
+													healthState={health?.state}
+													open={openErrId === d.id}
+													onToggleError={() =>
+														setOpenErrId((cur) => (cur === d.id ? null : d.id))
+													}
+													onRetry={onRetry}
+												/>
 												<span className={`ob-chip channel-${d.channel}`}>
 													{CHANNEL_LABEL[d.channel]}
 												</span>
@@ -512,6 +558,18 @@ export function ApproveGatePanel(props: ApproveGatePanelProps) {
 							</div>
 
 							<div className="ob-detail-body">
+								{/* WP-11 — dead-worker note: retry re-queues safely but nothing claims it
+								    until the worker is back. Shown only when a send-pipeline row is
+								    selected while the worker reads dead. */}
+								{health?.state === 'dead' &&
+									selected.delivery != null &&
+									isSendPipelineStatus(selected.delivery.dbStatus) && (
+										<div className="dh-worker-note" role="alert">
+											<strong>Send worker offline.</strong> Retry will re-queue this draft as{' '}
+											<code>committed</code>, but nothing will pick it up until the worker is
+											back. It is safe to retry now — the row waits in the queue.
+										</div>
+									)}
 								{selected.status === 'failed' && (
 									<div
 										className="ob-failed-callout"
@@ -539,6 +597,17 @@ export function ApproveGatePanel(props: ApproveGatePanelProps) {
 												<IcoRefresh />
 												<span className="btn-label">Retry</span>
 											</button>
+										)}
+										{selected.delivery != null && (
+											<span className="dh-attempt-facts">
+												claimed <b>{formatClock(selected.delivery.claimedAt)}</b> · attempts{' '}
+												<b>{selected.delivery.attempts}</b> · last attempt{' '}
+												<b>{formatClock(selected.delivery.lastAttemptAt)}</b> · external_id{' '}
+												<b>{selected.delivery.externalId ?? '—'}</b>
+												{selected.delivery.externalId == null
+													? ' (never accepted by provider — retry cannot double-send)'
+													: ''}
+											</span>
 										)}
 									</div>
 								)}
@@ -637,6 +706,7 @@ export function ApproveGatePanel(props: ApproveGatePanelProps) {
 										</span>
 									</div>
 									<textarea
+										ref={bodyRef}
 										aria-label="Email body"
 										value={draftBody(selected)}
 										onChange={(e) => patchEdit(selected.id, { body: e.target.value }, selected)}
@@ -743,6 +813,31 @@ export function ApproveGatePanel(props: ApproveGatePanelProps) {
 
 // ── helpers ─────────────────────────────────────────────────────────────────────────────────
 
+// Body editor sizing: a fixed-height textarea with an inner scrollbar reads as
+// a cramped form field; sized to its content it reads as the email itself, and
+// `.ob-detail` (the pane) owns the scrolling like a document. Re-fits on value
+// and selection change and on pane resize (the split is user-draggable).
+function useAutoGrowTextarea(value: string, minHeight = 240) {
+	const ref = useRef<HTMLTextAreaElement>(null);
+	const fit = useCallback(() => {
+		const el = ref.current;
+		if (!el) return;
+		el.style.height = 'auto';
+		el.style.height = `${Math.max(minHeight, el.scrollHeight)}px`;
+	}, [minHeight]);
+	useLayoutEffect(fit, [fit, value]);
+	useEffect(() => {
+		// jsdom (vitest) has no ResizeObserver; the value-keyed fit still runs.
+		if (typeof ResizeObserver === 'undefined') return;
+		const el = ref.current;
+		if (!el) return;
+		const ro = new ResizeObserver(fit);
+		ro.observe(el.parentElement ?? el);
+		return () => ro.disconnect();
+	}, [fit]);
+	return ref;
+}
+
 function groupBySection(drafts: PausedDraft[]): Array<[string, PausedDraft[]]> {
 	const order = ['Overdue', 'Today', 'This week'];
 	const map = new Map<string, PausedDraft[]>();
@@ -791,4 +886,263 @@ function consequenceStrings(d: PausedDraft): { title: string; aria: string } {
 function nowLabel(): string {
 	const d = new Date();
 	return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+// ── WP-11 · delivery-health strip + per-row delivery chips ──────────────────────────────────────
+
+const DIAG_CMD = 'systemctl --user status agent-scheduler';
+
+const HEALTH_STATE_LABEL: Record<WorkerHealth['state'], string> = {
+	alive: 'Alive',
+	idle: 'Idle',
+	degraded: 'Degraded',
+	dead: 'No signal',
+};
+
+/** Suppress the strip when there's nothing delivery-relevant to report — an alive
+ *  worker with an empty pipeline is unobservable, not newsworthy. */
+function shouldShowHealthStrip(h: WorkerHealth): boolean {
+	return (h.state !== 'alive' && h.state !== 'idle') || h.sending + h.queued + h.failed > 0;
+}
+
+function isSendPipelineStatus(dbStatus: string): boolean {
+	return dbStatus === 'committed' || dbStatus === 'sending' || dbStatus === 'failed';
+}
+
+function formatDuration(ms: number | null): string {
+	if (ms == null) return '—';
+	const s = Math.max(0, Math.round(ms / 1000));
+	if (s < 60) return `${s}s`;
+	const m = Math.round(s / 60);
+	if (m < 60) return `${m}m`;
+	return `${Math.round(m / 60)}h`;
+}
+
+function formatMsAgo(ms: number | null): string {
+	return ms == null ? 'never' : `${formatDuration(ms)} ago`;
+}
+
+function formatClock(iso: string | null): string {
+	if (!iso) return '—';
+	const t = Date.parse(iso);
+	if (Number.isNaN(t)) return '—';
+	const d = new Date(t);
+	return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+function ageFrom(iso: string | null): string | null {
+	if (!iso) return null;
+	const t = Date.parse(iso);
+	if (Number.isNaN(t)) return null;
+	return formatDuration(Date.now() - t);
+}
+
+function healthFacts(h: WorkerHealth): ReactNode {
+	if (h.state === 'degraded') {
+		return (
+			<>
+				oldest queued draft waiting <b>{formatDuration(h.oldestQueuedMsAgo)}</b> (expected &lt; 2m) ·
+				last activity <b>{formatMsAgo(h.lastActivityMsAgo)}</b> · <b>{h.failuresThisHour}</b>{' '}
+				failures this hour
+			</>
+		);
+	}
+	if (h.state === 'dead') {
+		return (
+			<>
+				<b>{h.queued}</b> committed draft{h.queued === 1 ? '' : 's'} waiting · nothing claimed for{' '}
+				<b>{formatDuration(h.lastActivityMsAgo ?? h.oldestQueuedMsAgo)}</b> · last activity{' '}
+				<b>{formatClock(h.lastActivityAt)}</b>
+			</>
+		);
+	}
+	return (
+		<>
+			<b>{h.sending}</b> sending · <b>{h.queued}</b> queued · <b>{h.failed}</b> failed · last worker
+			activity <b>{formatMsAgo(h.lastActivityMsAgo)}</b>
+		</>
+	);
+}
+
+function DeliveryHealthStrip({ health }: { health: WorkerHealth }) {
+	const [copied, setCopied] = useState(false);
+	const copyDiag = () => {
+		void navigator.clipboard?.writeText(DIAG_CMD).then(() => {
+			setCopied(true);
+			setTimeout(() => setCopied(false), 1400);
+		});
+	};
+	return (
+		<div
+			className={`dh-strip state-${health.state}`}
+			role={health.state === 'dead' ? 'alert' : 'status'}
+			aria-label="Send worker health"
+		>
+			<span className={`dh-lamp is-${health.state}`} aria-hidden="true" />
+			<span className="dh-label">Send worker</span>
+			<span className={`dh-state is-${health.state}`}>{HEALTH_STATE_LABEL[health.state]}</span>
+			<span className="dh-facts">{healthFacts(health)}</span>
+			<span className="dh-spacer" />
+			{health.state === 'dead' && (
+				<>
+					<div className="dh-actions">
+						<button type="button" className="btn btn-sm" onClick={copyDiag}>
+							{copied ? 'Copied' : 'Copy diagnose cmd'}
+						</button>
+					</div>
+					<div className="dh-dead-copy">
+						<span>
+							<strong>Approved drafts will not send until the worker is back.</strong> Approve &amp;
+							Send still works — rows queue safely as <code>committed</code> and the worker claims
+							them on recovery. The worker runs outside the shell in the agent-scheduler daemon
+							(systemd user service): check <code>{DIAG_CMD}</code>.
+						</span>
+					</div>
+				</>
+			)}
+		</div>
+	);
+}
+
+/** Text label for the non-interactive delivery chips (queued/scheduled/stalled). */
+function deliveryChipLabel(state: DeliveryChipState, d: { committedAt: string | null }): string {
+	switch (state) {
+		case 'scheduled':
+			return 'scheduled · not yet due';
+		case 'queued': {
+			const age = ageFrom(d.committedAt);
+			return age ? `queued · ${age}` : 'queued';
+		}
+		case 'stalled': {
+			const age = ageFrom(d.committedAt);
+			return age ? `no worker · ${age}` : 'no worker';
+		}
+		default:
+			return state;
+	}
+}
+
+/** Leading delivery chip on a queue row. Failed rows render an interactive
+ *  `error_text` popover (Copy error + Retry reuse the existing wiring); every
+ *  other state is a static status chip. */
+function DeliveryChip({
+	draft,
+	healthState,
+	open,
+	onToggleError,
+	onRetry,
+}: {
+	draft: PausedDraftView;
+	healthState: WorkerHealth['state'] | undefined;
+	open: boolean;
+	onToggleError: () => void;
+	onRetry?: (id: string) => void;
+}) {
+	const d = draft.delivery;
+	const state = deliveryChipState(d, healthState);
+	if (!state || !d) return null;
+
+	if (state === 'sending') {
+		const attempts = d.attempts || 0;
+		return (
+			<span className="dl-chip sending">
+				<span className="dl-dot" aria-hidden="true" />
+				sending{attempts > 0 ? ` · attempt ${attempts}` : ''}
+			</span>
+		);
+	}
+
+	if (state === 'sent') {
+		const ds = d.deliveryStatus;
+		const showDstat = ds === 'delivered' || ds === 'bounced' || ds === 'complained' || ds === 'errored';
+		return (
+			<>
+				<span className="dl-chip sent">sent {formatClock(d.sentAt)}</span>
+				{showDstat && (
+					<span className={`dl-chip dstat-${ds === 'delivered' ? 'delivered' : 'bounced'}`}>
+						{ds} · checked {formatClock(d.deliveryCheckedAt)}
+					</span>
+				)}
+			</>
+		);
+	}
+
+	if (state === 'failed') {
+		const attempts = d.attempts || draft.attempts || 0;
+		return (
+			<span className="dl-pop-wrap">
+				<button
+					type="button"
+					className="dl-chip failed"
+					aria-expanded={open}
+					aria-label={`Send failed, ${attempts} attempt${attempts === 1 ? '' : 's'} — show error`}
+					onClick={(e) => {
+						e.stopPropagation();
+						onToggleError();
+					}}
+				>
+					failed{attempts > 0 ? ` · ${attempts}×` : ''}
+				</button>
+				{open && (
+					// biome-ignore lint/a11y/noStaticElementInteractions: popover swallows the row-select click/keydown so opening the error doesn't reselect the row
+					<div
+						className="dl-pop is-open"
+						role="dialog"
+						aria-label="Send error detail"
+						onClick={(e) => e.stopPropagation()}
+						onKeyDown={(e) => e.stopPropagation()}
+					>
+						<div className="dl-pop-title">
+							<span>error_text{attempts > 0 ? ` · attempt ${attempts}` : ''}</span>
+							<button
+								type="button"
+								className="btn-icon"
+								aria-label="Close error detail"
+								style={{ width: 20, height: 20 }}
+								onClick={(e) => {
+									e.stopPropagation();
+									onToggleError();
+								}}
+							>
+								<IcoX />
+							</button>
+						</div>
+						<pre className="dl-pop-err">{draft.errorMessage ?? 'No error text recorded.'}</pre>
+						<div className="dl-pop-meta">
+							attempts {attempts} · last_attempt_at {formatClock(d.lastAttemptAt)} · claimed_at{' '}
+							{formatClock(d.claimedAt)} · external_id {d.externalId ?? '—'}
+						</div>
+						<div className="dl-pop-actions">
+							<button
+								type="button"
+								className="btn btn-sm btn-ghost"
+								onClick={(e) => {
+									e.stopPropagation();
+									if (draft.errorMessage) void navigator.clipboard?.writeText(draft.errorMessage);
+								}}
+							>
+								Copy error
+							</button>
+							{onRetry && (
+								<button
+									type="button"
+									className="btn btn-sm"
+									onClick={(e) => {
+										e.stopPropagation();
+										onRetry(draft.id);
+										onToggleError();
+									}}
+								>
+									<IcoRefresh />
+									<span className="btn-label">Retry</span>
+								</button>
+							)}
+						</div>
+					</div>
+				)}
+			</span>
+		);
+	}
+
+	return <span className={`dl-chip ${state}`}>{deliveryChipLabel(state, d)}</span>;
 }

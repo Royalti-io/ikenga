@@ -1,5 +1,6 @@
 import {
 	Bot,
+	DatabaseZap,
 	FolderKanban,
 	Grid3x3,
 	HardDrive,
@@ -43,6 +44,7 @@ const NAV: NavSection[] = [
 			{ to: '/settings/packages', label: 'Packages', Icon: Package },
 			{ to: '/settings/pkg-audit', label: 'Pkg violations', Icon: ShieldAlert },
 			{ to: '/settings/pkg-health', label: 'Pkg health', Icon: Stethoscope },
+			{ to: '/settings/data-health', label: 'Data health', Icon: DatabaseZap },
 			{ to: '/settings/onboarding', label: 'Onboarding', Icon: Sparkles },
 		],
 	},

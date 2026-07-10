@@ -40,7 +40,11 @@ import { useEffect, useRef, useState } from 'react';
 import { sendToActiveSession } from '@/components/pkg/send-to-active-session';
 import { registerIykeIframe } from '@/lib/iyke/iframe-registry';
 import { mintPkgToken } from '@/lib/pkg/auth-token';
-import { buildHostContext, type TasksRoster } from '@/lib/pkg/host-context';
+import {
+	buildHostContext,
+	type HostActiveProject,
+	type TasksRoster,
+} from '@/lib/pkg/host-context';
 import { usePaneStore } from '@/lib/panes/pane-store';
 import { usePkgMenuStore, type PkgMenuItem } from '@/lib/pkg/pkg-menu-store';
 import { useShellStore } from '@/lib/shell/shell-store';
@@ -54,6 +58,10 @@ import {
 	dbExec,
 	dbQuery,
 	osUsername,
+	paActionsCommit,
+	paActionsReject,
+	paActionsRetry,
+	paActionsUpdate,
 	pkgContentHtml,
 	pkgContentRevoke,
 	pkgFetch,
@@ -281,6 +289,67 @@ function writeTargetTable(sql: string): string | null {
 	return m ? m[1] : null;
 }
 
+// Snapshot the shell's active project for `hostContext.royaltiSuite.activeProject`.
+// Reads the store synchronously (like `usePkgMenuStore.getState()` at the mount
+// site) so the value can be sampled inside event handlers / effect bodies
+// without adding a reactive dependency. `root` is null for the seed Default
+// project; the whole snapshot is null when no project is active.
+function activeProjectSnapshot(): HostActiveProject | null {
+	const s = useShellStore.getState();
+	if (!s.activeProjectId) return null;
+	const p = s.projects.find((pr) => pr.id === s.activeProjectId);
+	return {
+		id: s.activeProjectId,
+		name: p?.display_name ?? s.activeProjectId,
+		root: p?.root_path ?? null,
+	};
+}
+
+// Best-effort source-table extraction from a read statement (SELECT/WITH), the
+// read-path analogue of `writeTargetTable`. Collects every table named after a
+// FROM/JOIN keyword (stripping optional quoting) and excludes CTE names
+// introduced by a leading WITH (`<name> AS (…)`), which resolve to inline
+// subqueries rather than real tables. A subquery source (`FROM (SELECT …)`) is
+// skipped at its outer FROM but its inner FROM/JOIN tables are still picked up
+// by the same global scan. Defense-in-depth over a single-user local
+// ikenga.db (pkg-author-controlled SQL, not attacker input) — not a hard
+// boundary; a comma-join (`FROM a, b`) captures only the first table, matching
+// `writeTargetTable`'s single-statement simplicity. Exported for unit tests.
+// Returns distinct table names in first-seen order.
+export function readSourceTables(sql: string): string[] {
+	const cteNames = new Set<string>();
+	for (const m of sql.matchAll(/(\w+)\s+as\s*\(/gi)) {
+		cteNames.add(m[1].toLowerCase());
+	}
+	const seen = new Set<string>();
+	const out: string[] = [];
+	for (const m of sql.matchAll(/\b(?:from|join)\s+["'`\[]?(\w+)/gi)) {
+		const table = m[1];
+		const key = table.toLowerCase();
+		if (cteNames.has(key) || seen.has(key)) continue;
+		seen.add(key);
+		out.push(table);
+	}
+	return out;
+}
+
+// Shared table-scope gate for the `host.db*` verbs: every table a statement
+// touches must appear in the pkg's declared `permissions['sqlite.tables']`.
+// Returns an error message (without the verb prefix) for the first out-of-scope
+// table, or `null` when all are allowed. Reused by both `host.dbQuery` (reads,
+// via `readSourceTables`) and `host.dbExec` (writes, via `writeTargetTable`) so
+// the scope check lives in exactly one place. Defense-in-depth over a
+// single-user local ikenga.db, not a hard boundary.
+async function checkSqliteTableScope(pkgId: string, targets: string[]): Promise<string | null> {
+	const allowed = await pkgSqliteTables(pkgId);
+	for (const t of targets) {
+		if (!allowed.includes(t)) {
+			return `table '${t}' not in the pkg's declared sqlite.tables`;
+		}
+	}
+	return null;
+}
+
 // Exported for unit tests (the verb's scope-gate + confirm + decline
 // branches). Not part of the pkg-facing API — callers go through the
 // AppBridge `oncalltool` path below.
@@ -354,13 +423,17 @@ export async function dispatchHostCall(
 	if (name === 'host.dbQuery') {
 		// Read-path bridge (WP-04): lets an iframe pkg read the local `ikenga.db`
 		// via the host's `db_query` Tauri command instead of an in-iframe
-		// supabase-js client. Gated on the pkg declaring `capabilities.sqlite`
-		// (opt-in to local SQLite) — `host.*` verbs bypass the kernel's scope
-		// enforcement, so the check happens here, fails closed.
-		// `db_query` is SELECT-only on the Rust side; we additionally reject
-		// non-SELECT/WITH text as defense-in-depth. (Table-level scoping to the
-		// pkg's declared `permissions['sqlite.tables']` is a follow-up — the
-		// risk here is read-only access to the user's own single-user ikenga.db.)
+		// supabase-js client. `host.*` verbs bypass the kernel's scope
+		// enforcement, so every guard happens here and fails closed — the same
+		// guard stack `host.dbExec` runs, mirrored for reads:
+		//   1. statement allowlist — only SELECT/WITH reads. `db_query` ALSO
+		//      enforces this Rust-side (it runs on the read-only reader pool),
+		//      but the FE check keeps the error close to the caller.
+		//   2. `capabilities.sqlite` opt-in (same gate as `host.dbExec`).
+		//   3. table-scope — every table the SELECT reads must be in the pkg's
+		//      declared `permissions['sqlite.tables']` (see `readSourceTables`).
+		//      Defense-in-depth over a single-user local ikenga.db, not a hard
+		//      boundary.
 		const sql = typeof args.sql === 'string' ? args.sql : null;
 		if (!sql) {
 			return errResult('host.dbQuery: missing required `sql` argument');
@@ -370,6 +443,14 @@ export async function dispatchHostCall(
 		}
 		if (!(await pkgDeclaresSqlite(pkgId))) {
 			return errResult("host.dbQuery: pkg lacks the 'sqlite' capability");
+		}
+		const readTargets = readSourceTables(sql);
+		if (readTargets.length === 0) {
+			return errResult('host.dbQuery: could not identify the source table(s)');
+		}
+		const readScopeErr = await checkSqliteTableScope(pkgId, readTargets);
+		if (readScopeErr) {
+			return errResult(`host.dbQuery: ${readScopeErr}`);
 		}
 		const params = Array.isArray(args.params) ? (args.params as SqlValue[]) : [];
 		try {
@@ -409,9 +490,9 @@ export async function dispatchHostCall(
 		if (!target) {
 			return errResult('host.dbExec: could not identify the target table');
 		}
-		const allowed = await pkgSqliteTables(pkgId);
-		if (!allowed.includes(target)) {
-			return errResult(`host.dbExec: table '${target}' not in the pkg's declared sqlite.tables`);
+		const writeScopeErr = await checkSqliteTableScope(pkgId, [target]);
+		if (writeScopeErr) {
+			return errResult(`host.dbExec: ${writeScopeErr}`);
 		}
 		const params = Array.isArray(args.params) ? (args.params as SqlValue[]) : [];
 		try {
@@ -584,6 +665,70 @@ export async function dispatchHostCall(
 			content: [{ type: 'text', text: `sent to ${res.threadId}` }],
 			structuredContent: { ok: true, threadId: res.threadId },
 		};
+	}
+
+	// ─── approve-gate write verbs (host.paActions.*) — WP-18a ───────────────────
+	// Four thin wrappers over the existing, tested `pa_actions_*` Rust commands
+	// (the same ones the /outbox/approvals route calls). The outbound pkg's
+	// bridge extension (bridge.ext.outbound.js) already calls these verb names
+	// (`host.paActions.commit|reject|retry|update`); this closes its dead-verb
+	// gap. The pkg never gets raw write access to pa_action_drafts —
+	// commit/event/wake/normalization stay Rust-owned. Gated on the same
+	// `engine:invoke` scope `host.sendToActiveSession` uses (host.* verbs bypass
+	// kernel scope enforcement, so the check happens here and fails closed). The
+	// bridge helper resolves only when `structuredContent.ok === true`, so
+	// success returns `{ ok: true }` and any failure carries `ok: false` + a
+	// human-readable `error`/`reason`. Each verb operates on a pa_action_drafts
+	// row `id` (the `draftId` argument).
+	if (
+		name === 'host.paActions.commit' ||
+		name === 'host.paActions.reject' ||
+		name === 'host.paActions.retry' ||
+		name === 'host.paActions.update'
+	) {
+		const verb = name.slice('host.paActions.'.length);
+		const draftId = typeof args.draftId === 'string' ? args.draftId : null;
+		if (!draftId) {
+			return errResult(`${name}: missing required \`draftId\` argument`);
+		}
+		if (!(await pkgDeclaresScope(pkgId, 'engine', 'invoke'))) {
+			return {
+				content: [{ type: 'text', text: `${name}: pkg lacks the 'engine:invoke' scope` }],
+				isError: true,
+				structuredContent: { ok: false, reason: 'scope-denied' },
+			};
+		}
+		try {
+			if (verb === 'commit') {
+				await paActionsCommit(draftId);
+			} else if (verb === 'reject') {
+				await paActionsReject(draftId);
+			} else if (verb === 'retry') {
+				await paActionsRetry(draftId);
+			} else {
+				// update — the Rust command validates the patch; nothing extra
+				// enforced here. Thread through subject/body when present.
+				const rawPatch =
+					args.patch && typeof args.patch === 'object'
+						? (args.patch as Record<string, unknown>)
+						: {};
+				const patch: { subject?: string; body?: string } = {};
+				if (typeof rawPatch.subject === 'string') patch.subject = rawPatch.subject;
+				if (typeof rawPatch.body === 'string') patch.body = rawPatch.body;
+				await paActionsUpdate(draftId, patch);
+			}
+			return {
+				content: [{ type: 'text', text: `${verb} ${draftId}` }],
+				structuredContent: { ok: true },
+			};
+		} catch (e) {
+			const msg = (e as Error).message ?? String(e);
+			return {
+				content: [{ type: 'text', text: `${name} failed: ${msg}` }],
+				isError: true,
+				structuredContent: { ok: false, error: msg },
+			};
+		}
 	}
 
 	// ─── agent-ops host bridge (WP-09 / G-TRIGGER) ──────────────────────────────
@@ -911,10 +1056,21 @@ export function PkgIframeHost({ pkgId, source, onInitialized }: PkgIframeHostPro
 	// iframe can swap its mounted view in response.
 	const activeFeature = usePkgMenuStore((s) => s.activeFeatures[pkgId]);
 
-	// Active project root — a project switch re-reads the roster file and then
-	// re-pushes hostContext so the Tasks pkg receives the new project's roster
-	// (WP-16b). Select only root_path to avoid spurious re-renders on
-	// unrelated project field changes.
+	// Active project — a project switch re-reads the roster file and re-pushes
+	// hostContext so the Tasks pkg receives the new project's roster (WP-16b) and
+	// every pkg receives the new `royaltiSuite.activeProject` (WP-10). Select the
+	// individual primitive fields (id / name / root_path) rather than the whole
+	// object so unrelated project field changes don't spuriously re-render, and
+	// so a project switch that keeps `root_path` null (Default → another rootless
+	// project) still re-emits via the widened `activeProjectId` dependency.
+	// `activeProjectId` / `activeProjectName` are subscribed purely as reactive
+	// triggers so the Step-3 re-emit effect re-runs on a project switch (the
+	// snapshot value itself is sampled via `activeProjectSnapshot()` at emit
+	// time). `activeProjectRoot` additionally drives the roster-fetch effect.
+	const activeProjectId = useShellStore((s) => s.activeProjectId);
+	const activeProjectName = useShellStore(
+		(s) => s.projects.find((p) => p.id === s.activeProjectId)?.display_name ?? null
+	);
 	const activeProjectRoot = useShellStore(
 		(s) => s.projects.find((p) => p.id === s.activeProjectId)?.root_path ?? null
 	);
@@ -1107,6 +1263,7 @@ export function PkgIframeHost({ pkgId, source, onInitialized }: PkgIframeHostPro
 					operator: operatorRef.current,
 					suite: {
 						activeFeature: usePkgMenuStore.getState().activeFeatures[pkgId],
+						activeProject: activeProjectSnapshot(),
 						// Inject the roster at connect time so the first
 						// `onContextChange` the pkg receives already carries it.
 						// rosterRef.current is populated by the roster-fetch effect
@@ -1194,7 +1351,7 @@ export function PkgIframeHost({ pkgId, source, onInitialized }: PkgIframeHostPro
 	// (theme / mode / tint / workspace) or the active suite-feature changes.
 	// The pkg's onhostcontextchanged handler re-applies the `--color-*` palette
 	// and reads `royaltiSuite.activeFeature` to swap its internal view.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: rosterGen/operatorGen are the intentional triggers — they re-push after the roster/operator fetch resolves; the values themselves are read from rosterRef/operatorRef.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: rosterGen/operatorGen re-push after the roster/operator fetch resolves (values read from rosterRef/operatorRef); activeProjectId/Name re-push on a project switch (activeProject itself is rebuilt each render, so it can't be a stable dep — its primitive sources stand in).
 	useEffect(() => {
 		const repush = () => {
 			const bridge = bridgeRef.current;
@@ -1217,6 +1374,11 @@ export function PkgIframeHost({ pkgId, source, onInitialized }: PkgIframeHostPro
 						operator: operatorRef.current,
 						suite: {
 							activeFeature,
+							// Re-emitted on project switch via the widened effect deps
+							// (`activeProjectId` / `activeProjectName`) so pkgs receive the
+							// new project even when `root_path` stays null. Sampled fresh
+							// via `activeProjectSnapshot()` so it stays out of the dep array.
+							activeProject: activeProjectSnapshot(),
 							// Include the current roster so project switches that update
 							// rosterRef (via the roster-fetch effect) are delivered here.
 							// rosterRef is a stable ref — reads always see the latest value
@@ -1245,13 +1407,14 @@ export function PkgIframeHost({ pkgId, source, onInitialized }: PkgIframeHostPro
 			attributeFilter: ['data-mode', 'data-theme', 'data-tint-strength', 'data-workspace'],
 		});
 		return () => observer.disconnect();
-		// `rosterGen` (bumped when the roster-fetch effect RESOLVES) is what
-		// re-pushes on project switch — keying on the project id directly fired
-		// before the async read landed and delivered the previous project's
-		// roster. One gen bump per fetch → one re-push carrying the new value
-		// from `rosterRef` (a stable ref, always current inside `repush`).
+		// `rosterGen` (bumped when the roster-fetch effect RESOLVES) re-pushes the
+		// new project's roster after the async read lands (keying on the project id
+		// alone fired before the read and delivered the previous roster).
 		// `operatorGen` is the same pattern for the operator-identity resolution.
-	}, [pkgId, activeFeature, rosterGen, operatorGen]);
+		// The `activeProjectId` / `activeProjectName` deps additionally re-push the
+		// widened `royaltiSuite.activeProject` on every project switch — including
+		// one that keeps `root_path` null, which wouldn't bump `rosterGen`.
+	}, [pkgId, activeFeature, rosterGen, operatorGen, activeProjectId, activeProjectName]);
 
 	// Step 4: revoke the content token on full unmount.
 	useEffect(() => {

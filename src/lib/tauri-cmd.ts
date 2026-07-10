@@ -2897,6 +2897,25 @@ export async function pkgKernelStatus(): Promise<PkgKernelStatus> {
  *  end-to-end in WP-13; the rest render as disabled placeholders. */
 export type SkillActionUxMode = 'confirm' | 'streaming' | 'approve' | (string & {});
 
+/** A trigger that can invoke a skill action — mirrors the Rust `SkillTrigger`
+ *  (the `Trigger` discriminated union in `@ikenga/contract`). */
+export interface SkillTrigger {
+	kind: 'manual' | 'schedule' | 'webhook' | 'event' | (string & {});
+	cron?: string;
+	label?: string;
+	path?: string;
+	event?: string;
+}
+
+/** The setup lifecycle block — present only on the `setup` action. Mirrors the
+ *  Rust `SkillSetup` / the contract `SetupSpec`. */
+export interface SkillSetup {
+	mode: 'ai_infer' | 'interview' | (string & {});
+	templateVersion: number;
+	inferSources?: string[];
+	interviewQuestions?: string[];
+}
+
 /** A single skill action — mirrors the Rust `SkillAction` (camelCase serde). */
 export interface SkillAction {
 	pkgId: string;
@@ -2910,6 +2929,9 @@ export interface SkillAction {
 	promptTemplate?: string;
 	inputsSchemaJson?: string;
 	dependsOn?: string[];
+	triggers?: SkillTrigger[];
+	requiresCapabilities?: string[];
+	setup?: SkillSetup;
 }
 
 /** List the skill actions contributed by a single installed pkg. Returns an
@@ -3155,6 +3177,32 @@ export async function pkgHealthRemove(pkgId: string): Promise<void> {
 /** Remove every currently-detected broken record + orphan row. */
 export async function pkgHealthRemoveAll(): Promise<PkgHealthRemoveAllResult> {
 	return invoke<PkgHealthRemoveAllResult>('pkg_health_remove_all');
+}
+
+// ─── data health (Atelier/PA domain soft-FK orphan audit) ────────────────────
+// Mirrors the Rust `OrphanReport` serde (commands/data_health.rs) — keep in
+// lockstep. Read-only: the `0025`–`0054` migrations declare zero FK constraints,
+// so cross-domain links are plain TEXT "soft links". This surfaces child rows
+// whose non-null soft-FK value has no matching parent (a dangling reference).
+// Never mutates — these are real business records; the user decides the fix.
+export interface OrphanReport {
+	/** The child table holding the dangling references. */
+	table: string;
+	/** The soft-FK column whose value has no matching parent. */
+	column: string;
+	/** The table the column conceptually references (`parent_table.id`). */
+	parent_table: string;
+	/** How many child rows have a non-null value absent from the parent. */
+	orphan_count: number;
+	/** Up to ~5 child-row ids, for locating the affected records. */
+	sample_ids: string[];
+}
+
+/** Scan the domain soft-links for dangling references (read-only). Returns one
+ *  report per soft-link that currently has one or more orphans; clean links are
+ *  omitted (the FE renders those as a green check). */
+export async function dataHealthScan(): Promise<OrphanReport[]> {
+	return invoke<OrphanReport[]>('data_health_scan');
 }
 
 export interface PkgSettingsField {
@@ -4073,23 +4121,58 @@ export async function projectListenActiveChanged(
 	return listen<{ id: string }>('projects:active-changed', (e) => callback(e.payload));
 }
 
-// ─── Atelier skill roster (WP-16b) ────────────────────────────────────────────
+// ─── Atelier skill files (WP-16b / WP-10) ─────────────────────────────────────
 //
-// Reads `.atelier/skill-tasks/roster.json` from the active project root and
-// returns the raw JSON string. Returns `null` when the file is absent or the
-// project has no root configured. The caller is responsible for parsing and
-// validation; an absent or malformed value causes the Tasks pkg to fall back
-// to its static defaults (see `resolveRoster` in `assignees.js`).
+// Generic reader for per-project Atelier skill config living under
+// `<project_root>/.atelier/<skill>/<file>`. Returns the raw file contents, or
+// `null` when the file is absent, the project has no root, or a segment is
+// unsafe. The caller parses/validates; an absent or malformed value causes the
+// consuming pkg to fall back to its static defaults.
 //
-// The path suffix `.atelier/skill-tasks/roster.json` is hard-coded on the
-// Rust side; callers cannot traverse outside the project root.
+// The `.atelier` prefix is hard-coded on the Rust side and both segments are
+// validated against path traversal, so callers cannot read outside the
+// project's `.atelier/` directory.
 
-/** Read `.atelier/skill-tasks/roster.json` from `projectRoot`.
- *  Returns the raw JSON string on success, `null` when absent or on IO error.
+/** Read `<projectRoot>/.atelier/<skill>/<file>`.
+ *  Returns the raw contents on success, `null` when absent or on IO error.
  *  Pass `null` for projects with no root configured — Rust returns `null`
  *  immediately without a filesystem access. */
+export async function atelierFileRead(
+	projectRoot: string | null,
+	skill: string,
+	file: string
+): Promise<string | null> {
+	return invoke<string | null>('atelier_file_read', { projectRoot, skill, file });
+}
+
+/** Read the Tasks pkg roster (`.atelier/skill-tasks/roster.json`) — a thin
+ *  caller of the generic {@link atelierFileRead}. Absent/malformed → the Tasks
+ *  pkg falls back to its static defaults (see `resolveRoster` in `assignees.js`). */
 export async function skillRosterRead(projectRoot: string | null): Promise<string | null> {
-	return invoke<string | null>('skill_roster_read', { projectRoot });
+	return atelierFileRead(projectRoot, 'skill-tasks', 'roster.json');
+}
+
+/** Atomically write `<projectRoot>/.atelier/<skill>/<file>` with `content`
+ *  (WP-18b R12/R13 — the write-path sibling of {@link atelierFileRead}). The
+ *  Rust command creates parent dirs, writes to a sibling temp file, then
+ *  renames over the target so a concurrent read never sees a half-written file.
+ *
+ *  Unlike the reader (which swallows every error into `null` so consumers fall
+ *  back to defaults), the write **rejects** on failure — the setup-chat surface
+ *  must know whether the confirm-write actually landed. Resolves to the written
+ *  absolute path on success.
+ *
+ *  The command is intentionally generic: it writes whatever bytes it is given.
+ *  Envelope shape (`skill` / `template_version` / `configured_at` / `settings`)
+ *  and the `configured_at` stamp are the caller's responsibility (see
+ *  `setup-chat-panel.tsx`), mirroring how the reader leaves parsing to the FE. */
+export async function atelierFileWrite(
+	projectRoot: string | null,
+	skill: string,
+	file: string,
+	content: string
+): Promise<string> {
+	return invoke<string>('atelier_file_write', { projectRoot, skill, file, content });
 }
 
 // ─── Bun runtime fetch (B+A hybrid) ───────────────────────────────────────────

@@ -18,7 +18,9 @@
 	--list-w: 420px;
 	display: grid;
 	grid-template-columns: minmax(320px, var(--list-w)) 4px minmax(480px, 1fr);
-	height: 100%;
+	/* Fills the surface below the optional delivery-health strip (WP-11). */
+	flex: 1 1 auto;
+	min-height: 0;
 	overflow: hidden;
 }
 
@@ -479,6 +481,13 @@
 	border: 1px solid var(--border-soft);
 	border-radius: var(--radius-md);
 	padding: var(--space-3);
+	transition: border-color 120ms ease;
+}
+.ob-quick-edit:hover:not(:focus-within) {
+	border-color: var(--border);
+}
+.ob-quick-edit:focus-within {
+	border-color: color-mix(in srgb, var(--tint-fg-active, var(--primary)) 45%, var(--border-soft));
 }
 .ob-quick-edit-head {
 	display: flex;
@@ -508,8 +517,12 @@
 	font-size: var(--text-body);
 	line-height: 1.6;
 	outline: none;
-	resize: vertical;
+	/* Auto-grown to content by useAutoGrowTextarea — the pane (.ob-detail)
+	   scrolls as one document; no inner scrollbox, no drag handle. */
+	resize: none;
+	overflow: hidden;
 	min-height: 240px;
+	display: block;
 }
 .ob-quick-edit textarea::placeholder {
 	color: var(--fg-faint);
@@ -583,6 +596,350 @@
 .ob-surface {
 	height: 100%;
 	position: relative;
+	display: flex;
+	flex-direction: column;
+}
+
+/* =================================================================
+   WP-11 · Delivery-health strip (.dh-*) — sits above the ob-split,
+   full width of the approvals surface. Ported from the locked design
+   parity-delivery-health.html; demo-only [data-worker] visibility
+   toggles dropped (the panel renders exactly one live state).
+   ================================================================= */
+.dh-strip {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: var(--space-3);
+	row-gap: var(--space-2);
+	padding: var(--space-2) var(--space-4);
+	border-bottom: 1px solid var(--border-soft);
+	background: var(--bg-sunken);
+	font-size: var(--text-caption);
+}
+.dh-strip.state-degraded {
+	background: color-mix(in srgb, var(--achievement) 7%, var(--bg-sunken));
+	border-bottom-color: color-mix(in srgb, var(--achievement) 35%, var(--border));
+}
+.dh-strip.state-dead {
+	background: color-mix(in srgb, var(--danger) 9%, var(--bg-sunken));
+	border-bottom-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+}
+
+.dh-lamp {
+	position: relative;
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	flex-shrink: 0;
+}
+.dh-lamp.is-alive {
+	background: var(--live);
+}
+.dh-lamp.is-idle {
+	background: var(--fg-faint);
+}
+.dh-lamp.is-degraded {
+	background: var(--achievement);
+}
+.dh-lamp.is-dead {
+	background: var(--danger);
+}
+.dh-lamp.is-alive::after {
+	content: "";
+	position: absolute;
+	inset: -4px;
+	border-radius: 50%;
+	border: 1px solid var(--live);
+	opacity: 0.5;
+	animation: dh-pulse 2.2s var(--ease-calm) infinite;
+}
+@keyframes dh-pulse {
+	0% {
+		transform: scale(0.6);
+		opacity: 0.55;
+	}
+	70% {
+		transform: scale(1.25);
+		opacity: 0;
+	}
+	100% {
+		transform: scale(1.25);
+		opacity: 0;
+	}
+}
+
+.dh-label {
+	font-family: var(--font-mono);
+	font-size: 10px;
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+	color: var(--fg-faint);
+}
+.dh-state {
+	font-size: var(--text-body-sm);
+	font-weight: 600;
+}
+.dh-state.is-alive {
+	color: var(--live);
+}
+.dh-state.is-idle {
+	color: var(--fg-muted);
+}
+.dh-state.is-degraded {
+	color: var(--achievement);
+}
+.dh-state.is-dead {
+	color: var(--danger);
+}
+.dh-facts {
+	font-family: var(--font-mono);
+	font-size: 10.5px;
+	color: var(--fg-muted);
+	letter-spacing: 0.02em;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.dh-facts b {
+	color: var(--fg);
+	font-weight: 600;
+}
+.dh-spacer {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+.dh-actions {
+	display: flex;
+	align-items: center;
+	gap: var(--space-2);
+	flex-shrink: 0;
+}
+
+/* Dead state gets a second, full-width copy row: the actionable part. */
+.dh-dead-copy {
+	flex-basis: 100%;
+	display: flex;
+	align-items: baseline;
+	gap: var(--space-2);
+	flex-wrap: wrap;
+	padding-top: var(--space-1);
+	color: var(--fg-muted);
+	line-height: 1.5;
+}
+.dh-dead-copy strong {
+	color: var(--fg);
+	font-weight: 600;
+}
+.dh-dead-copy code {
+	font-family: var(--font-mono);
+	font-size: 10.5px;
+	background: var(--bg-base);
+	border: 1px solid var(--border-soft);
+	padding: 1px 6px;
+	border-radius: var(--radius-xs);
+	color: var(--fg);
+	user-select: all;
+}
+
+/* =================================================================
+   WP-11 · Delivery chips (.dl-*) — per-row send-state, leads the chip
+   row. Same chip DNA as .ob-chip (mono, uppercase, compact).
+   ================================================================= */
+.dl-chip {
+	font-family: var(--font-mono);
+	font-size: 9.5px;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	padding: 2px 6px;
+	border-radius: var(--radius-xs);
+	border: 1px solid var(--border-soft);
+	background: var(--bg-sunken);
+	color: var(--fg-muted);
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	white-space: nowrap;
+}
+.dl-chip svg {
+	width: 10px;
+	height: 10px;
+}
+.dl-chip.queued,
+.dl-chip.scheduled {
+	color: var(--fg-muted);
+	border-style: dashed;
+}
+.dl-chip.sending {
+	color: var(--live);
+	border-color: color-mix(in srgb, var(--live) 40%, var(--border));
+	background: color-mix(in srgb, var(--live) 10%, transparent);
+}
+.dl-dot {
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	background: currentColor;
+	animation: dl-blink 1.1s var(--ease-calm) infinite alternate;
+}
+@keyframes dl-blink {
+	from {
+		opacity: 0.35;
+	}
+	to {
+		opacity: 1;
+	}
+}
+.dl-chip.sent {
+	color: var(--live);
+	border-color: var(--live-soft);
+	background: var(--live-soft);
+}
+.dl-chip.failed {
+	color: var(--danger);
+	border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+	background: var(--danger-soft);
+	cursor: pointer;
+	font-family: var(--font-mono);
+	font-size: 9.5px;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+}
+.dl-chip.failed:hover {
+	filter: brightness(1.12);
+}
+.dl-chip.failed:focus-visible {
+	outline: 2px solid var(--danger);
+	outline-offset: 2px;
+}
+.dl-chip.stalled {
+	color: var(--danger);
+	border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+	background: transparent;
+	border-style: dashed;
+}
+/* delivery_status sub-chip (only after sent) */
+.dl-chip.dstat-delivered {
+	color: var(--live);
+	border-color: var(--live-soft);
+}
+.dl-chip.dstat-bounced {
+	color: var(--danger);
+	border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+	background: var(--danger-soft);
+}
+
+/* Error popover anchored to the failed chip */
+.dl-pop-wrap {
+	position: relative;
+	display: inline-flex;
+}
+.dl-pop {
+	position: absolute;
+	left: 0;
+	top: calc(100% + 6px);
+	z-index: 60;
+	width: 340px;
+	max-width: 72vw;
+	background: var(--bg-surface);
+	border: 1px solid color-mix(in srgb, var(--danger) 40%, var(--border));
+	border-radius: var(--radius-md);
+	box-shadow: var(--shadow-3);
+	padding: var(--space-3);
+	text-align: left;
+	text-transform: none;
+	letter-spacing: 0;
+	cursor: default;
+}
+.dl-pop-title {
+	font-family: var(--font-mono);
+	font-size: 10px;
+	letter-spacing: 0.1em;
+	text-transform: uppercase;
+	color: var(--danger);
+	margin-bottom: var(--space-2);
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-2);
+}
+.dl-pop-err {
+	font-family: var(--font-mono);
+	font-size: 11px;
+	line-height: 1.55;
+	color: var(--fg);
+	background: var(--bg-sunken);
+	border: 1px solid var(--border-soft);
+	border-radius: var(--radius-sm);
+	padding: var(--space-2);
+	margin: 0 0 var(--space-2);
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+.dl-pop-meta {
+	font-family: var(--font-mono);
+	font-size: 10px;
+	color: var(--fg-faint);
+	letter-spacing: 0.03em;
+	margin-bottom: var(--space-2);
+	line-height: 1.6;
+}
+.dl-pop-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: var(--space-2);
+}
+
+/* Failed callout attempt-facts line (worker-written 0051 counters — one line;
+   the schema stores counters + last timestamps, not per-attempt history). */
+.dh-attempt-facts {
+	flex-basis: 100%;
+	font-family: var(--font-mono);
+	font-size: 10px;
+	letter-spacing: 0.03em;
+	color: var(--fg-faint);
+	line-height: 1.6;
+	border-top: 1px dashed color-mix(in srgb, var(--danger) 25%, var(--border));
+	padding-top: var(--space-1);
+	margin-top: 2px;
+}
+.dh-attempt-facts b {
+	color: var(--fg-muted);
+	font-weight: 500;
+}
+
+/* Dead-worker inline note inside the failed/queued detail */
+.dh-worker-note {
+	margin-bottom: var(--space-4);
+	padding: var(--space-2) var(--space-3);
+	border: 1px dashed color-mix(in srgb, var(--danger) 45%, var(--border));
+	border-radius: var(--radius-md);
+	font-size: var(--text-caption);
+	color: var(--fg-muted);
+}
+.dh-worker-note strong {
+	color: var(--danger);
+	font-weight: 600;
+}
+.dh-worker-note code {
+	font-family: var(--font-mono);
+	font-size: 10.5px;
+	background: var(--bg-base);
+	border: 1px solid var(--border-soft);
+	padding: 1px 5px;
+	border-radius: var(--radius-xs);
+	color: var(--fg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.dh-lamp.is-alive::after {
+		animation: none;
+		opacity: 0.35;
+	}
+	.dl-chip.sending .dl-dot {
+		animation: none;
+	}
 }
 
 /* Keep the consequence visible at every width. The app-kit action-bar-quick
