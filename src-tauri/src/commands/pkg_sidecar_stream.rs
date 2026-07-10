@@ -297,3 +297,28 @@ pub async fn pkg_sidecar_rpc_shutdown(pkg_id: String, name: String) -> Result<bo
     let manager = global_manager().clone();
     Ok(manager.children.remove(&(pkg_id, name)).is_some())
 }
+
+/// Evict every live streaming sidecar owned by `pkg_id`, returning the count
+/// reaped. Called from `Kernel::reload_pkg` (dev hot-reload / re-register):
+/// re-registering a pkg only re-adds sidecar *metadata*, so without this the
+/// previous long-running child would still be in the map and get reused on the
+/// next `pkg_sidecar_rpc_send` — a freshly rebuilt binary would never spawn.
+/// Teardown is the same stdin-EOF path `pkg_sidecar_rpc_shutdown` relies on:
+/// dropping the map slot drops the shared `ChildStdin`, the child sees EOF and
+/// exits, and its lifecycle watcher's `remove_if` becomes a no-op.
+pub fn shutdown_pkg_sidecars(pkg_id: &str) -> usize {
+    let manager = global_manager();
+    let keys: Vec<StreamKey> = manager
+        .children
+        .iter()
+        .filter(|e| e.key().0 == pkg_id)
+        .map(|e| e.key().clone())
+        .collect();
+    let mut reaped = 0usize;
+    for k in keys {
+        if manager.children.remove(&k).is_some() {
+            reaped += 1;
+        }
+    }
+    reaped
+}

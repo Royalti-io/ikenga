@@ -35,6 +35,7 @@
 import type { OperatorIdentity } from '@ikenga/contract/host-context';
 import { AppBridge, PostMessageTransport } from '@modelcontextprotocol/ext-apps/app-bridge';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { useEffect, useRef, useState } from 'react';
 
 import { sendToActiveSession } from '@/components/pkg/send-to-active-session';
@@ -71,6 +72,7 @@ import {
 	pkgMcpCall,
 	pkgPreviewManifest,
 	pkgSidecarCall,
+	pkgStudioRequestProjectAccess,
 	skillRosterRead,
 	type SqlValue,
 } from '@/lib/tauri-cmd';
@@ -520,6 +522,42 @@ export async function dispatchHostCall(
 			content: [{ type: 'text', text: 'navigated' }],
 			structuredContent: { ok: true, path },
 		};
+	}
+
+	// host.openFolder() — Studio's per-folder trust seam (WP-04). Pops the
+	// native folder picker, then hands the chosen path to the shell-side trust
+	// command (`pkg_studio_request_project_access`), which grants once-per-folder
+	// (constant-time re-hit) or pops the trust prompt. Returns `{ granted, path }`
+	// so the iframe can proceed only on a real grant. Cancelling the picker is a
+	// soft no-op (`ok: false, cancelled: true`), never an error.
+	if (name === 'host.openFolder') {
+		let picked: string | null;
+		try {
+			const res = await openDialog({ directory: true, multiple: false });
+			picked = typeof res === 'string' ? res : null;
+		} catch (e) {
+			return errResult(`host.openFolder failed: ${(e as Error).message ?? String(e)}`);
+		}
+		if (!picked) {
+			return {
+				content: [{ type: 'text', text: 'folder pick cancelled' }],
+				structuredContent: { ok: false, cancelled: true, granted: false },
+			};
+		}
+		try {
+			const { granted } = await pkgStudioRequestProjectAccess(picked);
+			return {
+				content: [
+					{
+						type: 'text',
+						text: granted ? `granted: ${picked}` : `denied: ${picked}`,
+					},
+				],
+				structuredContent: { ok: true, granted, path: picked },
+			};
+		} catch (e) {
+			return errResult(`host.openFolder failed: ${(e as Error).message ?? String(e)}`);
+		}
 	}
 
 	// host.pkg.setMenu({ items: [{id, label, icon?, badge?}] }) — pkg publishes

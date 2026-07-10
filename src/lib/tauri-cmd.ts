@@ -3397,6 +3397,16 @@ export async function pkgContentRevoke(token: string): Promise<void> {
 	return invoke('pkg_content_revoke', { token });
 }
 
+/** Per-folder Studio project-access trust gate (WP-04). Canonicalizes `path`,
+ *  returns `{ granted: true }` immediately if `com.ikenga.studio` already holds
+ *  a grant for it, otherwise pops the native trust prompt and awaits the user's
+ *  decision. Backs the `host.openFolder` iframe verb. */
+export async function pkgStudioRequestProjectAccess(
+	path: string
+): Promise<{ granted: boolean }> {
+	return invoke<{ granted: boolean }>('pkg_studio_request_project_access', { path });
+}
+
 // ─── Pkg child-webview panes (Phase 1) ──────────────────────────────────
 //
 // Native webview surfaces owned by the kernel and rendered as a child of
