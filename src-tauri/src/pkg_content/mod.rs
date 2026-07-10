@@ -282,10 +282,31 @@ impl PkgContentServer {
         //   2. inject `<base href>` for any consumers that DO honour it.
         //   3. absolutize remaining relative `src=` / `href=` URLs (images,
         //      fonts, dynamic-import targets the bundler emitted as URLs).
-        let html = inline_subresources(&raw, &canon_root);
-        let html = inject_base_href(&html, &base_url);
+        // Relative subresource URLs (`./assets/x.js`) in the served HTML
+        // resolve against the HTML file's OWN directory, not the dist root.
+        // This matters when a route's `source` is nested (e.g.
+        // `dist/sub/index.html` referencing `./assets/x.js` at
+        // `dist/sub/assets/x.js`). Resolve against the file's parent dir; keep
+        // `canon_root` as the traversal boundary so `../` can never escape the
+        // pkg's dist root.
+        let resource_base = canon_abs.parent().unwrap_or(canon_root.as_path());
+        let html = inline_subresources(&raw, resource_base, &canon_root);
+        // `<base href>` + absolutization must point at the served file's own
+        // subdirectory, not the token root — same class of bug as the inliner.
+        // For a top-level `dist/index.html` `resource_base == canon_root`, so
+        // `content_base == base_url` (unchanged). For a nested
+        // `dist/sub/index.html`, non-inlined relative URLs (images, fonts,
+        // dynamic-import targets) resolve against `<base>/sub/…` and reach the
+        // axum server at `dist/sub/…` where the files actually live.
+        let content_base = match resource_base.strip_prefix(&canon_root) {
+            Ok(sub) if !sub.as_os_str().is_empty() => {
+                format!("{}{}/", base_url, sub.to_string_lossy().replace('\\', "/"))
+            }
+            _ => base_url.clone(),
+        };
+        let html = inject_base_href(&html, &content_base);
         let html = inject_error_capture(&html);
-        let html = absolutize_relative_urls(&html, &base_url);
+        let html = absolutize_relative_urls(&html, &content_base);
         Ok(MintedHtml {
             html,
             base_url,
@@ -424,8 +445,11 @@ fn absolutize_chunk(html: &str, base: &str, out: &mut String) {
 ///
 /// Pure string transform — we don't parse HTML. Only acts on tags whose
 /// `src` / `href` value is a relative path (no scheme, no leading `/`).
-/// Reads strictly inside `dist_root`; rejects path traversal.
-fn inline_subresources(html: &str, dist_root: &Path) -> String {
+/// Relative paths resolve against `resource_base` (the served HTML file's own
+/// directory); `dist_root` is the traversal boundary — a resolved subresource
+/// that escapes it (e.g. via `../`) is rejected. For a top-level
+/// `dist/index.html` the two are the same directory.
+fn inline_subresources(html: &str, resource_base: &Path, dist_root: &Path) -> String {
     let mut out = String::with_capacity(html.len());
     let mut cursor = 0;
     while cursor < html.len() {
@@ -466,7 +490,7 @@ fn inline_subresources(html: &str, dist_root: &Path) -> String {
                     let close_search = &html[open_end..];
                     if let Some(close_rel) = find_case_insensitive(close_search, "</script>") {
                         let close_end = open_end + close_rel + "</script>".len();
-                        match read_subresource(dist_root, &src) {
+                        match read_subresource(resource_base, dist_root, &src) {
                             Ok(content) => {
                                 let lower = open_tag.to_ascii_lowercase();
                                 let is_module = lower.contains("type=\"module\"")
@@ -501,7 +525,7 @@ fn inline_subresources(html: &str, dist_root: &Path) -> String {
             if is_stylesheet {
                 if let Some(href) = extract_attr(open_tag, "href") {
                     if is_relative_url(&href) {
-                        match read_subresource(dist_root, &href) {
+                        match read_subresource(resource_base, dist_root, &href) {
                             Ok(content) => {
                                 out.push_str("<style>");
                                 out.push_str(&content.replace("</style", "<\\/style"));
@@ -563,15 +587,20 @@ fn is_relative_url(url: &str) -> bool {
         || url.starts_with("javascript:"))
 }
 
-fn read_subresource(dist_root: &Path, url: &str) -> Result<String> {
+fn read_subresource(resource_base: &Path, dist_root: &Path, url: &str) -> Result<String> {
     // Strip query string + fragment. Vite emits hashed filenames so we don't
     // expect either, but be defensive.
     let bare = url.split(['?', '#']).next().unwrap_or(url);
+    // Resolve relative to the served HTML file's own directory. `./assets/x.js`
+    // in `dist/sub/index.html` lives at `dist/sub/assets/x.js`. Strip a leading
+    // `./` / `/`, but leave `../` intact so `Path::join` climbs correctly.
     let trimmed = bare.trim_start_matches("./").trim_start_matches('/');
-    let abs = dist_root.join(trimmed);
+    let abs = resource_base.join(trimmed);
     let canon = abs
         .canonicalize()
         .with_context(|| format!("canonicalize {}", abs.display()))?;
+    // Traversal guard stays anchored at `dist_root`: a `../` may climb out of
+    // `resource_base` but must never escape the pkg's dist root.
     if !canon.starts_with(dist_root) {
         return Err(anyhow!("subresource `{url}` resolves outside dist_root"));
     }
@@ -936,5 +965,83 @@ mod tests {
         overrides.insert("clipboard-read".to_string(), vec!["'self'".to_string()]);
         let pp = build_permission_policy(&overrides);
         assert_eq!(pp, "clipboard-read=('self')");
+    }
+
+    // ── subresource inlining (Finding A regression) ────────────────────────
+    // A route whose `source` is nested one level deep (`dist/sub/index.html`)
+    // references `./assets/app.js`, which resolves against the HTML file's OWN
+    // directory (`dist/sub`), NOT the dist root. Before the fix the inliner
+    // joined against the dist root (`dist/assets/app.js` — nonexistent) and the
+    // asset silently failed to inline.
+    #[test]
+    fn inline_subresources_resolves_nested_index_against_own_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dist_root = tmp.path().canonicalize().unwrap();
+        let sub = dist_root.join("sub");
+        std::fs::create_dir_all(sub.join("assets")).unwrap();
+        std::fs::write(sub.join("assets/app.js"), "console.log('nested-ok');").unwrap();
+        std::fs::write(sub.join("assets/styles.css"), "body{color:red}").unwrap();
+
+        let html = "<!doctype html><html><head>\n\
+            <script type=\"module\" src=\"./assets/app.js\"></script>\n\
+            <link rel=\"stylesheet\" href=\"./assets/styles.css\">\n\
+            </head><body></body></html>";
+        let out = inline_subresources(html, &sub, &dist_root);
+
+        assert!(
+            out.contains("console.log('nested-ok');"),
+            "nested script body should inline: {out}"
+        );
+        assert!(
+            !out.contains("src=\"./assets/app.js\""),
+            "external script ref should be gone: {out}"
+        );
+        assert!(
+            out.contains("<script type=\"module\">"),
+            "module type attribute should be preserved: {out}"
+        );
+        assert!(out.contains("body{color:red}"), "nested stylesheet should inline: {out}");
+        assert!(
+            !out.contains("href=\"./assets/styles.css\""),
+            "external stylesheet ref should be gone: {out}"
+        );
+    }
+
+    // A top-level `dist/index.html` (resource_base == dist_root) still inlines —
+    // proves the two-arg change didn't regress the common case.
+    #[test]
+    fn inline_subresources_top_level_index_still_inlines() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dist_root = tmp.path().canonicalize().unwrap();
+        std::fs::create_dir_all(dist_root.join("assets")).unwrap();
+        std::fs::write(dist_root.join("assets/app.js"), "console.log('top-ok');").unwrap();
+
+        let html =
+            "<html><head><script type=\"module\" src=\"./assets/app.js\"></script></head></html>";
+        let out = inline_subresources(html, &dist_root, &dist_root);
+        assert!(out.contains("console.log('top-ok');"), "top-level asset should inline: {out}");
+    }
+
+    // Traversal guard stays anchored at `dist_root`: a nested index referencing
+    // a path that climbs OUT of the pkg (`../../outside.js`) is rejected — the
+    // external ref is left untouched, never inlined.
+    #[test]
+    fn inline_subresources_rejects_escape_outside_dist_root() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().canonicalize().unwrap();
+        // Layout: <tmp>/outside.js  and  <tmp>/dist/sub/index.html
+        std::fs::write(root.join("outside.js"), "SECRET").unwrap();
+        let dist_root = root.join("dist");
+        let sub = dist_root.join("sub");
+        std::fs::create_dir_all(&sub).unwrap();
+
+        let html = "<html><head>\
+            <script type=\"module\" src=\"../../outside.js\"></script></head></html>";
+        let out = inline_subresources(html, &sub, &dist_root);
+        assert!(!out.contains("SECRET"), "escaping subresource must NOT inline: {out}");
+        assert!(
+            out.contains("src=\"../../outside.js\""),
+            "rejected ref should be left untouched: {out}"
+        );
     }
 }

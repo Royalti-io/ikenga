@@ -1350,6 +1350,17 @@ pub fn is_visible_under(&self, pkg_id: &str, active_project_id: &str) -> bool {
         // halves are extracted as pure free functions so the sequence can be
         // exercised in tests without an AppHandle / SQLite / DB harness.
         replay_unregisters(&self.registries, pkg_id);
+        // Reap leak fix (Finding D): the SidecarsRegistry `unregister` above only
+        // drops path metadata — the StreamingSidecarManager still owns the
+        // previous long-running child, which would be reused (stale binary) on
+        // the next RPC send. `re-register` re-adds metadata but never respawns.
+        // Evict the live child here so the next `pkg_sidecar_rpc_send` spawns the
+        // freshly rebuilt binary. Synchronous (DashMap) — safe under the
+        // spawn_blocking context reload_pkg runs in.
+        let reaped = crate::commands::pkg_sidecar_stream::shutdown_pkg_sidecars(pkg_id);
+        if reaped > 0 {
+            log::info!("[pkg_kernel] reload `{pkg_id}`: reaped {reaped} stale streaming sidecar(s)");
+        }
         let applied_names = match replay_registers(&self.registries, &pkg) {
             Ok(names) => names,
             Err(e) => {
