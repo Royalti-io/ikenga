@@ -49,6 +49,8 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { cn } from '@/components/ui/utils';
 import { type IkengaMode, type IkengaWorkspace, useIkengaStore } from '@/lib/ikenga/theme-store';
 import { usePaneStore } from '@/lib/panes/pane-store';
+import { findLeaf } from '@/lib/panes/pane-reducer';
+import { modeForRoute } from '@/lib/shell/mode-routes';
 import {
 	type PkgActivityBarEntry,
 	usePkgActivityBarEntries,
@@ -182,7 +184,19 @@ export function ActivityBar() {
 	useEffect(() => {
 		if (!pkgEntriesLoaded || !isPkgMode(activeMode)) return;
 		const stillInstalled = pkgEntries.some((e) => `pkg:${e.pkg_id}` === activeMode);
-		if (!stillInstalled) setActiveMode('app');
+		if (stillInstalled) return;
+		// Transient guard: during a dev reload the pkg entry briefly leaves the
+		// kernel snapshot before re-registering. Don't snap to 'app' while the
+		// focused pane is still showing this pkg's route — PkgMode renders a
+		// "Waiting for pkg menu…" placeholder in the gap, and the route→mode
+		// sync (router-pane-sync) re-asserts the mode once the pkg re-registers.
+		// Only reconcile to 'app' once the user has actually navigated away.
+		const { root, focusedId } = usePaneStore.getState();
+		const leaf = findLeaf(root, focusedId);
+		const view = leaf?.tabs[leaf?.activeTabIdx ?? 0];
+		const focusedPath = view?.kind === 'route' ? view.path : null;
+		if (focusedPath && modeForRoute(focusedPath) === activeMode) return;
+		setActiveMode('app');
 	}, [pkgEntriesLoaded, pkgEntries, activeMode, setActiveMode]);
 
 	function handleSelectPkg(entry: PkgActivityBarEntry) {
