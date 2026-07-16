@@ -145,6 +145,26 @@ pub struct LifecycleEvent {
 /// whole app; subscribers filter by `pkg_id` payload.
 pub const LIFECYCLE_EVENT: &str = "pkg://lifecycle";
 
+/// Tauri event channel for relaying a long-lived MCP child's own outbound
+/// notifications (today: `notifications/message` / logging-message frames the
+/// server emits to stream progress, e.g. Studio's render/progress + render/done
+/// events tunnelled through the sidecar → MCP `logging/message` path). One
+/// channel for the whole app; the FE filters by the `pkg_id` field and forwards
+/// matching frames into the pkg iframe over the AppBridge notification wire.
+pub const MCP_NOTIFICATION_EVENT: &str = "pkg-mcp-notification";
+
+/// The MCP notification method a server uses to stream a logging/progress
+/// message to its client (`logging/message` in the spec vocabulary). This is
+/// the only notification method the read-loop relays to the FE; everything else
+/// (port_in_use, tool/list_changed, …) is handled locally or ignored.
+const MCP_LOGGING_MESSAGE_METHOD: &str = "notifications/message";
+
+/// Per-pkg relay budget for `MCP_NOTIFICATION_EVENT`. A pkg that floods its
+/// stdout with logging frames (e.g. a tight fal.ai queue-poll) must not be able
+/// to saturate the Tauri event bus or the FE. Frames beyond this within a
+/// rolling one-second window are dropped (noted once per window via warn).
+const MCP_NOTIFICATION_MAX_PER_SEC: u32 = 20;
+
 #[derive(Default)]
 pub struct SidecarSupervisor {
     /// pkg_id → supervised handle. Reads (call_tool, snapshot) take the read
@@ -1195,12 +1215,14 @@ impl SupervisedSidecar {
         let crash_tx_for_reader = crash_tx;
         let blocked_signal_for_reader: Arc<StdMutex<Option<BlockedReason>>> =
             self.blocked_signal_handle();
+        let app_for_reader = self.app.clone();
         tauri::async_runtime::spawn(async move {
             read_loop(
                 reader,
                 pending_for_reader,
                 &pkg_id_for_reader,
                 blocked_signal_for_reader,
+                app_for_reader,
             )
             .await;
             // Signal the supervisor that the child died. Fire-and-forget — if
@@ -1306,7 +1328,15 @@ async fn read_loop<R: tokio::io::AsyncRead + Unpin>(
     pending: PendingMap,
     pkg_id: &str,
     blocked_signal: Arc<StdMutex<Option<BlockedReason>>>,
+    app: Option<AppHandle>,
 ) {
+    // Rolling one-second budget for relayed logging-message notifications.
+    // Local to this child's read-loop, so the window resets naturally on a
+    // crash/respawn (each run gets a fresh loop).
+    let mut notif_window_start = Instant::now();
+    let mut notif_count: u32 = 0;
+    let mut notif_dropped: u32 = 0;
+
     let mut buf = String::new();
     loop {
         buf.clear();
@@ -1327,10 +1357,15 @@ async fn read_loop<R: tokio::io::AsyncRead + Unpin>(
                     }
                 };
                 let Some(id) = v.get("id").and_then(Value::as_u64) else {
-                    // Notification path. Today only port_in_use is
-                    // honored — the sidecar emits this just before exiting
-                    // code=2 so the supervisor can transition to Blocked
-                    // (no strike) on the upcoming EOF.
+                    // Notification path (no `id`). Two recognized methods:
+                    //   • `pkg/notifications/port_in_use` — the sidecar emits
+                    //     this just before exiting code=2 so the supervisor can
+                    //     transition to Blocked (no strike) on the upcoming EOF.
+                    //   • `notifications/message` (logging/message) — the server
+                    //     streaming an outbound progress/log frame to its client.
+                    //     We relay these to the FE over MCP_NOTIFICATION_EVENT so
+                    //     a pkg iframe (Studio) learns render/progress + render/done
+                    //     without polling. Rate-limited per pkg.
                     if let Some(method) = v.get("method").and_then(Value::as_str) {
                         if method == "pkg/notifications/port_in_use" {
                             let port = v
@@ -1344,6 +1379,42 @@ async fn read_loop<R: tokio::io::AsyncRead + Unpin>(
                             );
                             *blocked_signal.lock().expect("blocked_signal poisoned") =
                                 Some(BlockedReason::PortInUse(port));
+                        } else if method == MCP_LOGGING_MESSAGE_METHOD {
+                            if let Some(app) = app.as_ref() {
+                                // Roll the rate-limit window.
+                                let now = Instant::now();
+                                if now.duration_since(notif_window_start)
+                                    >= Duration::from_secs(1)
+                                {
+                                    if notif_dropped > 0 {
+                                        tracing::warn!(
+                                            "[pkg_lifecycle.{pkg_id}.read_loop] dropped {notif_dropped} logging notification(s) over cap ({MCP_NOTIFICATION_MAX_PER_SEC}/s)"
+                                        );
+                                    }
+                                    notif_window_start = now;
+                                    notif_count = 0;
+                                    notif_dropped = 0;
+                                }
+                                if notif_count >= MCP_NOTIFICATION_MAX_PER_SEC {
+                                    notif_dropped += 1;
+                                } else {
+                                    notif_count += 1;
+                                    let params =
+                                        v.get("params").cloned().unwrap_or(Value::Null);
+                                    if let Err(e) = app.emit(
+                                        MCP_NOTIFICATION_EVENT,
+                                        json!({
+                                            "pkg_id": pkg_id,
+                                            "method": method,
+                                            "params": params,
+                                        }),
+                                    ) {
+                                        tracing::warn!(
+                                            "[pkg_lifecycle.{pkg_id}.read_loop] emit mcp notification failed: {e}"
+                                        );
+                                    }
+                                }
+                            }
                         }
                     }
                     continue;

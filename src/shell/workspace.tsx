@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 import { OpenSessionDialogHost } from '@/components/pkg/open-session-dialog-host';
+import { PkgIframeLayer } from '@/components/pkg/pkg-iframe-layer';
 import { dumpBootTimings, mark } from '@/lib/boot-timing';
 import { useIykeBridge } from '@/lib/iyke/bridge';
 import { useIykeControlListener } from '@/lib/iyke/control-listener';
 import { useIykeShellSync } from '@/lib/iyke/use-iyke-shell-sync';
 import { usePinRoutedListener } from '@/lib/iyke/use-pin-routed-listener';
+import { IFRAME_POOL_ENABLED } from '@/lib/panes/iframe-pool';
 import { loadPaneTree, persistPaneTree } from '@/lib/panes/pane-persistence';
 import { usePaneStore } from '@/lib/panes/pane-store';
 import { useRouterPaneSync } from '@/lib/panes/router-pane-sync';
@@ -333,6 +335,13 @@ export function Workspace() {
 
 				<Dock />
 			</div>
+
+			{/* Hoisted iframe pool: owns pooled pkg iframes and floats them
+			    (position:fixed, z below every overlay) over their pane rects so
+			    they survive tab switch / reorder / split / pane-tree rebuild.
+			    Mounted once here, outside the PanelGroup remount scope. Renders
+			    nothing when pooling is off (no surfaces are ever claimed). */}
+			{IFRAME_POOL_ENABLED && <PkgIframeLayer />}
 
 			<CommandPalette
 				open={palette.open}

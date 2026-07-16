@@ -10,6 +10,7 @@ import { useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { FeedbackState } from '@/components/ui/feedback-state';
 import { IconButton } from '@/components/ui/icon-button';
+import { findLeaf, getActiveView } from '@/lib/panes/pane-reducer';
 import { usePaneStore } from '@/lib/panes/pane-store';
 import { spawnWindow } from '@/lib/tauri-cmd';
 import {
@@ -27,6 +28,19 @@ interface TerminalViewProps {
 
 export function TerminalView({ sessionId }: TerminalViewProps) {
 	const tab = useTerminalStore((s) => s.tabs.find((t) => t.id === sessionId));
+
+	// Is the pane currently hosting THIS terminal session the focused pane?
+	// Threaded down to XTermHost so a cache-hit remount (see xterm-host.tsx)
+	// only steals DOM focus when the user is actually looking at this pane —
+	// terminal-view.tsx doesn't receive its own paneId as a prop, so this
+	// resolves it by searching the pane tree for the focused leaf's active
+	// view instead of threading a new prop through pane-views.tsx.
+	const isFocused = usePaneStore((s) => {
+		const leaf = findLeaf(s.root, s.focusedId);
+		if (!leaf) return false;
+		const active = getActiveView(leaf);
+		return active.kind === 'terminal' && active.sessionId === sessionId;
+	});
 
 	// Pop-out: spawn a thin single-surface window that ATTACHES to this
 	// terminal's live core PTY. Encodes the real PTY id (not the pane session
@@ -86,7 +100,7 @@ export function TerminalView({ sessionId }: TerminalViewProps) {
 					</IconButton>
 				</div>
 			)}
-			<SingleTerminal sessionId={sessionId} />
+			<SingleTerminal sessionId={sessionId} isFocused={isFocused} />
 		</div>
 	);
 }

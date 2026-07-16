@@ -9,12 +9,19 @@ import { attachCapture } from './pty-output-buffer';
 
 interface SingleTerminalProps {
 	sessionId: string;
+	/** Whether the pane hosting this terminal currently has focus. Threaded
+	 *  through to `XTermHost` so a cache-hit remount (see xterm-host.tsx's
+	 *  module-scope xterm cache) only steals DOM focus when the user is
+	 *  actually looking at this pane. Optional — callers that don't track
+	 *  pane focus (e.g. Studio's terminal mount) simply never auto-focus on
+	 *  a reparent, matching today's behavior for that call site. */
+	isFocused?: boolean;
 }
 
 // Hosts exactly one PTY inside a pane tab. The session record (cwd, cmd,
 // title, status) lives in the terminal-store; the live PTY lives in the
 // module-level registry so it survives pane-tree remounts.
-export function SingleTerminal({ sessionId }: SingleTerminalProps) {
+export function SingleTerminal({ sessionId, isFocused }: SingleTerminalProps) {
 	const tab = useTerminalStore((s) => s.tabs.find((t) => t.id === sessionId));
 	const setStatus = useTerminalStore((s) => s.setStatus);
 	const setPtyId = useTerminalStore((s) => s.setPtyId);
@@ -106,7 +113,7 @@ export function SingleTerminal({ sessionId }: SingleTerminalProps) {
 		}
 		return <Centered text={`Spawning ${tab.spec.cmd.join(' ')}…`} />;
 	}
-	return <XTermHost pty={pty} />;
+	return <XTermHost pty={pty} sessionId={sessionId} focused={isFocused} />;
 }
 
 interface CenteredProps {

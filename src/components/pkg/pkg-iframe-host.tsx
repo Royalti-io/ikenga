@@ -37,17 +37,23 @@ import { AppBridge, PostMessageTransport } from '@modelcontextprotocol/ext-apps/
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { useEffect, useRef, useState } from 'react';
-
+import {
+	type OpenSessionDialogOptions,
+	openSessionDialog,
+} from '@/components/pkg/open-session-dialog';
 import { sendToActiveSession } from '@/components/pkg/send-to-active-session';
 import { registerIykeIframe } from '@/lib/iyke/iframe-registry';
-import { mintPkgToken } from '@/lib/pkg/auth-token';
 import {
-	buildHostContext,
-	type HostActiveProject,
-	type TasksRoster,
-} from '@/lib/pkg/host-context';
+	IFRAME_POOL_ENABLED,
+	type PoolRect,
+	poolSurfaceKey,
+	useIframePool,
+} from '@/lib/panes/iframe-pool';
+import { findLeaf, tabUid } from '@/lib/panes/pane-reducer';
 import { usePaneStore } from '@/lib/panes/pane-store';
-import { usePkgMenuStore, type PkgMenuItem } from '@/lib/pkg/pkg-menu-store';
+import { mintPkgToken } from '@/lib/pkg/auth-token';
+import { buildHostContext, type HostActiveProject, type TasksRoster } from '@/lib/pkg/host-context';
+import { type PkgMenuItem, usePkgMenuStore } from '@/lib/pkg/pkg-menu-store';
 import { useShellStore } from '@/lib/shell/shell-store';
 import {
 	agentOpsDeleteJob,
@@ -73,13 +79,10 @@ import {
 	pkgPreviewManifest,
 	pkgSidecarCall,
 	pkgStudioRequestProjectAccess,
-	skillRosterRead,
 	type SqlValue,
+	skillRosterRead,
 } from '@/lib/tauri-cmd';
-import {
-	openSessionDialog,
-	type OpenSessionDialogOptions,
-} from '@/components/pkg/open-session-dialog';
+import { usePaneScope } from '@/shell/panes/pane-scope';
 
 // Tauri event payload emitted by `Kernel::reload_pkg`. The FE only cares about
 // `pkg_id` for the host filter; `version` + `registries` are useful for debug
@@ -99,6 +102,14 @@ interface PkgIframeHostProps {
 	/** Optional callback invoked when `ui/initialize` round-trips, useful for
 	 *  smoke tests asserting the protocol path lit up. */
 	onInitialized?: () => void;
+	/** Pooled-surface reload trigger (see `iframe-pool.ts`'s `PoolSurface.refreshTick`).
+	 *  Only set by `<PkgIframeLayer>` for pooled surfaces; undefined for the
+	 *  inline (pool-off / no-pane-scope) path, which already gets a real
+	 *  remount from `PaneBody`'s `refreshTick`-keyed key. Bumping this value
+	 *  re-runs the Step-1 fetch effect exactly like the dev-mode `reloadKey`
+	 *  does — it's the mechanism that makes the toolbar refresh button
+	 *  actually reboot a pooled pkg iframe instead of being a no-op. */
+	refreshTick?: number;
 }
 
 const HOST_INFO = { name: 'ikenga-desktop', version: '0.1.0' };
@@ -285,9 +296,9 @@ async function pkgSqliteTables(pkgId: string): Promise<string[]> {
 // treats as a rejection.
 function writeTargetTable(sql: string): string | null {
 	const m =
-		/^\s*insert\s+(?:or\s+\w+\s+)?into\s+["'`\[]?(\w+)/i.exec(sql) ??
-		/^\s*update\s+["'`\[]?(\w+)/i.exec(sql) ??
-		/^\s*delete\s+from\s+["'`\[]?(\w+)/i.exec(sql);
+		/^\s*insert\s+(?:or\s+\w+\s+)?into\s+["'`[]?(\w+)/i.exec(sql) ??
+		/^\s*update\s+["'`[]?(\w+)/i.exec(sql) ??
+		/^\s*delete\s+from\s+["'`[]?(\w+)/i.exec(sql);
 	return m ? m[1] : null;
 }
 
@@ -325,7 +336,7 @@ export function readSourceTables(sql: string): string[] {
 	}
 	const seen = new Set<string>();
 	const out: string[] = [];
-	for (const m of sql.matchAll(/\b(?:from|join)\s+["'`\[]?(\w+)/gi)) {
+	for (const m of sql.matchAll(/\b(?:from|join)\s+["'`[]?(\w+)/gi)) {
 		const table = m[1];
 		const key = table.toLowerCase();
 		if (cteNames.has(key) || seen.has(key)) continue;
@@ -1062,7 +1073,20 @@ function errResult(message: string): HostCallResult {
 	};
 }
 
-export function PkgIframeHost({ pkgId, source, onInitialized }: PkgIframeHostProps) {
+// The real iframe + AppBridge renderer. When the pool is ON this is mounted
+// ONCE per surface inside `<PkgIframeLayer>` (outside the pane tree) and floated
+// over the claiming placeholder's rect, so it survives every pane-layer
+// unmount. When the pool is OFF (or there's no pane scope — e.g. the smoke
+// route) it's rendered inline by the `PkgIframeHost` wrapper below, exactly as
+// before. All the host-context re-emit machinery (theme observer, project
+// switch, roster/operator, active-feature) lives here and keeps firing for
+// pooled surfaces because this component stays mounted for the surface's life.
+export function PkgIframeHostInner({
+	pkgId,
+	source,
+	onInitialized,
+	refreshTick,
+}: PkgIframeHostProps) {
 	const iframeRef = useRef<HTMLIFrameElement>(null);
 	const [srcDoc, setSrcDoc] = useState<string | null>(null);
 	const [baseUrl, setBaseUrl] = useState<string | null>(null);
@@ -1220,7 +1244,16 @@ export function PkgIframeHost({ pkgId, source, onInitialized }: PkgIframeHostPro
 	// Step 1: read the iframe HTML + mint a subresource token (per-mount).
 	// `reloadKey` is included so the dev-mode `pkg-reloaded` event re-runs
 	// this effect — the manifest may have changed `ui.routes[].source` or
-	// any other surface that affects the pkg-content output.
+	// any other surface that affects the pkg-content output. `refreshTick` is
+	// included for the same reason: it's the pooled surface's mirror of the
+	// owning pane's `refreshTicks[paneId]` (see `iframe-pool.ts`), bumped by
+	// the toolbar refresh button. For a pooled pkg pane this component stays
+	// mounted across a refresh (the in-pane placeholder reclaims the SAME
+	// live surface rather than orphaning it), so without `refreshTick` here
+	// "refresh" would be a silent no-op — the fetch effect below is the only
+	// thing that actually tears down the old token/bridge and stands up a new
+	// one.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: reloadKey/refreshTick are trigger-only deps (not read in the body) — bumping either must re-run this effect to refetch + remint, which is the whole point.
 	useEffect(() => {
 		let dropped = false;
 		authTokenRef.current = mintPkgToken();
@@ -1247,7 +1280,7 @@ export function PkgIframeHost({ pkgId, source, onInitialized }: PkgIframeHostPro
 			// bridge-teardown → revoke. If we revoked here, an in-flight bridge
 			// request could 404 mid-teardown.
 		};
-	}, [pkgId, source, reloadKey]);
+	}, [pkgId, source, reloadKey, refreshTick]);
 
 	// Step 1c: register the iframe with the iyke iframe registry, keyed by
 	// pkg id (the pkg route catch-all has no real pane id — see
@@ -1462,6 +1495,56 @@ export function PkgIframeHost({ pkgId, source, onInitialized }: PkgIframeHostPro
 		// one that keeps `root_path` null, which wouldn't bump `rosterGen`.
 	}, [pkgId, activeFeature, rosterGen, operatorGen, activeProjectId, activeProjectName]);
 
+	// Step 3b: relay the pkg's long-lived MCP server notifications into the
+	// iframe. The Rust supervisor's read-loop emits `pkg-mcp-notification`
+	// { pkg_id, method, params } for every `notifications/message`
+	// (logging/message) frame the server streams — Studio tunnels its
+	// render/progress + render/done events through that path. We forward the
+	// matching-pkg frame straight onto the AppBridge notification wire so the
+	// iframe learns of completion without polling.
+	//
+	// Pass `params` through VERBATIM (no `{ params }` re-wrap). The exact
+	// double-wrap bug bit host-context-changed once (see Step 3): the app's
+	// notification handler reads `params` fields directly, so a wrapper lands
+	// them one level too deep and the handler silently reads `undefined`.
+	useEffect(() => {
+		let unlisten: UnlistenFn | null = null;
+		let cancelled = false;
+		listen<{ pkg_id: string; method: string; params?: unknown }>(
+			'pkg-mcp-notification',
+			(evt) => {
+				if (evt.payload.pkg_id !== pkgId) return;
+				const bridge = bridgeRef.current;
+				if (!bridge) return;
+				try {
+					// `method` is `notifications/message` (LoggingMessageNotification),
+					// which is a member of the AppBridge notification union; `params`
+					// is the server's original logging params (`{ level, logger, data }`).
+					// Cast at the boundary — the runtime JSON is broader than what we
+					// can statically prove from an `unknown` Tauri payload.
+					void bridge.notification({
+						method: evt.payload.method,
+						params: evt.payload.params,
+					} as Parameters<AppBridge['notification']>[0]);
+				} catch {
+					// Bridge may be mid-teardown; the iframe still has the poll fallback.
+				}
+			},
+		)
+			.then((un) => {
+				if (cancelled) {
+					un();
+				} else {
+					unlisten = un;
+				}
+			})
+			.catch(() => {});
+		return () => {
+			cancelled = true;
+			unlisten?.();
+		};
+	}, [pkgId]);
+
 	// Step 4: revoke the content token on full unmount.
 	useEffect(() => {
 		return () => {
@@ -1508,4 +1591,148 @@ export function PkgIframeHost({ pkgId, source, onInitialized }: PkgIframeHostPro
 			/>
 		</div>
 	);
+}
+
+// ─── Pool placeholder (default path when pooling is on) ──────────────────────
+//
+// Reads a DOM rect in viewport-client coords, rounded. Mirrors
+// pkg-webview-host's `measureRect` (the native-webview precedent for floating a
+// surface over a DOM rect). Returns null before layout (zero size).
+function rectFromEl(el: HTMLElement): PoolRect | null {
+	const r = el.getBoundingClientRect();
+	if (r.width <= 0 || r.height <= 0) return null;
+	return {
+		x: Math.round(r.left),
+		y: Math.round(r.top),
+		w: Math.round(r.width),
+		h: Math.round(r.height),
+	};
+}
+
+function rectsEqual(a: PoolRect | null, b: PoolRect | null): boolean {
+	if (!a || !b) return a === b;
+	return a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h;
+}
+
+// Occupies the pane's content slot but renders NOTHING itself — the real
+// `<iframe>` for this surface lives in `<PkgIframeLayer>` and floats over the
+// rect this placeholder measures. On mount it claims a surface (keyed by the
+// pane's active-tab uid) and starts reporting its rect; on unmount it only
+// RELEASES the claim — it never tears the iframe down. That release-not-destroy
+// is the whole point: a tab switch / reorder / split unmounts this placeholder
+// but the pooled iframe (and its JS heap) lives on for instant reclaim.
+function PkgIframeSurface({
+	pkgId,
+	source,
+	paneId,
+}: {
+	pkgId: string;
+	source: string;
+	paneId: string;
+}) {
+	const ref = useRef<HTMLDivElement>(null);
+
+	// This placeholder is only ever rendered as its pane's *active* tab (panes
+	// render only the active tab), so the pane's active tab IS the view that
+	// owns this instance — resolve its stable identity from the store the same
+	// way route-view.tsx does, rather than threading a tabId prop through the
+	// route resolver we don't control. Falls back to `paneId` if the lookup is
+	// momentarily empty so the key stays defined.
+	const tabId = usePaneStore((s) => {
+		const leaf = findLeaf(s.root, paneId);
+		const active = leaf?.tabs[leaf.activeTabIdx];
+		return active ? tabUid(active) : null;
+	});
+	const surfaceKey = poolSurfaceKey(pkgId, source, tabId ?? paneId);
+	// The toolbar refresh button bumps `refreshTicks[paneId]`, which (via
+	// `PaneBody`'s key in pane.tsx) remounts THIS placeholder — but
+	// `surfaceKey` deliberately excludes it (identity stays
+	// `pkgId::source::tabUid` so the reclaim below finds the SAME live
+	// surface rather than orphaning it). Read the current tick at mount time
+	// and carry it into the claim so the pool layer can thread it into the
+	// pooled `PkgIframeHostInner` as a reload trigger — that's what makes
+	// "refresh" on a pooled pkg pane actually reboot the iframe instead of
+	// being a no-op.
+	const refreshTick = usePaneStore((s) => s.refreshTicks[paneId] ?? 0);
+
+	useEffect(() => {
+		const el = ref.current;
+		if (!el) return;
+		const pool = useIframePool.getState();
+		let last = rectFromEl(el);
+		pool.claim(surfaceKey, {
+			pkgId,
+			source,
+			paneId,
+			tabUid: tabId ?? paneId,
+			rect: last,
+			refreshTick,
+		});
+
+		// rAF-coalesced rect reporting. A pooled iframe is positioned absolutely
+		// over this rect, so we must catch not just size changes (ResizeObserver)
+		// but position shifts from ancestor layout (panel resize, sidebar toggle,
+		// dock changes, split) and scrolling — hence the extra window/scroll/
+		// pane-store triggers. All funnel through one rAF flush that pushes only
+		// on an actual change.
+		let raf: number | null = null;
+		const flush = () => {
+			raf = null;
+			const next = rectFromEl(el);
+			if (!next || rectsEqual(next, last)) return;
+			last = next;
+			useIframePool.getState().updateRect(surfaceKey, next);
+		};
+		const schedule = () => {
+			if (raf === null && typeof requestAnimationFrame === 'function') {
+				raf = requestAnimationFrame(flush);
+			}
+		};
+
+		let ro: ResizeObserver | null = null;
+		if (typeof ResizeObserver !== 'undefined') {
+			ro = new ResizeObserver(schedule);
+			ro.observe(el);
+		}
+		window.addEventListener('resize', schedule);
+		// Capture-phase so scrolls in any ancestor scroll container re-measure.
+		window.addEventListener('scroll', schedule, true);
+		const unsubStore = usePaneStore.subscribe(schedule);
+		// Ensure at least one post-layout measure lands even if nothing else fires.
+		schedule();
+
+		return () => {
+			if (raf !== null) cancelAnimationFrame(raf);
+			ro?.disconnect();
+			window.removeEventListener('resize', schedule);
+			window.removeEventListener('scroll', schedule, true);
+			unsubStore();
+			// Release — NOT destroy. The layer keeps the iframe alive (hidden) for
+			// reclaim; LRU/orphan eviction in the store decides when it truly dies.
+			useIframePool.getState().release(surfaceKey);
+		};
+	}, [surfaceKey, pkgId, source, paneId, tabId, refreshTick]);
+
+	// Empty measuring surface. `relative` + full-size so getBoundingClientRect
+	// returns the exact content slot the layer floats the iframe over.
+	return (
+		<div
+			ref={ref}
+			data-pkg-iframe-surface={pkgId}
+			style={{ position: 'relative', width: '100%', height: '100%' }}
+		/>
+	);
+}
+
+// Public entry the route resolvers mount. Chooses the pooled placeholder when
+// pooling is enabled AND we're inside a pane (have a pane scope); otherwise
+// renders the iframe inline — the untouched legacy path and a true fallback for
+// the smoke route (no pane scope) and the `localStorage.ikenga.iframePool=0`
+// override.
+export function PkgIframeHost(props: PkgIframeHostProps) {
+	const paneId = usePaneScope();
+	if (IFRAME_POOL_ENABLED && paneId) {
+		return <PkgIframeSurface pkgId={props.pkgId} source={props.source} paneId={paneId} />;
+	}
+	return <PkgIframeHostInner {...props} />;
 }
