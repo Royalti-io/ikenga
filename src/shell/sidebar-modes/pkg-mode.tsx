@@ -24,7 +24,7 @@ import {
 
 import { Segmented } from '@/components/ui/segmented';
 import { usePkgMenuStore, type PkgMenuItem } from '@/lib/pkg/pkg-menu-store';
-import { SidebarNav, SidebarNavRow, SidebarNavSection } from './_nav';
+import { SidebarNav, SidebarNavHeader, SidebarNavRow, SidebarNavSection } from './_nav';
 
 // Stable empty-array sentinel — used by the menu selector when no menu has
 // been published for this pkg yet. Without this, `?? []` returns a fresh
@@ -87,6 +87,12 @@ export function PkgMode({ pkgId }: { pkgId: string }) {
 					className={gi > 0 ? 'border-t border-border/40 pt-3' : undefined}
 				>
 					{g.items.map((item) => {
+						// Context header — publishing `subtitle` (even as `null`) opts the
+						// item out of the row vocabulary entirely: no click, no dim, no
+						// active state, whatever `disabled` / `active` say.
+						if (item.subtitle !== undefined) {
+							return <SidebarNavHeader key={item.id} label={item.label} subtitle={item.subtitle} />;
+						}
 						// Segmented view-switcher (the locked `list-kanban-switch`
 						// pattern): renders as an inline pill strip; clicking an option
 						// publishes the OPTION's id as the active feature.

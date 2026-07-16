@@ -599,7 +599,7 @@ export async function dispatchHostCall(
 				continue;
 			}
 			if (typeof obj.label !== 'string') continue;
-			items.push({
+			const item: PkgMenuItem = {
 				id: obj.id,
 				label: obj.label,
 				icon: typeof obj.icon === 'string' ? obj.icon : null,
@@ -607,7 +607,15 @@ export async function dispatchHostCall(
 				section: typeof obj.section === 'string' ? obj.section : null,
 				disabled: obj.disabled === true,
 				active: typeof obj.active === 'boolean' ? obj.active : undefined,
-			});
+			};
+			// `subtitle` is presence-sensitive (see PkgMenuItem): an absent key is a
+			// plain nav row, `null` is a header with no meta line. Only carry the key
+			// through when the pkg actually published it — normalising it to `null`
+			// unconditionally would turn every row into a header.
+			if ('subtitle' in obj) {
+				item.subtitle = typeof obj.subtitle === 'string' ? obj.subtitle : null;
+			}
+			items.push(item);
 		}
 		usePkgMenuStore.getState().setMenu(pkgId, items);
 		// If the pkg hasn't been told an active feature yet, seed it to the
