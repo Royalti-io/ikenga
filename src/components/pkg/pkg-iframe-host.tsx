@@ -1329,9 +1329,28 @@ export function PkgIframeHostInner({
 
 		let bridge: AppBridge | null = null;
 		let teardown: (() => void) | null = null;
+		// Race-safety state (per effect instance):
+		// - `didConnect` makes onLoad idempotent: WebKit fires `load`
+		//   synchronously as `srcDoc` is assigned during React commit AND we
+		//   also invoke onLoad ourselves on a readyState==='complete' doc, so
+		//   without this guard a single effect could build two bridges (two
+		//   live `message` listeners). Guarantee: at most one bridge per effect.
+		// - `connectPromise` captures the in-flight `bridge.connect(transport)`.
+		//   `connect()` calls `transport.start()` (which does the
+		//   `window.addEventListener('message', …)`) ASYNCHRONOUSLY, so a
+		//   teardown that runs before `start()` and calls `bridge.close()`
+		//   (removeEventListener) is a no-op and orphans the listener. Teardown
+		//   therefore chains the close AFTER connect settles.
+		// - `disposed` short-circuits the connect-failure `setError` once the
+		//   effect has already been cleaned up.
+		let didConnect = false;
+		let connectPromise: Promise<unknown> | null = null;
+		let disposed = false;
 
 		const onLoad = () => {
+			if (didConnect) return;
 			if (!iframe.contentWindow) return;
+			didConnect = true;
 			const transport = new PostMessageTransport(iframe.contentWindow, iframe.contentWindow);
 			bridge = new AppBridge(null, HOST_INFO, HOST_CAPABILITIES, {
 				hostContext: buildHostContext({
@@ -1396,7 +1415,14 @@ export function PkgIframeHostInner({
 				onInitializedRef.current?.();
 			});
 			bridgeRef.current = bridge;
-			bridge.connect(transport).catch((e: unknown) => {
+			// Capture the connect promise so teardown can close AFTER it settles
+			// (see the state comment above). The separate `.catch` surfaces a
+			// connect failure without producing an unhandled rejection on this
+			// branch; teardown attaches its own settled-handler to the same
+			// promise independently.
+			connectPromise = bridge.connect(transport);
+			connectPromise.catch((e: unknown) => {
+				if (disposed) return;
 				setError(`bridge connect failed: ${(e as Error).message ?? String(e)}`);
 			});
 		};
@@ -1410,13 +1436,30 @@ export function PkgIframeHostInner({
 		}
 		iframe.addEventListener('load', onLoad);
 		teardown = () => {
+			// Remove the stale `load` listener FIRST so the next srcDoc
+			// assignment can't retrigger this effect's onLoad after teardown.
 			iframe.removeEventListener('load', onLoad);
+			disposed = true;
 			// Closing the bridge tears down the postMessage transport and
-			// unhooks all listeners.
-			try {
-				bridge?.close();
-			} catch {
-				// best-effort
+			// unhooks the window `message` listener. But `connect()` adds that
+			// listener asynchronously inside `transport.start()`: a `close()`
+			// that runs before `start()` is a no-op and orphans the listener.
+			// So chain the close AFTER the connect promise settles when one is
+			// in flight; only then is the listener guaranteed to exist and be
+			// removed. Trailing `.catch` keeps the settled-handler chain from
+			// raising an unhandled rejection.
+			const b = bridge;
+			const closeBridge = () => {
+				try {
+					b?.close();
+				} catch {
+					// best-effort
+				}
+			};
+			if (connectPromise) {
+				connectPromise.then(closeBridge, closeBridge).catch(() => {});
+			} else {
+				closeBridge();
 			}
 			bridgeRef.current = null;
 		};
