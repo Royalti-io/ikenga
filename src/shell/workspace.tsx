@@ -273,7 +273,7 @@ export function Workspace() {
 				usePaneStore.getState().focusByIndex(parseInt(e.key, 10) - 1);
 				return;
 			}
-			// ⌘J — cycle dock state (hidden → collapsed → expanded → wide).
+			// ⌘J — cycle dock state (collapsed → expanded).
 			if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'j' && !inEditable) {
 				e.preventDefault();
 				useDockStore.getState().cycleState();
