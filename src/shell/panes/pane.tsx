@@ -7,6 +7,7 @@ import { PaneIykeOverlay } from './pane-iyke-overlay';
 import { PaneTabStrip } from './pane-tab-strip';
 import { PaneToolbar } from './pane-toolbar';
 import { PaneBody } from './pane-views';
+import { tabUid } from './view-key';
 import { PaneDropZones } from './drop-zones';
 import { cn } from '@/components/ui/utils';
 
@@ -65,7 +66,12 @@ export function Pane({ leaf }: PaneProps) {
 			<div className="relative flex-1 min-h-0 overflow-hidden">
 				{activeTab && (
 					<PaneBody
-						key={`${leaf.id}:${leaf.activeTabIdx}:${refreshTick}`}
+						// Keyed by the tab's own stable identity (not activeTabIdx, a
+						// POSITION) so dragging the active tab or closing a
+						// lower-indexed sibling doesn't shift this index and force a
+						// spurious remount of a view the user only moved. refreshTick
+						// stays in the key — an explicit refresh must still remount.
+						key={`${leaf.id}:${tabUid(activeTab)}:${refreshTick}`}
 						paneId={leaf.id}
 						view={activeTab}
 					/>

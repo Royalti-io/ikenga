@@ -157,6 +157,7 @@
   --secondary: hsl(220, 12%, 14%);
   --accent: hsl(280, 70%, 65%);
   --info: hsl(200, 90%, 60%);
+  --info-soft: hsl(200, 55%, 16%);   /* deep cool tint (badge/status bg). Studio rendering-status role — G-02 */
   --success: hsl(142, 70%, 50%);
   --warning: hsl(38, 92%, 60%);
   --danger: hsl(0, 72%, 60%);
@@ -271,6 +272,7 @@
   --secondary: hsl(220, 14%, 96%);
   --accent: hsl(280, 65%, 50%);
   --info: hsl(200, 90%, 45%);
+  --info-soft: hsl(200, 60%, 92%);   /* light cool tint — G-02 */
   --success: hsl(142, 65%, 38%);
   --warning: hsl(38, 88%, 48%);
   --danger: hsl(0, 65%, 48%);
@@ -332,6 +334,7 @@
   --danger: hsl(8,68%,46%); --danger-fg: hsl(0,0%,98%); --danger-soft: hsl(8,50%,16%);
   --systemic: hsl(170,28%,34%); --systemic-soft: hsl(170,22%,16%);
   --agent: hsl(265,52%,64%); --agent-soft: hsl(265,32%,20%);
+  --info: hsl(200,66%,64%); --info-soft: hsl(200,42%,15%);   /* Dusk-Wood-harmonized cool role — Studio rendering-status (G-02); WCAG 8.4:1 on --bg-surface */
   --live:  hsl(150,48%,52%); --live-soft:  hsl(150,30%,18%); --live-fg: hsl(150,50%,9%);
   --shadow-1: 0 1px 2px rgba(0,0,0,.55), 0 0 0 1px rgba(0,0,0,.25);
   --shadow-2: 0 4px 12px -2px rgba(0,0,0,.55);
@@ -348,6 +351,7 @@
   --danger: hsl(8,68%,42%); --danger-fg: hsl(0,0%,98%); --danger-soft: hsl(8,60%,92%);
   --systemic: hsl(170,36%,32%); --systemic-soft: hsl(170,30%,90%);
   --agent: hsl(265,55%,44%); --agent-soft: hsl(265,40%,92%);
+  --info: hsl(200,74%,36%); --info-soft: hsl(200,50%,90%);   /* Dusk-Wood-harmonized cool role (light) — G-02 */
   --live:  hsl(150,55%,32%); --live-soft:  hsl(150,40%,92%); --live-fg: hsl(0,0%,100%);
   --shadow-1: 0 1px 2px rgba(28,18,8,.08);
   --shadow-2: 0 4px 12px -2px rgba(28,18,8,.10);

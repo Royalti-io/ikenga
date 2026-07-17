@@ -29,6 +29,12 @@ const FLUSH_INTERVAL_MS: u64 = 8; // ≈120 Hz
 /// Cap on the per-session scrollback ring. A late-attaching window (a popped-out
 /// terminal) replays at most this many trailing bytes before subscribing live.
 const SCROLLBACK_CAP: usize = 256 * 1024;
+/// Upper bound on concurrently-live PTY sessions. A runaway caller (a stuck
+/// spawn loop in a pkg or the frontend) can't exhaust file descriptors / child
+/// processes past this. On overflow, `spawn` returns a clean `Err` — surfaced
+/// to the FE as a failed `pty_spawn` — rather than allocating unbounded PTYs.
+/// 64 is comfortably above any realistic number of open terminal panes.
+const MAX_LIVE_SESSIONS: usize = 64;
 
 /// Bounded ring of the bytes emitted on `pty://{id}`, plus a monotonic `total`
 /// of every byte ever emitted. `total` keeps growing after the tail is trimmed
@@ -143,6 +149,16 @@ impl PtyManager {
         opts: SpawnOpts,
         subscriber: Option<ByteSubscriber>,
     ) -> Result<String> {
+        // Bound the number of live PTYs so a runaway caller can't spawn
+        // unbounded child processes / fds. Soft cap: a couple of concurrent
+        // spawns could momentarily race past it, which is harmless for a
+        // safety bound. Checked before we allocate any PTY resources.
+        if self.sessions.len() >= MAX_LIVE_SESSIONS {
+            return Err(anyhow!(
+                "PTY session limit reached ({MAX_LIVE_SESSIONS} live); close a terminal before opening another"
+            ));
+        }
+
         let id = Uuid::new_v4().to_string();
         let event_name = format!("pty://{id}");
         let exit_event = format!("pty://{id}/exit");
@@ -221,9 +237,27 @@ impl PtyManager {
                     Ok(0) => break,
                     Ok(n) => {
                         let chunk = &buf[..n];
-                        if let Ok(guard) = session_for_reader.subscriber.lock() {
-                            if let Some(sub) = guard.as_ref() {
-                                sub(chunk);
+                        if let Ok(mut guard) = session_for_reader.subscriber.lock() {
+                            // Guard the subscriber callback: a panicking tap
+                            // (e.g. the Claude stream parser) must not unwind
+                            // and kill this reader thread — the PTY has to keep
+                            // draining so the terminal stays alive. On panic we
+                            // log once and detach the tap so it can't re-panic
+                            // on every subsequent chunk and flood the log; the
+                            // `pty://{id}` event stream is unaffected.
+                            let panicked = if let Some(sub) = guard.as_ref() {
+                                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                    sub(chunk)
+                                }))
+                                .is_err()
+                            } else {
+                                false
+                            };
+                            if panicked {
+                                tracing::error!(
+                                    "pty subscriber callback panicked; detaching the byte tap so the reader thread survives"
+                                );
+                                *guard = None;
                             }
                         }
                         if tx.blocking_send(chunk.to_vec()).is_err() {

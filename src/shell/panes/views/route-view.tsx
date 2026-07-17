@@ -1,28 +1,55 @@
-import { useEffect, useMemo, createContext, useContext } from 'react';
 import {
-	RouterProvider,
-	createRouter,
-	createMemoryHistory,
 	type AnyRouter,
+	createMemoryHistory,
+	createRouter,
+	RouterProvider,
 } from '@tanstack/react-router';
-
-import { routeTree } from '@/routeTree.gen';
-import { queryClient } from '@/lib/query-client';
+import { useEffect, useMemo } from 'react';
+import { findLeaf, getLeafIdsInOrder } from '@/lib/panes/pane-reducer';
 import { usePaneStore } from '@/lib/panes/pane-store';
-import { getLeafIdsInOrder } from '@/lib/panes/pane-reducer';
+import { queryClient } from '@/lib/query-client';
+import { routeTree } from '@/routeTree.gen';
+import { PaneScopeProvider } from '../pane-scope';
+import { tabUid } from '../view-key';
 
-// Each pane gets its own TanStack Router instance with memory history. We
-// cache by paneId at module scope so the router (and its loader cache,
-// match state, etc.) survives remounts when the surrounding PanelGroup
-// rebuilds on structural changes (split/close).
+// Re-exported for existing importers (`__root.tsx`) — the context itself now
+// lives in the React-only `pane-scope` module to break an import cycle with the
+// pkg iframe host (which the route tree imports). See pane-scope.tsx.
+export { usePaneScope } from '../pane-scope';
+
+// Each pane gets its own TanStack Router instance with memory history,
+// keyed by `(paneId, tabUid)` rather than paneId alone — a pane can hold
+// several route tabs, and a per-paneId cache made them all share one
+// memory router/history stack, so switching tabs (or even just rendering
+// two route tabs in one pane) fought over a single location. Composite
+// keying gives each tab its own router (and its loader cache, match
+// state, etc.), surviving remounts when the surrounding PanelGroup
+// rebuilds on structural changes (split/close) AND when the tab is simply
+// switched away from and back (Stage-2 keep-alive still needed to avoid
+// the remount itself; this just means the remount doesn't lose history).
 const routerCache = new Map<string, AnyRouter>();
 
-// Evict cache entries for panes that no longer exist. One global
-// subscription is enough — pane changes are infrequent.
+function routerCacheKey(paneId: string, tabId: string): string {
+	return `${paneId}:${tabId}`;
+}
+
+// Evict cache entries whose (paneId, tabUid) pair no longer corresponds to
+// a live route tab — covers both a dead pane (old behavior) AND a tab that
+// was closed or moved out of a still-live pane (new: previously this only
+// checked paneId, so closing one route tab in a multi-tab pane never freed
+// its router). One global subscription is enough — pane changes are
+// infrequent.
 usePaneStore.subscribe((state) => {
-	const liveIds = new Set(getLeafIdsInOrder(state.root));
-	for (const id of Array.from(routerCache.keys())) {
-		if (!liveIds.has(id)) routerCache.delete(id);
+	const liveKeys = new Set<string>();
+	for (const paneId of getLeafIdsInOrder(state.root)) {
+		const leaf = findLeaf(state.root, paneId);
+		if (!leaf) continue;
+		for (const view of leaf.tabs) {
+			if (view.kind === 'route') liveKeys.add(routerCacheKey(paneId, tabUid(view)));
+		}
+	}
+	for (const key of Array.from(routerCache.keys())) {
+		if (!liveKeys.has(key)) routerCache.delete(key);
 	}
 });
 
@@ -42,8 +69,9 @@ if (import.meta.hot) {
 	});
 }
 
-function getOrCreateRouter(paneId: string, initialPath: string): AnyRouter {
-	let router = routerCache.get(paneId);
+function getOrCreateRouter(paneId: string, tabId: string, initialPath: string): AnyRouter {
+	const cacheKey = routerCacheKey(paneId, tabId);
+	let router = routerCache.get(cacheKey);
 	if (!router) {
 		router = createRouter({
 			routeTree,
@@ -51,17 +79,9 @@ function getOrCreateRouter(paneId: string, initialPath: string): AnyRouter {
 			context: { queryClient },
 			history: createMemoryHistory({ initialEntries: [initialPath || '/'] }),
 		});
-		routerCache.set(paneId, router);
+		routerCache.set(cacheKey, router);
 	}
 	return router;
-}
-
-// Context tag so __root can detect "I'm rendered inside a pane router" and
-// skip the workspace shell (which would cause infinite recursion).
-const PaneScopeContext = createContext<string | null>(null);
-
-export function usePaneScope(): string | null {
-	return useContext(PaneScopeContext);
 }
 
 interface RouteViewProps {
@@ -70,7 +90,20 @@ interface RouteViewProps {
 }
 
 export function RouteView({ paneId, path }: RouteViewProps) {
-	const router = useMemo(() => getOrCreateRouter(paneId, path), [paneId]);
+	// RouteView is only ever rendered as a pane's *active* tab (pane.tsx
+	// renders only `activeTab`, keyed so a tab switch remounts this
+	// component), so the active tab found here is exactly the view this
+	// instance represents — safe to resolve its identity from the store
+	// rather than threading a tabId prop through PaneBody's dispatch switch.
+	// Falls back to `paneId` alone if the lookup ever comes up empty (e.g.
+	// a transient state before the tree reflects this tab) so the router
+	// cache degrades to the old per-pane behavior instead of crashing.
+	const tabId = usePaneStore((s) => {
+		const leaf = findLeaf(s.root, paneId);
+		const active = leaf?.tabs[leaf.activeTabIdx];
+		return active && active.kind === 'route' ? tabUid(active) : null;
+	});
+	const router = useMemo(() => getOrCreateRouter(paneId, tabId ?? paneId, path), [paneId, tabId]);
 
 	// Sync external path changes (sidebar nav, command palette) into this
 	// pane's router. We compare to current location to avoid a redundant
@@ -101,10 +134,10 @@ export function RouteView({ paneId, path }: RouteViewProps) {
 	// resolution. (The main-window render gets bounded height via content-pane's
 	// flex column; pane routers render straight into the slot.)
 	return (
-		<PaneScopeContext.Provider value={paneId}>
+		<PaneScopeProvider value={paneId}>
 			<div className="absolute inset-0 flex flex-col overflow-hidden">
 				<RouterProvider router={router} />
 			</div>
-		</PaneScopeContext.Provider>
+		</PaneScopeProvider>
 	);
 }

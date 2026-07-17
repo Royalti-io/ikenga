@@ -51,6 +51,24 @@ export function SidebarNavSection({
 	);
 }
 
+// Context header for the list — a bright name over a mono meta line, sitting in
+// the row flow but reading as a label, not a target. Each line truncates on its
+// own axis, so a long meta string can never eat the name's width (the failure a
+// name+badge row has by construction: the badge takes its intrinsic width first).
+// No icon by design — the meta line is the identifying detail.
+// Spec: the locked M-A `.proj` block in
+// plans/studio/designs/redesign/side-menu-variants.html.
+export function SidebarNavHeader({ label, subtitle }: { label: string; subtitle?: string | null }) {
+	return (
+		<li className="flex flex-col gap-0.5 px-4 pb-2 pt-1">
+			<span className="truncate text-sm font-semibold text-foreground">{label}</span>
+			{subtitle && (
+				<span className="truncate font-mono text-[10px] text-muted-foreground/70">{subtitle}</span>
+			)}
+		</li>
+	);
+}
+
 export type SidebarNavBadgeTone = 'default' | 'attention' | 'warn';
 
 export interface SidebarNavRowProps {

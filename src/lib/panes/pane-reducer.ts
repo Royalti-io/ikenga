@@ -15,6 +15,58 @@ export function newPaneId(): PaneId {
 	return `p_${Math.random().toString(36).slice(2)}_${Date.now()}`;
 }
 
+// --- Per-tab identity -------------------------------------------------
+//
+// `PaneView` carries no id of its own (content-only: kind + path/sessionId/
+// etc.), and its position in `leaf.tabs` isn't stable across reorder/close.
+// Rather than adding a real `uid` field to `PaneView` (which would break
+// every `toEqual({ kind: 'route', path })`-shaped fixture in
+// pane-reducer.test.ts and leak into persisted blobs), identity is tracked
+// out-of-band by object reference in a module-scope `WeakMap`. Reducer
+// functions preserve the same tab's object reference across reorder
+// (`reorderTab` splices, doesn't recreate) and close (`closeTab` filters,
+// doesn't recreate), so `tabUid` naturally returns the same id for a tab
+// the user only moved. Entries are GC'd for free once a tree revision
+// stops referencing the old view object — no manual cleanup needed.
+//
+// Functions that construct a *new* view object representing the SAME tab
+// slot with different content (URL-bar navigate-in-place, pin toggle) call
+// `carryTabUid` to propagate the old object's id onto the new one, so that
+// content swap doesn't read as "a new tab" to consumers keying by `tabUid`
+// (pane.tsx's PaneBody key, route-view.tsx's per-tab router cache).
+const tabUidMap = new WeakMap<PaneView, string>();
+
+export function newTabUid(): string {
+	if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+		return crypto.randomUUID();
+	}
+	return `t_${Math.random().toString(36).slice(2)}_${Date.now()}`;
+}
+
+/** Stable identity for a tab's view object. Mints and caches on first
+ *  access (lazy — a tab gets its id the first time something needs to key
+ *  by it, e.g. on mount), then returns the same id for that exact object
+ *  reference forever after. Two distinct objects with identical content
+ *  (e.g. the same route opened in two tabs of one pane) get distinct ids —
+ *  the collision `viewKey` (content-based) has. */
+export function tabUid(view: PaneView): string {
+	let id = tabUidMap.get(view);
+	if (!id) {
+		id = newTabUid();
+		tabUidMap.set(view, id);
+	}
+	return id;
+}
+
+/** Propagate `from`'s tab identity onto `to`. Use when a reducer function
+ *  replaces a tab's view object in place (same slot, new content) so the
+ *  replacement isn't treated as a brand-new tab by identity-keyed
+ *  consumers. No-op (returns `to` unchanged) if `from` is undefined. */
+function carryTabUid(from: PaneView | undefined, to: PaneView): PaneView {
+	if (from) tabUidMap.set(to, tabUid(from));
+	return to;
+}
+
 export function makeLeaf(view: PaneView, id?: PaneId): LeafNode {
 	return { type: 'leaf', id: id ?? newPaneId(), tabs: [view], activeTabIdx: 0 };
 }
@@ -202,6 +254,7 @@ export function replaceActiveTab(root: PaneNode, leafId: PaneId, view: PaneView)
 		if (leaf.tabs.length === 0) return leaf;
 		const active = leaf.tabs[leaf.activeTabIdx];
 		const next: PaneView = active?.pinned ? { ...view, pinned: true } : view;
+		carryTabUid(active, next);
 		const tabs = leaf.tabs.map((t, i) => (i === leaf.activeTabIdx ? next : t));
 		return { ...leaf, tabs };
 	});
@@ -236,6 +289,7 @@ export function setTabPinned(
 					delete next.pinned;
 					return next as PaneView;
 				})();
+		carryTabUid(current, updated);
 		const tabs = leaf.tabs.map((t, i) => (i === tabIdx ? updated : t));
 		return { ...leaf, tabs };
 	});
@@ -453,11 +507,13 @@ export function navigateFocused(root: PaneNode, focusedId: PaneId, path: string)
 		}
 		const active = leaf.tabs[leaf.activeTabIdx];
 		// If the active tab is a route, replace it in place — but only if no
-		// other tab already holds this path (handled above).
+		// other tab already holds this path (handled above). Carry the tab's
+		// identity forward: this is a content swap of the same slot (global
+		// nav to a new path), not a new tab, so it shouldn't read as one to
+		// identity-keyed consumers (pane.tsx's PaneBody key).
 		if (active && active.kind === 'route') {
-			const tabs = leaf.tabs.map((t, i) =>
-				i === leaf.activeTabIdx ? { kind: 'route', path } : t
-			) as PaneView[];
+			const replacement = carryTabUid(active, { kind: 'route', path } as PaneView);
+			const tabs = leaf.tabs.map((t, i) => (i === leaf.activeTabIdx ? replacement : t));
 			return { ...leaf, tabs };
 		}
 		const tabs: PaneView[] = [...leaf.tabs, { kind: 'route', path }];

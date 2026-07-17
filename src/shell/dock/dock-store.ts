@@ -28,7 +28,14 @@ interface DockStoreState {
 	appendView: (view: PaneView) => void;
 }
 
-const STATE_CYCLE: DockState[] = ['hidden', 'collapsed', 'expanded'];
+// `hidden` is deliberately NOT in the user-facing cycle: it renders nothing at
+// all (dock.tsx), so cycling into it strands the dock with no affordance to get
+// it back — you'd have to know ⌘J to escape. The toggle only ever moves between
+// `collapsed` (rail visible) and `expanded`. `hidden` stays a programmatic state
+// (`setState`) for callers that genuinely want the dock gone. A stale persisted
+// `hidden` heals on the next cycle: indexOf returns -1, so the next index is 0
+// → `collapsed`.
+const STATE_CYCLE: DockState[] = ['collapsed', 'expanded'];
 
 const clampWidth = (n: number) => Math.max(DOCK_MIN_WIDTH, Math.min(DOCK_MAX_WIDTH, Math.round(n)));
 
@@ -78,13 +85,19 @@ export const useDockStore = create<DockStoreState>()(
 			// future Flavor-B second workspace window would otherwise share this
 			// per-window UI state via localStorage — scope it now for free.
 			name: scopedPersistName('ikenga-dock'),
-			version: 2,
+			version: 3,
 			migrate: (persisted: unknown, version) => {
 				const p = (persisted ?? {}) as Record<string, unknown>;
 				if (version < 2) {
 					// v1 had a 'wide' state — collapse it into 'expanded'.
 					if (p.state === 'wide') p.state = 'expanded';
 					if (p.width == null) p.width = DOCK_DEFAULT_WIDTH;
+				}
+				if (version < 3) {
+					// v2 could cycle into 'hidden', which renders nothing and looks
+					// like the dock was destroyed. Anyone persisted mid-cycle gets
+					// their dock back rather than booting to an invisible one.
+					if (p.state === 'hidden') p.state = 'collapsed';
 				}
 				return p as unknown as DockStoreState;
 			},

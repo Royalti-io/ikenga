@@ -15,6 +15,15 @@ export interface PkgMenuItem {
 	label: string;
 	icon?: string | null;
 	badge?: string | number | null;
+	/** Two-line context header (the locked M-A "production ledger" rail): the
+	 *  presence of this key — even as `null` — promotes the item from a nav row
+	 *  to a static header, `label` bright over `subtitle` in mono. A header is
+	 *  not a disabled nav row: it never dims, never highlights, never fires, and
+	 *  drops `icon` / `badge` (the meta line carries that context instead).
+	 *  `null` renders the label alone, so a pkg with no loaded meta shows an
+	 *  honest single line rather than an invented one. Older shells ignore the
+	 *  key and render the plain row, so pkgs can adopt it unpinned. */
+	subtitle?: string | null;
 	/** Optional group label. Consecutive items sharing the same `section` render
 	 *  under one heading; items with no `section` form the implicit first group.
 	 *  Order is preserved as published — the shell does not re-sort. */
