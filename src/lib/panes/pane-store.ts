@@ -183,22 +183,79 @@ function pushClosed(stack: PaneView[], views: PaneView[]): PaneView[] {
 	return next.length > MAX_CLOSED_HISTORY ? next.slice(next.length - MAX_CLOSED_HISTORY) : next;
 }
 
-/** Release any Studio-attached terminals owned by the given views.
- *  Cross-store: imports `useTerminalStore` lazily to dodge cycles.
- *  Called from close paths so the side pane re-mounts the xterm. */
+/** Every terminal sessionId still referenced by a live view anywhere in the
+ *  tree — either a `terminal` tab (its `sessionId`) or an `artifact-studio`
+ *  view that has a terminal attached (`attachedTerminalId`). Used to decide
+ *  whether a just-closed terminal's PTY can be safely disposed. Mirrors
+ *  iframe-pool's `liveTabUids`. */
+function referencedTerminalIds(root: PaneNode): Set<string> {
+	const ids = new Set<string>();
+	const visit = (node: PaneNode): void => {
+		if (node.type === 'leaf') {
+			for (const t of node.tabs) {
+				if (t.kind === 'terminal') ids.add(t.sessionId);
+				else if (t.kind === 'artifact-studio' && t.attachedTerminalId)
+					ids.add(t.attachedTerminalId);
+			}
+		} else {
+			for (const c of node.children) visit(c);
+		}
+	};
+	visit(root);
+	return ids;
+}
+
+/** Shed the resources tied to the given views when they are GENUINELY CLOSED
+ *  (not split/moved/switched — those keep the view alive elsewhere in the
+ *  tree). Two concerns:
+ *
+ *  1. `artifact-studio` views with an attached terminal → `detachFromStudio`
+ *     so the side pane re-mounts the xterm. Ownership only; the terminal tab
+ *     itself survives (it can still be open in the side pane), so its PTY is
+ *     NOT touched here.
+ *  2. `terminal` views → `remove(sessionId)` drops the tab, which cascades to
+ *     `evictXtermCache` via the session-store subscription in xterm-host
+ *     (shedding the live WebglAddon — F-3), and `disposePty(sessionId)` kills
+ *     the leaked PTY. The PTY is disposed ONLY when no other live view still
+ *     references the session (a terminal can be shared: opened in a second
+ *     tab, or attached to an `artifact-studio` pane).
+ *
+ *  Cross-store: imports lazily to dodge cycles and to keep unit tests
+ *  mockable. IMPORTANT — every caller runs `releaseAttachments(...)` BEFORE
+ *  the `set()` that commits the new tree, but the work below runs in the
+ *  dynamic-import microtask, i.e. AFTER `set()`. So the liveness scan reads
+ *  the POST-close tree (the closed views are already gone from it) — no need
+ *  to exclude them explicitly. */
 function releaseAttachments(views: PaneView[]): void {
-	const ids: string[] = [];
+	const studioAttachedIds: string[] = [];
+	const terminalSessionIds: string[] = [];
 	for (const v of views) {
 		if (v.kind === 'artifact-studio' && v.attachedTerminalId) {
-			ids.push(v.attachedTerminalId);
+			studioAttachedIds.push(v.attachedTerminalId);
+		} else if (v.kind === 'terminal') {
+			terminalSessionIds.push(v.sessionId);
 		}
 	}
-	if (ids.length === 0) return;
-	// Lazy import: terminal store imports nothing from pane-store, but we
-	// still avoid a top-level coupling so unit tests can mock cleanly.
-	void import('@/terminal/session-store').then(({ useTerminalStore }) => {
+	if (studioAttachedIds.length === 0 && terminalSessionIds.length === 0) return;
+
+	// Lazy imports: neither module imports pane-store at top level, but we
+	// still avoid the coupling so unit tests can mock cleanly.
+	void Promise.all([
+		import('@/terminal/session-store'),
+		import('@/terminal/pty-registry'),
+	]).then(([{ useTerminalStore }, { disposePty }]) => {
 		const st = useTerminalStore.getState();
-		for (const id of ids) st.detachFromStudio(id);
+		// 1) Studio detach — ownership only, unchanged behavior.
+		for (const id of studioAttachedIds) st.detachFromStudio(id);
+		if (terminalSessionIds.length === 0) return;
+		// 2) Remove each closed terminal tab → cascades evictXtermCache.
+		for (const id of terminalSessionIds) st.remove(id);
+		// 3) Kill the PTY only when nothing live still points at the session.
+		//    Scan reads the post-`set()` tree (see the doc note above).
+		const stillLive = referencedTerminalIds(usePaneStore.getState().root);
+		for (const id of terminalSessionIds) {
+			if (!stillLive.has(id)) disposePty(id);
+		}
 	});
 }
 
