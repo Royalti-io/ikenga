@@ -11,8 +11,56 @@ import { isDetachedWindow } from '@/lib/window/window-context';
 // boots the thin surface-host instead of the full workspace. Each path is a
 // dynamic import so the detached window never parses the primary bundle (the
 // router tree, every route, the workspace chrome).
-if (isDetachedWindow()) {
-	void import('@/boot/detached').then((m) => m.bootDetached());
-} else {
-	void import('@/boot/primary').then((m) => m.bootPrimary());
+// A bare `void import(...).then(...)` (its prior form) had no `.catch()`: one
+// transient module-fetch failure rejected as an unhandled rejection, the boot
+// function never ran, React never mounted — a permanently blank window with no
+// error, no retry, no diagnostics (F-7). Wrap the load so a blip is retried
+// once and any hard failure surfaces an actionable screen instead of a blank one.
+function loadBoot(): Promise<void> {
+	return isDetachedWindow()
+		? import('@/boot/detached').then((m) => m.bootDetached())
+		: import('@/boot/primary').then((m) => m.bootPrimary());
 }
+
+function renderBootError(err: unknown): void {
+	const root = document.getElementById('root');
+	if (!root) return;
+	const msg = err instanceof Error ? err.message : String(err);
+	root.replaceChildren();
+	const wrap = document.createElement('div');
+	wrap.style.cssText =
+		'display:flex;flex-direction:column;gap:10px;align-items:center;justify-content:center;height:100vh;font-family:system-ui,sans-serif;color:#e6ded3;background:#1a1611;padding:24px;text-align:center';
+	const h = document.createElement('div');
+	h.textContent = 'Ikenga failed to start';
+	h.style.cssText = 'font-size:15px;font-weight:600';
+	const p = document.createElement('div');
+	p.textContent = 'A module failed to load — this is usually transient.';
+	p.style.cssText = 'font-size:13px;opacity:.7';
+	const detail = document.createElement('div');
+	detail.textContent = msg.slice(0, 300);
+	detail.style.cssText =
+		'font-size:11px;opacity:.5;font-family:ui-monospace,monospace;max-width:520px;word-break:break-word';
+	const btn = document.createElement('button');
+	btn.textContent = 'Reload';
+	btn.style.cssText =
+		'margin-top:8px;padding:6px 16px;font-size:13px;border-radius:6px;border:1px solid #57503f;background:#2a251d;color:#efe7db;cursor:pointer';
+	btn.onclick = () => location.reload();
+	wrap.append(h, p, detail, btn);
+	root.appendChild(wrap);
+}
+
+async function boot(): Promise<void> {
+	try {
+		await loadBoot();
+	} catch (err) {
+		console.error('[boot] first attempt failed, retrying once', err);
+		try {
+			await loadBoot();
+		} catch (err2) {
+			console.error('[boot] retry failed — surfacing error screen', err2);
+			renderBootError(err2);
+		}
+	}
+}
+
+void boot();
