@@ -15,6 +15,16 @@ const DEFAULT_CAP_BYTES = 256 * 1024; // 256 KiB per session
 interface SessionBuffer {
 	bytes: Uint8Array;
 	capBytes: number;
+	/**
+	 * Absolute stream offset of the last captured byte — i.e. the cumulative
+	 * count of bytes the PTY has emitted, mirrored from `Pty.streamOffset` on
+	 * every append. Because it comes from the Pty (not a local tally) it stays
+	 * correct even if the capture subscribed after the stream had already
+	 * emitted bytes. The captured window's absolute start is
+	 * `endOffset - bytes.length`. Lets a ring replay be reconciled against the
+	 * live stream by offset (drop the overlap) instead of double-painting it.
+	 */
+	endOffset: number;
 	unsubscribe: () => void;
 }
 
@@ -57,9 +67,15 @@ export function attachCapture(
 	const buf: SessionBuffer = {
 		bytes: new Uint8Array(0),
 		capBytes: Math.max(4096, opts?.capBytes ?? DEFAULT_CAP_BYTES),
+		endOffset: 0,
 		unsubscribe: () => {},
 	};
-	const off = pty.onData((bytes) => appendCapped(buf, bytes));
+	const off = pty.onData((bytes) => {
+		appendCapped(buf, bytes);
+		// Tag the ring with the PTY's absolute stream offset so a later replay
+		// can be offset-reconciled against the live stream at the seam.
+		buf.endOffset = pty.streamOffset;
+	});
 	const unsubscribe = () => {
 		off();
 		buffers.delete(sessionId);
@@ -77,6 +93,21 @@ export function detachCapture(sessionId: string): void {
 export function readCapture(sessionId: string): Uint8Array | null {
 	const buf = buffers.get(sessionId);
 	return buf ? buf.bytes : null;
+}
+
+/**
+ * Like `readCapture`, but also returns the absolute stream offset the ring
+ * currently ends at (`Pty.streamOffset` at the last append). Callers that
+ * replay the ring into a fresh terminal use `endOffset` to prime
+ * `Pty.primeExternalSnapshot`, so the live stream drops the overlap at the
+ * seam instead of double-painting the last few bytes. Returns `null` when no
+ * capture exists for the session.
+ */
+export function readCaptureWithOffset(
+	sessionId: string
+): { data: Uint8Array; endOffset: number } | null {
+	const buf = buffers.get(sessionId);
+	return buf ? { data: buf.bytes, endOffset: buf.endOffset } : null;
 }
 
 export function listCaptureSessions(): string[] {

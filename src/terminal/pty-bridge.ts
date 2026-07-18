@@ -69,10 +69,31 @@ export class Pty {
 	 * as soon as a live chunk crosses the threshold (offsets are monotonic).
 	 */
 	private dedupUpTo: number | null = null;
+	/**
+	 * Absolute stream offset of the last byte delivered by the underlying
+	 * `pty://<id>` listener — i.e. the cumulative count of bytes this PTY has
+	 * emitted so far. Updated on every `deliverData` (including buffered and
+	 * deduped chunks, so it always reflects the true stream position). Read by
+	 * the per-session capture ring (`pty-output-buffer.ts`) so its snapshot can
+	 * be tagged with an absolute offset and reconciled against this stream —
+	 * the same mechanism `applyScrollback` uses for detached-window replay.
+	 */
+	private totalOffset = 0;
 
 	private constructor(id: string, label: string) {
 		this.id = id;
 		this.label = label;
+	}
+
+	/**
+	 * Cumulative bytes this PTY has emitted (absolute stream offset of the
+	 * most recent byte). Lets an external snapshot buffer (the capture ring)
+	 * tag its contents with an absolute end offset comparable to this stream's
+	 * offsets, so the seam between the two can be deduped rather than
+	 * double-painted.
+	 */
+	get streamOffset(): number {
+		return this.totalOffset;
 	}
 
 	/**
@@ -84,6 +105,9 @@ export class Pty {
 	 * scrollback snapshot (the overlap window during a detached attach).
 	 */
 	private deliverData(bytes: Uint8Array, endOffset: number) {
+		// Track the absolute stream position first — before any dedup/return —
+		// so `streamOffset` stays accurate even for chunks that get dropped.
+		this.totalOffset = endOffset;
 		if (this.dedupUpTo !== null) {
 			const start = endOffset - bytes.length;
 			if (endOffset <= this.dedupUpTo) {
@@ -155,6 +179,41 @@ export class Pty {
 		this.replayBuffer = merged;
 		this.replayStartOffset = Math.min(snapStart, liveStart);
 		this.dedupUpTo = null;
+	}
+
+	/**
+	 * Reconcile an EXTERNAL snapshot the caller has already painted (e.g. the
+	 * per-session capture ring replayed straight into xterm) against this
+	 * PTY's stream. `snapEnd` is the absolute offset the caller painted up to
+	 * (`streamOffset` at snapshot time). Any bytes at/below `snapEnd` — whether
+	 * already buffered in `replayBuffer` for a not-yet-attached subscriber or
+	 * arriving live afterwards — are dropped, so the seam is not double-painted.
+	 *
+	 * Same offset arithmetic as `applyScrollback`, minus the prepend: the
+	 * caller owns the snapshot bytes and only needs this Pty to suppress the
+	 * overlap. Must be called BEFORE the consuming `onData()` subscriber
+	 * attaches (so the buffered replay is trimmed before it is drained). No-op
+	 * on an empty snapshot. Offsets are monotonic.
+	 */
+	primeExternalSnapshot(snapEnd: number) {
+		if (snapEnd <= 0) return;
+		if (this.replayStartOffset !== null) {
+			const start = this.replayStartOffset;
+			const end = start + this.replayBuffer.length;
+			if (snapEnd >= end) {
+				// Whole buffer already covered by the external snapshot.
+				this.replayBuffer = new Uint8Array(0);
+				this.replayStartOffset = null;
+			} else if (snapEnd > start) {
+				// Drop the covered prefix; keep the tail beyond the seam.
+				this.replayBuffer = this.replayBuffer.subarray(snapEnd - start);
+				this.replayStartOffset = snapEnd;
+			}
+			// else snapEnd <= start: buffer is wholly after the seam — keep it.
+		}
+		// Suppress future live bytes below the seam (self-clears once the
+		// stream crosses `snapEnd`, per `deliverData`).
+		this.dedupUpTo = snapEnd;
 	}
 
 	/**
