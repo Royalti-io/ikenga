@@ -186,6 +186,28 @@ fn spawn_streaming_child_sync(
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
 
+    // F-9: inject this pkg's settings-declared secret env (e.g. FAL_KEY),
+    // resolved from Stronghold under the pkg's own scope. Best-effort — a
+    // missing secret leaves the inherited process-env fallback intact. Scoped
+    // strictly to the spawning pkg's OWN manifest.
+    match crate::pkg::manifest::Package::load(&install_path) {
+        Ok(pkg) => {
+            if let Some(settings) = pkg.manifest.settings.as_ref() {
+                for (name, value) in crate::commands::secrets::resolve_settings_secret_env(
+                    &app,
+                    &pkg.manifest.id,
+                    &settings.schema,
+                ) {
+                    cmd.env(name, value);
+                }
+            }
+        }
+        Err(e) => log::warn!(
+            "[pkg_sidecar_rpc_send] could not load manifest at {} for settings-secret env: {e}",
+            install_path.display()
+        ),
+    }
+
     let mut child = cmd
         .spawn()
         .map_err(|e| format!("spawn `{}`: {e}", bin_path.display()))?;

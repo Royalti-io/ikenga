@@ -658,6 +658,13 @@ pub struct SettingsField {
     pub default: serde_json::Value,
     #[serde(default)]
     pub description: Option<String>,
+    /// F-9: for `type:"secret"` fields, the name of the environment variable
+    /// to inject into this pkg's spawning sidecar children, resolved from
+    /// Stronghold under the pkg's own scope (e.g. `"FAL_KEY"`). Optional and
+    /// backward-compatible — `SettingsField` is not `deny_unknown_fields`, and
+    /// `#[serde(default)]` keeps existing manifests without it parsing.
+    #[serde(default)]
+    pub env: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

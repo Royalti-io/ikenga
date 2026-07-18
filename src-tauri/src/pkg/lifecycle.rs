@@ -77,7 +77,7 @@ use tokio::process::{Child, Command};
 use tokio::sync::{mpsc, oneshot, Notify};
 use tokio::time::timeout;
 
-use crate::pkg::manifest::{McpServer, Package};
+use crate::pkg::manifest::{McpServer, Package, SettingsField};
 use crate::pkg::registry::Registry;
 
 /// Per-call wallclock cap for `tools/call` against a supervised child.
@@ -247,6 +247,14 @@ impl SidecarSupervisor {
         }
 
         let shell_execute = pkg.manifest.permissions.shell_execute.clone();
+        // F-9: snapshot the pkg's settings schema so secret fields carrying an
+        // `env` can be resolved from Stronghold on every (re)spawn.
+        let settings_fields = pkg
+            .manifest
+            .settings
+            .as_ref()
+            .map(|s| s.schema.clone())
+            .unwrap_or_default();
         let supervised = Arc::new(SupervisedSidecar::new_with_app(
             pkg_id.clone(),
             server,
@@ -254,6 +262,7 @@ impl SidecarSupervisor {
             self.app.clone(),
             self.pa_db.clone(),
             shell_execute,
+            settings_fields,
         ));
 
         {
@@ -479,6 +488,12 @@ pub struct SupervisedSidecar {
     /// breaker still applies, so a misconfigured manifest parks instead
     /// of looping forever.
     shell_execute: Vec<String>,
+    /// F-9: this pkg's `settings` schema fields, snapshotted at construction.
+    /// On every spawn the `type:"secret"` fields carrying an `env` name are
+    /// resolved from Stronghold (pkg scope) and injected as child env vars
+    /// BEFORE the manifest-declared env, so `FAL_KEY` and friends reach the
+    /// long-lived child without a launch-env dependency. Empty in unit tests.
+    settings_fields: Vec<SettingsField>,
 }
 
 impl SupervisedSidecar {
@@ -488,7 +503,7 @@ impl SupervisedSidecar {
         // command so existing tests aren't shell.execute-gated. Tests that
         // exercise denial use `new_for_test` below.
         let allow = vec![server.command.clone()];
-        Self::new_with_app(pkg_id, server, install_path, None, None, allow)
+        Self::new_with_app(pkg_id, server, install_path, None, None, allow, Vec::new())
     }
 
     /// Test builder that lets the caller specify the shell.execute allowlist
@@ -501,9 +516,18 @@ impl SupervisedSidecar {
         install_path: PathBuf,
         shell_execute: Vec<String>,
     ) -> Self {
-        Self::new_with_app(pkg_id, server, install_path, None, None, shell_execute)
+        Self::new_with_app(
+            pkg_id,
+            server,
+            install_path,
+            None,
+            None,
+            shell_execute,
+            Vec::new(),
+        )
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn new_with_app(
         pkg_id: String,
         server: McpServer,
@@ -511,6 +535,7 @@ impl SupervisedSidecar {
         app: Option<AppHandle>,
         pa_db: Option<Arc<crate::commands::db::PaDb>>,
         shell_execute: Vec<String>,
+        settings_fields: Vec<SettingsField>,
     ) -> Self {
         Self {
             pkg_id,
@@ -525,6 +550,7 @@ impl SupervisedSidecar {
             app,
             pa_db,
             shell_execute,
+            settings_fields,
         }
     }
 
@@ -1099,6 +1125,22 @@ impl SupervisedSidecar {
                 if let Some(root) = root {
                     cmd.env("IKENGA_PROJECT_ROOT", root);
                 }
+            }
+        }
+
+        // F-9: inject this pkg's settings-declared secret env (e.g. FAL_KEY),
+        // resolved from Stronghold under the pkg's own scope, BEFORE the
+        // manifest-declared env below — so an explicit manifest `env` value
+        // naming the same key still wins. Best-effort; a missing secret leaves
+        // the inherited process-env fallback intact. No-op when app is absent
+        // (unit tests) or the pkg declares no secret settings.
+        if let Some(app) = self.app.as_ref() {
+            for (name, value) in crate::commands::secrets::resolve_settings_secret_env(
+                app,
+                &self.pkg_id,
+                &self.settings_fields,
+            ) {
+                cmd.env(name, value);
             }
         }
 

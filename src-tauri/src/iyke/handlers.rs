@@ -817,8 +817,11 @@ fn require_one_target(
 pub struct LogsQuery {
     #[serde(default)]
     pub level: Option<String>,
+    // u64, not u128: axum's Query uses serde_urlencoded which does NOT support
+    // u128 (every `?since=…` was rejected with "u128 is not supported").
+    // unix-ms fits u64; `recent_logs` casts to u128 at the comparison site.
     #[serde(default)]
-    pub since: Option<u128>,
+    pub since: Option<u64>,
     #[serde(default)]
     pub source: Option<String>,
 }

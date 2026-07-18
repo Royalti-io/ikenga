@@ -7,7 +7,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createOscObserver, fireOscNotification } from '@/lib/terminal/osc-notify';
 import { registerPathLinks } from './path-links';
 import { Pty, type PtySpawnOpts } from './pty-bridge';
-import { readCapture } from './pty-output-buffer';
+import { readCaptureWithOffset } from './pty-output-buffer';
 import { useTerminalStore } from './session-store';
 
 export interface TerminalSpec {
@@ -533,17 +533,21 @@ export function XTermHost({
 			// per-session capture ring (pty-output-buffer.ts, wired once at
 			// spawn in single-terminal.tsx) still holds before wiring the live
 			// stream, so scrollback survives the gap. Mirrors the detached-
-			// window `Pty.attach` scrollback replay (pty-bridge.ts); same
-			// documented caveat — a few recent bytes may double-paint at the
-			// seam since the ring and the live stream aren't offset-reconciled.
+			// window `Pty.attach` scrollback replay (pty-bridge.ts), including
+			// its offset reconciliation: the ring snapshot is tagged with an
+			// absolute stream offset, and `primeExternalSnapshot` drops any
+			// buffered/live bytes at or below that offset so the seam is not
+			// double-painted. Must run before `wirePtyToTerm` attaches the live
+			// `onData` subscriber (so a buffered replay is trimmed first).
 			if (cacheable && sessionId && pty) {
-				const captured = readCapture(sessionId);
-				if (captured && captured.length > 0) {
+				const snap = readCaptureWithOffset(sessionId);
+				if (snap && snap.data.length > 0) {
 					try {
-						term.write(captured);
+						term.write(snap.data);
 					} catch {
 						/* ignore */
 					}
+					pty.primeExternalSnapshot(snap.endOffset);
 				}
 			}
 

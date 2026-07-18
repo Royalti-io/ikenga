@@ -16,6 +16,20 @@ use tokio::sync::RwLock;
 const LOG_RING_CAP: usize = 500;
 const NETWORK_RING_CAP: usize = 100;
 
+/// Map a console log level to a numeric severity so `?level=warn` can filter
+/// case-insensitively at-or-above the requested level. Returns `None` for
+/// unknown/custom labels (callers then fall back to exact-insensitive match).
+fn log_severity(level: &str) -> Option<u8> {
+    match level.to_ascii_lowercase().as_str() {
+        "trace" => Some(0),
+        "debug" => Some(1),
+        "info" | "log" => Some(2),
+        "warn" | "warning" => Some(3),
+        "error" => Some(4),
+        _ => None,
+    }
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ShellSnapshot {
     pub mode: Option<String>,
@@ -124,14 +138,26 @@ impl IykeState {
     pub async fn recent_logs(
         &self,
         level: Option<&str>,
-        since: Option<u128>,
+        // unix-ms fits u64; serde_urlencoded (axum Query) rejects u128, so the
+        // handler's query field is u64. Timestamps are stored as u128 — cast
+        // at the comparison site below.
+        since: Option<u64>,
         source: Option<&str>,
     ) -> Vec<LogEntry> {
         let guard = self.logs.read().await;
         guard
             .iter()
-            .filter(|e| level.map(|l| e.level == l).unwrap_or(true))
-            .filter(|e| since.map(|s| e.ts >= s).unwrap_or(true))
+            // Level filter: case-insensitive severity threshold (entry at or
+            // above the requested level, e.g. ?level=warn returns warn+error).
+            // Falls back to case-insensitive exact match when either level is
+            // an unknown/custom label.
+            .filter(|e| {
+                level.is_none_or(|l| match (log_severity(l), log_severity(&e.level)) {
+                    (Some(want), Some(have)) => have >= want,
+                    _ => e.level.eq_ignore_ascii_case(l),
+                })
+            })
+            .filter(|e| since.is_none_or(|s| e.ts >= s as u128))
             .filter(|e| {
                 source
                     .map(|s| e.source.as_deref() == Some(s))
