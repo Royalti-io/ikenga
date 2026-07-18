@@ -458,6 +458,54 @@ pub fn read_secret(
     })
 }
 
+// ─── F-9: settings-secret env injection ─────────────────────────────────────
+
+/// Resolve the env-var secrets a pkg declares in its `settings` schema.
+///
+/// For each `type:"secret"` settings field carrying an `env` name, read the
+/// secret value from Stronghold under the pkg's OWN scope (`Scope::pkg`, with
+/// the legacy-unscoped fallback that `read_secret_scoped` already provides)
+/// and return `(ENV_NAME, value)` pairs for the caller to set on a spawning
+/// child (`cmd.env(name, value)`).
+///
+/// Scoped strictly to the pkg's own manifest — its manifest is its
+/// entitlement, so no `permissions.vault.keys` glob check is involved. A
+/// secret absent from the vault is skipped silently (the process-env fallback
+/// still applies). Synchronous + `block_on`-free: it reads off the cached
+/// Stronghold, matching `read_secret`'s contract, so it is safe to call from
+/// both the sync (`spawn_streaming_child_sync`) and async
+/// (`spawn_and_handshake`) spawn paths without touching the Tokio runtime.
+pub fn resolve_settings_secret_env(
+    app: &AppHandle,
+    pkg_id: &str,
+    settings_fields: &[crate::pkg::manifest::SettingsField],
+) -> Vec<(String, String)> {
+    let Some(lock) = app.try_state::<SecretsLock>() else {
+        return Vec::new();
+    };
+    let scope = Scope::pkg(pkg_id);
+    let mut out = Vec::new();
+    for field in settings_fields {
+        if field.field_type != "secret" {
+            continue;
+        }
+        let Some(env_name) = field.env.as_deref() else {
+            continue;
+        };
+        if env_name.is_empty() {
+            continue;
+        }
+        match read_secret_scoped(app, lock.inner(), &scope, env_name) {
+            Ok(Some(value)) => out.push((env_name.to_string(), value)),
+            Ok(None) => {}
+            Err(e) => log::warn!(
+                "[secrets] settings-secret env `{env_name}` for pkg `{pkg_id}` failed to resolve: {e}"
+            ),
+        }
+    }
+    out
+}
+
 // ─── Scope-aware variants (Phase 7) ──────────────────────────────────────────
 
 /// Scoped read with legacy fallback. Resolution order:
