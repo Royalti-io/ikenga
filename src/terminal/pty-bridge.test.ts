@@ -2,10 +2,18 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Capture the onData callback the Pty class hands to `ptyListen` so we can
 // drive bytes from the test. `ptySpawn` returns a synthetic id; `ptyKill` is a
-// no-op. `ptyScrollback` returns a promise the test resolves by hand so we can
-// interleave live bytes with the snapshot the way a real detached attach does.
+// no-op.
+//
+// The attach handshake is mocked to mirror the Rust contract exactly:
+// `ptyAttachBegin` gates the stream (nothing may be delivered after it until
+// `ptyAttachArm`), and `ptyAttachArm` flushes whatever the session emitted
+// during the handshake as the first live chunk, starting at the snapshot's end
+// offset. `gate` below is the test's stand-in for the Rust-side held buffer.
 let deliver: ((bytes: Uint8Array, endOffset: number) => void) | null = null;
-let scrollbackResolve: ((v: { data: Uint8Array; endOffset: number } | null) => void) | null = null;
+let attachBeginResolve:
+	| ((v: { data: Uint8Array; endOffset: number; token: number } | null) => void)
+	| null = null;
+let armed: number[] = [];
 
 vi.mock('../lib/tauri-cmd', () => ({
 	ptySpawn: vi.fn(async () => 'fake-id'),
@@ -13,12 +21,16 @@ vi.mock('../lib/tauri-cmd', () => ({
 		deliver = onData;
 		return () => undefined;
 	}),
-	ptyScrollback: vi.fn(
+	ptyAttachBegin: vi.fn(
 		() =>
 			new Promise((resolve) => {
-				scrollbackResolve = resolve;
+				attachBeginResolve = resolve;
 			})
 	),
+	ptyAttachArm: vi.fn(async (_id: string, token: number) => {
+		armed.push(token);
+		return true;
+	}),
 	ptyKill: vi.fn(async () => undefined),
 	ptyResize: vi.fn(async () => undefined),
 	ptyWrite: vi.fn(async () => undefined),
@@ -31,7 +43,7 @@ function bytes(s: string): Uint8Array {
 }
 
 /** Drain microtasks + one macrotask so an in-flight `Pty.attach` progresses
- *  past its `await`s (listener registration, scrollback fetch). */
+ *  past its `await`s (attach-begin, listener registration, arm). */
 function flush(): Promise<void> {
 	return new Promise((r) => setTimeout(r, 0));
 }
@@ -47,7 +59,8 @@ function emit(s: string) {
 
 beforeEach(() => {
 	deliver = null;
-	scrollbackResolve = null;
+	attachBeginResolve = null;
+	armed = [];
 	total = 0;
 });
 
@@ -148,65 +161,71 @@ describe('Pty replay buffer', () => {
 	});
 });
 
-describe('Pty detached-attach scrollback replay', () => {
-	it('replays the scrollback snapshot before live output when no live bytes raced', async () => {
+describe('Pty detached-attach scrollback replay (atomic handshake)', () => {
+	/** Run the attach handshake the way the real one runs: begin resolves with a
+	 *  snapshot, THEN the listener registers, THEN arm releases the gate. The
+	 *  `gate` callback is invoked at the point Rust would flush its held bytes —
+	 *  i.e. the first thing the freshly-registered listener ever receives. */
+	async function attachWith(
+		snap: { data: Uint8Array; endOffset: number; token: number } | null
+	): Promise<Pty> {
 		const p = Pty.attach('fake-id', 'x');
-		await flush(); // registers the live listener, then awaits scrollback
-		// Origin had emitted 'hello ' (offsets 0..6) before we attached.
-		scrollbackResolve!({ data: bytes('hello '), endOffset: 6 });
-		const pty = await p;
+		await flush(); // parks on ptyAttachBegin
+		attachBeginResolve!(snap);
+		return p;
+	}
 
-		const seen: string[] = [];
-		const off = pty.onData((b) => seen.push(new TextDecoder().decode(b)));
-		expect(seen.join('')).toBe('hello ');
+	it('replays the snapshot, then the bytes the gate held, in stream order', async () => {
+		const pty = await attachWith({ data: bytes('hello '), endOffset: 6, token: 7 });
+		expect(armed).toEqual([7]);
 
-		// Live output continues from where the snapshot ended.
+		// Rust flushes what it held during the handshake: offsets 6..11.
 		deliver!(bytes('world'), 11);
+
+		const seen: string[] = [];
+		const off = pty.onData((b) => seen.push(new TextDecoder().decode(b)));
 		expect(seen.join('')).toBe('hello world');
 		off();
 	});
 
-	it('trims the overlap when a live chunk re-covers snapshot bytes (dedupUpTo)', async () => {
-		const p = Pty.attach('fake-id', 'x');
-		await flush();
-		scrollbackResolve!({ data: bytes('hello '), endOffset: 6 });
-		const pty = await p;
-
+	it('passes contiguous post-snapshot bytes through without offset arithmetic', async () => {
+		// The seam is closed in Rust, so the frontend must NOT second-guess
+		// offsets. This asserts the contiguous case (snapshot ends at 6, chunk
+		// spans 6..11) reaches the subscriber untouched — i.e. no residual
+		// trimming survives on the attach path.
+		//
+		// NOTE: this does NOT exercise an overlapping chunk. Under the new
+		// contract an overlap cannot occur on this path by construction, so
+		// there is no in-band way to assert the frontend would pass one
+		// through; the Rust seam test (`attach_seam_delivers_the_stream_exactly_once`)
+		// is what proves the no-overlap invariant.
+		const pty = await attachWith({ data: bytes('hello '), endOffset: 6, token: 1 });
 		const seen: string[] = [];
 		const off = pty.onData((b) => seen.push(new TextDecoder().decode(b)));
 		expect(seen.join('')).toBe('hello ');
 
-		// A live chunk starting at offset 4 re-covers 'o ' then adds 'world'.
-		// The 'o ' prefix must be dropped, not double-printed.
-		deliver!(bytes('o world'), 11);
-		expect(seen.join('')).toBe('hello world');
+		deliver!(bytes('world'), 11);
+		deliver!(bytes('!'), 12);
+		expect(seen.join('')).toBe('hello world!');
 		off();
 	});
 
-	it('drops the overlap when live bytes arrive before the snapshot resolves', async () => {
-		const p = Pty.attach('fake-id', 'x');
-		await flush();
-		// Live tail 'wor' (offsets 6..9) buffers during the attach handshake.
+	it('keeps the snapshot in front of bytes that land before the subscriber mounts', async () => {
+		// The gate flush arrives while no xterm is attached yet — it buffers in
+		// `replayBuffer` behind the snapshot, and replays in order.
+		const pty = await attachWith({ data: bytes('hello '), endOffset: 6, token: 2 });
 		deliver!(bytes('wor'), 9);
-		// Snapshot then arrives covering the whole stream so far (0..9).
-		scrollbackResolve!({ data: bytes('hello wor'), endOffset: 9 });
-		const pty = await p;
+		deliver!(bytes('ld'), 11);
 
 		const seen: string[] = [];
 		const off = pty.onData((b) => seen.push(new TextDecoder().decode(b)));
-		// 'wor' must appear once — snapshot prefix 'hello ' + buffered 'wor'.
-		expect(seen.join('')).toBe('hello wor');
-
-		deliver!(bytes('ld'), 11);
 		expect(seen.join('')).toBe('hello world');
 		off();
 	});
 
 	it('tolerates a missing snapshot (exited PTY) and still streams live bytes', async () => {
-		const p = Pty.attach('fake-id', 'x');
-		await flush();
-		scrollbackResolve!(null);
-		const pty = await p;
+		const pty = await attachWith(null);
+		expect(armed).toEqual([]); // nothing to release
 
 		const seen: string[] = [];
 		const off = pty.onData((b) => seen.push(new TextDecoder().decode(b)));

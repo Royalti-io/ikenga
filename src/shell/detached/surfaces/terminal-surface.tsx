@@ -20,7 +20,11 @@
 // onContextLoss, so the terminal stays blank. We pass `disableWebgl` to
 // XTermHost below. Scrollback: `Pty.attach` replays the origin PTY's recent
 // output (Rust ring, ≤256KB) into xterm before the live stream, so the popped-
-// out terminal no longer starts blank. Caveat: the replayed tail is raw bytes
+// out terminal no longer starts blank. Since T-1 that replay is handed over by
+// an atomic snapshot-and-subscribe handshake in Rust (`pty_attach_begin` gates
+// the stream, `pty_attach_arm` releases it), so the seam between the replayed
+// tail and the live stream drops nothing and repeats nothing. Caveat: the
+// replayed tail is raw bytes
 // against a fresh screen (like any terminal reattach) — a few stale escape
 // sequences may flicker at the top on first paint; live output is correct.
 

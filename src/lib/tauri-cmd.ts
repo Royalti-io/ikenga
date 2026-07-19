@@ -8,9 +8,9 @@
 // `unimplemented!()` from Rust for phase 1 — the wrappers are typed today so
 // later phases just fill in the Rust side.
 
+import type { WindowDescriptor } from '@ikenga/contract';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import type { WindowDescriptor } from '@ikenga/contract';
 
 // ─── PTY ──────────────────────────────────────────────────────────────────────
 
@@ -100,22 +100,40 @@ export async function ptyListen(
 }
 
 /** Trailing scrollback of a PTY, replayed by a window that attaches after the
- *  PTY has already produced output (a popped-out terminal). `endOffset` is the
- *  cumulative byte count `data` ends at, so `endOffset - data.length` is the
- *  absolute offset of its first byte — the caller aligns it with live-event
- *  offsets to drop the overlap. `null` once the PTY has exited + been reaped. */
-export interface PtyScrollback {
+ *  PTY has already produced output (a popped-out terminal), plus the token that
+ *  releases the gate `ptyAttachBegin` installed. `endOffset` is the cumulative
+ *  byte count `data` ends at — and, because Rust gates the stream from the same
+ *  instant it takes this snapshot, it is also the exact offset the first live
+ *  chunk after `ptyAttachArm` starts at. Snapshot and live stream tile without
+ *  overlap, so there is nothing to dedup. `null` once the PTY has exited +
+ *  been reaped. */
+export interface PtyAttachSnapshot {
 	data: Uint8Array;
 	endOffset: number;
+	token: number;
 }
 
-export async function ptyScrollback(id: string): Promise<PtyScrollback | null> {
-	const res = await invoke<{ data: string; endOffset: number } | null>('pty_scrollback', { id });
+/** Step 1 of the atomic attach handshake — snapshot + gate. MUST be followed by
+ *  `ptyAttachArm` once the caller's `ptyListen` subscription is registered;
+ *  until then the PTY emits nothing to anyone. Rust runs a 2s watchdog so a
+ *  caller that dies in between can't stall the terminal. */
+export async function ptyAttachBegin(id: string): Promise<PtyAttachSnapshot | null> {
+	const res = await invoke<{ data: string; endOffset: number; token: number } | null>(
+		'pty_attach_begin',
+		{ id }
+	);
 	if (!res) return null;
 	const bin = atob(res.data);
 	const arr = new Uint8Array(bin.length);
 	for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
-	return { data: arr, endOffset: res.endOffset };
+	return { data: arr, endOffset: res.endOffset, token: res.token };
+}
+
+/** Step 2 of the atomic attach handshake — release the gate. Everything emitted
+ *  during the handshake arrives as the first live chunk. `false` means the gate
+ *  was already released (watchdog / superseded); that is a no-op, not an error. */
+export async function ptyAttachArm(id: string, token: number): Promise<boolean> {
+	return invoke<boolean>('pty_attach_arm', { id, token });
 }
 
 // ─── FS ───────────────────────────────────────────────────────────────────────
@@ -3401,9 +3419,7 @@ export async function pkgContentRevoke(token: string): Promise<void> {
  *  returns `{ granted: true }` immediately if `com.ikenga.studio` already holds
  *  a grant for it, otherwise pops the native trust prompt and awaits the user's
  *  decision. Backs the `host.openFolder` iframe verb. */
-export async function pkgStudioRequestProjectAccess(
-	path: string
-): Promise<{ granted: boolean }> {
+export async function pkgStudioRequestProjectAccess(path: string): Promise<{ granted: boolean }> {
 	return invoke<{ granted: boolean }>('pkg_studio_request_project_access', { path });
 }
 
