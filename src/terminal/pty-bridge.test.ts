@@ -52,7 +52,7 @@ beforeEach(() => {
 });
 
 describe('Pty replay buffer', () => {
-	it('replays pre-subscriber bytes to the first subscriber, then drains', async () => {
+	it('replays pre-subscriber bytes to the first subscriber', async () => {
 		const pty = await Pty.spawn({ cwd: '/', cmd: ['bash'] });
 		emit('hello ');
 		emit('world');
@@ -63,25 +63,39 @@ describe('Pty replay buffer', () => {
 		off();
 	});
 
-	it('does NOT re-replay drained bytes to a late subscriber', async () => {
+	it('keeps buffered bytes for a subscriber that detaches without a live chunk landing (survives an unrendered attach/detach)', async () => {
 		const pty = await Pty.spawn({ cwd: '/', cmd: ['bash'] });
 		emit('early');
 
-		// First subscriber drains the buffer.
+		// First subscriber replays the backlog but detaches WITHOUT any live
+		// byte reaching it while attached — mirrors a React StrictMode
+		// double-mount or a mount deferred behind `fonts.ready` that never
+		// actually rendered anything. The backlog must not be lost to it.
 		const first: string[] = [];
 		const off1 = pty.onData((b) => first.push(new TextDecoder().decode(b)));
 		expect(first.join('')).toBe('early');
 		off1();
 
-		// Late subscriber attaches with no new bytes in flight — must not see
-		// 'early' again.
+		// A late subscriber must still see the backlog: the earlier
+		// attach/detach did not consume it.
 		const late: string[] = [];
 		const off2 = pty.onData((b) => late.push(new TextDecoder().decode(b)));
-		expect(late.join('')).toBe('');
+		expect(late.join('')).toBe('early');
+
+		// Only once THIS subscriber has actually received a live chunk does
+		// the backlog release.
+		emit('more');
+		expect(late.join('')).toBe('earlymore');
 		off2();
+
+		// A subsequent subscriber does not see the released backlog again.
+		const after: string[] = [];
+		const off3 = pty.onData((b) => after.push(new TextDecoder().decode(b)));
+		expect(after.join('')).toBe('');
+		off3();
 	});
 
-	it('captures bytes during the subscribe-yield-resubscribe gap exactly once', async () => {
+	it('re-replays the subscribe-yield-resubscribe gap to every subscriber until a live chunk actually reaches one', async () => {
 		const pty = await Pty.spawn({ cwd: '/', cmd: ['bash'] });
 
 		// First subscriber sees live bytes.
@@ -90,22 +104,37 @@ describe('Pty replay buffer', () => {
 		emit('A');
 		expect(first.join('')).toBe('A');
 
-		// Yield (Studio attach handoff). Bytes during the gap should buffer.
+		// Yield (Studio attach handoff). Bytes during the gap buffer.
 		off1();
 		emit('B');
 		emit('C');
 
-		// Late subscriber gets BC once, and the buffer drains.
+		// Late subscriber replays 'BC' — the buffer is not released merely by
+		// being replayed.
 		const late: string[] = [];
 		const off2 = pty.onData((b) => late.push(new TextDecoder().decode(b)));
 		expect(late.join('')).toBe('BC');
 
-		// Another resubscribe must not see 'BC' again.
+		// Detach again WITHOUT a live byte landing while attached: 'BC' must
+		// still be there for the next subscriber — this is the exact
+		// StrictMode-double-mount case WP-08 fixed (a subscriber that never
+		// rendered anything must not have eaten the backlog).
 		off2();
 		const third: string[] = [];
 		const off3 = pty.onData((b) => third.push(new TextDecoder().decode(b)));
-		expect(third.join('')).toBe('');
+		expect(third.join('')).toBe('BC');
+
+		// Now a live chunk actually reaches this attached subscriber — only
+		// this releases the backlog.
+		emit('D');
+		expect(third.join('')).toBe('BCD');
 		off3();
+
+		// A subsequent subscriber must not see the released backlog again.
+		const fourth: string[] = [];
+		const off4 = pty.onData((b) => fourth.push(new TextDecoder().decode(b)));
+		expect(fourth.join('')).toBe('');
+		off4();
 	});
 
 	it('passes live bytes straight through while a subscriber is attached', async () => {

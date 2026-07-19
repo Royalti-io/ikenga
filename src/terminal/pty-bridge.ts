@@ -52,6 +52,15 @@ export class Pty {
 	 * Bytes received before any subscriber registered. Held so the first
 	 * `onData()` consumer can catch up on everything the PTY has emitted so
 	 * far — without this, the spawn-before-mount race leaves xterm blank.
+	 *
+	 * Retention rule (see `onData` / `deliverData`): subscribing REPLAYS the
+	 * buffer but does not destroy it. It is released only once a live chunk
+	 * actually reaches an attached subscriber — the earliest point at which a
+	 * renderer has demonstrably survived long enough to own the scrollback from
+	 * here on. Draining on mere subscription lost the backlog to any consumer
+	 * that attached and detached without rendering (React StrictMode's
+	 * double-mount, a deferred mount), which is what left a popped-out idle
+	 * terminal blank.
 	 */
 	private replayBuffer: Uint8Array = new Uint8Array(0);
 	/**
@@ -131,6 +140,18 @@ export class Pty {
 			next.set(bytes, this.replayBuffer.length);
 			this.replayBuffer = next;
 			return;
+		}
+		// A live chunk is about to reach an attached subscriber. That subscriber
+		// has now outlived its own mount long enough to receive real output, so
+		// the pending backlog has demonstrably landed in a renderer that is
+		// still there — release it. Doing this here rather than in `onData` is
+		// what lets a subscriber attach, replay, and detach without consuming
+		// the backlog (StrictMode double-mount / deferred mount), while still
+		// guaranteeing the backlog is not re-replayed once a renderer is
+		// genuinely live on the stream.
+		if (this.replayBuffer.length > 0) {
+			this.replayBuffer = new Uint8Array(0);
+			this.replayStartOffset = null;
 		}
 		for (const sub of this.dataSubs) {
 			try {
@@ -301,6 +322,17 @@ export class Pty {
 	 * Subscribe to data bytes. Returns an unsubscribe function. If bytes have
 	 * already been buffered (received before any subscriber attached), the new
 	 * handler receives them synchronously before subscribing to the live stream.
+	 *
+	 * The replay is NON-destructive: the buffer stays pending until a live
+	 * chunk reaches an attached subscriber (`deliverData`). A consumer that
+	 * subscribes and unsubscribes without ever seeing live output — a React
+	 * StrictMode double-mount, or a mount deferred behind `fonts.ready` — no
+	 * longer swallows the backlog on behalf of the renderer that follows it.
+	 * Every xterm that reaches `onData` in this codebase is a freshly-built,
+	 * empty terminal (the cached-terminal path in `xterm-host.tsx` keeps its
+	 * subscription across remounts and never re-subscribes), so re-serving the
+	 * backlog to a second subscriber paints a screen that would otherwise be
+	 * blank rather than double-painting a live one.
 	 */
 	onData(handler: PtyDataHandler): () => void {
 		if (this.replayBuffer.length > 0) {
@@ -309,12 +341,6 @@ export class Pty {
 			} catch (err) {
 				console.error('[pty] data handler threw on replay', err);
 			}
-			// Drain the buffer so a later subscribe-after-yield doesn't replay
-			// bytes the first subscriber already saw. Between unsubscribe and
-			// re-subscribe (Studio attach window), new bytes go into a fresh
-			// buffer and drain into the late subscriber once it attaches.
-			this.replayBuffer = new Uint8Array(0);
-			this.replayStartOffset = null;
 		}
 		this.dataSubs.add(handler);
 		return () => {
