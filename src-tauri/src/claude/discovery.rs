@@ -862,7 +862,10 @@ pub fn build_session_config_dir(
     // `/login` on every send. macOS OAuth: the upstream CLI also reads from
     // a hardcoded Keychain service name that ignores CLAUDE_CONFIG_DIR
     // (anthropics/claude-code#20553) — symlinks cover token auth on all
-    // platforms; OAuth-only macOS users may still re-auth once.
+    // platforms; OAuth-only macOS users may still re-auth once. settings.json
+    // specifically is written as a merged copy, not a symlink, so the
+    // transcript-retention pin (TRANSCRIPT_RETENTION_PIN_DAYS) can be
+    // injected — see write_settings_with_retention_pin.
     if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
         overlay_user_claude_files(&home.join(".claude"), &claude_dir)?;
     }
@@ -890,21 +893,148 @@ fn refresh_managed_subdirs(claude_dir: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Symlinks per-user `.credentials.json` + `settings*.json` from
-/// `user_claude_dir` into `session_claude_dir`. Missing files are skipped.
-/// Extracted from `build_session_config_dir` for testability — the parent
-/// resolves `$HOME/.claude` at call time and passes it in.
+/// Symlinks per-user `.credentials.json` + `settings.local.json` from
+/// `user_claude_dir` into `session_claude_dir`, and writes a **merged**
+/// `settings.json` (see `write_settings_with_retention_pin`) rather than
+/// symlinking it, so the transcript-retention pin below can be injected
+/// without touching the user's real `~/.claude/settings.json`. Missing
+/// source files are skipped (except settings.json, which is always
+/// written — the pin must apply unconditionally). Extracted from
+/// `build_session_config_dir` for testability — the parent resolves
+/// `$HOME/.claude` at call time and passes it in.
 fn overlay_user_claude_files(
     user_claude_dir: &Path,
     session_claude_dir: &Path,
 ) -> Result<(), String> {
-    for name in [".credentials.json", "settings.json", "settings.local.json"] {
+    for name in [".credentials.json", "settings.local.json"] {
         let src = user_claude_dir.join(name);
         if src.exists() {
             make_symlink(&src, &session_claude_dir.join(name))?;
         }
     }
-    Ok(())
+    write_settings_with_retention_pin(user_claude_dir, session_claude_dir)
+}
+
+/// The long-horizon transcript-retention pin applied to every per-session
+/// overlay.
+///
+/// WHY THIS EXISTS — DO NOT DELETE AS "CLEANUP": `cleanupPeriodDays`
+/// defaults to 30 when unset, and as of 2026-07-18 it was unset in both
+/// `~/.claude/settings.json` and `~/.claude.json` on this machine. That
+/// default already destroyed 46 of our transcripts — pre-overlay sessions
+/// (before 2026-05-14) wrote straight into `~/.claude/projects`, which every
+/// later `claude` invocation re-sweeps at 30 days
+/// (see plans/2026-07-18-transcripts-and-terminal-architecture/03-research-internal.md §F-4,
+/// and 05-tracking.md "WP-03b is not optional"). The transcripts-and-
+/// terminal-architecture plan's Phase 2 (Option B) moves our transcripts
+/// BACK into `~/.claude/projects` for `--resume` interop — i.e. straight
+/// back into the blast radius of that same sweep. This pin is the
+/// prerequisite that makes that move safe. Remove it and the 46-transcript
+/// loss reproduces on a longer fuse.
+///
+/// There is no "never" value to set instead. Verified directly against the
+/// installed `claude` 2.1.214 binary's embedded strings (2026-07-18):
+/// `cleanupPeriodDays must be at least 1 ... 0 is rejected because it
+/// previously silently disabled all transcript writes, which users setting
+/// it to mean "never clean up" did not expect.` The same string recommends
+/// "a large number (e.g. 3650 for ~10 years)" for long-horizon retention,
+/// which is the value pinned here.
+const TRANSCRIPT_RETENTION_PIN_DAYS: u64 = 3650;
+
+/// Merge the retention pin into a settings.json payload without clobbering
+/// any other key. `existing` is the raw file content of the user's real
+/// settings.json (`None` if it doesn't exist / couldn't be read).
+///
+/// If the user already set `cleanupPeriodDays` to something HIGHER than the
+/// pin, theirs wins — we only ever raise the floor, never lower an
+/// intentionally-longer retention the user configured themselves. Invalid
+/// JSON (or a non-object top level) is treated the same as "absent": we
+/// still return a valid object carrying just the pin rather than failing
+/// the session-overlay build over a malformed settings file.
+fn merge_retention_pin(existing: Option<&str>) -> serde_json::Value {
+    let mut obj = match existing.and_then(|raw| serde_json::from_str::<serde_json::Value>(raw).ok())
+    {
+        Some(serde_json::Value::Object(m)) => m,
+        _ => serde_json::Map::new(),
+    };
+    let current = obj.get("cleanupPeriodDays").and_then(|v| v.as_u64());
+    let effective = match current {
+        Some(n) if n > TRANSCRIPT_RETENTION_PIN_DAYS => n,
+        _ => TRANSCRIPT_RETENTION_PIN_DAYS,
+    };
+    obj.insert(
+        "cleanupPeriodDays".to_string(),
+        serde_json::Value::Number(effective.into()),
+    );
+    serde_json::Value::Object(obj)
+}
+
+/// Write the session overlay's `settings.json` as a real file (never a
+/// symlink to the user's actual `~/.claude/settings.json`) carrying every
+/// key from the user's real settings.json plus the transcript-retention pin
+/// (`TRANSCRIPT_RETENTION_PIN_DAYS` — see its doc comment for why this
+/// exists). A symlink here would mean either overwriting the user's real
+/// settings.json with the pinned value (clobbering a file we don't own) or
+/// not being able to inject the pin at all — a real, merged copy is the
+/// only option that satisfies both "don't clobber the user's settings" and
+/// "the pin must apply to this session".
+fn write_settings_with_retention_pin(
+    user_claude_dir: &Path,
+    session_claude_dir: &Path,
+) -> Result<(), String> {
+    let src = user_claude_dir.join("settings.json");
+    let existing = if src.exists() {
+        match std::fs::read_to_string(&src) {
+            Ok(s) => Some(s),
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    path = %src.display(),
+                    "failed to read user settings.json for retention-pin merge; \
+                     session overlay will get a pin-only settings.json"
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
+    let merged = merge_retention_pin(existing.as_deref());
+    let effective_days = merged
+        .get("cleanupPeriodDays")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(TRANSCRIPT_RETENTION_PIN_DAYS);
+    tracing::info!(
+        cleanup_period_days = effective_days,
+        session_claude_dir = %session_claude_dir.display(),
+        "session overlay: transcript retention pinned (prevents claude's own \
+         cleanup sweep from reaping this session's transcript)"
+    );
+    let bytes = serde_json::to_vec_pretty(&merged)
+        .map_err(|e| format!("serialize session settings.json: {e}"))?;
+    let dst = session_claude_dir.join("settings.json");
+
+    // CRITICAL: overlays built before the retention pin landed symlink this
+    // path straight at the user's real `~/.claude/settings.json`, and
+    // `refresh_managed_subdirs` deliberately preserves the overlay root, so
+    // those links survive a rebuild. `std::fs::write` FOLLOWS a symlink and
+    // truncates its target — writing through one would rewrite (and, on a
+    // read failure above, replace with a pin-only object) the user's actual
+    // settings. Unlink first so we always create a fresh regular file in the
+    // overlay. Verified at the time of writing: 55 existing overlays carried
+    // exactly this symlink and zero carried a real file.
+    if dst.is_symlink() {
+        std::fs::remove_file(&dst).map_err(|e| {
+            format!("unlink stale settings.json symlink in session overlay: {e}")
+        })?;
+    }
+
+    // Write-temp-then-rename so a crash mid-write can't leave a truncated
+    // settings.json, and so we never open the destination for truncation.
+    let tmp = session_claude_dir.join("settings.json.tmp");
+    std::fs::write(&tmp, bytes).map_err(|e| format!("write session settings.json: {e}"))?;
+    std::fs::rename(&tmp, &dst)
+        .map_err(|e| format!("commit session settings.json: {e}"))
 }
 
 /// Write the merged MCP-server set into `<claude_dir>/.mcp.json`.
@@ -1356,7 +1486,7 @@ mod tests {
         let creds = session_claude.join(".credentials.json");
         let settings = session_claude.join("settings.json");
         assert!(creds.exists(), ".credentials.json should be linked");
-        assert!(settings.exists(), "settings.json should be linked");
+        assert!(settings.exists(), "settings.json should be written");
         assert!(
             !session_claude.join("settings.local.json").exists(),
             "missing-source file should not be created"
@@ -1366,18 +1496,31 @@ mod tests {
         {
             let target = std::fs::read_link(&creds).unwrap();
             assert_eq!(target, user_claude.join(".credentials.json"));
+            // settings.json must be a real merged file, never a symlink back
+            // to the user's actual settings.json (see
+            // write_settings_with_retention_pin's doc comment for why).
+            assert!(!settings.is_symlink());
         }
         // Contents readable through the link.
         assert_eq!(
             std::fs::read_to_string(&creds).unwrap(),
             "{\"token\":\"abc\"}"
         );
+        // The retention pin is merged in without clobbering the user's other
+        // settings keys (theme survives).
+        let written = std::fs::read_to_string(&settings).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&written).unwrap();
+        assert_eq!(parsed.get("theme").and_then(|v| v.as_str()), Some("dark"));
+        assert_eq!(
+            parsed.get("cleanupPeriodDays").and_then(|v| v.as_u64()),
+            Some(TRANSCRIPT_RETENTION_PIN_DAYS)
+        );
 
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]
-    fn overlay_user_claude_files_no_user_dir_is_noop() {
+    fn overlay_user_claude_files_no_user_dir_still_pins_retention() {
         let tmp =
             std::env::temp_dir().join(format!("ikenga-overlay-empty-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
@@ -1385,10 +1528,126 @@ mod tests {
         let session_claude = tmp.join("session").join(".claude");
         std::fs::create_dir_all(&session_claude).unwrap();
         overlay_user_claude_files(&user_claude, &session_claude).unwrap();
-        // Nothing copied; session dir stays empty.
-        let count = std::fs::read_dir(&session_claude).unwrap().count();
-        assert_eq!(count, 0);
+        // Nothing to symlink (no user dir), but the retention pin is
+        // unconditional — settings.json is still written, alone.
+        let entries: Vec<_> = std::fs::read_dir(&session_claude)
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(entries, vec![std::ffi::OsString::from("settings.json")]);
+        let written = std::fs::read_to_string(session_claude.join("settings.json")).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&written).unwrap();
+        assert_eq!(
+            parsed.get("cleanupPeriodDays").and_then(|v| v.as_u64()),
+            Some(TRANSCRIPT_RETENTION_PIN_DAYS)
+        );
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// Regression: every overlay built before the retention pin landed has
+    /// `settings.json` as a symlink to the user's real `~/.claude/settings.json`
+    /// (55 such overlays existed on the author's machine; zero real files).
+    /// `std::fs::write` follows a symlink and truncates its target, so writing
+    /// the pin through one would rewrite the user's actual settings — and on a
+    /// read failure would replace them with a pin-only object. The overlay
+    /// write must unlink first.
+    #[test]
+    fn overlay_write_does_not_clobber_a_symlinked_user_settings_file() {
+        let tmp = std::env::temp_dir().join(format!(
+            "ikenga-overlay-symlink-test-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let user_claude = tmp.join("user").join(".claude");
+        let session_claude = tmp.join("session").join(".claude");
+        std::fs::create_dir_all(&user_claude).unwrap();
+        std::fs::create_dir_all(&session_claude).unwrap();
+
+        // The user's real settings, with a distinctive key we can look for.
+        let user_settings = user_claude.join("settings.json");
+        let original = r#"{"cleanupPeriodDays":7,"userSentinel":"do-not-clobber"}"#;
+        std::fs::write(&user_settings, original).unwrap();
+
+        // Reproduce the stale-overlay state: session settings.json is a
+        // symlink pointing straight at the user's file.
+        let session_settings = session_claude.join("settings.json");
+        std::os::unix::fs::symlink(&user_settings, &session_settings).unwrap();
+
+        write_settings_with_retention_pin(&user_claude, &session_claude).unwrap();
+
+        // The user's file must be byte-identical to what we wrote above.
+        let after = std::fs::read_to_string(&user_settings).unwrap();
+        assert_eq!(
+            after, original,
+            "overlay write followed the symlink and clobbered the user's real settings.json"
+        );
+
+        // And the overlay must now hold a REAL file carrying the pin.
+        assert!(
+            !session_settings.is_symlink(),
+            "overlay settings.json should be a regular file after the write"
+        );
+        let overlay: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&session_settings).unwrap()).unwrap();
+        assert_eq!(
+            overlay.get("cleanupPeriodDays").and_then(|v| v.as_u64()),
+            Some(TRANSCRIPT_RETENTION_PIN_DAYS),
+            "overlay should carry the raised pin, not the user's lower value"
+        );
+        assert_eq!(
+            overlay.get("userSentinel").and_then(|v| v.as_str()),
+            Some("do-not-clobber"),
+            "overlay should still merge the user's other settings"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn merge_retention_pin_sets_pin_when_absent() {
+        let merged = merge_retention_pin(None);
+        assert_eq!(
+            merged.get("cleanupPeriodDays").and_then(|v| v.as_u64()),
+            Some(TRANSCRIPT_RETENTION_PIN_DAYS)
+        );
+    }
+
+    #[test]
+    fn merge_retention_pin_raises_a_lower_user_value() {
+        let merged = merge_retention_pin(Some(r#"{"cleanupPeriodDays": 30, "theme": "dark"}"#));
+        assert_eq!(
+            merged.get("cleanupPeriodDays").and_then(|v| v.as_u64()),
+            Some(TRANSCRIPT_RETENTION_PIN_DAYS)
+        );
+        // Other keys survive the merge.
+        assert_eq!(merged.get("theme").and_then(|v| v.as_str()), Some("dark"));
+    }
+
+    #[test]
+    fn merge_retention_pin_respects_a_higher_user_value() {
+        let merged = merge_retention_pin(Some(r#"{"cleanupPeriodDays": 999999}"#));
+        assert_eq!(
+            merged.get("cleanupPeriodDays").and_then(|v| v.as_u64()),
+            Some(999999)
+        );
+    }
+
+    #[test]
+    fn merge_retention_pin_falls_back_to_pin_on_invalid_json() {
+        let merged = merge_retention_pin(Some("not valid json"));
+        assert_eq!(
+            merged.get("cleanupPeriodDays").and_then(|v| v.as_u64()),
+            Some(TRANSCRIPT_RETENTION_PIN_DAYS)
+        );
+    }
+
+    #[test]
+    fn merge_retention_pin_falls_back_to_pin_on_non_object_json() {
+        let merged = merge_retention_pin(Some("[1,2,3]"));
+        assert_eq!(
+            merged.get("cleanupPeriodDays").and_then(|v| v.as_u64()),
+            Some(TRANSCRIPT_RETENTION_PIN_DAYS)
+        );
     }
 
     #[test]
