@@ -11,7 +11,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { activeProjectCwd } from '@/lib/shell/active-project-cwd';
 import { useShellStore } from '@/lib/shell/shell-store';
-import { type ChatEvent, claudeReadJsonl } from '@/lib/tauri-cmd';
+import { type ChatEvent, claudeReadJsonl, dbExec } from '@/lib/tauri-cmd';
+import { useDetachedSurfaces } from '@/lib/window/detached-surfaces';
+import { isDetachedWindow } from '@/lib/window/window-context';
 import { defaultChatAdapterId } from './default-adapter';
 import {
 	appendMessage,
@@ -183,6 +185,159 @@ export function assembleThread(
 }
 
 /**
+ * D-4 (2026-07-18): GC a thread row on close, but only if it's genuinely
+ * empty — opened, never sent to, never resumed. A thread counts as empty
+ * iff it has no `chat_user_turns`, no `chat_messages`, no `title`, and no
+ * `claude_session_id`. All four conditions are checked in one atomic DELETE
+ * (no separate SELECT-then-DELETE race), so a user who types between the
+ * unmount and the DELETE landing cannot lose their row: `appendUserTurn`
+ * inserts into `chat_user_turns` first, and the `NOT EXISTS` clause then
+ * fails and deletes nothing.
+ *
+ * (The `title IS NULL` condition matches the abandoned-thread population
+ * defined in plans/2026-07-18-transcripts-and-terminal-architecture/
+ * 03-research-internal.md §F-6. It's a no-op on current data — 0 of the 62
+ * candidates carry a title — but without it the implemented predicate is
+ * strictly broader than the researched one.)
+ *
+ * `createdAt` is a defence-in-depth fencing token: the `created_at` value
+ * this mount actually observed. If the row was deleted and RE-created by
+ * another holder between our unmount and this DELETE landing, the new row
+ * carries a different `created_at` and this statement no longer matches it.
+ * (It does NOT by itself cover a holder that merely re-read the existing row
+ * — `createThread` is `INSERT OR IGNORE`, so `created_at` is unchanged in
+ * that case. The cross-window guard for that is `threadIsDetached` below.)
+ * Pass `null` when the row was never observed (hydration hadn't finished),
+ * which falls back to the unfenced delete.
+ *
+ * `chat_messages` and `chat_user_turns` declare `ON DELETE CASCADE` against
+ * `chat_sessions(id)` (migrations 0001, 0011), but `PRAGMA foreign_keys` is
+ * never enabled anywhere in src-tauri, so SQLite's default (off) applies and
+ * that cascade never actually runs — a DELETE here only ever removes the
+ * `chat_sessions` row itself. That's fine today because both tables are
+ * already empty by construction (that's the guard condition), so there is
+ * nothing to orphan in practice. If a future table acquires rows keyed off
+ * the session id before this guard is updated to check it too, those rows
+ * would be silently orphaned rather than cascaded away. (Turning FKs on is a
+ * separate, schema-wide decision — out of scope here.)
+ *
+ * This belongs in `src/chat/persist.ts` alongside the other chat_sessions
+ * writers — it's kept here only because another agent may be editing
+ * persist.ts concurrently. Follow-up: move it there.
+ */
+async function gcThreadIfEmpty(threadId: string, createdAt: number | null): Promise<void> {
+	try {
+		const fence = createdAt === null ? '' : ' AND created_at = ?';
+		const params: (string | number)[] = createdAt === null ? [threadId] : [threadId, createdAt];
+		await dbExec(
+			`DELETE FROM chat_sessions
+        WHERE id = ?
+          AND claude_session_id IS NULL
+          AND title IS NULL
+          AND NOT EXISTS (SELECT 1 FROM chat_user_turns WHERE thread_id = chat_sessions.id)
+          AND NOT EXISTS (SELECT 1 FROM chat_messages WHERE thread_id = chat_sessions.id)${fence}`,
+			params
+		);
+	} catch (e) {
+		// Best-effort — a failed GC just leaves the phantom row for next time,
+		// never worth surfacing as a user-facing error.
+		console.warn('gcThreadIfEmpty:', e);
+	}
+}
+
+/**
+ * True when a *detached* window is currently hosting this thread, so the
+ * primary window must not GC its row.
+ *
+ * The refcount below is module-level, and every OS window is its own JS
+ * realm — so it cannot see a pop-out window holding the same threadId. The
+ * detached-surface registry is exactly that missing cross-window view: it is
+ * seeded from the Rust `WindowRegistry` and, crucially, `markSurfaceDetached`
+ * is called *optimistically at pop-out time* (`panes/views/chat-view.tsx`),
+ * i.e. strictly BEFORE the pane unmounts. So by the time the pane's cleanup
+ * runs, the map already lists `chat:<threadId>` and we correctly stand down.
+ *
+ * In a detached window the map is always empty (`initDetachedSurfaceTracking`
+ * no-ops off the primary), so this predicate is MEANINGLESS there and always
+ * returns false. That is why the GC is gated on {@link isDetachedWindow}
+ * instead — see `releaseThread`. Do not read a `false` from here in a detached
+ * realm as "nobody else holds this thread".
+ */
+function threadIsDetached(threadId: string): boolean {
+	try {
+		return `chat:${threadId}` in useDetachedSurfaces.getState().surfaceToWindow;
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * How many `useThread` mounts in THIS window currently hold each threadId.
+ * Two panes in a split, or a pane plus a modal, legitimately hold the same
+ * id at once; the GC must only run when the last of them goes away.
+ *
+ * Exported for tests only — not part of the public chat barrel.
+ */
+export const __threadMountCounts = new Map<string, number>();
+
+function retainThread(threadId: string): void {
+	__threadMountCounts.set(threadId, (__threadMountCounts.get(threadId) ?? 0) + 1);
+}
+
+/**
+ * Drop one mount. When the count hits zero we do NOT GC immediately: React
+ * StrictMode (dev) and any unmount→remount within the same commit would
+ * otherwise delete a row that's about to be live again. Deferring the
+ * zero-check by a macrotask lets the remount's `retainThread` land first,
+ * at which point the check sees a non-zero count and skips. The deferral is
+ * ~0ms, so it does not widen the cross-window window described above.
+ *
+ * OWNERSHIP: only the PRIMARY window may ever run this GC. The refcount is
+ * module-level and each OS window is its own JS realm, so a detached realm
+ * sees a count of 1→0 for a thread the primary pane is still holding —
+ * `ChatViewBody` calls `useThread` unconditionally, *before* its
+ * `isDetached` early-return (`panes/views/chat-view.tsx`), so the primary is a
+ * live holder for the entire lifetime of any popped-out chat. The detached
+ * realm cannot observe that (its `useDetachedSurfaces` map is never populated
+ * — `initDetachedSurfaceTracking` no-ops off `main`), and there is no
+ * ErrorBoundary anywhere in `src/`, so an uncaught render error in the
+ * detached tree unmounts the whole root and runs this cleanup while the OS
+ * window — and the primary holder — are both still alive. Dev HMR and a
+ * StrictMode remount that straddles the macrotask are the same shape. The GC
+ * decision therefore belongs to the realm that can actually see every holder.
+ *
+ * The cost of standing down here is a leaked phantom row in one case: the
+ * primary pane is closed while the chat stays popped out (primary skips via
+ * `threadIsDetached`), then the detached window closes. That row is never
+ * collected — but it never was: a Tauri window close destroys the webview
+ * without running React unmount, so this cleanup does not run on window close
+ * at all (verified by reading `shell/detached/*` — no `onCloseRequested` /
+ * `beforeunload` handler unmounts the React root, and an async `dbExec`
+ * started at teardown could not land anyway). An earlier comment here claimed
+ * the detached window "still GCs the row it was the last holder of"; that was
+ * false in both directions.
+ */
+function releaseThread(threadId: string, createdAt: number | null): void {
+	const next = Math.max(0, (__threadMountCounts.get(threadId) ?? 0) - 1);
+	if (next > 0) {
+		__threadMountCounts.set(threadId, next);
+		return;
+	}
+	__threadMountCounts.set(threadId, 0);
+	setTimeout(() => {
+		if ((__threadMountCounts.get(threadId) ?? 0) > 0) return;
+		__threadMountCounts.delete(threadId);
+		// Only the primary window owns the GC decision (see doc comment): a
+		// detached realm structurally cannot see the primary pane still holding
+		// this thread, so it must never delete.
+		if (isDetachedWindow()) return;
+		// A pop-out window is a holder this realm's refcount can't see.
+		if (threadIsDetached(threadId)) return;
+		void gcThreadIfEmpty(threadId, createdAt);
+	}, 0);
+}
+
+/**
  * Bind a route param (the stable `threadId`) to a chat thread:
  *   1. Find or create the thread row in SQLite.
  *   2. Hydrate the store from JSONL (if a Claude session is associated) +
@@ -204,6 +359,10 @@ export function useThread(threadId: string | null): {
 	const [error, setError] = useState<string | null>(null);
 	const upsertThread = useChatStore((s) => s.upsertThread);
 	const activeProjectId = useShellStore((s) => s.activeProjectId);
+	// Fencing token for the GC: the `created_at` of the row THIS mount
+	// hydrated. Tagged with the id it belongs to so a threadId switch can't
+	// fence the outgoing GC with the incoming thread's timestamp.
+	const observedRow = useRef<{ id: string; createdAt: number } | null>(null);
 
 	useEffect(() => {
 		if (!threadId) {
@@ -280,6 +439,7 @@ export function useThread(threadId: string | null): {
 				}
 
 				if (cancelled) return;
+				observedRow.current = { id: threadId, createdAt: thread.createdAt };
 				const merged = assembleThread(jsonlEvents, userTurns, persistedMessages);
 				upsertThread(thread, merged);
 
@@ -307,6 +467,33 @@ export function useThread(threadId: string | null): {
 			cancelled = true;
 		};
 	}, [threadId, upsertThread, activeProjectId]);
+
+	// D-4: GC the thread row when its LAST holder closes — i.e. when
+	// `threadId` changes away from this value, or the hook unmounts, and no
+	// other `useThread` in this window still holds the same id. Deliberately
+	// keyed on `[threadId]` alone (not the other deps above) so this does NOT
+	// fire when e.g. `activeProjectId` changes while the same thread stays
+	// open — only a genuine close/switch should trigger the empty-thread
+	// check.
+	//
+	// Two consumers legitimately hold one threadId at once (a chat pane and a
+	// detached chat surface; or two panes in a split), so an unrefcounted
+	// cleanup would delete a row out from under a live view — and the next
+	// `appendUserTurn` would silently succeed and insert an orphaned
+	// `chat_user_turns` row against the now-missing `chat_sessions` id (FKs
+	// are off — see `gcThreadIfEmpty` — so there's no FK violation to catch
+	// it), losing the user's typed message with no error either way. See
+	// `releaseThread` / `gcThreadIfEmpty` above for the refcount and the
+	// cross-window fencing token.
+	useEffect(() => {
+		if (!threadId) return;
+		const closingId = threadId;
+		retainThread(closingId);
+		return () => {
+			const row = observedRow.current;
+			releaseThread(closingId, row && row.id === closingId ? row.createdAt : null);
+		};
+	}, [threadId]);
 
 	// JSONL reconciler: while the thread is live, poll JSONL every 2s for
 	// canonical events the live subscription may have missed (e.g. during
