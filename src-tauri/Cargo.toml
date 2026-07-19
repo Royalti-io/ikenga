@@ -169,9 +169,15 @@ strip-ansi-escapes = "0.2"
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.5"
 objc2-foundation = { version = "0.2", features = ["NSProcessInfo", "NSString"] }
-# Direct libc bindings for sysctl(KERN_PROC_PID) — used by
-# pty::foreground to read kinfo_proc.kp_eproc.e_tpgid, the macOS
-# equivalent of Linux's `/proc/<pid>/stat` tpgid field.
+
+# Unix-wide libc. Two consumers:
+#   - macOS pty::foreground — sysctl(KERN_PROC_PID) to read
+#     kinfo_proc.kp_eproc.e_tpgid, the macOS equivalent of Linux's
+#     `/proc/<pid>/stat` tpgid field.
+#   - claude::session graceful shutdown — SIGTERM before SIGKILL so the
+#     child gets a flush window. Scoped cfg(unix) rather than macOS-only
+#     because the transcript-loss bug this fixes reproduces on Linux.
+[target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
 # Windows-only: WebView2 controller access for the IsVisible hold (see
