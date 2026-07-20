@@ -16,7 +16,14 @@ import { getHomeSync } from '@/lib/home';
 
 // A token is path-shaped if it ends in `.<ext>` with an optional `~`/`/`-rooted
 // head. Anchored both ends so we test whole tokens, not substrings.
-export const PATH_RE = /^[~/]?[\w.@][\w./@_-]*\.[A-Za-z][A-Za-z0-9]{0,7}$/;
+//
+// The head alternation is `~?\/` (covers `/abs` and `~/home-rooted`) or bare `~`
+// (covers `~user/…`, which `resolvePath` expands via its `home + slice(1)`
+// branch). A single `[~/]?` char class is NOT enough: it consumes the `~` of
+// `~/foo.md` and then requires `[\w.@]` to match the `/`, so every `~/` path
+// failed detection while `resolvePath` had working expansion logic for it —
+// detection and resolution disagreed, and the `~/` branch was dead code.
+export const PATH_RE = /^(?:~?\/|~)?[\w.@][\w./@_-]*\.[A-Za-z][A-Za-z0-9]{0,7}$/;
 
 // Restrict single-segment (no slash) paths to known dev/doc/asset extensions so
 // things like `e.g.` or `Mr.A` don't get mistaken for files. Multi-segment

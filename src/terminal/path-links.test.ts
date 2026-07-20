@@ -38,4 +38,31 @@ describe('scanLineForPaths', () => {
 	it('ignores a single-segment token with an unknown extension', () => {
 		expect(scanLineForPaths('build finished in 1.234s')).toHaveLength(0);
 	});
+
+	// Regression: `PATH_RE` used a single `[~/]?` head, which consumed the `~` of
+	// `~/foo.md` and then required `[\w.@]` to match the `/`. Every `~/` path
+	// failed detection even though `resolvePath` had a working expansion branch
+	// for it, so that branch was unreachable.
+	it('finds a ~/-rooted path', () => {
+		const spans = scanLineForPaths('wrote ~/royalti-co/.company/plan.md ok');
+		expect(spans.map((s) => s.text)).toEqual(['~/royalti-co/.company/plan.md']);
+	});
+
+	it('finds a ~user-rooted path', () => {
+		const spans = scanLineForPaths('see ~nedjamez/notes.md');
+		expect(spans.map((s) => s.text)).toEqual(['~nedjamez/notes.md']);
+	});
+
+	it('reports correct columns for a ~/ path', () => {
+		const line = 'wrote ~/a/b.md done';
+		const spans = scanLineForPaths(line);
+		expect(spans).toHaveLength(1);
+		const start = line.indexOf('~/a/b.md');
+		expect(spans[0].startX).toBe(start + 1);
+		expect(spans[0].endX).toBe(start + '~/a/b.md'.length);
+	});
+
+	it('still rejects malformed tilde/slash heads', () => {
+		expect(scanLineForPaths('check //foo.md and ~~/bar.md')).toHaveLength(0);
+	});
 });
