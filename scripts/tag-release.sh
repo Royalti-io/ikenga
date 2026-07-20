@@ -29,6 +29,19 @@ git tag -a "$TAG" -m "Ikenga $TAG"
 # fine for a local human-creds push (which also triggers workflows), and in CI
 # without the secret it degrades to the old "tag pushed but build must be
 # kicked manually" behaviour (see royalti-io/ikenga#26).
+#
+# THE #26 TRAP (silent, cost v0.3.0/v0.4.0/v0.5.0 a manual re-push each): the
+# token URL alone is NOT enough. `actions/checkout` runs with the default
+# `persist-credentials: true`, which writes an
+#   http.https://github.com/.extraheader = AUTHORIZATION: basic <GITHUB_TOKEN>
+# into the repo git config. That header is sent on EVERY push to github.com and
+# OVERRIDES the `x-access-token:${RELEASE_PAT}` userinfo in the URL — so the push
+# is still GITHUB_TOKEN-attributed, release.yml stays suppressed, and the push
+# still exits 0 so nothing looks wrong. We neutralise that one config key to
+# empty for THIS push only (`-c http.https://github.com/.extraheader=`), so the
+# PAT in the URL is the credential git actually uses and the tag-push is
+# attributed to the PAT. (Scoped to the command; the persisted header is left
+# intact for every other git operation the job does.)
 if [ -n "${RELEASE_PAT:-}" ]; then
   repo="${GITHUB_REPOSITORY:-royalti-io/ikenga}"
   # Try the PAT push (triggers release.yml). If the token lacks contents:write
@@ -36,8 +49,11 @@ if [ -n "${RELEASE_PAT:-}" ]; then
   # so the tag still lands (build can be kicked manually). This keeps reusing a
   # general-purpose token (e.g. WORKSPACE_DEPS_PAT) safe even if its scope is
   # narrower than expected.
-  if git push "https://x-access-token:${RELEASE_PAT}@github.com/${repo}.git" "$TAG"; then
-    echo "tag-release: pushed $TAG via RELEASE_PAT → release.yml will build assets"
+  if git -c 'http.https://github.com/.extraheader=' \
+       push "https://x-access-token:${RELEASE_PAT}@github.com/${repo}.git" "$TAG"; then
+    echo "tag-release: pushed $TAG via RELEASE_PAT (persisted GITHUB_TOKEN header stripped)"
+    echo "tag-release: VERIFY a release.yml run started for $TAG — a 0-exit push does"
+    echo "tag-release:        NOT by itself prove PAT attribution (see #26)."
   else
     echo "tag-release: WARN — RELEASE_PAT push failed (token scope/expiry?) — falling back to plain push"
     git push origin "$TAG"
