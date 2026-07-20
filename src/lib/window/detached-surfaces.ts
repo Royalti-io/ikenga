@@ -88,7 +88,14 @@ export async function syncDetachedSurfaces(): Promise<void> {
 		// covered.
 		const prev = useDetachedSurfaces.getState().surfaceToWindow;
 		for (const surfaceId of Object.keys(prev)) {
-			if (!(surfaceId in map)) pendingReclaimNudge.add(surfaceId);
+			// Only terminal surfaces are armed: `TerminalView` is the sole
+			// consumer, and therefore the sole caller of
+			// `clearPendingReclaimNudge`. Arming a `chat:`/viewer surface here
+			// would add an entry nothing ever clears, leaking one Set slot per
+			// non-terminal pop-out for the life of the session.
+			if (!(surfaceId in map) && surfaceId.startsWith('terminal:')) {
+				pendingReclaimNudge.add(surfaceId);
+			}
 		}
 		useDetachedSurfaces.setState({ surfaceToWindow: map });
 	} catch (e) {
@@ -140,7 +147,9 @@ export async function reclaimSurface(surfaceId: string): Promise<void> {
 	// T-3a: arm the reclaim nudge optimistically, same spirit as the
 	// optimistic map delete below — the pane view should nudge as soon as it
 	// remounts the live surface, not wait on the `window://closed` round trip.
-	pendingReclaimNudge.add(surfaceId);
+	// Terminals only — see the matching note in the map-diff above. Nothing
+	// clears an entry armed for a non-terminal surface.
+	if (surfaceId.startsWith('terminal:')) pendingReclaimNudge.add(surfaceId);
 	useDetachedSurfaces.setState((prev) => {
 		const next = { ...prev.surfaceToWindow };
 		delete next[surfaceId];
