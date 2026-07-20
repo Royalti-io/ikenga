@@ -14,20 +14,29 @@
 // from secondary call sites so only the banner owns the timer.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { checkForUpdate, installAndRelaunch, type UpdateInfo } from '@/lib/updater/updater';
+import { checkForUpdate, installUpdate, restartApp, type UpdateInfo } from '@/lib/updater/updater';
 
 const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6h
 
 export type UpdaterState = {
 	available: UpdateInfo | null;
 	installing: boolean;
+	/** True once the bundle is installed and only a restart remains. The UI
+	 *  should surface a "Restart to finish" action rather than relaunching
+	 *  out from under the user (see updater.ts for why the two are split). */
+	installed: boolean;
 	bytesDownloaded: number;
 	totalBytes: number | null;
 	error: string | null;
 	checking: boolean;
 	lastCheckedAt: number | null;
 	check: () => Promise<void>;
-	install: () => Promise<void>;
+	/** Download + install. Pass `{ autoRestart: true }` to chain the relaunch
+	 *  immediately (the opt-in auto-install path); omit it for the manual path
+	 *  so the app holds at the `installed` state for a user-driven restart. */
+	install: (opts?: { autoRestart?: boolean }) => Promise<void>;
+	/** Relaunch to complete an installed update. */
+	restart: () => Promise<void>;
 };
 
 export interface UseUpdaterOptions {
@@ -45,6 +54,7 @@ export function useUpdater(options?: UseUpdaterOptions): UpdaterState {
 	const enabled = options?.enabled ?? true;
 	const [available, setAvailable] = useState<UpdateInfo | null>(null);
 	const [installing, setInstalling] = useState(false);
+	const [installed, setInstalled] = useState(false);
 	const [bytesDownloaded, setBytesDownloaded] = useState(0);
 	const [totalBytes, setTotalBytes] = useState<number | null>(null);
 	const [error, setError] = useState<string | null>(null);
@@ -62,20 +72,37 @@ export function useUpdater(options?: UseUpdaterOptions): UpdaterState {
 		}
 	}, []);
 
-	const install = useCallback(async () => {
-		if (!available) return;
-		setInstalling(true);
-		setError(null);
+	const install = useCallback(
+		async (opts?: { autoRestart?: boolean }) => {
+			if (!available) return;
+			setInstalling(true);
+			setInstalled(false);
+			setError(null);
+			try {
+				await installUpdate(available, (b, t) => {
+					setBytesDownloaded(b);
+					setTotalBytes(t);
+				});
+				// Install done — hold here. The relaunch is a separate, deliberate
+				// step so the window doesn't vanish mid-flow (see updater.ts).
+				setInstalling(false);
+				setInstalled(true);
+				if (opts?.autoRestart) await restartApp();
+			} catch (e) {
+				setError(e instanceof Error ? e.message : String(e));
+				setInstalling(false);
+			}
+		},
+		[available]
+	);
+
+	const restart = useCallback(async () => {
 		try {
-			await installAndRelaunch(available, (b, t) => {
-				setBytesDownloaded(b);
-				setTotalBytes(t);
-			});
+			await restartApp();
 		} catch (e) {
 			setError(e instanceof Error ? e.message : String(e));
-			setInstalling(false);
 		}
-	}, [available]);
+	}, []);
 
 	const intervalRef = useRef<number | null>(null);
 	useEffect(() => {
@@ -92,6 +119,7 @@ export function useUpdater(options?: UseUpdaterOptions): UpdaterState {
 	return {
 		available,
 		installing,
+		installed,
 		bytesDownloaded,
 		totalBytes,
 		error,
@@ -99,5 +127,6 @@ export function useUpdater(options?: UseUpdaterOptions): UpdaterState {
 		lastCheckedAt,
 		check,
 		install,
+		restart,
 	};
 }

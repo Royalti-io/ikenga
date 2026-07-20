@@ -22,20 +22,23 @@ import { useUpdaterSnooze } from '@/lib/updater/snooze';
 export function UpdaterBanner() {
 	const autoCheck = useShellStore((s) => s.updatesAutoCheck);
 	const autoInstallApp = useShellStore((s) => s.updatesAutoInstallApp);
-	const { available, installing, bytesDownloaded, totalBytes, error, install } = useUpdater({
-		enabled: autoCheck,
-	});
+	const { available, installing, installed, bytesDownloaded, totalBytes, error, install, restart } =
+		useUpdater({
+			enabled: autoCheck,
+		});
 	const snooze = useUpdaterSnooze();
 	const isSnoozed = snooze.isSnoozed(available?.version ?? null);
 
 	// Opt-in (default off): when `updates.autoInstallApp` is on, a detected
 	// binary update downloads + relaunches without a click. Snooze still wins
-	// as the escape hatch, and we never re-fire while a download is in flight.
+	// as the escape hatch; `!installing && !installed` stops it re-firing once
+	// a download is in flight or already installed (the manual path holds at
+	// the installed state instead).
 	useEffect(() => {
-		if (autoInstallApp && available && !isSnoozed && !installing && !error) {
-			void install();
+		if (autoInstallApp && available && !isSnoozed && !installing && !installed && !error) {
+			void install({ autoRestart: true });
 		}
-	}, [autoInstallApp, available, isSnoozed, installing, error, install]);
+	}, [autoInstallApp, available, isSnoozed, installing, installed, error, install]);
 	// Hide on /settings/about — the user is already on the dedicated surface
 	// for shell updates, so the banner is redundant noise there.
 	const onAboutPage = usePaneStore(
@@ -50,7 +53,28 @@ export function UpdaterBanner() {
 
 	if (onAboutPage) return null;
 	if (!available && !error) return null;
-	if (available && isSnoozed) return null;
+	// A snoozed update still surfaces once it's installed — the restart is the
+	// only thing left and shouldn't be silenced.
+	if (available && isSnoozed && !installed) return null;
+
+	// Installed, awaiting restart. Show a deliberate Restart action instead of
+	// relaunching out from under the user.
+	if (installed) {
+		return (
+			<Banner
+				tone="info"
+				icon={<RefreshCw />}
+				actions={
+					<Button size="sm" onClick={() => void restart()}>
+						Restart now
+					</Button>
+				}
+			>
+				<span className="font-medium">Ikenga {available?.version}</span>
+				<span className="text-muted-foreground"> is installed — restart to finish updating.</span>
+			</Banner>
+		);
+	}
 
 	if (error) {
 		return (
