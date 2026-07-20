@@ -37,6 +37,11 @@ pub struct ShellSnapshot {
     /// Pane tree snapshot. Opaque to Rust — the FE owns the schema and
     /// pushes it via `iyke_set_shell`.
     pub panes: Option<Value>,
+    /// Whether the sidebar is collapsed. Mirrors `shell-store.sidebarCollapsed`
+    /// so `/iyke/state` reports it — without this the `/iyke/sidebar` verb
+    /// would be actuate-only, and an external caller could flip the sidebar
+    /// but never read back what it did.
+    pub sidebar_collapsed: Option<bool>,
 }
 
 /// Console log entry. Source is "shell" for the main webview or a pane id
@@ -98,6 +103,7 @@ impl IykeState {
         mode: Option<String>,
         route: Option<String>,
         panes: Option<Value>,
+        sidebar_collapsed: Option<bool>,
     ) {
         let mut guard = self.shell.write().await;
         if mode.is_some() {
@@ -108,6 +114,9 @@ impl IykeState {
         }
         if panes.is_some() {
             guard.panes = panes;
+        }
+        if sidebar_collapsed.is_some() {
+            guard.sidebar_collapsed = sidebar_collapsed;
         }
     }
 
