@@ -9,10 +9,11 @@
  */
 
 import {
+	ptyAttachArm,
+	ptyAttachBegin,
 	ptyKill,
 	ptyListen,
 	ptyResize,
-	ptyScrollback,
 	ptySpawn,
 	ptyWrite,
 	type PtySpawnOpts as RawPtySpawnOpts,
@@ -30,7 +31,7 @@ export type PtyExitHandler = (code: number | null) => void;
  * Re-exports of the raw command wrappers, in case anyone wants the imperative
  * API without the class.
  */
-export { ptySpawn, ptyWrite, ptyResize, ptyKill, ptyListen, ptyScrollback };
+export { ptyAttachArm, ptyAttachBegin, ptyKill, ptyListen, ptyResize, ptySpawn, ptyWrite };
 
 export class Pty {
 	readonly id: string;
@@ -52,21 +53,32 @@ export class Pty {
 	 * Bytes received before any subscriber registered. Held so the first
 	 * `onData()` consumer can catch up on everything the PTY has emitted so
 	 * far — without this, the spawn-before-mount race leaves xterm blank.
+	 *
+	 * Retention rule (see `onData` / `deliverData`): subscribing REPLAYS the
+	 * buffer but does not destroy it. It is released only once a live chunk
+	 * actually reaches an attached subscriber — the earliest point at which a
+	 * renderer has demonstrably survived long enough to own the scrollback from
+	 * here on. Draining on mere subscription lost the backlog to any consumer
+	 * that attached and detached without rendering (React StrictMode's
+	 * double-mount, a deferred mount), which is what left a popped-out idle
+	 * terminal blank.
 	 */
 	private replayBuffer: Uint8Array = new Uint8Array(0);
 	/**
 	 * Absolute stream offset of `replayBuffer[0]` (cumulative bytes emitted
-	 * before it), or `null` when the buffer is empty. Used by `applyScrollback`
-	 * to splice a scrollback snapshot in front of live bytes buffered during a
-	 * detached attach without overlap. Reset to `null` whenever the buffer
-	 * drains.
+	 * before it), or `null` when the buffer is empty. Reset to `null` whenever
+	 * the buffer drains. Read by `primeExternalSnapshot` to work out how much of
+	 * a pending backlog an externally-painted snapshot already covers.
 	 */
 	private replayStartOffset: number | null = null;
 	/**
 	 * When set, drop any live bytes whose absolute offset is below this value —
-	 * they were already covered by a replayed scrollback snapshot. Set by
-	 * `applyScrollback` when the snapshot arrives before any live bytes; cleared
-	 * as soon as a live chunk crosses the threshold (offsets are monotonic).
+	 * they were already painted by an EXTERNAL snapshot (the per-session capture
+	 * ring; see `primeExternalSnapshot`). Cleared as soon as a live chunk crosses
+	 * the threshold (offsets are monotonic).
+	 *
+	 * The detached-attach path does NOT use this: `Pty.attach` gets its snapshot
+	 * and its live subscription atomically from Rust, so the two never overlap.
 	 */
 	private dedupUpTo: number | null = null;
 	/**
@@ -75,8 +87,8 @@ export class Pty {
 	 * emitted so far. Updated on every `deliverData` (including buffered and
 	 * deduped chunks, so it always reflects the true stream position). Read by
 	 * the per-session capture ring (`pty-output-buffer.ts`) so its snapshot can
-	 * be tagged with an absolute offset and reconciled against this stream —
-	 * the same mechanism `applyScrollback` uses for detached-window replay.
+	 * be tagged with an absolute offset and reconciled against this stream (see
+	 * `primeExternalSnapshot`).
 	 */
 	private totalOffset = 0;
 
@@ -101,8 +113,8 @@ export class Pty {
 	 * at (its absolute start is `endOffset - bytes.length`). If no subscriber
 	 * has registered yet, the bytes are appended to `replayBuffer` so the
 	 * eventual `onData()` consumer can catch up; once a subscriber exists, bytes
-	 * flow live. `dedupUpTo` trims bytes already delivered by a replayed
-	 * scrollback snapshot (the overlap window during a detached attach).
+	 * flow live. `dedupUpTo` trims bytes already painted by an external snapshot
+	 * (the capture ring — see `primeExternalSnapshot`).
 	 */
 	private deliverData(bytes: Uint8Array, endOffset: number) {
 		// Track the absolute stream position first — before any dedup/return —
@@ -132,6 +144,18 @@ export class Pty {
 			this.replayBuffer = next;
 			return;
 		}
+		// A live chunk is about to reach an attached subscriber. That subscriber
+		// has now outlived its own mount long enough to receive real output, so
+		// the pending backlog has demonstrably landed in a renderer that is
+		// still there — release it. Doing this here rather than in `onData` is
+		// what lets a subscriber attach, replay, and detach without consuming
+		// the backlog (StrictMode double-mount / deferred mount), while still
+		// guaranteeing the backlog is not re-replayed once a renderer is
+		// genuinely live on the stream.
+		if (this.replayBuffer.length > 0) {
+			this.replayBuffer = new Uint8Array(0);
+			this.replayStartOffset = null;
+		}
 		for (const sub of this.dataSubs) {
 			try {
 				sub(bytes);
@@ -142,43 +166,26 @@ export class Pty {
 	}
 
 	/**
-	 * Splice a scrollback snapshot in front of whatever live bytes were buffered
-	 * while attaching, so a detached (non-owning) terminal replays recent
-	 * scrollback before the live stream. Called from `attach` after the live
-	 * listener is registered — any bytes that arrived in between are already in
-	 * `replayBuffer`, tagged by `replayStartOffset`, so the overlap between them
-	 * and the snapshot is dropped by offset rather than duplicated.
+	 * Put a scrollback snapshot in front of the pending backlog, so a detached
+	 * (non-owning) terminal replays recent scrollback before the live stream.
 	 *
-	 * `snapEnd` is the cumulative byte count the snapshot ends at; its first
-	 * byte's absolute offset is `snapEnd - snapData.length`. Because the live
-	 * listener was registered *before* the snapshot was taken, the union of the
-	 * two covers the stream with no gap: any byte below `snapEnd` is either in
-	 * the snapshot's tail or was received live, and everything at/above `snapEnd`
-	 * arrives live. Must run before any subscriber attaches (guaranteed by the
-	 * detached surface, which only mounts xterm after `attach` resolves).
+	 * A plain prepend — no offset reconciliation — because `attach` obtains the
+	 * snapshot and its live subscription atomically: Rust gates the stream at
+	 * the instant it snapshots, and holds every byte emitted during the
+	 * handshake until the listener is registered, then flushes them as the first
+	 * live chunk. The snapshot ends at `snapEnd` and the live stream resumes at
+	 * `snapEnd`, so there is no overlap to trim and no gap to fill.
+	 *
+	 * `snapEnd` is only used to keep `replayStartOffset` truthful (the absolute
+	 * offset of `replayBuffer[0]`).
 	 */
-	private applyScrollback(snapData: Uint8Array, snapEnd: number) {
+	private prependScrollback(snapData: Uint8Array, snapEnd: number) {
 		if (snapData.length === 0) return;
-		const snapStart = snapEnd - snapData.length;
-		if (this.replayStartOffset === null) {
-			// No live bytes buffered yet: replay the snapshot, and trim the
-			// overlap off whatever live bytes arrive next.
-			this.replayBuffer = snapData;
-			this.replayStartOffset = snapStart;
-			this.dedupUpTo = snapEnd;
-			return;
-		}
-		// Live bytes already buffered. Keep only the snapshot prefix that
-		// precedes them; the live buffer already carries the overlap forward.
-		const liveStart = this.replayStartOffset;
-		const prefixLen = Math.max(0, Math.min(snapEnd, liveStart) - snapStart);
-		const prefix = snapData.subarray(0, prefixLen);
-		const merged = new Uint8Array(prefix.length + this.replayBuffer.length);
-		merged.set(prefix, 0);
-		merged.set(this.replayBuffer, prefix.length);
+		const merged = new Uint8Array(snapData.length + this.replayBuffer.length);
+		merged.set(snapData, 0);
+		merged.set(this.replayBuffer, snapData.length);
 		this.replayBuffer = merged;
-		this.replayStartOffset = Math.min(snapStart, liveStart);
-		this.dedupUpTo = null;
+		this.replayStartOffset = snapEnd - snapData.length;
 	}
 
 	/**
@@ -189,9 +196,12 @@ export class Pty {
 	 * already buffered in `replayBuffer` for a not-yet-attached subscriber or
 	 * arriving live afterwards — are dropped, so the seam is not double-painted.
 	 *
-	 * Same offset arithmetic as `applyScrollback`, minus the prepend: the
-	 * caller owns the snapshot bytes and only needs this Pty to suppress the
-	 * overlap. Must be called BEFORE the consuming `onData()` subscriber
+	 * This is the one remaining consumer of `dedupUpTo` / `replayStartOffset`,
+	 * and it still needs them: unlike `attach`, its snapshot is produced by a
+	 * separate JS-side mechanism (the capture ring, tagged with `streamOffset`)
+	 * that the Rust attach gate knows nothing about, so its seam is reconciled
+	 * by offset rather than closed by construction. Must be called BEFORE the
+	 * consuming `onData()` subscriber
 	 * attaches (so the buffered replay is trimmed before it is drained). No-op
 	 * on an empty snapshot. Offsets are monotonic.
 	 */
@@ -259,40 +269,70 @@ export class Pty {
 	 * and never kills it. New output + keystrokes flow live and write back to
 	 * the shared shell (both windows drive the same PTY).
 	 *
-	 * Scrollback: the live listener is registered FIRST, then a scrollback
-	 * snapshot is fetched and spliced in front of any bytes that arrived in the
-	 * meantime (`applyScrollback` drops the overlap by offset). This closes the
-	 * gap where a popped-out terminal started blank until fresh output arrived.
-	 * The replayed bytes are the raw trailing stream, so — like any terminal
-	 * reattach — mid-state escape sequences render against a fresh screen; a few
-	 * stale bytes may flicker at the top on first paint. Scrollback older than
-	 * the Rust ring cap (256KB) is not replayed.
+	 * Scrollback: a three-step atomic handshake, NOT a listen-then-fetch race.
+	 *
+	 *   1. `ptyAttachBegin` — Rust snapshots the scrollback ring and gates the
+	 *      stream under the same lock the emitter holds. From here the PTY
+	 *      delivers nothing to anyone.
+	 *   2. `ptyListen` — register the live subscription inside that quiet window.
+	 *   3. `ptyAttachArm` — release the gate; everything emitted during the
+	 *      handshake arrives as the first live chunk, starting exactly where the
+	 *      snapshot ended.
+	 *
+	 * Because there is no interval in which a byte is both snapshotted and
+	 * delivered live, nothing is duplicated and nothing is dropped — which is
+	 * why the old `dedupUpTo` / offset-merge reconciliation is gone.
+	 *
+	 * The replayed bytes are still the raw trailing stream, so — like any
+	 * terminal reattach — mid-state escape sequences render against a fresh
+	 * screen; a few stale bytes may flicker at the top on first paint (that is
+	 * the separate T-3 paint bug, not a seam bug). Scrollback older than the
+	 * Rust ring cap (256KB) is not replayed.
 	 */
 	static async attach(id: string, label: string): Promise<Pty> {
 		const pty = new Pty(id, label);
 		pty.owning = false;
-		pty.unlisten = await ptyListen(
-			id,
-			(bytes, endOffset) => pty.deliverData(bytes, endOffset),
-			(code) => {
-				pty.exited = true;
-				pty.exitCode = code;
-				for (const sub of pty.exitSubs) {
-					try {
-						sub(code);
-					} catch (err) {
-						console.error('[pty] exit handler threw', err);
+
+		// 1. Snapshot + gate. A failure here (or a reaped session) just means no
+		//    scrollback replay; the live attach below still works.
+		let snap: Awaited<ReturnType<typeof ptyAttachBegin>> = null;
+		try {
+			snap = await ptyAttachBegin(id);
+		} catch (err) {
+			console.warn('[pty] attach snapshot failed', err);
+		}
+
+		try {
+			// 2. Subscribe while the stream is quiet.
+			pty.unlisten = await ptyListen(
+				id,
+				(bytes, endOffset) => pty.deliverData(bytes, endOffset),
+				(code) => {
+					pty.exited = true;
+					pty.exitCode = code;
+					for (const sub of pty.exitSubs) {
+						try {
+							sub(code);
+						} catch (err) {
+							console.error('[pty] exit handler threw', err);
+						}
 					}
 				}
+			);
+		} finally {
+			// 3. Release the gate — in a `finally` so a failed subscription can
+			//    never leave the terminal stalled waiting on the watchdog.
+			if (snap) {
+				// Prepend before arming: the flush must land *after* the
+				// snapshot in `replayBuffer`, and it cannot arrive before the
+				// arm call is made.
+				pty.prependScrollback(snap.data, snap.endOffset);
+				try {
+					await ptyAttachArm(id, snap.token);
+				} catch (err) {
+					console.warn('[pty] attach arm failed', err);
+				}
 			}
-		);
-		// Replay recent scrollback before any subscriber attaches. Registered
-		// after the live listener so the union covers the stream gap-free.
-		try {
-			const sb = await ptyScrollback(id);
-			if (sb) pty.applyScrollback(sb.data, sb.endOffset);
-		} catch (err) {
-			console.warn('[pty] scrollback fetch failed', err);
 		}
 		return pty;
 	}
@@ -301,6 +341,17 @@ export class Pty {
 	 * Subscribe to data bytes. Returns an unsubscribe function. If bytes have
 	 * already been buffered (received before any subscriber attached), the new
 	 * handler receives them synchronously before subscribing to the live stream.
+	 *
+	 * The replay is NON-destructive: the buffer stays pending until a live
+	 * chunk reaches an attached subscriber (`deliverData`). A consumer that
+	 * subscribes and unsubscribes without ever seeing live output — a React
+	 * StrictMode double-mount, or a mount deferred behind `fonts.ready` — no
+	 * longer swallows the backlog on behalf of the renderer that follows it.
+	 * Every xterm that reaches `onData` in this codebase is a freshly-built,
+	 * empty terminal (the cached-terminal path in `xterm-host.tsx` keeps its
+	 * subscription across remounts and never re-subscribes), so re-serving the
+	 * backlog to a second subscriber paints a screen that would otherwise be
+	 * blank rather than double-painting a live one.
 	 */
 	onData(handler: PtyDataHandler): () => void {
 		if (this.replayBuffer.length > 0) {
@@ -309,12 +360,6 @@ export class Pty {
 			} catch (err) {
 				console.error('[pty] data handler threw on replay', err);
 			}
-			// Drain the buffer so a later subscribe-after-yield doesn't replay
-			// bytes the first subscriber already saw. Between unsubscribe and
-			// re-subscribe (Studio attach window), new bytes go into a fresh
-			// buffer and drain into the late subscriber once it attaches.
-			this.replayBuffer = new Uint8Array(0);
-			this.replayStartOffset = null;
 		}
 		this.dataSubs.add(handler);
 		return () => {

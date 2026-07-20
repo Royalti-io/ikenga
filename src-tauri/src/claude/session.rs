@@ -27,6 +27,7 @@
 use std::collections::{HashMap, HashSet};
 use std::process::Stdio;
 use std::sync::Arc;
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager};
@@ -142,14 +143,6 @@ pub struct Session {
     /// flag — `send_user_message` snapshots this into `opts.permission_mode`
     /// before spawning.
     pub current_mode: Mutex<AcpSessionMode>,
-    /// Phase 5: per-session CLAUDE_CONFIG_DIR. When set, `spawn_streaming`
-    /// passes it to the child via env. The dir is built by
-    /// `claude::discovery::build_session_config_dir` at `handle_new_session`
-    /// time and contains symlinks to the resolved 4-tier skills / agents /
-    /// commands / hooks plus a merged `.mcp.json`. Sessions created through
-    /// non-ACP paths (legacy `commands/claude.rs`, fork, load) leave this
-    /// `None` and spawn without an overlay.
-    pub claude_config_dir: Mutex<Option<String>>,
     /// Phase 5: per-session CLAUDE_PROJECT_DIR — the project's `root_path`
     /// for the project this session is attached to. Used by claude skills
     /// + commands that reference `${CLAUDE_PROJECT_DIR}` even when cwd has
@@ -191,24 +184,24 @@ impl Session {
             pty_id: Mutex::new(None),
             events,
             current_mode: Mutex::new(initial_mode),
-            claude_config_dir: Mutex::new(None),
             claude_project_dir: Mutex::new(None),
             answered_tool_uses: Mutex::new(HashSet::new()),
             control_wire: Mutex::new(ControlWire::Modern),
         }
     }
 
-    /// Phase 5: set the spawn-time overlay for this session. Called from
-    /// `engines::claude_code::server::handle_new_session` after resolving the project +
-    /// running discovery, before the first `spawn_streaming`. Idempotent —
-    /// re-calling overwrites, which is fine for the resume path (load /
-    /// fork) once those wire it in too.
-    pub async fn set_claude_spawn_overlay(
-        &self,
-        config_dir: Option<String>,
-        project_dir: Option<String>,
-    ) {
-        *self.claude_config_dir.lock().await = config_dir;
+    /// Set the spawn-time project root for this session. Called from
+    /// `engines::claude_code::server::handle_new_session` after resolving the
+    /// project, before the first `spawn_streaming`. Idempotent — re-calling
+    /// overwrites, which is fine for the resume path (load / fork) once those
+    /// wire it in too.
+    ///
+    /// This used to also carry a per-session `CLAUDE_CONFIG_DIR` overlay path
+    /// (D-13, `plans/2026-07-18-transcripts-and-terminal-architecture/07-retire-the-overlay.md`).
+    /// The overlay was retired: it resolved a strictly SMALLER asset set than
+    /// claude's own native discovery, and it hid chat transcripts from
+    /// `claude --resume`.
+    pub async fn set_claude_project_dir(&self, project_dir: Option<String>) {
         *self.claude_project_dir.lock().await = project_dir;
     }
 }
@@ -249,23 +242,174 @@ impl SessionsManager {
         self.by_thread.lock().await.remove(thread_id)
     }
 
-    /// HMR / cold-start hygiene: kill every streaming child we know about.
-    /// Called from `session_destroy_all` on window 'beforeunload' so dev
-    /// reloads don't leave zombies. PTYs are owned by `PtyManager`; this only
-    /// touches streaming children.
+    /// HMR / cold-start hygiene: shut down every streaming child we know
+    /// about. Called from `session_destroy_all` on window 'beforeunload' so
+    /// dev reloads don't leave zombies. PTYs are owned by `PtyManager`; this
+    /// only touches streaming children.
+    ///
+    /// This used to call `child.start_kill()` — SIGKILL on Unix — which gave
+    /// claude no window to flush its `.jsonl` transcript to disk. Since
+    /// `session_destroy_all` is wired to `beforeunload`, that meant EVERY
+    /// Vite HMR reload could destroy the transcript of any turn in flight.
+    /// It now goes through `shutdown_child_gracefully` (SIGTERM → bounded
+    /// drain → SIGKILL fallback), which preserves the anti-orphan guarantee
+    /// while giving claude time to finish writing.
     pub async fn kill_all_streaming(&self) {
         let snapshot: Vec<Arc<Session>> = {
             let guard = self.by_thread.lock().await;
             guard.values().cloned().collect()
         };
-        for s in snapshot {
-            let mut child_slot = s.streaming.lock().await;
-            if let Some(c) = child_slot.take() {
+        // Drain concurrently. Each child gets its own bounded grace window +
+        // bounded SIGKILL-reap window (see `shutdown_child_gracefully`'s doc
+        // comment for the real total-per-child worst case, ~GRACEFUL_SHUTDOWN_
+        // TIMEOUT + SIGKILL_REAP_TIMEOUT), so total shutdown latency for THIS
+        // function is that same bound regardless of session count, not
+        // N × that. `beforeunload` sits on the critical path of every reload,
+        // so the wall-clock cost has to stay flat in session count.
+        let drains = snapshot.into_iter().map(|s| async move {
+            // Take the Arc out of the slot first: that makes us the sole
+            // owner of the `StreamingChild` for the duration of the drain,
+            // so the `.kill_on_drop(true)` set at spawn time cannot fire
+            // underneath us and turn the grace window back into a SIGKILL.
+            let taken = s.streaming.lock().await.take();
+            if let Some(c) = taken {
                 let mut child = c.child.lock().await;
-                let _ = child.start_kill();
+                shutdown_child_gracefully(&mut child, &s.thread_id).await;
+            }
+        });
+        futures_util::future::join_all(drains).await;
+    }
+}
+
+/// How long a claude child gets to flush its transcript after SIGTERM before
+/// we escalate to SIGKILL.
+///
+/// 2s is chosen to be comfortably longer than a `.jsonl` append + fsync on a
+/// warm page cache, and short enough that a reload with several live sessions
+/// still feels instant (the drains run concurrently, so this is the total
+/// worst case, not per-session). If field logs start showing the escalation
+/// `warn!` below, raise this rather than reverting to a hard kill.
+///
+/// Only referenced from the unix path (fn + tests below) — non-unix has no
+/// grace window, so this would otherwise be `dead_code` on a Windows build.
+#[cfg(unix)]
+const GRACEFUL_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// Bound on the `wait()` after the SIGKILL fallback. SIGKILL cannot be
+/// blocked or ignored by the target, so reaping after it should be near-
+/// instant; this exists only to guarantee `shutdown_child_gracefully` itself
+/// is bounded even in the practically-unreachable case where `start_kill()`
+/// also fails to deliver (e.g. the earlier `libc::kill` EPERM branch, where a
+/// same-uid signal we sent was rejected — SIGKILL would fail the same way).
+#[cfg(unix)]
+const SIGKILL_REAP_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// Terminate a claude child, giving it a bounded chance to exit cleanly first.
+///
+/// Unix: SIGTERM → wait up to [`GRACEFUL_SHUTDOWN_TIMEOUT`] → SIGKILL → wait
+/// up to [`SIGKILL_REAP_TIMEOUT`]. Total worst case is therefore the sum of
+/// both bounds (≈4s today), not just the SIGTERM grace window — the function
+/// itself is fully bounded. On the (practically unreachable) path where even
+/// the post-SIGKILL reap times out, this logs a `warn!` and returns rather
+/// than blocking shutdown forever; the anti-orphan guarantee degrades from
+/// "always reaped" to "always attempted and logged" in that one case.
+///
+/// `thread_id` is only used for log correlation.
+#[cfg(unix)]
+async fn shutdown_child_gracefully(child: &mut Child, thread_id: &str) {
+    // Already exited (common — claude usually finishes its turn and EOFs
+    // before we get here). Reap and return without signalling anything.
+    if let Ok(Some(_)) = child.try_wait() {
+        return;
+    }
+
+    let Some(pid) = child.id() else {
+        // `id()` is None only once the child has been reaped by `wait()`.
+        return;
+    };
+
+    // SAFETY: `pid` comes from a child we spawned and have not yet reaped, so
+    // it cannot have been recycled by the OS. `kill(2)` with SIGTERM has no
+    // preconditions beyond a valid pid.
+    let sent = unsafe { libc::kill(pid as libc::pid_t, libc::SIGTERM) };
+    if sent != 0 {
+        // ESRCH (already gone) or EPERM. Nothing to be gained by waiting.
+        tracing::warn!(
+            target: "ikenga::claude::session",
+            thread_id,
+            pid,
+            errno = std::io::Error::last_os_error().raw_os_error(),
+            "SIGTERM to claude child failed; escalating to SIGKILL",
+        );
+    } else {
+        match tokio::time::timeout(GRACEFUL_SHUTDOWN_TIMEOUT, child.wait()).await {
+            Ok(Ok(status)) => {
+                tracing::info!(
+                    target: "ikenga::claude::session",
+                    thread_id,
+                    pid,
+                    status = %status,
+                    "claude child exited gracefully after SIGTERM; transcript had a flush window",
+                );
+                return;
+            }
+            Ok(Err(e)) => {
+                tracing::warn!(
+                    target: "ikenga::claude::session",
+                    thread_id,
+                    pid,
+                    error = %e,
+                    "wait() on claude child failed after SIGTERM; escalating to SIGKILL",
+                );
+            }
+            Err(_) => {
+                tracing::warn!(
+                    target: "ikenga::claude::session",
+                    thread_id,
+                    pid,
+                    timeout_ms = GRACEFUL_SHUTDOWN_TIMEOUT.as_millis(),
+                    "claude child did not exit within the grace window; escalating to SIGKILL — its transcript may be truncated",
+                );
             }
         }
     }
+
+    // Fallback. This is what guarantees no orphan survives app shutdown —
+    // bounded, so a child that also can't be reaped (e.g. the same EPERM
+    // that would make `start_kill()`'s SIGKILL fail) can't hang shutdown.
+    let _ = child.start_kill();
+    match tokio::time::timeout(SIGKILL_REAP_TIMEOUT, child.wait()).await {
+        Ok(_) => {}
+        Err(_) => {
+            tracing::warn!(
+                target: "ikenga::claude::session",
+                thread_id,
+                pid,
+                timeout_ms = SIGKILL_REAP_TIMEOUT.as_millis(),
+                "claude child did not reap within the post-SIGKILL timeout; giving up — this child may be unsignalable and could survive as an orphan",
+            );
+        }
+    }
+}
+
+/// Windows variant. There is no SIGTERM: the nearest analogues
+/// (`GenerateConsoleCtrlEvent`, posting `WM_CLOSE`) don't reach a console-less
+/// child spawned with piped stdio, so there is no portable graceful signal to
+/// send. We keep the original hard-kill behaviour here rather than pretend a
+/// grace window exists. If Windows transcript loss ever shows up in the field
+/// the fix is a job-object / `AttachConsole` + CTRL_BREAK path, not a sleep.
+#[cfg(not(unix))]
+async fn shutdown_child_gracefully(child: &mut Child, thread_id: &str) {
+    if let Ok(Some(_)) = child.try_wait() {
+        return;
+    }
+    tracing::info!(
+        target: "ikenga::claude::session",
+        thread_id,
+        "terminating claude child (no SIGTERM equivalent on this platform)",
+    );
+    let _ = child.start_kill();
+    let _ = child.wait().await;
 }
 
 pub type SessionsState = Arc<SessionsManager>;
@@ -365,7 +509,6 @@ pub async fn spawn_streaming(
         .unwrap_or_else(|_| cwd.clone());
 
     let opts = session.opts.lock().await.clone();
-    let config_dir = session.claude_config_dir.lock().await.clone();
     let project_dir = session.claude_project_dir.lock().await.clone();
 
     let mut command = Command::new("claude");
@@ -403,29 +546,41 @@ pub async fn spawn_streaming(
         // Decision 2). Set before the layered project `.env` below so an
         // explicit `PATH=` in a project `.env` still wins.
         .env("PATH", crate::runtime::augmented_path())
+        // Anti-orphan backstop: if the `StreamingChild` is dropped without
+        // anyone calling `cancel_streaming` / `kill_all_streaming` (e.g. the
+        // process is tearing down), tokio SIGKILLs the child on drop.
+        //
+        // This does NOT defeat the graceful shutdown path: both drain sites
+        // `take()` the `Arc<StreamingChild>` out of `Session::streaming`
+        // before signalling, so they hold the sole owner for the whole grace
+        // window and the drop only happens after the child is already reaped.
+        // The only other place that clears the slot is the reader task on
+        // EOF, which by definition runs after the child's stdout has closed.
+        // Keep this flag — removing it would trade a real orphan risk for
+        // nothing.
         .kill_on_drop(true);
-    // Phase 5 (projects-first-class): redirect claude's user-config
-    // discovery into the session-local overlay dir built by
-    // `claude::discovery::build_session_config_dir`. The overlay contains
-    // symlinks to the resolved 4-tier skills/agents/commands plus a merged
-    // `.mcp.json` covering personal + workspace + project + project_pkg
-    // MCPs with pin resolution applied. When the overlay has MCPs we add
-    // `--mcp-config <path> --strict-mcp-config` so claude uses only the
-    // merged set and skips its own personal+project discovery (which
-    // would otherwise re-add the same servers and double-count them).
-    // CLAUDE_PROJECT_DIR is set for `${CLAUDE_PROJECT_DIR}` references in
-    // skills + commands that need the project root even when claude's own
-    // cwd has been moved by `--add-dir`.
-    if let Some(ref dir) = config_dir {
-        command.env("CLAUDE_CONFIG_DIR", dir);
-        let mcp_path = std::path::Path::new(dir).join(".mcp.json");
-        if mcp_path.exists() {
-            command
-                .arg("--mcp-config")
-                .arg(&mcp_path)
-                .arg("--strict-mcp-config");
-        }
-    }
+    // D-13 (`plans/2026-07-18-transcripts-and-terminal-architecture/07-retire-the-overlay.md`):
+    // this spawn deliberately sets NO `CLAUDE_CONFIG_DIR` and passes NO
+    // `--mcp-config` / `--strict-mcp-config`. The child uses claude's own
+    // native discovery, exactly as a `claude` typed into a terminal in the
+    // same cwd would — which means the same skills/agents/commands/MCP set,
+    // and a transcript written to `~/.claude/projects` where
+    // `claude --resume` can find it.
+    //
+    // The per-session overlay that used to live here resolved a strictly
+    // SMALLER set than native (measured at monorepo root: 129 vs 143 skills,
+    // 273 vs 298 commands, 14 vs 23 MCP servers, 50 vs 83 tools) because
+    // `--strict-mcp-config` suppressed claude's own MCP discovery in favour
+    // of a merged file built from the same `~/.claude.json` it was
+    // suppressing. Pkg-contributed MCP servers do NOT depend on the overlay:
+    // `pkg::registries::mcp::McpRegistry` writes them straight into
+    // `~/.claude.json:mcpServers`, the user-tier file native discovery reads.
+    //
+    // CLAUDE_PROJECT_DIR stays — it is orthogonal. It does not redirect
+    // config discovery or the transcript location; it only supplies the
+    // `${CLAUDE_PROJECT_DIR}` substitution used by skills + commands that
+    // need the project root even when claude's cwd has been moved by
+    // `--add-dir`.
     if let Some(ref pd) = project_dir {
         command.env("CLAUDE_PROJECT_DIR", pd);
     }
@@ -921,11 +1076,19 @@ pub async fn send_interrupt(session: Arc<Session>) -> Result<(), String> {
 /// function survives because the legacy `session_cancel` /
 /// `session_destroy` Tauri commands (in `commands/claude.rs`) still need
 /// the hard-kill semantics for tear-down / HMR hygiene.
+///
+/// "Hard kill" now means SIGTERM-then-SIGKILL rather than an immediate
+/// SIGKILL — see `shutdown_child_gracefully`. The child is (bar the one
+/// logged, practically-unreachable edge case documented there) guaranteed
+/// dead by the time this returns; it just gets up to `GRACEFUL_SHUTDOWN_TIMEOUT`
+/// to flush its transcript on the way out before SIGKILL escalates.
 pub async fn cancel_streaming(session: Arc<Session>) -> Result<(), String> {
+    // `take()` before draining so we hold the only `Arc<StreamingChild>` —
+    // otherwise the `.kill_on_drop(true)` from spawn could fire mid-grace.
     let taken = session.streaming.lock().await.take();
     if let Some(c) = taken {
         let mut child = c.child.lock().await;
-        let _ = child.start_kill();
+        shutdown_child_gracefully(&mut child, &session.thread_id).await;
     }
     Ok(())
 }
@@ -1151,6 +1314,100 @@ mod tests {
         let blocks = parsed["message"]["content"].as_array().expect("array");
         assert_eq!(blocks.len(), 1);
         assert_eq!(blocks[0]["type"], json!("image"));
+    }
+
+    /// The fix's happy path: a child that honours SIGTERM exits on its own,
+    /// well inside the grace window, and is reaped. This is the shape of a
+    /// claude child that gets to flush its `.jsonl` — before the fix it was
+    /// SIGKILLed here with no such window.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn shutdown_gracefully_lets_a_well_behaved_child_exit_on_sigterm() {
+        // Default SIGTERM disposition = terminate. Sleeps far longer than the
+        // grace window, so if it dies quickly it can only be because SIGTERM
+        // reached it.
+        let mut child = Command::new("sh")
+            .arg("-c")
+            .arg("sleep 30")
+            .kill_on_drop(true)
+            .spawn()
+            .expect("spawn test child");
+
+        let started = std::time::Instant::now();
+        shutdown_child_gracefully(&mut child, "thread_graceful").await;
+        let elapsed = started.elapsed();
+
+        // Exited via SIGTERM, not via the timeout + SIGKILL fallback.
+        assert!(
+            elapsed < GRACEFUL_SHUTDOWN_TIMEOUT,
+            "expected SIGTERM exit inside the grace window, took {elapsed:?}",
+        );
+        // Reaped — no zombie left behind. `id()` returns None only after the
+        // child has been waited on.
+        assert!(
+            child.id().is_none(),
+            "child must be reaped, not left a zombie"
+        );
+    }
+
+    /// The anti-orphan guarantee, which is the whole reason this kill path
+    /// exists. A child that ignores SIGTERM must still be dead when we
+    /// return — the grace window is bounded, not unbounded.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn shutdown_gracefully_escalates_to_sigkill_for_a_stubborn_child() {
+        // `trap "" TERM` makes SIGTERM a no-op. The loop (rather than a bare
+        // `sleep`) keeps sh from exec-optimising itself away, so the trap
+        // really is installed in the process we signal.
+        let mut child = Command::new("sh")
+            .arg("-c")
+            .arg("trap '' TERM; while true; do sleep 0.1; done")
+            .kill_on_drop(true)
+            .spawn()
+            .expect("spawn test child");
+
+        // Give sh a moment to actually install the trap, otherwise we'd race
+        // it and accidentally test the graceful path instead.
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        let started = std::time::Instant::now();
+        shutdown_child_gracefully(&mut child, "thread_stubborn").await;
+        let elapsed = started.elapsed();
+
+        // It must have ridden out the full grace window before escalating.
+        assert!(
+            elapsed >= GRACEFUL_SHUTDOWN_TIMEOUT,
+            "expected the full grace window before SIGKILL, took {elapsed:?}",
+        );
+        // And it must be dead + reaped regardless. This is the guarantee that
+        // must survive the graceful-shutdown change.
+        assert!(
+            child.id().is_none(),
+            "stubborn child must still be killed and reaped",
+        );
+    }
+
+    /// An already-exited child is a no-op fast path — no signal, no waiting.
+    /// This is the common case at `beforeunload`: most turns have already
+    /// finished and EOFed.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn shutdown_gracefully_is_fast_for_an_already_exited_child() {
+        let mut child = Command::new("sh")
+            .arg("-c")
+            .arg("exit 0")
+            .kill_on_drop(true)
+            .spawn()
+            .expect("spawn test child");
+        // Let it exit so `try_wait` observes the status.
+        let _ = child.wait().await;
+
+        let started = std::time::Instant::now();
+        shutdown_child_gracefully(&mut child, "thread_done").await;
+        assert!(
+            started.elapsed() < Duration::from_millis(500),
+            "already-exited child must not consume the grace window",
+        );
     }
 
     #[test]

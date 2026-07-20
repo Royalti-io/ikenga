@@ -231,8 +231,9 @@ pub async fn post_session_start(
 
     // Build the NewSessionRequest with _meta.projectId + _meta.threadId
     // so the server's `resolve_project_id` + `resolve_thread_id` pick
-    // them up. mcp_servers stays empty — Phase 5's per-session overlay
-    // dir + CLAUDE_CONFIG_DIR injection takes care of the merged MCP set.
+    // them up. mcp_servers stays empty — since D-13 the spawned child uses
+    // claude's own native MCP discovery (`~/.claude.json`, which is also
+    // where the pkg kernel's `McpRegistry` writes pkg-contributed servers).
     let meta_value = serde_json::json!({
         "threadId": thread_id,
         "projectId": body.project_id,

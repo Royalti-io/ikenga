@@ -7,15 +7,18 @@ use tauri::{AppHandle, State};
 
 use crate::pty::{foreground::ForegroundProcess, PtyManager, SpawnOpts};
 
-/// Trailing scrollback of a PTY's emitted stream. `data` is base64 (same
-/// encoding as the `pty://{id}` live events); `endOffset` is the cumulative
-/// byte count those bytes end at, so the frontend can drop the overlap with
-/// any live bytes it buffered while attaching.
+/// Trailing scrollback handed to a window that is attaching to a live PTY,
+/// plus the token that releases the gate `pty_attach_begin` installed. `data`
+/// is base64 (same encoding as the `pty://{id}` live events); `endOffset` is
+/// the cumulative byte count those bytes end at — the exact offset the first
+/// post-arm live chunk starts from, so the two tile the stream with no overlap
+/// and nothing to dedup.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct PtyScrollback {
+pub struct PtyAttachSnapshot {
     data: String,
     end_offset: u64,
+    token: u64,
 }
 
 #[tauri::command]
@@ -74,21 +77,58 @@ pub async fn pty_kill(manager: State<'_, Arc<PtyManager>>, id: String) -> Result
     manager.kill(&id).map_err(|e| format!("kill failed: {e}"))
 }
 
-/// Trailing scrollback for a PTY, replayed by a window that attaches after the
-/// PTY has already emitted output (a popped-out terminal). Returns `None` once
-/// the session has exited and been reaped.
+/// Step 1 of the atomic attach handshake, called by a window attaching to a PTY
+/// that is already running (a popped-out terminal). Snapshots the trailing
+/// scrollback and gates the stream under one lock — see
+/// `PtyManager::attach_begin`. The caller MUST follow with `pty_attach_arm`
+/// once its listener is registered; a watchdog releases the gate after
+/// `ATTACH_GATE_TIMEOUT` if it doesn't, so a window that dies mid-handshake
+/// cannot stall the terminal. Returns `None` once the session has exited and
+/// been reaped.
 #[tauri::command]
-pub async fn pty_scrollback(
+pub async fn pty_attach_begin(
     manager: State<'_, Arc<PtyManager>>,
     id: String,
-) -> Result<Option<PtyScrollback>, String> {
-    Ok(manager.scrollback(&id).map(|(bytes, end_offset)| {
-        let engine = base64::engine::general_purpose::STANDARD;
-        PtyScrollback {
-            data: engine.encode(&bytes),
-            end_offset,
+) -> Result<Option<PtyAttachSnapshot>, String> {
+    let Some(snap) = manager.attach_begin(&id) else {
+        return Ok(None);
+    };
+
+    // Watchdog. `attach_arm` is token-checked, so this can never release a
+    // *later* handshake's gate — a stale fire is a no-op.
+    let watchdog = Arc::clone(&manager);
+    let watched_id = id.clone();
+    let token = snap.token;
+    tokio::spawn(async move {
+        tokio::time::sleep(crate::pty::ATTACH_GATE_TIMEOUT).await;
+        if watchdog.attach_arm(&watched_id, token) {
+            tracing::warn!(
+                pty = %watched_id,
+                "attach handshake never armed; watchdog released the gate"
+            );
         }
+    });
+
+    let engine = base64::engine::general_purpose::STANDARD;
+    Ok(Some(PtyAttachSnapshot {
+        data: engine.encode(&snap.data),
+        end_offset: snap.end_offset,
+        token: snap.token,
     }))
+}
+
+/// Step 2 of the atomic attach handshake: the caller's listener is registered,
+/// so release the gate. Everything the PTY emitted during the handshake is
+/// flushed as the first chunk that listener sees, starting exactly where the
+/// snapshot ended. `false` means the gate was already released (watchdog, or a
+/// superseding attach) — a no-op, not an error.
+#[tauri::command]
+pub async fn pty_attach_arm(
+    manager: State<'_, Arc<PtyManager>>,
+    id: String,
+    token: u64,
+) -> Result<bool, String> {
+    Ok(manager.attach_arm(&id, token))
 }
 
 /// Foreground command for a single PTY. Returns `None` when the PTY is gone
