@@ -24,7 +24,7 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, State};
 
 use crate::claude::{
     event::ChatEvent,
@@ -302,35 +302,22 @@ pub struct SessionHandle {
 
 /// Collect every `projects/` root that might hold a session transcript.
 ///
-/// `claude` writes to `$HOME/.claude/projects/`, and as of D-13 every chat
-/// thread we spawn does too — the per-session `CLAUDE_CONFIG_DIR` overlay was
-/// retired (see
+/// There is exactly one: `$HOME/.claude/projects/`. Every chat thread we spawn
+/// writes there, the same as a terminal session, because D-13 retired the
+/// per-session `CLAUDE_CONFIG_DIR` overlay (see
 /// `plans/2026-07-18-transcripts-and-terminal-architecture/07-retire-the-overlay.md`).
 ///
-/// **The overlay walk below deliberately STAYS for now.** Threads created
-/// before D-13 wrote their transcripts under
-/// `<app_cache>/sessions/<thread_id>/.claude/projects/<slug>/`, and those files
-/// are still the only copy — the one-shot migration that moves them into
-/// `$HOME/.claude/projects` is a separate, not-yet-applied step (S-3). Dropping
-/// the walk before that migration runs would make every pre-D-13 transcript
-/// unfindable, silently disabling both `claude --resume` rehydration and the
-/// JSONL reconciler for those threads. Delete this walk in S-2, *after* S-3 has
-/// been applied and verified — not before.
-fn jsonl_projects_roots(app: &AppHandle) -> Vec<PathBuf> {
+/// S-2: this function used to ALSO walk `<app_cache>/sessions/<thread_id>/
+/// .claude/projects/` because pre-D-13 threads wrote their transcripts there
+/// and those were the only copies. That walk is gone now — the S-3 migration
+/// (`scripts/migrate-chat-transcripts.ts`) has been applied and verified:
+/// 19 of 19 transcripts moved into `$HOME/.claude/projects`, hash-checked, and
+/// every `chat_sessions` row carrying a `claude_session_id` resolves against
+/// the new location. Nothing reachable is lost by dropping the walk.
+fn jsonl_projects_roots(_app: &AppHandle) -> Vec<PathBuf> {
     let mut roots = Vec::new();
     if let Some(home) = projects_root() {
         roots.push(home);
-    }
-    if let Ok(cache) = app.path().app_cache_dir() {
-        let sessions = cache.join("sessions");
-        if let Ok(rd) = std::fs::read_dir(&sessions) {
-            for thread_entry in rd.flatten() {
-                let projects = thread_entry.path().join(".claude").join("projects");
-                if projects.is_dir() {
-                    roots.push(projects);
-                }
-            }
-        }
     }
     roots
 }
