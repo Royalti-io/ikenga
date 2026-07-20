@@ -55,6 +55,19 @@ interface Props {
 	 * always focuses on creation, matching prior behavior.
 	 */
 	focused?: boolean;
+	/**
+	 * T-2 (plans/multi-window "corruption 2 (reflow)"): opt-in, one-shot
+	 * repaint nudge for a detached-window attach. Set ONLY from
+	 * `detached/surfaces/terminal-surface.tsx`. A popped-out window attaches
+	 * to a PTY that may already be sized to match (the replayed scrollback
+	 * landed fine), which means the PTY-side resize this window's own fit()
+	 * issues can be a same-size no-op — Linux's tty layer drops the SIGWINCH
+	 * for an unchanged winsize, so a full-screen TUI (vim, htop, claude
+	 * itself) never gets told to repaint at the new window's geometry and
+	 * stays visually corrupted even though the byte stream is correct. See
+	 * `scheduleAttachNudge` below for the two-step wobble that forces it.
+	 */
+	nudgeOnAttach?: boolean;
 }
 
 const DARK_THEME: ITheme = {
@@ -317,6 +330,7 @@ export function XTermHost({
 	disableWebgl,
 	sessionId,
 	focused,
+	nudgeOnAttach,
 }: Props) {
 	const containerRef = useRef<HTMLDivElement | null>(null);
 	const [searchOpen, setSearchOpen] = useState(false);
@@ -349,6 +363,11 @@ export function XTermHost({
 		let disposed = false;
 		const pendingRafs = new Set<number>();
 		const pendingTimeouts = new Set<ReturnType<typeof setTimeout>>();
+		// T-2: fires at most once per mount, off the first fit() that succeeds.
+		let attachNudged = false;
+		// T-2: set between the nudge's two steps. Run by the rAF normally, or
+		// synchronously by the unmount cleanup if we tear down mid-wobble.
+		let pendingNudgeRestore: (() => void) | null = null;
 
 		// Only attach-mode mounts with a stable session id participate in the
 		// module-scope cache. Spawn-mode (one-off terminals) and detached
@@ -364,6 +383,66 @@ export function XTermHost({
 		let fit: FitAddon;
 		let container: HTMLDivElement;
 
+		// T-2 (SIGWINCH-on-attach): a two-step resize wobble, run once against
+		// `pty` directly after the terminal's first real fit(). This is NOT
+		// defensive padding — it is the only thing that makes a full-screen TUI
+		// (vim, htop, claude) repaint at the popped-out window's actual size.
+		//
+		// Why it's needed: the Linux tty layer's `tty_do_resize` memcmps the
+		// incoming winsize against the current one and silently drops the
+		// SIGWINCH when they're equal (`portable-pty`'s `master.resize()` issues
+		// TIOCSWINSZ unconditionally — nothing upstream of the kernel coalesces
+		// same-size resizes, the kernel itself does). If this window's fitted
+		// size happens to match whatever size the PTY was already at, a plain
+		// `pty.resize(rows, cols)` is a no-op from the child process's point of
+		// view and the TUI never learns the window changed.
+		//
+		// Why two DIFFERENT sizes: resizing to (rows, cols-1) then, next frame,
+		// back to (rows, cols) guarantees the second call is never a repeat of
+		// the PTY's current winsize, so the kernel can't drop it.
+		//
+		// Why `pty.resize` and never `term.resize`: xterm's own `Terminal.
+		// resize()` early-returns when rows/cols are unchanged and would never
+		// fire `onResize` for the wobble-back step — routing through it would
+		// silently produce zero SIGWINCHes. Only the child process should ever
+		// see the wobble; the local grid must not flicker, so we call the PTY
+		// bridge directly and never touch `term`'s own size.
+		const scheduleAttachNudge = () => {
+			if (attachNudged || !pty) return;
+			attachNudged = true;
+			const rows = term.rows;
+			// Both steps must survive Rust's `rows.max(1)` / `cols.max(1)` clamp
+			// as DIFFERENT values, so normalise to the post-clamp floor first.
+			// Taking the raw `term.cols` here would degenerate at cols===0 —
+			// wobble 1, restore 0→clamped-to-1 — leaving both steps identical
+			// and the kernel dropping the SIGWINCH, i.e. exactly the silent
+			// no-op this whole function exists to prevent.
+			const cols = Math.max(1, term.cols);
+			// At cols<=1 (a fresh detached webview can measure ~1 column before
+			// fonts/layout settle — see terminal-surface.tsx) wobble UP instead
+			// of down, or both steps would clamp to the same size in Rust.
+			const wobbleCols = cols <= 1 ? cols + 1 : cols - 1;
+			pty.resize(rows, wobbleCols).catch(() => {});
+			// Step 1 has now shrunk a PTY that is SHARED with the origin pane and
+			// outlives this window. The restore below MUST still happen if we
+			// unmount in the ~16ms before the frame lands: the unmount cleanup
+			// cancels every pending rAF, so relying on the rAF alone would strand
+			// the shared PTY at `wobbleCols` permanently — the origin pane
+			// remounts but only re-emits a resize when its own container geometry
+			// changes, so nothing would ever put it back. Park the restore where
+			// the cleanup can run it synchronously, and null it out once done so
+			// it can never fire twice.
+			pendingNudgeRestore = () => {
+				pendingNudgeRestore = null;
+				pty.resize(rows, cols).catch(() => {});
+			};
+			const id = requestAnimationFrame(() => {
+				pendingRafs.delete(id);
+				pendingNudgeRestore?.();
+			});
+			pendingRafs.add(id);
+		};
+
 		const queueFit = (attempt = 0) => {
 			const id = requestAnimationFrame(() => {
 				pendingRafs.delete(id);
@@ -371,6 +450,7 @@ export function XTermHost({
 				if (!term.element || !term.element.isConnected) return;
 				try {
 					fit.fit();
+					if (nudgeOnAttach) scheduleAttachNudge();
 				} catch {
 					// Renderer not ready. Back off and retry: 16ms, 32ms, 64ms,
 					// 128ms, 256ms — covers the WebGL init window on slow
@@ -727,6 +807,12 @@ export function XTermHost({
 			// after dispose.
 			for (const id of pendingRafs) cancelAnimationFrame(id);
 			pendingRafs.clear();
+			// T-2: if we tore down mid-wobble, the rAF that would have restored
+			// the shared PTY's real width was just cancelled above. Run it here
+			// instead — otherwise the PTY stays one column narrow for the rest of
+			// its life. Safe after dispose: `Pty.resize` no-ops once the PTY
+			// itself is disposed/exited.
+			pendingNudgeRestore?.();
 			for (const t of pendingTimeouts) clearTimeout(t);
 			pendingTimeouts.clear();
 			themeObserver.disconnect();
