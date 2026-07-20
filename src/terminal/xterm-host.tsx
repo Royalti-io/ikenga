@@ -365,6 +365,9 @@ export function XTermHost({
 		const pendingTimeouts = new Set<ReturnType<typeof setTimeout>>();
 		// T-2: fires at most once per mount, off the first fit() that succeeds.
 		let attachNudged = false;
+		// T-2: set between the nudge's two steps. Run by the rAF normally, or
+		// synchronously by the unmount cleanup if we tear down mid-wobble.
+		let pendingNudgeRestore: (() => void) | null = null;
 
 		// Only attach-mode mounts with a stable session id participate in the
 		// module-scope cache. Spawn-mode (one-off terminals) and detached
@@ -408,20 +411,34 @@ export function XTermHost({
 			if (attachNudged || !pty) return;
 			attachNudged = true;
 			const rows = term.rows;
-			const cols = term.cols;
-			// Guard: cols-1 must never go below 1. At cols<=1 (a fresh detached
-			// webview can measure ~1 column before fonts/layout settle — see
-			// terminal-surface.tsx) wobble UP instead of down, or both steps
-			// would clamp to the same size in Rust and the nudge would be a
-			// silent no-op.
+			// Both steps must survive Rust's `rows.max(1)` / `cols.max(1)` clamp
+			// as DIFFERENT values, so normalise to the post-clamp floor first.
+			// Taking the raw `term.cols` here would degenerate at cols===0 —
+			// wobble 1, restore 0→clamped-to-1 — leaving both steps identical
+			// and the kernel dropping the SIGWINCH, i.e. exactly the silent
+			// no-op this whole function exists to prevent.
+			const cols = Math.max(1, term.cols);
+			// At cols<=1 (a fresh detached webview can measure ~1 column before
+			// fonts/layout settle — see terminal-surface.tsx) wobble UP instead
+			// of down, or both steps would clamp to the same size in Rust.
 			const wobbleCols = cols <= 1 ? cols + 1 : cols - 1;
 			pty.resize(rows, wobbleCols).catch(() => {});
+			// Step 1 has now shrunk a PTY that is SHARED with the origin pane and
+			// outlives this window. The restore below MUST still happen if we
+			// unmount in the ~16ms before the frame lands: the unmount cleanup
+			// cancels every pending rAF, so relying on the rAF alone would strand
+			// the shared PTY at `wobbleCols` permanently — the origin pane
+			// remounts but only re-emits a resize when its own container geometry
+			// changes, so nothing would ever put it back. Park the restore where
+			// the cleanup can run it synchronously, and null it out once done so
+			// it can never fire twice.
+			pendingNudgeRestore = () => {
+				pendingNudgeRestore = null;
+				pty.resize(rows, cols).catch(() => {});
+			};
 			const id = requestAnimationFrame(() => {
 				pendingRafs.delete(id);
-				// Cancelled in the unmount cleanup below (pendingRafs) — never
-				// resize a PTY whose terminal already unmounted.
-				if (disposed) return;
-				pty.resize(rows, cols).catch(() => {});
+				pendingNudgeRestore?.();
 			});
 			pendingRafs.add(id);
 		};
@@ -790,6 +807,12 @@ export function XTermHost({
 			// after dispose.
 			for (const id of pendingRafs) cancelAnimationFrame(id);
 			pendingRafs.clear();
+			// T-2: if we tore down mid-wobble, the rAF that would have restored
+			// the shared PTY's real width was just cancelled above. Run it here
+			// instead — otherwise the PTY stays one column narrow for the rest of
+			// its life. Safe after dispose: `Pty.resize` no-ops once the PTY
+			// itself is disposed/exited.
+			pendingNudgeRestore?.();
 			for (const t of pendingTimeouts) clearTimeout(t);
 			pendingTimeouts.clear();
 			themeObserver.disconnect();
