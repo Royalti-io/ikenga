@@ -27,6 +27,14 @@
 // replayed tail is raw bytes
 // against a fresh screen (like any terminal reattach) — a few stale escape
 // sequences may flicker at the top on first paint; live output is correct.
+//
+// T-2 (SIGWINCH-on-attach, corruption "reflow"): `nudgeOnAttach` below makes
+// XTermHost wobble the PTY size by one column after its first fit(), forcing
+// a real SIGWINCH so a full-screen TUI repaints at this window's geometry
+// instead of the one it last drew at. See xterm-host.tsx's
+// `scheduleAttachNudge` for why the wobble (not a plain resize) is required.
+// This masks reflow for full-screen TUIs; it does not fix the raw-replay
+// rewrap for line-mode shells (separate, out of scope — see plan).
 
 // xterm's base stylesheet is otherwise imported only in boot/primary.tsx — a
 // chunk the detached graph never loads — so the detached terminal would render
@@ -118,7 +126,7 @@ export default function TerminalSurface({ ctx }: DetachedSurfaceProps) {
 			</header>
 			<div className="min-h-0 flex-1">
 				{pty ? (
-					<XTermHost pty={pty} disableWebgl />
+					<XTermHost pty={pty} disableWebgl nudgeOnAttach />
 				) : (
 					<FeedbackState variant="loading" fill heading="Attaching…" />
 				)}

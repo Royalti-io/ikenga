@@ -55,6 +55,19 @@ interface Props {
 	 * always focuses on creation, matching prior behavior.
 	 */
 	focused?: boolean;
+	/**
+	 * T-2 (plans/multi-window "corruption 2 (reflow)"): opt-in, one-shot
+	 * repaint nudge for a detached-window attach. Set ONLY from
+	 * `detached/surfaces/terminal-surface.tsx`. A popped-out window attaches
+	 * to a PTY that may already be sized to match (the replayed scrollback
+	 * landed fine), which means the PTY-side resize this window's own fit()
+	 * issues can be a same-size no-op — Linux's tty layer drops the SIGWINCH
+	 * for an unchanged winsize, so a full-screen TUI (vim, htop, claude
+	 * itself) never gets told to repaint at the new window's geometry and
+	 * stays visually corrupted even though the byte stream is correct. See
+	 * `scheduleAttachNudge` below for the two-step wobble that forces it.
+	 */
+	nudgeOnAttach?: boolean;
 }
 
 const DARK_THEME: ITheme = {
@@ -317,6 +330,7 @@ export function XTermHost({
 	disableWebgl,
 	sessionId,
 	focused,
+	nudgeOnAttach,
 }: Props) {
 	const containerRef = useRef<HTMLDivElement | null>(null);
 	const [searchOpen, setSearchOpen] = useState(false);
@@ -349,6 +363,8 @@ export function XTermHost({
 		let disposed = false;
 		const pendingRafs = new Set<number>();
 		const pendingTimeouts = new Set<ReturnType<typeof setTimeout>>();
+		// T-2: fires at most once per mount, off the first fit() that succeeds.
+		let attachNudged = false;
 
 		// Only attach-mode mounts with a stable session id participate in the
 		// module-scope cache. Spawn-mode (one-off terminals) and detached
@@ -364,6 +380,52 @@ export function XTermHost({
 		let fit: FitAddon;
 		let container: HTMLDivElement;
 
+		// T-2 (SIGWINCH-on-attach): a two-step resize wobble, run once against
+		// `pty` directly after the terminal's first real fit(). This is NOT
+		// defensive padding — it is the only thing that makes a full-screen TUI
+		// (vim, htop, claude) repaint at the popped-out window's actual size.
+		//
+		// Why it's needed: the Linux tty layer's `tty_do_resize` memcmps the
+		// incoming winsize against the current one and silently drops the
+		// SIGWINCH when they're equal (`portable-pty`'s `master.resize()` issues
+		// TIOCSWINSZ unconditionally — nothing upstream of the kernel coalesces
+		// same-size resizes, the kernel itself does). If this window's fitted
+		// size happens to match whatever size the PTY was already at, a plain
+		// `pty.resize(rows, cols)` is a no-op from the child process's point of
+		// view and the TUI never learns the window changed.
+		//
+		// Why two DIFFERENT sizes: resizing to (rows, cols-1) then, next frame,
+		// back to (rows, cols) guarantees the second call is never a repeat of
+		// the PTY's current winsize, so the kernel can't drop it.
+		//
+		// Why `pty.resize` and never `term.resize`: xterm's own `Terminal.
+		// resize()` early-returns when rows/cols are unchanged and would never
+		// fire `onResize` for the wobble-back step — routing through it would
+		// silently produce zero SIGWINCHes. Only the child process should ever
+		// see the wobble; the local grid must not flicker, so we call the PTY
+		// bridge directly and never touch `term`'s own size.
+		const scheduleAttachNudge = () => {
+			if (attachNudged || !pty) return;
+			attachNudged = true;
+			const rows = term.rows;
+			const cols = term.cols;
+			// Guard: cols-1 must never go below 1. At cols<=1 (a fresh detached
+			// webview can measure ~1 column before fonts/layout settle — see
+			// terminal-surface.tsx) wobble UP instead of down, or both steps
+			// would clamp to the same size in Rust and the nudge would be a
+			// silent no-op.
+			const wobbleCols = cols <= 1 ? cols + 1 : cols - 1;
+			pty.resize(rows, wobbleCols).catch(() => {});
+			const id = requestAnimationFrame(() => {
+				pendingRafs.delete(id);
+				// Cancelled in the unmount cleanup below (pendingRafs) — never
+				// resize a PTY whose terminal already unmounted.
+				if (disposed) return;
+				pty.resize(rows, cols).catch(() => {});
+			});
+			pendingRafs.add(id);
+		};
+
 		const queueFit = (attempt = 0) => {
 			const id = requestAnimationFrame(() => {
 				pendingRafs.delete(id);
@@ -371,6 +433,7 @@ export function XTermHost({
 				if (!term.element || !term.element.isConnected) return;
 				try {
 					fit.fit();
+					if (nudgeOnAttach) scheduleAttachNudge();
 				} catch {
 					// Renderer not ready. Back off and retry: 16ms, 32ms, 64ms,
 					// 128ms, 256ms — covers the WebGL init window on slow
