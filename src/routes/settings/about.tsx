@@ -72,11 +72,13 @@ function AboutPage() {
 					notes={matchingRelease?.body ?? updater.available.notes ?? ''}
 					htmlUrl={matchingRelease?.htmlUrl}
 					installing={updater.installing}
+					installed={updater.installed}
 					bytesDownloaded={updater.bytesDownloaded}
 					totalBytes={updater.totalBytes}
 					error={updater.error}
 					snoozed={isSnoozed}
 					onInstall={() => void updater.install()}
+					onRestart={() => void updater.restart()}
 					onSnooze={() => snooze.snooze(updater.available!.version)}
 					onUnsnooze={() => snooze.clear()}
 				/>
@@ -193,11 +195,13 @@ function UpdateCard({
 	notes,
 	htmlUrl,
 	installing,
+	installed,
 	bytesDownloaded,
 	totalBytes,
 	error,
 	snoozed,
 	onInstall,
+	onRestart,
 	onSnooze,
 	onUnsnooze,
 }: {
@@ -208,9 +212,11 @@ function UpdateCard({
 	installing: boolean;
 	bytesDownloaded: number;
 	totalBytes: number | null;
+	installed: boolean;
 	error: string | null;
 	snoozed: boolean;
 	onInstall: () => void;
+	onRestart: () => void;
 	onSnooze: () => void;
 	onUnsnooze: () => void;
 }) {
@@ -284,27 +290,46 @@ function UpdateCard({
 					</div>
 				)}
 
+				{installed && (
+					<div className="rounded-sm border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-600 dark:text-emerald-400">
+						v{availableVersion} is installed. Restart Ikenga to finish updating.
+					</div>
+				)}
+
 				<div className="flex items-center justify-end gap-2">
-					{snoozed ? (
-						<Button size="sm" variant="ghost" onClick={onUnsnooze}>
-							<BellOff className="mr-1.5 size-3.5" />
-							Unsnooze
+					{installed ? (
+						<Button
+							size="sm"
+							className="bg-emerald-600 text-emerald-50 hover:bg-emerald-600/90"
+							onClick={onRestart}
+						>
+							<RefreshCw className="mr-1.5 size-3.5" />
+							Restart now
 						</Button>
 					) : (
-						<Button size="sm" variant="ghost" onClick={onSnooze} disabled={installing}>
-							<BellOff className="mr-1.5 size-3.5" />
-							Defer 24h
-						</Button>
+						<>
+							{snoozed ? (
+								<Button size="sm" variant="ghost" onClick={onUnsnooze}>
+									<BellOff className="mr-1.5 size-3.5" />
+									Unsnooze
+								</Button>
+							) : (
+								<Button size="sm" variant="ghost" onClick={onSnooze} disabled={installing}>
+									<BellOff className="mr-1.5 size-3.5" />
+									Defer 24h
+								</Button>
+							)}
+							<Button
+								size="sm"
+								className="bg-amber-500 text-amber-950 hover:bg-amber-500/90"
+								onClick={onInstall}
+								disabled={installing}
+							>
+								<Download className="mr-1.5 size-3.5" />
+								{installing ? 'Installing…' : 'Update & restart'}
+							</Button>
+						</>
 					)}
-					<Button
-						size="sm"
-						className="bg-amber-500 text-amber-950 hover:bg-amber-500/90"
-						onClick={onInstall}
-						disabled={installing}
-					>
-						<Download className="mr-1.5 size-3.5" />
-						{installing ? 'Installing…' : 'Update & relaunch'}
-					</Button>
 				</div>
 			</div>
 		</section>

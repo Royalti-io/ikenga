@@ -38,14 +38,21 @@ export async function checkForUpdate(): Promise<UpdateInfo | null> {
 }
 
 /**
- * Download + install. On success the app needs to relaunch — we trigger it
- * here so the caller doesn't have to wire `tauri-plugin-process`.
+ * Download + install the update bundle. Does NOT relaunch — see `restartApp`.
+ *
+ * The relaunch is deliberately a separate step. On Linux especially, the
+ * install applies through an elevated `pkexec`/`dpkg` step whose progress the
+ * download callback can't see, so the byte-count bar freezes near the end;
+ * if we then relaunch immediately the window tears down mid-flow and the whole
+ * thing reads as a crash — even though the install actually succeeded. Letting
+ * the UI hold at an explicit "installed — restart to finish" state before
+ * calling `restartApp()` keeps the restart a deliberate, visible act.
  *
  * `onProgress` reports total bytes downloaded so the UI can render a bar.
  * Tauri reports `started` / `progress` / `finished` events; we collapse
  * them to a running byte count.
  */
-export async function installAndRelaunch(
+export async function installUpdate(
 	info: UpdateInfo,
 	onProgress?: (bytesDownloaded: number, totalBytes: number | null) => void
 ): Promise<void> {
@@ -66,5 +73,11 @@ export async function installAndRelaunch(
 				break;
 		}
 	});
+}
+
+/** Relaunch to complete an already-installed update. Kept separate from
+ * `installUpdate` so the caller can gate it behind a user click (or the
+ * opt-in auto-install path can chain it explicitly). */
+export async function restartApp(): Promise<void> {
 	await relaunch();
 }
