@@ -17,6 +17,12 @@ Retire the per-session `CLAUDE_CONFIG_DIR` overlay; chat sessions now use claude
 - Pop-out no longer shows blank scrollback: buffered output is held until a live chunk actually lands, and the PTY attach seam is closed in Rust rather than deduped in JS.
 - PTY reader-thread panic guard plus a live-session cap.
 - Terminal PTY is disposed and the xterm/webgl context evicted on tab close.
+- A SIGWINCH repaint nudge is issued when a terminal is attached into a
+  detached pop-out, and again when the pane is reclaimed by the origin window,
+  so a full-screen TUI is prompted to redraw at the geometry it is actually
+  being displayed at. This does not repair scrollback that was already written
+  at the previous geometry — raw-replay rewrap remains structural, and
+  line-mode shells are unaffected by the nudge.
 
 **Pkgs / kernel**
 
