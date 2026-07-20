@@ -17,8 +17,8 @@
 // expanded to cover the full surface in that skill's SKILL.md
 // ("Bridge surface (cheat sheet)" section).
 //
-// v0 scope: fetch sources do real network calls with mock fallback;
-// supabase/sql/mcp/file sources resolve directly to mock; notes/pin are
+// v0 scope: fetch + file sources do real reads with mock fallback;
+// supabase/sql/mcp sources resolve directly to mock; notes/pin are
 // console stubs. Phase 2 replaces the non-fetch resolvers with host RPC.
 //
 // Theme: `setupTheme()` mirrors the shell's `data-mode`/`data-theme`/
@@ -51,13 +51,20 @@ interface FetchSource {
 	refresh?: RefreshConfig;
 }
 
+interface FileSource {
+	type: 'file';
+	/** Path relative to the artifact document. Must stay inside the mount. */
+	path: string;
+	refresh?: RefreshConfig;
+}
+
 interface OtherSource {
-	type: 'supabase' | 'sql' | 'mcp' | 'file';
+	type: 'supabase' | 'sql' | 'mcp';
 	refresh?: RefreshConfig;
 	[key: string]: unknown;
 }
 
-type DataSource = FetchSource | OtherSource;
+type DataSource = FetchSource | FileSource | OtherSource;
 
 interface Manifest {
 	id: string;
@@ -165,6 +172,42 @@ function parseDuration(s: string | undefined): number | null {
 		default:
 			return null;
 	}
+}
+
+/**
+ * Resolve a `file` source path against the artifact's own document URL.
+ *
+ * The viewer-server mounts the artifact's directory with `ServeDir` under
+ * `/__viewer/<token>/`, so sibling data files are already reachable
+ * same-origin — no Tauri/Node import required (this module is iframe-only).
+ *
+ * Returns null for anything that isn't a plain relative path staying inside
+ * the mount: absolute paths, scheme-qualified URLs, protocol-relative URLs,
+ * cross-origin results, and `../` traversal above the mount root. Callers
+ * treat null as "fall back to mock" rather than fetching it anyway.
+ */
+function resolveArtifactRelative(path: string): string | null {
+	if (typeof path !== 'string' || path.length === 0) return null;
+	// Scheme-qualified (http:, file:, data:), protocol-relative, or rooted.
+	if (/^[a-z][a-z0-9+.-]*:/i.test(path)) return null;
+	if (path.startsWith('//') || path.startsWith('/')) return null;
+
+	let resolved: URL;
+	try {
+		resolved = new URL(path, window.location.href);
+	} catch {
+		return null;
+	}
+	if (resolved.origin !== window.location.origin) return null;
+
+	// Confine to the mount root when served by the viewer server; otherwise to
+	// the document's own directory (standalone preview).
+	const base = window.location.pathname;
+	const mount = base.match(/^(\/__viewer\/[^/]+\/)/);
+	const prefix = mount ? mount[1] : base.slice(0, base.lastIndexOf('/') + 1);
+	if (!resolved.pathname.startsWith(prefix)) return null;
+
+	return resolved.href;
 }
 
 // ── Theme mirroring ────────────────────────────────────────────────────────
@@ -349,7 +392,36 @@ export function mountArtifactBridge(): void {
 				});
 		}
 
-		// supabase | sql | mcp | file → mock-only in v0.
+		if (def.type === 'file') {
+			const fsrc = def as FileSource;
+			const url = resolveArtifactRelative(fsrc.path);
+			if (!url) {
+				// Escapes the mount, or is absolute/remote — refuse rather than
+				// let an artifact read outside the directory it was served from.
+				console.warn('[ikenga.source] rejected file path', fsrc.path);
+				usedFallback[name] = true;
+				return Promise.resolve(name in mock ? mock[name] : null);
+			}
+			// Same-origin GET against the viewer-server mount (ServeDir over the
+			// artifact's own directory), so no Tauri/Node import is needed and
+			// the iframe-only constraint holds. `cache: 'no-store'` because these
+			// files are rewritten out-of-band by cron.
+			return fetch(url, { cache: 'no-store' })
+				.then((res) => {
+					if (!res.ok) throw new Error(`http ${res.status}`);
+					return res.json();
+				})
+				.then((data) => {
+					usedFallback[name] = false;
+					return data;
+				})
+				.catch(() => {
+					usedFallback[name] = true;
+					return name in mock ? mock[name] : null;
+				});
+		}
+
+		// supabase | sql | mcp → mock-only in v0.
 		usedFallback[name] = true;
 		return Promise.resolve(name in mock ? mock[name] : null);
 	}
