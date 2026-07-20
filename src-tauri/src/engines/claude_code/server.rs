@@ -282,49 +282,21 @@ impl ClaudeCodeEngine {
             }
         }
 
-        // Phase 5 (projects-first-class): build the per-session overlay
-        // dir from the layered 4-tier discovery (personal + workspace pkg
-        // + project + project pkg) so the spawned claude child sees the
-        // resolved skills/agents/commands and a merged `.mcp.json`. Best
-        // effort — discovery or symlinking failures fall back to claude's
-        // own discovery (skip the overlay rather than fail the session).
+        // D-13 (`plans/2026-07-18-transcripts-and-terminal-architecture/07-retire-the-overlay.md`):
+        // no per-session `CLAUDE_CONFIG_DIR` overlay is built here any more.
+        // The spawned child uses claude's own native discovery, which resolves
+        // a strictly LARGER asset set than the overlay ever did and writes its
+        // transcript where `claude --resume` can find it. The 4-tier discovery
+        // (`claude::discovery::discover` + pins) survives — it still backs the
+        // Ngwa/Ọba config UI in `commands/claude_config.rs` — it just no longer
+        // feeds a spawn-time symlink farm.
+        //
+        // Only the project root is threaded through, for `${CLAUDE_PROJECT_DIR}`.
         let project_root = project
             .as_ref()
             .and_then(|p| p.root_path.clone())
             .filter(|s| !s.is_empty());
-        match crate::claude::discovery::discover(&project_id, &pool, &app).await {
-            Ok(tree) => {
-                // Merge workspace + project-scoped pins; project pins win
-                // on a tie so a project can override a workspace-wide choice.
-                let workspace_pins = crate::claude::discovery::load_pins(&pool, "workspace")
-                    .await
-                    .unwrap_or_default();
-                let project_pins =
-                    crate::claude::discovery::load_pins(&pool, &format!("project:{project_id}"))
-                        .await
-                        .unwrap_or_default();
-                let mut pins = workspace_pins;
-                pins.extend(project_pins);
-                match crate::claude::discovery::build_session_config_dir(
-                    &app, &thread_id, &tree, &pins,
-                ) {
-                    Ok(dir) => {
-                        session
-                            .set_claude_spawn_overlay(
-                                Some(dir.to_string_lossy().into_owned()),
-                                project_root,
-                            )
-                            .await;
-                    }
-                    Err(e) => log::warn!(
-                        "phase5: build_session_config_dir failed for thread {thread_id}: {e}",
-                    ),
-                }
-            }
-            Err(e) => log::warn!(
-                "phase5: claude discovery failed for thread {thread_id} project {project_id}: {e}",
-            ),
-        }
+        session.set_claude_project_dir(project_root).await;
 
         // Phase 5: advertise the four canonical session modes so the
         // frontend can render a picker, and surface our spawn-time mode

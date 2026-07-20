@@ -135,9 +135,11 @@ pub async fn get_mcp_list(
     let mut entries: Vec<McpEntryView> = Vec::new();
     for (name, sources) in tree.mcps {
         // Surface every source separately (the FE wants to see conflicts).
-        // Resolution to a single winner happens at session-spawn time via
-        // `claude::discovery::build_session_config_dir` — this endpoint
-        // documents the input, not the resolved output.
+        // Resolution to a single winner is the Ngwa/Ọba config UI's job
+        // (`commands/claude_config.rs`, via `resolve_preferred`) — this
+        // endpoint documents the input, not the resolved output. Since D-13
+        // no session-spawn-time resolution happens at all: spawned children
+        // use claude's own native MCP discovery.
         for src in sources {
             let lifecycle_key = (src.provider.clone(), name.clone());
             let lifecycle = pkg_mcp_lifecycle

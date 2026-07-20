@@ -302,15 +302,20 @@ pub struct SessionHandle {
 
 /// Collect every `projects/` root that might hold a session transcript.
 ///
-/// Legacy `claude` runs write to `$HOME/.claude/projects/`. But ACP chat
-/// threads spawn the child with a per-session `CLAUDE_CONFIG_DIR` overlay at
-/// `<app_cache>/sessions/<thread_id>/.claude/` (see
-/// `claude::discovery::build_session_config_dir`), so their transcripts land
-/// under `<app_cache>/sessions/<thread_id>/.claude/projects/<slug>/`. Scanning
-/// only `$HOME/.claude/projects` (as the locator used to) meant
-/// `claude_read_jsonl` returned "not found" for every ACP thread — silently
-/// disabling the JSONL reconciler that recovers events a live subscription
-/// drops (e.g. across an app reload mid-turn).
+/// `claude` writes to `$HOME/.claude/projects/`, and as of D-13 every chat
+/// thread we spawn does too — the per-session `CLAUDE_CONFIG_DIR` overlay was
+/// retired (see
+/// `plans/2026-07-18-transcripts-and-terminal-architecture/07-retire-the-overlay.md`).
+///
+/// **The overlay walk below deliberately STAYS for now.** Threads created
+/// before D-13 wrote their transcripts under
+/// `<app_cache>/sessions/<thread_id>/.claude/projects/<slug>/`, and those files
+/// are still the only copy — the one-shot migration that moves them into
+/// `$HOME/.claude/projects` is a separate, not-yet-applied step (S-3). Dropping
+/// the walk before that migration runs would make every pre-D-13 transcript
+/// unfindable, silently disabling both `claude --resume` rehydration and the
+/// JSONL reconciler for those threads. Delete this walk in S-2, *after* S-3 has
+/// been applied and verified — not before.
 fn jsonl_projects_roots(app: &AppHandle) -> Vec<PathBuf> {
     let mut roots = Vec::new();
     if let Some(home) = projects_root() {
@@ -331,8 +336,8 @@ fn jsonl_projects_roots(app: &AppHandle) -> Vec<PathBuf> {
 }
 
 /// Given a session id, find its on-disk jsonl by scanning project slug dirs
-/// across both the legacy `$HOME/.claude/projects` root and every per-session
-/// ACP overlay root (see `jsonl_projects_roots`).
+/// across `$HOME/.claude/projects` and every surviving pre-D-13 per-session
+/// overlay root (see `jsonl_projects_roots`).
 ///
 /// `pub(crate)` so the claude_code engine can use it as a resume-existence
 /// guard before seeding `--resume <id>` on a reopened session — a stale id
