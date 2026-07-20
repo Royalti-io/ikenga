@@ -16,6 +16,7 @@ import {
 	persistPanelSizes,
 	registerPanelSizesSetter,
 } from '@/lib/shell/panel-sizes';
+import { useShellStore } from '@/lib/shell/shell-store';
 import { useProjectsSync } from '@/lib/shell/use-projects-sync';
 import { usePaActionsListener } from '@/lib/use-pa-actions';
 import { usePreloadViewers } from '@/lib/use-preload-viewers';
@@ -38,7 +39,9 @@ import { UpdaterBanner } from './updater-banner';
 
 export function Workspace() {
 	const [initialSizes, setInitialSizes] = useState<[number, number] | null>(null);
-	const [navHidden, setNavHidden] = useState(false);
+	// Sidebar visibility is shared state (see shell-store): ⌘B and the
+	// activity-bar rail both drive it, so it can't live as local state here.
+	const navHidden = useShellStore((s) => s.sidebarCollapsed);
 	const palette = useCommandPalette();
 
 	// Iyke (phase 11): mirror sidebar mode + focused pane's route into the
@@ -210,7 +213,7 @@ export function Workspace() {
 
 			if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'b') {
 				e.preventDefault();
-				setNavHidden((v) => !v);
+				useShellStore.getState().toggleSidebar();
 				return;
 			}
 			if (mod && !e.altKey && e.key === '\\') {
