@@ -16,12 +16,22 @@ interface SingleTerminalProps {
 	 *  pane focus (e.g. Studio's terminal mount) simply never auto-focus on
 	 *  a reparent, matching today's behavior for that call site. */
 	isFocused?: boolean;
+	/**
+	 * T-3a (reclaim half of T-2, plans/multi-window): opt-in, one-shot repaint
+	 * nudge for THIS mount, forwarded verbatim to `XTermHost`'s `nudgeOnAttach`
+	 * (see xterm-host.tsx for the wobble itself). Only `terminal-view.tsx`
+	 * passes `true`, and only on the render where a detached surface was just
+	 * reclaimed — every other caller (Studio's terminal mount included) omits
+	 * it, so it defaults to `undefined`/falsy and this prop changes nothing
+	 * for them.
+	 */
+	nudgeOnAttach?: boolean;
 }
 
 // Hosts exactly one PTY inside a pane tab. The session record (cwd, cmd,
 // title, status) lives in the terminal-store; the live PTY lives in the
 // module-level registry so it survives pane-tree remounts.
-export function SingleTerminal({ sessionId, isFocused }: SingleTerminalProps) {
+export function SingleTerminal({ sessionId, isFocused, nudgeOnAttach }: SingleTerminalProps) {
 	const tab = useTerminalStore((s) => s.tabs.find((t) => t.id === sessionId));
 	const setStatus = useTerminalStore((s) => s.setStatus);
 	const setPtyId = useTerminalStore((s) => s.setPtyId);
@@ -113,7 +123,9 @@ export function SingleTerminal({ sessionId, isFocused }: SingleTerminalProps) {
 		}
 		return <Centered text={`Spawning ${tab.spec.cmd.join(' ')}…`} />;
 	}
-	return <XTermHost pty={pty} sessionId={sessionId} focused={isFocused} />;
+	return (
+		<XTermHost pty={pty} sessionId={sessionId} focused={isFocused} nudgeOnAttach={nudgeOnAttach} />
+	);
 }
 
 interface CenteredProps {

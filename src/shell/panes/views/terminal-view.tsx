@@ -6,7 +6,7 @@
 // ownership-agnostic so Studio can mount it directly without the gate.
 
 import { ArrowUpRight, ExternalLink, Undo2 } from 'lucide-react';
-import { useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { FeedbackState } from '@/components/ui/feedback-state';
 import { IconButton } from '@/components/ui/icon-button';
@@ -14,6 +14,8 @@ import { findLeaf, getActiveView } from '@/lib/panes/pane-reducer';
 import { usePaneStore } from '@/lib/panes/pane-store';
 import { spawnWindow } from '@/lib/tauri-cmd';
 import {
+	clearPendingReclaimNudge,
+	hasPendingReclaimNudge,
 	markSurfaceDetached,
 	syncDetachedSurfaces,
 	useIsSurfaceDetached,
@@ -49,6 +51,53 @@ export function TerminalView({ sessionId }: TerminalViewProps) {
 	const ptyId = tab?.ptyId ?? null;
 	const surfaceId = ptyId ? `terminal:${ptyId}` : null;
 	const isDetached = useIsSurfaceDetached(surfaceId);
+
+	// T-3a (reclaim half of T-2, plans/multi-window "corruption 2 (reflow)"):
+	// a reclaim (detached window closes, this pane remounts the live
+	// terminal below) hits the identical missing-SIGWINCH failure mode T-2
+	// fixed for pop-out — the remounted XTermHost fits to a size that may
+	// already equal the PTY's current winsize, so no SIGWINCH is generated
+	// and a full-screen TUI (vim, htop, claude itself) stays visually
+	// corrupted even though the byte stream is correct. `nudgeOnAttach`
+	// (xterm-host.tsx) already does the right thing for this; the only gap
+	// was arming it ONLY on a genuine reclaim — never on an ordinary tab
+	// switch, pane move/split, or cache-hit remount, all of which also
+	// remount XTermHost (harmlessly, via its module-scope cache) and must
+	// NOT get an extra wobble.
+	//
+	// `isDetached` (backed by `useIsSurfaceDetached`) is level-only — it has
+	// no transition marker of its own — so the true→false edge is detected
+	// here by comparing against the previous render's value via the
+	// React-documented "adjust state during render" shape. That comparison
+	// is a pure read (safe under React StrictMode's double-invoked render);
+	// the actual consumption of the shared `pendingReclaimNudge` flag is
+	// split into a peek (`hasPendingReclaimNudge`, read here, during render)
+	// and a clear (`clearPendingReclaimNudge`, in the effect below, which
+	// runs after commit and is idempotent) so a StrictMode double-invoke of
+	// the effect can't silently eat the flag before the mount that needs it
+	// ever sees it.
+	//
+	// NOTE: this does NOT repair bug (B) — the cached offscreen Terminal
+	// ingested the entire pop-out's byte stream at the detached window's
+	// stale geometry, so its scrollback stays permanently mis-wrapped. A
+	// resize nudge can only force a repaint of the current screen; it cannot
+	// rewrite already-written scrollback cells.
+	const [reclaimGate, setReclaimGate] = useState(() => ({
+		wasDetached: isDetached,
+		justReclaimed: false,
+	}));
+	if (reclaimGate.wasDetached !== isDetached) {
+		setReclaimGate({
+			wasDetached: isDetached,
+			justReclaimed: reclaimGate.wasDetached && !isDetached,
+		});
+	}
+	const nudgeOnAttach =
+		reclaimGate.justReclaimed && surfaceId ? hasPendingReclaimNudge(surfaceId) : false;
+	useEffect(() => {
+		if (reclaimGate.justReclaimed && surfaceId) clearPendingReclaimNudge(surfaceId);
+	}, [reclaimGate.justReclaimed, surfaceId]);
+
 	const handlePopOut = useCallback(() => {
 		if (!ptyId || !surfaceId) return;
 		const label = `detached-terminal-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -100,7 +149,7 @@ export function TerminalView({ sessionId }: TerminalViewProps) {
 					</IconButton>
 				</div>
 			)}
-			<SingleTerminal sessionId={sessionId} isFocused={isFocused} />
+			<SingleTerminal sessionId={sessionId} isFocused={isFocused} nudgeOnAttach={nudgeOnAttach} />
 		</div>
 	);
 }
