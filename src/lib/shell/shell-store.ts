@@ -219,6 +219,18 @@ interface ShellState {
 	activeMode: ActivityMode;
 	setActiveMode: (m: ActivityMode) => void;
 
+	// ─── Sidebar visibility ──────────────────────────────────────────────
+	// Lives here rather than as local state in `workspace.tsx` because two
+	// independent surfaces drive it: the ⌘B shortcut and the activity-bar
+	// rail (clicking the already-active item collapses/reopens it). Both
+	// must read and write the same value or they desync — pressing ⌘B then
+	// clicking the active rail item would otherwise need two clicks to
+	// reopen. Persisted with the rest of the store, so a collapsed sidebar
+	// survives a restart the way it does in other editors.
+	sidebarCollapsed: boolean;
+	setSidebarCollapsed: (v: boolean) => void;
+	toggleSidebar: () => void;
+
 	// ─── User identity ───────────────────────────────────────────────────
 	// The user's display name — used by the daily-address greeting and any
 	// surface that needs to address the owner directly. Optional; empty
@@ -440,6 +452,10 @@ export const useShellStore = create<ShellState>()(
 		(set, get) => ({
 			activeMode: 'app',
 			setActiveMode: (activeMode) => set({ activeMode }),
+
+			sidebarCollapsed: false,
+			setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),
+			toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
 
 			userName: '',
 			setUserName: (userName) => {

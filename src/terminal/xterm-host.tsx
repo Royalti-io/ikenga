@@ -722,6 +722,45 @@ export function XTermHost({
 				return false;
 			}
 
+			// Zoom chords belong to the app, not the PTY. xterm's handler runs
+			// on its own textarea and therefore *before* the window-level zoom
+			// listener in `lib/window/zoom.ts`; without this, Ctrl+- and
+			// friends get encoded and shipped to the shell running inside the
+			// terminal. Returning false only stops xterm from consuming the
+			// key — the event still bubbles to window, where zoom picks it up.
+			if (meta && !e.altKey && ['=', '+', 'Add', '-', '_', 'Subtract', '0'].includes(e.key)) {
+				return false;
+			}
+
+			// Shift+Enter — soft newline instead of submit.
+			//
+			// xterm sends CR (\r, 0x0d) for Enter. A bare terminal has no way to
+			// distinguish Shift+Enter, so it sends CR for that too and the app
+			// submits — which is why multi-line input in the claude CLI (and
+			// other TUIs that accept it) doesn't work in an unconfigured
+			// terminal. Sending LF (\n, 0x0a) here gives the app a second,
+			// distinguishable key: readline-style consumers treat it as a
+			// literal newline in the buffer rather than end-of-input. This is
+			// the same distinction `/terminal-setup` configures in iTerm2 and
+			// VS Code.
+			//
+			// `term.input()` (not `pty.write()`) so this routes through the
+			// terminal's own onData path — that keeps it correct on the
+			// cache-hit remount, where the enclosing closure's `pty` may be a
+			// stale handle from a previous mount.
+			// `preventDefault()` is load-bearing and NOT implied by `return
+			// false`: returning false only tells xterm to skip its own
+			// processing — it leaves the browser's default action intact, so
+			// the keystroke still reached the textarea and xterm sent CR right
+			// behind our LF. The visible symptom was a newline appearing and
+			// the app submitting a frame later. Suppress the default so LF is
+			// the only thing that reaches the PTY.
+			if (e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey && e.key === 'Enter') {
+				e.preventDefault();
+				term.input('\n');
+				return false;
+			}
+
 			// Plain Ctrl+C on linux still goes to PTY (xterm default — SIGINT).
 			// No special handling needed; meta-only branch above is mac-only.
 			void meta;

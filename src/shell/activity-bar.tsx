@@ -185,16 +185,38 @@ export function ActivityBar() {
 		if (!stillInstalled) setActiveMode('app');
 	}, [pkgEntriesLoaded, pkgEntries, activeMode, setActiveMode]);
 
+	// Clicking the rail item that's ALREADY active collapses the sidebar, and
+	// clicking it again reopens it — the standard editor-rail affordance.
+	// Clicking a DIFFERENT item always switches mode and forces the sidebar
+	// open, so a collapsed sidebar can never swallow the click and leave the
+	// rail highlighted with nothing visible beside it.
+	//
+	// Returns true when the click was consumed as a pure toggle, so callers
+	// skip the mode-switch + navigation they'd otherwise do. Re-navigating on
+	// a collapse would yank the focused pane to the landing route as a side
+	// effect of what the user reads as "hide this panel".
+	function applyRailToggle(isAlreadyActive: boolean): boolean {
+		const { sidebarCollapsed, setSidebarCollapsed, toggleSidebar } = useShellStore.getState();
+		if (isAlreadyActive) {
+			toggleSidebar();
+			return true;
+		}
+		if (sidebarCollapsed) setSidebarCollapsed(false);
+		return false;
+	}
+
 	function handleSelectPkg(entry: PkgActivityBarEntry) {
 		// Each app pkg owns its own activity mode (`pkg:<id>`). Switch to it so
 		// the rail icon highlights and the sidebar renders the pkg's runtime
 		// menu (Sidebar branches on `isPkgMode`), then navigate the focused pane
 		// to the pkg route. App mode keeps its own main nav, untouched.
+		if (applyRailToggle(activeMode === `pkg:${entry.pkg_id}`)) return;
 		setActiveMode(`pkg:${entry.pkg_id}`);
 		usePaneStore.getState().navigateFocused(entry.route);
 	}
 
 	function handleSelectMode(mode: ActivityMode) {
+		if (applyRailToggle(activeMode === mode)) return;
 		setActiveMode(mode);
 		const landing = MODE_LANDING[mode];
 		if (landing) {

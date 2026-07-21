@@ -3,6 +3,12 @@ mark('boot:js-start');
 
 import './styles.css';
 import { isDetachedWindow } from '@/lib/window/window-context';
+import { installZoom } from '@/lib/window/zoom';
+
+// App zoom (⌘/⌃ +/-/0). Installed before either boot path so the persisted
+// level is applied while the first paint is still going up — restoring it
+// after React mounts makes every launch visibly re-flow.
+installZoom();
 
 // Single SPA entry, two boot paths (plans/multi-window WP-05, G-02 — same
 // entry + a lazy code-split, NOT a second Vite entry, which would hit Tauri
