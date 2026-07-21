@@ -23,10 +23,15 @@ export function useIykeShellSync(): void {
 	// navigation inside a pane updates `root` immutably via the reducer).
 	const focusedId = usePaneStore((s) => s.focusedId);
 	const root = usePaneStore((s) => s.root);
+	// Subscribed so a sidebar collapse/expand pushes immediately. Without
+	// this in the dep list the mirror would only catch up on the next
+	// unrelated mode/pane change, and `/iyke/state` would report a stale
+	// value right after `/iyke/sidebar` — the exact window a caller polls.
+	const sidebarCollapsed = useShellStore((s) => s.sidebarCollapsed);
 
 	useEffect(() => {
 		pushShellState();
-	}, [activeMode, focusedId, root]);
+	}, [activeMode, focusedId, root, sidebarCollapsed]);
 
 	// Re-push when a pkg iframe publishes state (selection etc.) so
 	// `iyke state` reflects it without waiting for a pane-tree mutation.
@@ -38,12 +43,12 @@ export function useIykeShellSync(): void {
 }
 
 function pushShellState(): void {
-	const activeMode = useShellStore.getState().activeMode;
+	const { activeMode, sidebarCollapsed } = useShellStore.getState();
 	const paneState = usePaneStore.getState();
 	const view = paneState.focusedView();
 	const route = view && view.kind === 'route' ? view.path : null;
 	const panes = buildPanesPayload(paneState.root, paneState.focusedId);
-	setShell({ mode: activeMode, route, panes }).catch((err) => {
+	setShell({ mode: activeMode, route, panes, sidebarCollapsed }).catch((err) => {
 		console.warn('[iyke] set_shell failed:', err);
 	});
 }

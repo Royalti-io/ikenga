@@ -54,10 +54,12 @@ export async function setShell(args: {
 	mode?: string | null;
 	route?: string | null;
 	panes?: unknown;
+	sidebarCollapsed?: boolean | null;
 }): Promise<void> {
 	return invoke('iyke_set_shell', {
 		mode: args.mode ?? null,
 		route: args.route ?? null,
 		panes: args.panes ?? null,
+		sidebarCollapsed: args.sidebarCollapsed ?? null,
 	});
 }

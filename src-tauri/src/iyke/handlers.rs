@@ -119,6 +119,10 @@ pub struct ShellInfo {
     /// `ikenga-desktop/src/lib/iyke/use-iyke-shell-sync.ts` for the
     /// schema (`{ leaves: [...], tree }`).
     pub panes: Option<Value>,
+    /// Sidebar collapsed state, mirrored from `shell-store`. `null` until the
+    /// FE has pushed once. Present so `/iyke/sidebar` is observable and not
+    /// just actuate-only.
+    pub sidebar_collapsed: Option<bool>,
 }
 
 pub async fn get_state(Extension(state): Extension<Arc<IykeState>>) -> Json<StateResponse> {
@@ -134,6 +138,7 @@ pub async fn get_state(Extension(state): Extension<Arc<IykeState>>) -> Json<Stat
             mode: shell.mode,
             route: shell.route,
             panes: shell.panes,
+            sidebar_collapsed: shell.sidebar_collapsed,
         },
     })
 }
@@ -208,7 +213,9 @@ pub async fn post_go(
     }
     // Update the Rust mirror eagerly so a follow-up GET /iyke/state sees
     // the new route even if the FE listener hasn't run yet.
-    state.set_shell(None, Some(body.path.clone()), None).await;
+    state
+        .set_shell(None, Some(body.path.clone()), None, None)
+        .await;
     emit(&app, "iyke:go", serde_json::json!({ "path": body.path }))?;
     Ok(ok())
 }
@@ -224,8 +231,45 @@ pub async fn post_mode(
             format!("invalid mode: {:?}", body.mode),
         ));
     }
-    state.set_shell(Some(body.mode.clone()), None, None).await;
+    state
+        .set_shell(Some(body.mode.clone()), None, None, None)
+        .await;
     emit(&app, "iyke:mode", serde_json::json!({ "mode": body.mode }))?;
+    Ok(ok())
+}
+
+#[derive(Deserialize)]
+pub struct SidebarBody {
+    /// `"toggle"` (default) | `"open"` | `"close"`.
+    #[serde(default)]
+    pub action: Option<String>,
+}
+
+/// `/iyke/sidebar` — collapse/expand the sidebar, the same state the ⌘B
+/// shortcut and an activity-bar re-click drive.
+///
+/// Unlike `/iyke/mode`, the Rust mirror is NOT updated eagerly here: for
+/// `toggle` the resulting value depends on the FE's current state, which
+/// Rust doesn't own. Writing a guess would make `/iyke/state` briefly
+/// disagree with the UI, and a caller polling right after a toggle would
+/// read the wrong value. The FE pushes the true value back through
+/// `iyke_set_shell` as soon as the store updates.
+pub async fn post_sidebar(
+    Extension(app): Extension<AppHandle>,
+    JsonBody(body): JsonBody<SidebarBody>,
+) -> Result<Json<OkResponse>, (StatusCode, String)> {
+    let action = body.action.as_deref().unwrap_or("toggle");
+    if !matches!(action, "toggle" | "open" | "close") {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            format!("invalid action: {action:?} (expected toggle | open | close)"),
+        ));
+    }
+    emit(
+        &app,
+        "iyke:sidebar",
+        serde_json::json!({ "action": action }),
+    )?;
     Ok(ok())
 }
 
@@ -1102,10 +1146,9 @@ pub struct ObaInstallLocalBody {
 pub async fn post_oba_install_local(
     JsonBody(body): JsonBody<ObaInstallLocalBody>,
 ) -> Result<Json<Value>, (StatusCode, String)> {
-    let entry =
-        crate::commands::claude_store::oba_install_local(body.kind, body.name, body.path)
-            .await
-            .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    let entry = crate::commands::claude_store::oba_install_local(body.kind, body.name, body.path)
+        .await
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     serde_json::to_value(&entry)
         .map(|v| Json(serde_json::json!({ "installed": v })))
         .map_err(|e| {

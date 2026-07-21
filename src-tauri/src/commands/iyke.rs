@@ -45,8 +45,12 @@ pub async fn iyke_set_shell(
     mode: Option<String>,
     route: Option<String>,
     panes: Option<Value>,
+    sidebar_collapsed: Option<bool>,
 ) -> Result<(), String> {
-    state.inner().set_shell(mode, route, panes).await;
+    state
+        .inner()
+        .set_shell(mode, route, panes, sidebar_collapsed)
+        .await;
     Ok(())
 }
 

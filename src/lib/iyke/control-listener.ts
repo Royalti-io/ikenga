@@ -34,6 +34,9 @@ interface GoPayload {
 interface ModePayload {
 	mode: string;
 }
+interface SidebarPayload {
+	action: 'toggle' | 'open' | 'close';
+}
 interface SplitPayload {
 	direction: 'horizontal' | 'vertical';
 	pane_id?: string | null;
@@ -101,6 +104,22 @@ export function useIykeControlListener(): void {
 					return;
 				}
 				useShellStore.getState().setActiveMode(mode as ActivityMode);
+			})
+		);
+
+		track(
+			listen<SidebarPayload>('iyke:sidebar', (e) => {
+				const action = e.payload?.action ?? 'toggle';
+				const store = useShellStore.getState();
+				if (action === 'toggle') {
+					store.toggleSidebar();
+				} else if (action === 'open') {
+					store.setSidebarCollapsed(false);
+				} else if (action === 'close') {
+					store.setSidebarCollapsed(true);
+				} else {
+					console.warn('[iyke] iyke:sidebar ignored — unknown action:', action);
+				}
 			})
 		);
 

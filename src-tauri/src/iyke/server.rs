@@ -40,13 +40,12 @@ use super::handlers::{
     get_terminal_read, post_click, post_close, post_devtools, post_focus, post_go,
     post_iframe_message, post_key, post_mode, post_oba_install_local, post_open,
     post_pkg_dev_register, post_pkg_dev_reload, post_pkg_dev_unregister, post_pkg_health_remove,
-    post_pkg_health_remove_all, post_pkg_health_scan, post_pkg_install,
-    post_pkg_scope_set, post_pkg_uninstall, post_refresh, post_resize, post_screenshot_pane,
-    post_screenshot_window, post_split, post_terminal_send, post_type, post_wait,
+    post_pkg_health_remove_all, post_pkg_health_scan, post_pkg_install, post_pkg_scope_set,
+    post_pkg_uninstall, post_refresh, post_resize, post_screenshot_pane, post_screenshot_window,
+    post_sidebar, post_split, post_terminal_send, post_type, post_wait,
 };
 use super::layout::{get_layout, post_layout_reset};
 use super::mcp::{get_mcp_list, post_mcp_restart};
-use super::pa_actions::post_pa_actions_pause;
 use super::memory::{
     get_kv_get, get_kv_list, get_lock_status, get_scratchpad_list, get_scratchpad_read,
     get_timer_list, get_todo_list, post_agent_register, post_kv_delete, post_kv_set,
@@ -54,6 +53,7 @@ use super::memory::{
     post_scratchpad_delete, post_scratchpad_write, post_timer_cancel, post_timer_schedule,
     post_todo_complete, post_todo_create, post_todo_update, TimerScheduler,
 };
+use super::pa_actions::post_pa_actions_pause;
 use super::permissions_audit::get_violations_list;
 use super::pkg_dispatch::pkg_dispatch;
 use super::projects::{
@@ -101,6 +101,7 @@ pub async fn serve(
         .route("/iyke/state", get(get_state))
         .route("/iyke/go", post(post_go))
         .route("/iyke/mode", post(post_mode))
+        .route("/iyke/sidebar", post(post_sidebar))
         .route("/iyke/open", post(post_open))
         .route("/iyke/split", post(post_split))
         .route("/iyke/focus", post(post_focus))
@@ -131,7 +132,10 @@ pub async fn serve(
         .route("/iyke/pkg/dev/reload", post(post_pkg_dev_reload))
         .route("/iyke/pkg/health/scan", post(post_pkg_health_scan))
         .route("/iyke/pkg/health/remove", post(post_pkg_health_remove))
-        .route("/iyke/pkg/health/remove-all", post(post_pkg_health_remove_all))
+        .route(
+            "/iyke/pkg/health/remove-all",
+            post(post_pkg_health_remove_all),
+        )
         .route("/iyke/iframe-state", get(get_iframe_state))
         .route("/iyke/iframe-message", post(post_iframe_message))
         // pkg-browser bridge (kernel-direct + eval).
@@ -141,7 +145,10 @@ pub async fn serve(
         // Attach picker data (chrome-only global queries — no pane).
         .route("/iyke/browser/profiles", get(get_browser_profiles))
         .route("/iyke/browser/targets", get(get_browser_targets))
-        .route("/iyke/browser/launch_profile", post(post_browser_launch_profile))
+        .route(
+            "/iyke/browser/launch_profile",
+            post(post_browser_launch_profile),
+        )
         .route("/iyke/browser/focus", post(post_browser_focus))
         .route("/iyke/browser/goto", post(post_browser_goto))
         .route("/iyke/browser/back", post(post_browser_back))
