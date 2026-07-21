@@ -178,6 +178,25 @@ pub fn run() {
     // just doesn't own the schema.
 
     tauri::Builder::default()
+        // MUST be first (documented ordering requirement): if a second launch
+        // is detected, this plugin runs its `.setup` before any later plugin
+        // initializes, forwards the new process's argv to us here, and exits
+        // the second process. Without it, double-clicking the launcher (or the
+        // updater relaunch racing a manual reopen) forks a whole second app —
+        // its own SQLite handle, iyke bridge, and pkg kernel — which then race
+        // the running instance on the shared `ikenga.db`. See the update-flow
+        // pileup this was added for. The `--screenshot` CLI intercept above
+        // exits before this Builder is constructed, so it never participates.
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            // A second launch means "show me the app" — always raise the main
+            // window (never hide, unlike the ⌘-summon toggle). Mirrors the
+            // summon handler's else-branch below.
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_fs::init())
