@@ -19,6 +19,15 @@ tauri-build = { version = "2", features = [] }
 # tauri 2.1 (PR #11616, Nov 2024) for the macOS WKWebView render path; the
 # feature flag remains the way to opt into the per-window child API.
 tauri = { version = "2.1", features = ["unstable", "devtools"] }
+# Focus the running window instead of forking a whole second app (own SQLite +
+# iyke bridge) when the launcher is double-clicked or the app is reopened while
+# running. Desktop-only (the crate is a no-op on android/ios, which we never
+# build). Session-D-Bus-based on Linux — fine for the .deb/AppImage bundles we
+# ship (only Snap/Flatpak sandboxes block D-Bus). MUST be registered first in
+# the Builder chain. NB the known single-instance↔updater relaunch race
+# (tauri#12310) is mitigated upstream by the RunEvent::Exit ordering fix
+# (tauri#12313); we rely on that rather than an app-level deferred-restart.
+tauri-plugin-single-instance = "2"
 tauri-plugin-sql = { version = "2", features = ["sqlite"] }
 tauri-plugin-stronghold = "2"
 tauri-plugin-fs = "2"
