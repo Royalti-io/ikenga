@@ -489,6 +489,15 @@ async fn ensure_schema(pool: &sqlx::SqlitePool) -> Result<(), String> {
             "0055_chrome_profiles",
             include_str!("../../migrations/0055_chrome_profiles.sql"),
         ),
+        // email_actions is the audit + undo log for server-side IMAP triage
+        // (royalti-pa/scripts/imap-triage.ts). email_triage_cursor carries
+        // resume state so a run interrupted partway through ~25k moves neither
+        // redoes nor skips work.
+        (
+            56,
+            "0056_email_actions",
+            include_str!("../../migrations/0056_email_actions.sql"),
+        ),
     ];
 
     for (id, name, sql) in migrations {
