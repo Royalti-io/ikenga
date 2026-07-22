@@ -35,8 +35,24 @@ CREATE TABLE IF NOT EXISTS email_actions (
   dry_run       INTEGER NOT NULL DEFAULT 0,
   applied_at    TEXT NOT NULL DEFAULT (datetime('now')),
   undone_at     TEXT,
-  undone_by     TEXT
+  undone_by     TEXT,
+
+  -- Tier-B proposal lifecycle. Tier-A rows are written straight as 'applied';
+  -- Tier-B rows land as 'proposed' and only execute once a human approves them,
+  -- which keeps proposals, approvals and executions in ONE audit trail rather
+  -- than splitting them across tables.
+  status        TEXT NOT NULL DEFAULT 'applied'
+                CHECK (status IN ('proposed','approved','rejected','applied')),
+  -- Proposals are made per sender-cluster, not per message, so hundreds of
+  -- messages approve in one action. `cluster` is the grouping key (a sender
+  -- domain today); `evidence` carries the counts that justified the proposal
+  -- so the reviewer can see WHY without re-deriving it.
+  cluster       TEXT,
+  evidence      TEXT
 );
+
+CREATE INDEX IF NOT EXISTS idx_email_actions_status
+  ON email_actions (status, account);
 
 -- Undo path: find everything a run moved, still un-undone.
 CREATE INDEX IF NOT EXISTS idx_email_actions_run
