@@ -466,6 +466,12 @@ impl PtyManager {
         Ok(id)
     }
 
+    pub fn read_scrollback(&self, id: &str) -> Option<(Vec<u8>, u64)> {
+        let session = self.sessions.get(id)?.clone();
+        let state = session.emit.lock().ok()?;
+        Some(state.ring.snapshot())
+    }
+
     pub fn write(&self, id: &str, data: &[u8]) -> Result<()> {
         let session = self
             .sessions
@@ -695,6 +701,9 @@ mod tests {
 
         // Let real output accumulate so the ring is non-trivial.
         tokio::time::sleep(Duration::from_millis(200)).await;
+        let (direct_snapshot, direct_end) = mgr.read_scrollback(&id).expect("session is live");
+        assert!(!direct_snapshot.is_empty());
+        assert!(direct_end >= direct_snapshot.len() as u64);
 
         // Negative control mark: where a listener registered BEFORE the
         // snapshot would start receiving (the pre-T-1 ordering).

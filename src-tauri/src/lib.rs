@@ -228,7 +228,7 @@ pub fn run() {
             })
             .build(),
         )
-        .manage(pty_manager)
+        .manage(pty_manager.clone())
         .manage(fs_watch_manager)
         .manage(viewer_manager)
         .manage(sessions_manager)
@@ -378,6 +378,7 @@ pub fn run() {
             let webview_panes_for_start = webview_panes_reg.clone();
             let playwright_proxy_for_start = playwright_proxy.clone();
             let pa_db_for_iyke = pa_db.clone();
+            let pty_manager_for_iyke = pty_manager.clone();
             let app_handle_for_iyke = app.handle().clone();
             let pending_for_iyke = screenshot_pending.clone();
             let iyke_routes_for_start = iyke_routes_reg.clone();
@@ -390,6 +391,7 @@ pub fn run() {
                     webview_panes_for_start,
                     playwright_proxy_for_start,
                     pa_db_for_iyke,
+                    pty_manager_for_iyke,
                     control_path,
                     app_handle_for_iyke,
                     pending_for_iyke,

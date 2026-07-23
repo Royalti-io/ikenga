@@ -168,6 +168,14 @@ pub struct ScopeOnlyQuery {
     pub scope: Option<String>,
 }
 
+#[derive(Deserialize)]
+pub struct ScratchpadWatchQuery {
+    pub scope: Option<String>,
+    pub name: String,
+    #[serde(default)]
+    pub since: i64,
+}
+
 #[derive(Serialize)]
 struct ScratchpadInfo {
     id: String,
@@ -178,6 +186,7 @@ struct ScratchpadInfo {
 
 pub async fn post_scratchpad_write(
     Extension(db): Extension<Arc<PaDb>>,
+    Extension(app): Extension<AppHandle>,
     Json(body): Json<ScratchpadWriteBody>,
 ) -> Result<Json<Value>, (StatusCode, String)> {
     if body.body.len() > MAX_SCRATCHPAD_BYTES {
@@ -199,7 +208,7 @@ pub async fn post_scratchpad_write(
          VALUES (?, ?, ?, ?, ?, ?)
          ON CONFLICT(scope, name) DO UPDATE SET
              body = excluded.body,
-             updated_at = excluded.updated_at",
+             updated_at = MAX(iyke_scratchpads.updated_at + 1, excluded.updated_at)",
     )
     .bind(&id)
     .bind(&scope)
@@ -215,8 +224,8 @@ pub async fn post_scratchpad_write(
             format!("scratchpad write: {e}"),
         )
     })?;
-    let final_id: String =
-        sqlx::query_scalar("SELECT id FROM iyke_scratchpads WHERE scope = ? AND name = ?")
+    let (final_id, updated_at): (String, i64) =
+        sqlx::query_as("SELECT id, updated_at FROM iyke_scratchpads WHERE scope = ? AND name = ?")
             .bind(&scope)
             .bind(&body.name)
             .fetch_one(&pool)
@@ -227,13 +236,18 @@ pub async fn post_scratchpad_write(
                     format!("scratchpad lookup: {e}"),
                 )
             })?;
+    let _ = app.emit(
+        "iyke://scratchpad-changed",
+        json!({ "scope": scope, "name": body.name, "action": "write", "updated_at": updated_at }),
+    );
     Ok(Json(
-        json!({ "id": final_id, "scope": scope, "updated_at": now }),
+        json!({ "id": final_id, "scope": scope, "updated_at": updated_at }),
     ))
 }
 
 pub async fn post_scratchpad_append(
     Extension(db): Extension<Arc<PaDb>>,
+    Extension(app): Extension<AppHandle>,
     Json(body): Json<ScratchpadAppendBody>,
 ) -> Result<Json<Value>, (StatusCode, String)> {
     let pool = db
@@ -243,63 +257,54 @@ pub async fn post_scratchpad_append(
     validate_name(&body.name)?;
     let scope = resolve_scope(&pool, body.scope).await?;
 
-    let existing: Option<(String, String)> =
-        sqlx::query_as("SELECT id, body FROM iyke_scratchpads WHERE scope = ? AND name = ?")
-            .bind(&scope)
-            .bind(&body.name)
-            .fetch_optional(&pool)
-            .await
-            .map_err(|e| {
-                err(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("scratchpad lookup: {e}"),
-                )
-            })?;
-
+    if body.body.len() > MAX_SCRATCHPAD_BYTES {
+        return Err(err(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "body > 1 MB".to_string(),
+        ));
+    }
     let now = now_ms();
     let separator = if body.with_separator {
         format!("\n\n---\n_{}_\n\n", chrono_like(now))
     } else {
         String::new()
     };
-
-    let (id, new_body) = match existing {
-        Some((id, prev)) => {
-            let combined = format!("{prev}{separator}{}", body.body);
-            if combined.len() > MAX_SCRATCHPAD_BYTES {
-                return Err(err(
-                    StatusCode::PAYLOAD_TOO_LARGE,
-                    "combined body > 1 MB".to_string(),
-                ));
-            }
-            (id, combined)
-        }
-        None => {
-            if body.body.len() > MAX_SCRATCHPAD_BYTES {
-                return Err(err(
-                    StatusCode::PAYLOAD_TOO_LARGE,
-                    "body > 1 MB".to_string(),
-                ));
-            }
-            (Uuid::new_v4().to_string(), body.body.clone())
-        }
-    };
-
-    sqlx::query(
+    let append_body = format!("{separator}{}", body.body);
+    let id = Uuid::new_v4().to_string();
+    let result: Option<(String, i64)> = sqlx::query_as(
         "INSERT INTO iyke_scratchpads (id, scope, name, body, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?)
-         ON CONFLICT(scope, name) DO UPDATE SET body = excluded.body, updated_at = excluded.updated_at",
+         ON CONFLICT(scope, name) DO UPDATE SET
+             body = iyke_scratchpads.body || ?,
+             updated_at = MAX(iyke_scratchpads.updated_at + 1, excluded.updated_at)
+         WHERE length(CAST(iyke_scratchpads.body AS BLOB)) + ? <= ?
+         RETURNING id, updated_at",
     )
     .bind(&id)
     .bind(&scope)
     .bind(&body.name)
-    .bind(&new_body)
+    .bind(&body.body)
     .bind(now)
     .bind(now)
-    .execute(&pool)
+    .bind(&append_body)
+    .bind(append_body.len() as i64)
+    .bind(MAX_SCRATCHPAD_BYTES as i64)
+    .fetch_optional(&pool)
     .await
     .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("scratchpad append: {e}")))?;
-    Ok(Json(json!({ "id": id, "scope": scope, "updated_at": now })))
+    let Some((final_id, updated_at)) = result else {
+        return Err(err(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "combined body > 1 MB".to_string(),
+        ));
+    };
+    let _ = app.emit(
+        "iyke://scratchpad-changed",
+        json!({ "scope": scope, "name": body.name, "action": "append", "updated_at": updated_at }),
+    );
+    Ok(Json(
+        json!({ "id": final_id, "scope": scope, "updated_at": updated_at }),
+    ))
 }
 
 fn chrono_like(unix_ms: i64) -> String {
@@ -345,6 +350,43 @@ pub async fn get_scratchpad_read(
     }
 }
 
+pub async fn get_scratchpad_watch(
+    Extension(db): Extension<Arc<PaDb>>,
+    Query(q): Query<ScratchpadWatchQuery>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let pool = db
+        .ensure_pool()
+        .await
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    validate_name(&q.name)?;
+    let scope = resolve_scope(&pool, q.scope).await?;
+    let row: Option<(String, String, i64)> = sqlx::query_as(
+        "SELECT id, body, updated_at FROM iyke_scratchpads WHERE scope = ? AND name = ? AND updated_at > ?",
+    )
+    .bind(&scope)
+    .bind(&q.name)
+    .bind(q.since)
+    .fetch_optional(&pool)
+    .await
+    .map_err(|e| {
+        err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("scratchpad watch: {e}"),
+        )
+    })?;
+    match row {
+        Some((id, body, updated_at)) => Ok(Json(json!({
+            "updated": true,
+            "id": id,
+            "scope": scope,
+            "name": q.name,
+            "body": body,
+            "updated_at": updated_at
+        }))),
+        None => Ok(Json(json!({ "updated": false }))),
+    }
+}
+
 pub async fn get_scratchpad_list(
     Extension(db): Extension<Arc<PaDb>>,
     Query(q): Query<ScopeOnlyQuery>,
@@ -385,6 +427,7 @@ pub struct ScratchpadDeleteBody {
 
 pub async fn post_scratchpad_delete(
     Extension(db): Extension<Arc<PaDb>>,
+    Extension(app): Extension<AppHandle>,
     Json(body): Json<ScratchpadDeleteBody>,
 ) -> Result<Json<Value>, (StatusCode, String)> {
     let pool = db
@@ -403,6 +446,10 @@ pub async fn post_scratchpad_delete(
                 format!("scratchpad delete: {e}"),
             )
         })?;
+    let _ = app.emit(
+        "iyke://scratchpad-changed",
+        json!({ "scope": scope, "name": body.name, "action": "delete" }),
+    );
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -1539,6 +1586,50 @@ mod tests {
         let second = fire_due_timer(&pool, None).await;
         assert_eq!(first.as_deref(), Some("t4"));
         assert!(second.is_none());
+    }
+
+    #[tokio::test]
+    async fn scratchpad_watch_returns_only_newer_content() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = Arc::new(PaDb::new(dir.path().join("watch.db")));
+        let pool = db.ensure_pool().await.unwrap();
+        sqlx::query(
+            "INSERT INTO iyke_scratchpads (id, scope, name, body, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+        )
+        .bind("scratch-1")
+        .bind("project:test")
+        .bind("handoff")
+        .bind("ready")
+        .bind(100_i64)
+        .bind(200_i64)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let Json(updated) = get_scratchpad_watch(
+            Extension(db.clone()),
+            Query(ScratchpadWatchQuery {
+                scope: Some("project:test".into()),
+                name: "handoff".into(),
+                since: 199,
+            }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(updated.get("updated").and_then(Value::as_bool), Some(true));
+        assert_eq!(updated.get("body").and_then(Value::as_str), Some("ready"));
+
+        let Json(unchanged) = get_scratchpad_watch(
+            Extension(db),
+            Query(ScratchpadWatchQuery {
+                scope: Some("project:test".into()),
+                name: "handoff".into(),
+                since: 200,
+            }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(unchanged, json!({ "updated": false }));
     }
 
     #[test]
