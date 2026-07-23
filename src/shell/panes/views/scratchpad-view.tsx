@@ -5,7 +5,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 
-import { readScratchpad, writeScratchpad } from '@/lib/iyke/memory';
+import { listenScratchpadChanges, readScratchpad, writeScratchpad } from '@/lib/iyke/memory';
 
 interface ScratchpadViewProps {
 	scope: string;
@@ -52,6 +52,33 @@ export function ScratchpadView({ scope, name }: ScratchpadViewProps) {
 				window.clearTimeout(saveTimerRef.current);
 				saveTimerRef.current = null;
 			}
+		};
+	}, [scope, name]);
+
+	useEffect(() => {
+		let unlisten: (() => void) | undefined;
+		let cancelled = false;
+		void listenScratchpadChanges((event) => {
+			if (event.scope !== scope || event.name !== name || saveTimerRef.current !== null) return;
+			if (event.action === 'delete') {
+				setBody('');
+				lastSavedRef.current = '';
+				setStatus('not_found');
+				return;
+			}
+			void readScratchpad(name, scope).then((res) => {
+				if (cancelled || !res || saveTimerRef.current !== null) return;
+				setBody(res.body);
+				lastSavedRef.current = res.body;
+				setStatus('loaded');
+			});
+		}).then((fn) => {
+			if (cancelled) fn();
+			else unlisten = fn;
+		});
+		return () => {
+			cancelled = true;
+			unlisten?.();
 		};
 	}, [scope, name]);
 

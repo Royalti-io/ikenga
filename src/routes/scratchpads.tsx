@@ -3,18 +3,23 @@
 // focused pane. New-scratchpad composer creates an empty entry and
 // switches to it.
 
-import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { createFileRoute } from '@tanstack/react-router';
 import { Plus, Trash2 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { deleteScratchpad, listScratchpads, writeScratchpad } from '@/lib/iyke/memory';
+import {
+	deleteScratchpad,
+	listenScratchpadChanges,
+	listScratchpads,
+	writeScratchpad,
+} from '@/lib/iyke/memory';
 import { usePaneStore } from '@/lib/panes/pane-store';
 import { useShellStore } from '@/lib/shell/shell-store';
 
-const SLUG_RE = /^[A-Za-z0-9][A-Za-z0-9_.\-]{0,119}$/;
+const SLUG_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,119}$/;
 
 function ScratchpadsPage() {
 	const activeProjectId = useShellStore((s) => s.activeProjectId);
@@ -22,6 +27,23 @@ function ScratchpadsPage() {
 	const qc = useQueryClient();
 	const [composer, setComposer] = useState('');
 	const [composerError, setComposerError] = useState<string | null>(null);
+
+	useEffect(() => {
+		let unlisten: (() => void) | undefined;
+		let cancelled = false;
+		void listenScratchpadChanges((event) => {
+			if (event.scope === scope) {
+				void qc.invalidateQueries({ queryKey: ['project-scoped', 'scratchpads', scope] });
+			}
+		}).then((fn) => {
+			if (cancelled) fn();
+			else unlisten = fn;
+		});
+		return () => {
+			cancelled = true;
+			unlisten?.();
+		};
+	}, [qc, scope]);
 
 	const list = useQuery({
 		queryKey: ['project-scoped', 'scratchpads', scope],

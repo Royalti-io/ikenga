@@ -25,6 +25,7 @@ use tauri::{AppHandle, Emitter, LogicalSize, Manager};
 use super::rpc;
 use super::state::{IykeState, LogEntry, NetworkEntry};
 use super::IykeRpc;
+use crate::pty::PtyManager;
 
 const DOM_TIMEOUT: Duration = Duration::from_secs(5);
 const QUERY_CACHE_TIMEOUT: Duration = Duration::from_secs(5);
@@ -582,6 +583,8 @@ pub struct TerminalReadQuery {
     /// Pane id. Defaults to the focused pane on the FE side.
     #[serde(default)]
     pub pane: Option<String>,
+    #[serde(default)]
+    pub session: Option<String>,
     /// Tail size in bytes. None → return the whole buffer (cap is per-session,
     /// 256 KiB by default). 0 is treated as "all".
     #[serde(default)]
@@ -595,8 +598,37 @@ pub struct TerminalReadQuery {
 pub async fn get_terminal_read(
     Extension(app): Extension<AppHandle>,
     Extension(rpc): Extension<IykeRpc>,
+    Extension(pty_manager): Extension<Arc<PtyManager>>,
     Query(q): Query<TerminalReadQuery>,
 ) -> Result<Json<TerminalReadResult>, (StatusCode, String)> {
+    if let Some(session) = q.session.as_deref() {
+        let Some((buffer, _end_offset)) = pty_manager.read_scrollback(session) else {
+            return Ok(Json(TerminalReadResult {
+                text: String::new(),
+                bytes_available: 0,
+                bytes_returned: 0,
+                session_id: Some(session.to_string()),
+                error: Some("no live PTY for session".to_string()),
+            }));
+        };
+        let bytes_available = buffer.len();
+        let tail_bytes = q.bytes.filter(|bytes| *bytes > 0).unwrap_or(bytes_available);
+        let start = bytes_available.saturating_sub(tail_bytes);
+        let slice = &buffer[start..];
+        let bytes_returned = slice.len();
+        let decoded = if q.raw {
+            String::from_utf8_lossy(slice).into_owned()
+        } else {
+            String::from_utf8_lossy(&strip_ansi_escapes::strip(slice)).into_owned()
+        };
+        return Ok(Json(TerminalReadResult {
+            text: decoded,
+            bytes_available,
+            bytes_returned,
+            session_id: Some(session.to_string()),
+            error: None,
+        }));
+    }
     let pane = q.pane.clone();
     let bytes = q.bytes;
     let raw = q.raw;
@@ -808,6 +840,8 @@ pub struct TerminalSendBody {
     /// side. The active tab on the resolved pane must be `kind: 'terminal'`.
     #[serde(default)]
     pub pane: Option<String>,
+    #[serde(default)]
+    pub session: Option<String>,
     /// Raw text to write to the PTY. Written before any keys.
     #[serde(default)]
     pub data: Option<String>,
@@ -820,6 +854,7 @@ pub struct TerminalSendBody {
 
 pub async fn post_terminal_send(
     Extension(app): Extension<AppHandle>,
+    Extension(pty_manager): Extension<Arc<PtyManager>>,
     JsonBody(body): JsonBody<TerminalSendBody>,
 ) -> Result<Json<OkResponse>, (StatusCode, String)> {
     if body.data.is_none() && body.keys.is_empty() {
@@ -827,6 +862,23 @@ pub async fn post_terminal_send(
             StatusCode::BAD_REQUEST,
             "must set at least one of: data, keys".into(),
         ));
+    }
+    if let Some(session) = body.session.as_deref() {
+        let mut data = body.data.as_deref().unwrap_or_default().as_bytes().to_vec();
+        for key in &body.keys {
+            if let Some(bytes) = terminal_key_bytes(key) {
+                data.extend(bytes);
+            }
+        }
+        if !data.is_empty() {
+            pty_manager.write(session, &data).map_err(|e| {
+                (
+                    StatusCode::NOT_FOUND,
+                    format!("terminal session {session}: {e}"),
+                )
+            })?;
+        }
+        return Ok(ok());
     }
     emit(
         &app,
@@ -838,6 +890,89 @@ pub async fn post_terminal_send(
         }),
     )?;
     Ok(ok())
+}
+
+fn terminal_key_bytes(combo: &str) -> Option<Vec<u8>> {
+    let mut key = String::new();
+    let mut ctrl = false;
+    let mut alt = false;
+    let mut meta = false;
+    for part in combo.split(['+', ',']).map(str::trim).filter(|part| !part.is_empty()) {
+        match part.to_ascii_lowercase().as_str() {
+            "ctrl" | "control" => ctrl = true,
+            "alt" | "option" => alt = true,
+            "shift" => {}
+            "meta" | "cmd" | "command" | "super" => meta = true,
+            "enter" => key = "Enter".to_string(),
+            "esc" | "escape" => key = "Escape".to_string(),
+            "tab" => key = "Tab".to_string(),
+            "space" => key = " ".to_string(),
+            "up" => key = "ArrowUp".to_string(),
+            "down" => key = "ArrowDown".to_string(),
+            "left" => key = "ArrowLeft".to_string(),
+            "right" => key = "ArrowRight".to_string(),
+            "backspace" => key = "Backspace".to_string(),
+            "delete" => key = "Delete".to_string(),
+            "home" => key = "Home".to_string(),
+            "end" => key = "End".to_string(),
+            _ => key = part.to_string(),
+        }
+    }
+    if ctrl && !alt && !meta && key.len() == 1 {
+        let code = key.as_bytes()[0].to_ascii_uppercase();
+        if (64..=95).contains(&code) {
+            return Some(vec![code - 64]);
+        }
+    }
+    let alt_prefix = if alt { b"\x1b".as_slice() } else { b"".as_slice() };
+    let sequence: &[u8] = match key.as_str() {
+        "Enter" => b"\r",
+        "Tab" => b"\t",
+        "Escape" => b"\x1b",
+        "Backspace" => b"\x7f",
+        " " => b" ",
+        "ArrowUp" => b"\x1b[A",
+        "ArrowDown" => b"\x1b[B",
+        "ArrowRight" => b"\x1b[C",
+        "ArrowLeft" => b"\x1b[D",
+        "Home" => b"\x1b[H",
+        "End" => b"\x1b[F",
+        "Delete" => b"\x1b[3~",
+        "PageUp" => b"\x1b[5~",
+        "PageDown" => b"\x1b[6~",
+        _ => {
+            if let Some(number) = key.strip_prefix('F').or_else(|| key.strip_prefix('f')) {
+                match number.parse::<u8>().ok()? {
+                    1 => b"\x1bOP",
+                    2 => b"\x1bOQ",
+                    3 => b"\x1bOR",
+                    4 => b"\x1bOS",
+                    5 => b"\x1b[15~",
+                    6 => b"\x1b[17~",
+                    7 => b"\x1b[18~",
+                    8 => b"\x1b[19~",
+                    9 => b"\x1b[20~",
+                    10 => b"\x1b[21~",
+                    11 => b"\x1b[23~",
+                    12 => b"\x1b[24~",
+                    _ => return None,
+                }
+            } else if key.chars().count() == 1 && !ctrl && !meta {
+                let mut bytes = alt_prefix.to_vec();
+                bytes.extend(key.as_bytes());
+                return Some(bytes);
+            } else {
+                return None;
+            }
+        }
+    };
+    let mut bytes = if alt && !sequence.starts_with(b"\x1b") {
+        alt_prefix.to_vec()
+    } else {
+        Vec::new()
+    };
+    bytes.extend(sequence);
+    Some(bytes)
 }
 
 fn require_one_target(
@@ -1470,4 +1605,19 @@ fn is_valid_mode(m: &str) -> bool {
         m,
         "app" | "files" | "sessions" | "artifact-grid" | "ngwa" | "pkgs" | "settings"
     ) || m.starts_with("pkg:")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::terminal_key_bytes;
+
+    #[test]
+    fn terminal_key_translation_matches_frontend_sequences() {
+        assert_eq!(terminal_key_bytes("Enter").unwrap(), b"\r");
+        assert_eq!(terminal_key_bytes("Ctrl+C").unwrap(), b"\x03");
+        assert_eq!(terminal_key_bytes("Up").unwrap(), b"\x1b[A");
+        assert_eq!(terminal_key_bytes("F12").unwrap(), b"\x1b[24~");
+        assert_eq!(terminal_key_bytes("Alt+x").unwrap(), b"\x1bx");
+        assert_eq!(terminal_key_bytes("Meta+Enter").unwrap(), b"\r");
+    }
 }
