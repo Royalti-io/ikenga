@@ -31,6 +31,7 @@ pub mod secrets;
 pub mod server;
 pub mod sessions;
 pub mod state;
+pub mod terminal;
 pub mod trust;
 
 use std::path::{Path, PathBuf};

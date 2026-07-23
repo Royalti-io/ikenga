@@ -48,18 +48,26 @@ pub struct DomResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TerminalReadResult {
-    /// Captured PTY bytes (UTF-8 decoded). When `raw` is false the
-    /// FE strips ANSI/VT escapes first.
     pub text: String,
-    /// Number of bytes available in the ring buffer for this session
-    /// (may be ≥ `text.len()` if non-UTF-8 bytes were dropped during decode).
     pub bytes_available: usize,
-    /// Number of bytes returned in `text` *before* ANSI stripping.
     pub bytes_returned: usize,
-    /// Session id resolved from the pane (FE → registry lookup).
     pub session_id: Option<String>,
-    /// Set when the requested pane has no terminal tab or no live PTY.
-    /// `text` is empty in that case.
+    #[serde(default)]
+    pub terminal_id: Option<String>,
+    #[serde(default)]
+    pub pty_id: Option<String>,
+    #[serde(default)]
+    pub start_offset: u64,
+    #[serde(default)]
+    pub end_offset: u64,
+    #[serde(default)]
+    pub available_start_offset: u64,
+    #[serde(default)]
+    pub truncated: bool,
+    #[serde(default)]
+    pub exited: bool,
+    #[serde(default)]
+    pub exit_code: Option<i32>,
     pub error: Option<String>,
 }
 
@@ -102,6 +110,8 @@ pub struct StateResponse {
     pub schema_version: u32,
     pub app: AppInfo,
     pub shell: ShellInfo,
+    pub terminals: Vec<crate::pty::TerminalDescriptor>,
+    pub windows: Vec<super::terminal::IykeWindowInfo>,
 }
 
 #[derive(Serialize)]
@@ -126,8 +136,32 @@ pub struct ShellInfo {
     pub sidebar_collapsed: Option<bool>,
 }
 
-pub async fn get_state(Extension(state): Extension<Arc<IykeState>>) -> Json<StateResponse> {
+pub async fn get_state(
+    Extension(state): Extension<Arc<IykeState>>,
+    Extension(app): Extension<AppHandle>,
+    Extension(pty_manager): Extension<Arc<PtyManager>>,
+) -> Json<StateResponse> {
     let shell = state.snapshot().await;
+    let registry = app.state::<crate::window::registry::WindowRegistry>();
+    let mut windows = vec![super::terminal::IykeWindowInfo::from_descriptor(
+        crate::window::descriptor::WindowDescriptor {
+            label: "main".to_string(),
+            kind: crate::window::descriptor::WindowKind::Primary,
+            surface_set: Vec::new(),
+            project_id: None,
+            layout_key: "main".to_string(),
+        },
+        shell.panes.clone(),
+    )];
+    let detached_windows = registry.list_live(&app);
+    windows.extend(
+        detached_windows
+            .iter()
+            .cloned()
+            .map(|descriptor| super::terminal::IykeWindowInfo::from_descriptor(descriptor, None)),
+    );
+    let mut terminals = pty_manager.list_terminals();
+    super::terminal::enrich_terminals(&mut terminals, shell.panes.as_ref(), &detached_windows);
     Json(StateResponse {
         schema_version: 1,
         app: AppInfo {
@@ -141,6 +175,8 @@ pub async fn get_state(Extension(state): Extension<Arc<IykeState>>) -> Json<Stat
             panes: shell.panes,
             sidebar_collapsed: shell.sidebar_collapsed,
         },
+        terminals,
+        windows,
     })
 }
 
@@ -578,6 +614,27 @@ pub async fn get_query_cache(
 
 const TERMINAL_READ_TIMEOUT: Duration = Duration::from_secs(5);
 
+fn terminal_target_from_panes(panes: Option<&Value>, pane: Option<&str>) -> Option<String> {
+    let leaves = panes?.get("leaves")?.as_array()?;
+    let leaf = match pane {
+        Some(id) if id != "shell" => leaves
+            .iter()
+            .find(|leaf| leaf.get("id").and_then(Value::as_str) == Some(id))?,
+        _ => leaves
+            .iter()
+            .find(|leaf| leaf.get("focused").and_then(Value::as_bool) == Some(true))?,
+    };
+    let active = leaf.get("activeTabIdx")?.as_u64()? as usize;
+    let tab = leaf.get("tabs")?.as_array()?.get(active)?;
+    if tab.get("kind")?.as_str()? != "terminal" {
+        return None;
+    }
+    tab.get("ptyId")
+        .and_then(Value::as_str)
+        .or_else(|| tab.get("terminalId").and_then(Value::as_str))
+        .map(str::to_string)
+}
+
 #[derive(Deserialize)]
 pub struct TerminalReadQuery {
     /// Pane id. Defaults to the focused pane on the FE side.
@@ -585,6 +642,14 @@ pub struct TerminalReadQuery {
     pub pane: Option<String>,
     #[serde(default)]
     pub session: Option<String>,
+    #[serde(default)]
+    pub terminal: Option<String>,
+    #[serde(default)]
+    pub label: Option<String>,
+    #[serde(default)]
+    pub after: Option<u64>,
+    #[serde(default)]
+    pub mode: Option<String>,
     /// Tail size in bytes. None → return the whole buffer (cap is per-session,
     /// 256 KiB by default). 0 is treated as "all".
     #[serde(default)]
@@ -598,34 +663,83 @@ pub struct TerminalReadQuery {
 pub async fn get_terminal_read(
     Extension(app): Extension<AppHandle>,
     Extension(rpc): Extension<IykeRpc>,
+    Extension(state): Extension<Arc<IykeState>>,
     Extension(pty_manager): Extension<Arc<PtyManager>>,
     Query(q): Query<TerminalReadQuery>,
 ) -> Result<Json<TerminalReadResult>, (StatusCode, String)> {
-    if let Some(session) = q.session.as_deref() {
-        let Some((buffer, _end_offset)) = pty_manager.read_scrollback(session) else {
+    let direct_targets = [
+        q.terminal.as_deref(),
+        q.label.as_deref(),
+        q.session.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>();
+    if direct_targets.len() > 1 || (!direct_targets.is_empty() && q.pane.is_some()) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "set only one of: pane, terminal, label, session".into(),
+        ));
+    }
+    let pane_target = if direct_targets.is_empty() {
+        terminal_target_from_panes(state.snapshot().await.panes.as_ref(), q.pane.as_deref())
+    } else {
+        None
+    };
+    if let Some(target) = direct_targets.first().copied().or(pane_target.as_deref()) {
+        let pty_id = pty_manager
+            .resolve_id(target)
+            .map_err(|error| (StatusCode::NOT_FOUND, error.to_string()))?;
+        let descriptor = pty_manager
+            .list_terminals()
+            .into_iter()
+            .find(|terminal| terminal.pty_id == pty_id)
+            .ok_or((StatusCode::NOT_FOUND, "terminal not found".to_string()))?;
+        if q.mode.as_deref() == Some("screen") {
+            let text = pty_manager
+                .screen_text(&pty_id)
+                .map_err(|error| (StatusCode::NOT_FOUND, error.to_string()))?;
             return Ok(Json(TerminalReadResult {
-                text: String::new(),
-                bytes_available: 0,
-                bytes_returned: 0,
-                session_id: Some(session.to_string()),
-                error: Some("no live PTY for session".to_string()),
+                bytes_available: text.len(),
+                bytes_returned: text.len(),
+                text,
+                session_id: Some(descriptor.terminal_id.clone()),
+                terminal_id: Some(descriptor.terminal_id),
+                pty_id: Some(pty_id),
+                start_offset: descriptor.output_start_offset,
+                end_offset: descriptor.output_end_offset,
+                available_start_offset: descriptor.output_start_offset,
+                truncated: false,
+                exited: descriptor.status == "exited",
+                exit_code: descriptor.exit_code,
+                error: None,
             }));
-        };
-        let bytes_available = buffer.len();
-        let tail_bytes = q.bytes.filter(|bytes| *bytes > 0).unwrap_or(bytes_available);
-        let start = bytes_available.saturating_sub(tail_bytes);
-        let slice = &buffer[start..];
-        let bytes_returned = slice.len();
+        }
+        let (snapshot, exited, exit_code) = pty_manager
+            .read_output(&pty_id, q.after, q.bytes)
+            .map_err(|error| (StatusCode::NOT_FOUND, error.to_string()))?;
+        let bytes_returned = snapshot.data.len();
         let decoded = if q.raw {
-            String::from_utf8_lossy(slice).into_owned()
+            String::from_utf8_lossy(&snapshot.data).into_owned()
         } else {
-            String::from_utf8_lossy(&strip_ansi_escapes::strip(slice)).into_owned()
+            String::from_utf8_lossy(&strip_ansi_escapes::strip(&snapshot.data)).into_owned()
         };
         return Ok(Json(TerminalReadResult {
             text: decoded,
-            bytes_available,
+            bytes_available: descriptor
+                .output_end_offset
+                .saturating_sub(descriptor.output_start_offset)
+                as usize,
             bytes_returned,
-            session_id: Some(session.to_string()),
+            session_id: Some(descriptor.terminal_id.clone()),
+            terminal_id: Some(descriptor.terminal_id),
+            pty_id: Some(pty_id),
+            start_offset: snapshot.start_offset,
+            end_offset: snapshot.end_offset,
+            available_start_offset: snapshot.available_start_offset,
+            truncated: snapshot.truncated,
+            exited,
+            exit_code,
             error: None,
         }));
     }
@@ -842,6 +956,18 @@ pub struct TerminalSendBody {
     pub pane: Option<String>,
     #[serde(default)]
     pub session: Option<String>,
+    #[serde(default)]
+    pub terminal: Option<String>,
+    #[serde(default)]
+    pub label: Option<String>,
+    #[serde(default)]
+    pub expected_pty_id: Option<String>,
+    #[serde(default)]
+    pub actor: Option<String>,
+    #[serde(default)]
+    pub lease_token: Option<String>,
+    #[serde(default)]
+    pub dry_run: bool,
     /// Raw text to write to the PTY. Written before any keys.
     #[serde(default)]
     pub data: Option<String>,
@@ -854,42 +980,98 @@ pub struct TerminalSendBody {
 
 pub async fn post_terminal_send(
     Extension(app): Extension<AppHandle>,
+    Extension(rpc): Extension<IykeRpc>,
+    Extension(state): Extension<Arc<IykeState>>,
     Extension(pty_manager): Extension<Arc<PtyManager>>,
     JsonBody(body): JsonBody<TerminalSendBody>,
-) -> Result<Json<OkResponse>, (StatusCode, String)> {
+) -> Result<Json<Value>, (StatusCode, String)> {
     if body.data.is_none() && body.keys.is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
             "must set at least one of: data, keys".into(),
         ));
     }
-    if let Some(session) = body.session.as_deref() {
-        let mut data = body.data.as_deref().unwrap_or_default().as_bytes().to_vec();
-        for key in &body.keys {
-            if let Some(bytes) = terminal_key_bytes(key) {
-                data.extend(bytes);
-            }
-        }
-        if !data.is_empty() {
-            pty_manager.write(session, &data).map_err(|e| {
-                (
-                    StatusCode::NOT_FOUND,
-                    format!("terminal session {session}: {e}"),
-                )
-            })?;
-        }
-        return Ok(ok());
+    let direct_targets = [
+        body.terminal.as_deref(),
+        body.label.as_deref(),
+        body.session.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>();
+    if direct_targets.len() > 1 || (!direct_targets.is_empty() && body.pane.is_some()) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "set only one of: pane, terminal, label, session".into(),
+        ));
     }
-    emit(
+    let mut data = body.data.as_deref().unwrap_or_default().as_bytes().to_vec();
+    let mut unknown_keys = Vec::new();
+    for key in &body.keys {
+        if let Some(bytes) = terminal_key_bytes(key) {
+            data.extend(bytes);
+        } else {
+            unknown_keys.push(key.clone());
+        }
+    }
+    if !unknown_keys.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            format!("unknown terminal key combo(s): {}", unknown_keys.join(", ")),
+        ));
+    }
+    if data.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "terminal send produced no bytes".into(),
+        ));
+    }
+    let pane_target = if direct_targets.is_empty() {
+        terminal_target_from_panes(state.snapshot().await.panes.as_ref(), body.pane.as_deref())
+    } else {
+        None
+    };
+    if let Some(target) = direct_targets.first().copied().or(pane_target.as_deref()) {
+        let descriptor = pty_manager
+            .controlled_write(
+                target,
+                &data,
+                body.expected_pty_id.as_deref(),
+                body.actor.as_deref(),
+                body.lease_token.as_deref(),
+                body.dry_run,
+            )
+            .map_err(|error| (StatusCode::CONFLICT, error.to_string()))?;
+        return Ok(Json(
+            serde_json::to_value(descriptor).unwrap_or(Value::Null),
+        ));
+    }
+    if body.dry_run {
+        return Ok(Json(
+            serde_json::json!({ "ok": true, "dry_run": true, "bytes": data.len() }),
+        ));
+    }
+    let pane = body.pane.clone();
+    let result = rpc::request(
         &app,
+        &rpc.action,
         "iyke://terminal-send",
-        serde_json::json!({
-            "pane": body.pane,
-            "data": body.data,
-            "keys": body.keys,
-        }),
-    )?;
-    Ok(ok())
+        Duration::from_secs(5),
+        |request_id| {
+            serde_json::json!({
+                "request_id": request_id,
+                "pane": pane,
+                "data": String::from_utf8_lossy(&data),
+                "keys": [],
+            })
+        },
+    )
+    .await
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, format!("{error:#}")))?;
+    Ok(Json(serde_json::json!({
+        "ok": result.matched,
+        "error": if result.matched { Value::Null } else { Value::String("pane has no writable terminal".into()) }
+    })))
 }
 
 fn terminal_key_bytes(combo: &str) -> Option<Vec<u8>> {
@@ -897,7 +1079,11 @@ fn terminal_key_bytes(combo: &str) -> Option<Vec<u8>> {
     let mut ctrl = false;
     let mut alt = false;
     let mut meta = false;
-    for part in combo.split(['+', ',']).map(str::trim).filter(|part| !part.is_empty()) {
+    for part in combo
+        .split(['+', ','])
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+    {
         match part.to_ascii_lowercase().as_str() {
             "ctrl" | "control" => ctrl = true,
             "alt" | "option" => alt = true,
@@ -924,7 +1110,11 @@ fn terminal_key_bytes(combo: &str) -> Option<Vec<u8>> {
             return Some(vec![code - 64]);
         }
     }
-    let alt_prefix = if alt { b"\x1b".as_slice() } else { b"".as_slice() };
+    let alt_prefix = if alt {
+        b"\x1b".as_slice()
+    } else {
+        b"".as_slice()
+    };
     let sequence: &[u8] = match key.as_str() {
         "Enter" => b"\r",
         "Tab" => b"\t",

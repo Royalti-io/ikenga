@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { activeProjectCwd } from '@/lib/shell/active-project-cwd';
 import { defaultShellArgv } from '@/lib/platform';
-import { XTermHost } from './xterm-host';
+import { activeProjectCwd } from '@/lib/shell/active-project-cwd';
 import { Pty } from './pty-bridge';
-import { useTerminalStore } from './session-store';
-import { disposePty, getPty, registerPty } from './pty-registry';
 import { attachCapture } from './pty-output-buffer';
+import { disposePty, getPty, registerPty } from './pty-registry';
+import { useTerminalStore } from './session-store';
+import { XTermHost } from './xterm-host';
 
 interface SingleTerminalProps {
 	sessionId: string;
@@ -52,6 +52,8 @@ export function SingleTerminal({ sessionId, isFocused, nudgeOnAttach }: SingleTe
 		(async () => {
 			try {
 				const p = await Pty.spawn({
+					terminalId: sessionId,
+					title: tab.title,
 					cwd: tab.spec.cwd,
 					cmd: tab.spec.cmd,
 					env: tab.spec.env,

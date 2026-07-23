@@ -17,18 +17,20 @@
 
 pub mod foreground;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{anyhow, Context, Result};
 use base64::Engine;
 use dashmap::DashMap;
 use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
+use serde::Serialize;
 use tauri::{AppHandle, Emitter};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Notify};
 use uuid::Uuid;
 
 const CHUNK_SIZE: usize = 8 * 1024;
@@ -50,6 +52,9 @@ pub const ATTACH_GATE_TIMEOUT: Duration = Duration::from_secs(2);
 /// to the FE as a failed `pty_spawn` — rather than allocating unbounded PTYs.
 /// 64 is comfortably above any realistic number of open terminal panes.
 const MAX_LIVE_SESSIONS: usize = 64;
+const EXITED_RETENTION: Duration = Duration::from_secs(10 * 60);
+const AUDIT_CAP: usize = 1_000;
+const MAX_CONTROL_WRITE_BYTES: usize = 1_000_000;
 
 /// Bounded ring of the bytes emitted on `pty://{id}`, plus a monotonic `total`
 /// of every byte ever emitted. `total` keeps growing after the tail is trimmed,
@@ -85,6 +90,33 @@ impl ScrollbackRing {
     fn snapshot(&self) -> (Vec<u8>, u64) {
         (self.buf.iter().copied().collect(), self.total)
     }
+
+    fn read_after(&self, after: Option<u64>, limit: Option<usize>) -> OutputSnapshot {
+        let available_start = self.total.saturating_sub(self.buf.len() as u64);
+        let requested_start = after.unwrap_or(available_start);
+        let truncated = requested_start < available_start;
+        let mut start = requested_start.max(available_start).min(self.total);
+        if let Some(limit) = limit.filter(|limit| *limit > 0) {
+            start = start.max(self.total.saturating_sub(limit as u64));
+        }
+        let offset = (start - available_start) as usize;
+        OutputSnapshot {
+            data: self.buf.iter().skip(offset).copied().collect(),
+            start_offset: start,
+            end_offset: self.total,
+            available_start_offset: available_start,
+            truncated,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct OutputSnapshot {
+    pub data: Vec<u8>,
+    pub start_offset: u64,
+    pub end_offset: u64,
+    pub available_start_offset: u64,
+    pub truncated: bool,
 }
 
 /// An attach handshake in flight. While one is installed the session emits
@@ -149,11 +181,55 @@ fn master_process_group_leader(_master: &dyn MasterPty) -> Option<i32> {
 }
 
 pub struct SpawnOpts {
+    pub terminal_id: Option<String>,
+    pub title: Option<String>,
     pub cwd: String,
     pub cmd: Vec<String>,
     pub env: HashMap<String, String>,
     pub rows: u16,
     pub cols: u16,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TerminalDescriptor {
+    pub terminal_id: String,
+    pub pty_id: String,
+    pub title: String,
+    pub label: Option<String>,
+    pub cwd: String,
+    pub argv: Vec<String>,
+    pub status: &'static str,
+    pub pid: Option<i32>,
+    pub foreground_command: Option<foreground::ForegroundProcess>,
+    pub created_at: u64,
+    pub exited_at: Option<u64>,
+    pub exit_code: Option<i32>,
+    pub output_start_offset: u64,
+    pub output_end_offset: u64,
+    pub owner_agent_id: Option<String>,
+    pub lease_expires_at: Option<u64>,
+    pub mounted: bool,
+    pub focused: bool,
+    pub pane_ids: Vec<String>,
+    pub window_labels: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TerminalAuditEntry {
+    pub ts: u64,
+    pub terminal_id: String,
+    pub pty_id: String,
+    pub actor: Option<String>,
+    pub action: String,
+    pub byte_count: usize,
+    pub dry_run: bool,
+}
+
+#[derive(Debug, Clone)]
+struct TerminalLease {
+    agent_id: String,
+    token: String,
+    expires_at: u64,
 }
 
 /// Async callback for byte-level subscribers attached *after* spawn (e.g.
@@ -164,6 +240,19 @@ pub struct SpawnOpts {
 pub type ByteSubscriber = Box<dyn Fn(&[u8]) + Send + Sync + 'static>;
 
 struct PtySession {
+    terminal_id: String,
+    title: String,
+    cwd: String,
+    argv: Vec<String>,
+    created_at: u64,
+    exited: AtomicBool,
+    exited_at: AtomicU64,
+    exit_code: AtomicI32,
+    label: Mutex<Option<String>>,
+    lease: Mutex<Option<TerminalLease>>,
+    last_output_at: AtomicU64,
+    output_notify: Notify,
+    screen: Mutex<vt100::Parser>,
     master: Mutex<Box<dyn MasterPty + Send>>,
     writer: Mutex<Box<dyn Write + Send>>,
     /// Used to signal the reader thread to stop.
@@ -185,12 +274,21 @@ struct PtySession {
 
 pub struct PtyManager {
     sessions: DashMap<String, Arc<PtySession>>,
+    audit: Mutex<VecDeque<TerminalAuditEntry>>,
+}
+
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
 }
 
 impl PtyManager {
     pub fn new() -> Self {
         Self {
             sessions: DashMap::new(),
+            audit: Mutex::new(VecDeque::with_capacity(AUDIT_CAP)),
         }
     }
 
@@ -235,13 +333,21 @@ impl PtyManager {
         // unbounded child processes / fds. Soft cap: a couple of concurrent
         // spawns could momentarily race past it, which is harmless for a
         // safety bound. Checked before we allocate any PTY resources.
-        if self.sessions.len() >= MAX_LIVE_SESSIONS {
+        if self
+            .sessions
+            .iter()
+            .filter(|entry| !entry.value().exited.load(Ordering::Relaxed))
+            .count()
+            >= MAX_LIVE_SESSIONS
+        {
             return Err(anyhow!(
                 "PTY session limit reached ({MAX_LIVE_SESSIONS} live); close a terminal before opening another"
             ));
         }
 
         let id = Uuid::new_v4().to_string();
+        let terminal_id = opts.terminal_id.clone().unwrap_or_else(|| id.clone());
+        let title = opts.title.clone().unwrap_or_else(|| opts.cmd.join(" "));
 
         // Materialize the sinks now that the id (and therefore the event names)
         // exist. Chunks are wire-encoded as `<endOffset>:<base64>`; the offset
@@ -315,6 +421,19 @@ impl PtyManager {
         let killed = Arc::new(std::sync::atomic::AtomicBool::new(false));
 
         let session = Arc::new(PtySession {
+            terminal_id,
+            title,
+            cwd: resolved_cwd,
+            argv: opts.cmd.clone(),
+            created_at: now_ms(),
+            exited: AtomicBool::new(false),
+            exited_at: AtomicU64::new(0),
+            exit_code: AtomicI32::new(0),
+            label: Mutex::new(None),
+            lease: Mutex::new(None),
+            last_output_at: AtomicU64::new(now_ms()),
+            output_notify: Notify::new(),
+            screen: Mutex::new(vt100::Parser::new(opts.rows.max(1), opts.cols.max(1), 0)),
             master: Mutex::new(pair.master),
             writer: Mutex::new(writer),
             killed: killed.clone(),
@@ -344,6 +463,13 @@ impl PtyManager {
                     Ok(0) => break,
                     Ok(n) => {
                         let chunk = &buf[..n];
+                        if let Ok(mut screen) = session_for_reader.screen.lock() {
+                            screen.process(chunk);
+                        }
+                        session_for_reader
+                            .last_output_at
+                            .store(now_ms(), Ordering::Relaxed);
+                        session_for_reader.output_notify.notify_waiters();
                         if let Ok(mut guard) = session_for_reader.subscriber.lock() {
                             // Guard the subscriber callback: a panicking tap
                             // (e.g. the Claude stream parser) must not unwind
@@ -451,25 +577,364 @@ impl PtyManager {
 
         // --- Child waiter: blocking thread → exit event + cleanup ---
         let manager_for_wait = self.clone();
+        let session_for_wait = session.clone();
         let id_for_wait = id.clone();
+        let runtime = tokio::runtime::Handle::current();
         thread::spawn(move || {
             let exit_code = match child.wait() {
                 Ok(status) => status.exit_code() as i32,
                 Err(_) => -1,
             };
+            session_for_wait
+                .exit_code
+                .store(exit_code, Ordering::Relaxed);
+            session_for_wait
+                .exited_at
+                .store(now_ms(), Ordering::Relaxed);
+            session_for_wait.exited.store(true, Ordering::Release);
+            session_for_wait.output_notify.notify_waiters();
             exit_sink(exit_code);
-            // Drop the session entry. The reader thread will see EOF on the
-            // master side and exit too.
-            manager_for_wait.sessions.remove(&id_for_wait);
+            let manager_for_reap = manager_for_wait.clone();
+            runtime.spawn(async move {
+                tokio::time::sleep(EXITED_RETENTION).await;
+                if let Some(entry) = manager_for_reap.sessions.get(&id_for_wait) {
+                    if entry.exited.load(Ordering::Acquire) {
+                        drop(entry);
+                        manager_for_reap.sessions.remove(&id_for_wait);
+                    }
+                }
+            });
         });
 
         Ok(id)
     }
 
+    pub fn resolve_id(&self, target: &str) -> Result<String> {
+        if self.sessions.contains_key(target) {
+            return Ok(target.to_string());
+        }
+        let mut matches = Vec::new();
+        for entry in self.sessions.iter() {
+            let session = entry.value();
+            let label_matches = session
+                .label
+                .lock()
+                .ok()
+                .and_then(|label| label.clone())
+                .is_some_and(|label| label == target);
+            if session.terminal_id == target || label_matches {
+                matches.push((
+                    entry.key().clone(),
+                    session.exited.load(Ordering::Acquire),
+                    session.created_at,
+                ));
+            }
+        }
+        matches.sort_by_key(|(_, exited, created_at)| (*exited, std::cmp::Reverse(*created_at)));
+        matches
+            .first()
+            .map(|(id, _, _)| id.clone())
+            .ok_or_else(|| anyhow!("unknown terminal: {target}"))
+    }
+
     pub fn read_scrollback(&self, id: &str) -> Option<(Vec<u8>, u64)> {
-        let session = self.sessions.get(id)?.clone();
+        let resolved = self.resolve_id(id).ok()?;
+        let session = self.sessions.get(&resolved)?.clone();
         let state = session.emit.lock().ok()?;
         Some(state.ring.snapshot())
+    }
+
+    pub fn read_output(
+        &self,
+        id: &str,
+        after: Option<u64>,
+        limit: Option<usize>,
+    ) -> Result<(OutputSnapshot, bool, Option<i32>)> {
+        let resolved = self.resolve_id(id)?;
+        let session = self
+            .sessions
+            .get(&resolved)
+            .ok_or_else(|| anyhow!("unknown terminal: {id}"))?
+            .clone();
+        let state = session
+            .emit
+            .lock()
+            .map_err(|_| anyhow!("terminal output lock poisoned"))?;
+        let snapshot = state.ring.read_after(after, limit);
+        let exited = session.exited.load(Ordering::Acquire);
+        let exit_code = exited.then(|| session.exit_code.load(Ordering::Relaxed));
+        Ok((snapshot, exited, exit_code))
+    }
+
+    pub fn screen_text(&self, id: &str) -> Result<String> {
+        let resolved = self.resolve_id(id)?;
+        let session = self
+            .sessions
+            .get(&resolved)
+            .ok_or_else(|| anyhow!("unknown terminal: {id}"))?
+            .clone();
+        let screen = session
+            .screen
+            .lock()
+            .map_err(|_| anyhow!("terminal screen lock poisoned"))?;
+        Ok(screen.screen().contents())
+    }
+
+    pub fn list_terminals(&self) -> Vec<TerminalDescriptor> {
+        let mut descriptors: Vec<_> = self
+            .sessions
+            .iter()
+            .map(|entry| self.describe(entry.key(), entry.value()))
+            .collect();
+        descriptors.sort_by_key(|descriptor| descriptor.created_at);
+        descriptors
+    }
+
+    fn describe(&self, pty_id: &str, session: &PtySession) -> TerminalDescriptor {
+        let (output_start_offset, output_end_offset) = session
+            .emit
+            .lock()
+            .ok()
+            .map(|state| {
+                let (_, end) = state.ring.snapshot();
+                (end.saturating_sub(state.ring.buf.len() as u64), end)
+            })
+            .unwrap_or_default();
+        let exited = session.exited.load(Ordering::Acquire);
+        let lease = session.lease.lock().ok().and_then(|lease| lease.clone());
+        TerminalDescriptor {
+            terminal_id: session.terminal_id.clone(),
+            pty_id: pty_id.to_string(),
+            title: session.title.clone(),
+            label: session.label.lock().ok().and_then(|label| label.clone()),
+            cwd: session.cwd.clone(),
+            argv: session.argv.clone(),
+            status: if exited { "exited" } else { "running" },
+            pid: (!exited)
+                .then(|| {
+                    session
+                        .master
+                        .lock()
+                        .ok()
+                        .and_then(|master| master_process_group_leader(&**master))
+                })
+                .flatten(),
+            foreground_command: if exited {
+                None
+            } else {
+                session
+                    .master
+                    .lock()
+                    .ok()
+                    .and_then(|master| master_process_group_leader(&**master))
+                    .and_then(foreground::lookup)
+            },
+            created_at: session.created_at,
+            exited_at: exited.then(|| session.exited_at.load(Ordering::Relaxed)),
+            exit_code: exited.then(|| session.exit_code.load(Ordering::Relaxed)),
+            output_start_offset,
+            output_end_offset,
+            owner_agent_id: lease.as_ref().map(|lease| lease.agent_id.clone()),
+            lease_expires_at: lease.as_ref().map(|lease| lease.expires_at),
+            mounted: false,
+            focused: false,
+            pane_ids: Vec::new(),
+            window_labels: Vec::new(),
+        }
+    }
+
+    pub fn set_label(&self, id: &str, label: Option<String>) -> Result<TerminalDescriptor> {
+        let resolved = self.resolve_id(id)?;
+        if let Some(ref requested) = label {
+            if requested.trim().is_empty() {
+                return Err(anyhow!("terminal label must not be empty"));
+            }
+            for entry in self.sessions.iter() {
+                if entry.key() != &resolved
+                    && !entry.value().exited.load(Ordering::Acquire)
+                    && entry
+                        .value()
+                        .label
+                        .lock()
+                        .ok()
+                        .and_then(|value| value.clone())
+                        .as_ref()
+                        == Some(requested)
+                {
+                    return Err(anyhow!("terminal label already in use: {requested}"));
+                }
+            }
+        }
+        let session = self
+            .sessions
+            .get(&resolved)
+            .ok_or_else(|| anyhow!("unknown terminal"))?;
+        *session
+            .label
+            .lock()
+            .map_err(|_| anyhow!("terminal label lock poisoned"))? = label;
+        Ok(self.describe(&resolved, &session))
+    }
+
+    pub fn acquire_lease(&self, id: &str, agent_id: String, ttl_ms: u64) -> Result<(String, u64)> {
+        let resolved = self.resolve_id(id)?;
+        let session = self
+            .sessions
+            .get(&resolved)
+            .ok_or_else(|| anyhow!("unknown terminal"))?;
+        let now = now_ms();
+        let mut lease = session
+            .lease
+            .lock()
+            .map_err(|_| anyhow!("terminal lease lock poisoned"))?;
+        if lease
+            .as_ref()
+            .is_some_and(|lease| lease.expires_at > now && lease.agent_id != agent_id)
+        {
+            return Err(anyhow!("terminal is leased by another agent"));
+        }
+        let token = Uuid::new_v4().to_string();
+        let expires_at = now + ttl_ms.clamp(1_000, 600_000);
+        *lease = Some(TerminalLease {
+            agent_id,
+            token: token.clone(),
+            expires_at,
+        });
+        Ok((token, expires_at))
+    }
+
+    pub fn release_lease(&self, id: &str, token: &str) -> Result<()> {
+        let resolved = self.resolve_id(id)?;
+        let session = self
+            .sessions
+            .get(&resolved)
+            .ok_or_else(|| anyhow!("unknown terminal"))?;
+        let mut lease = session
+            .lease
+            .lock()
+            .map_err(|_| anyhow!("terminal lease lock poisoned"))?;
+        if lease.as_ref().is_some_and(|lease| lease.token != token) {
+            return Err(anyhow!("terminal lease token does not match"));
+        }
+        *lease = None;
+        Ok(())
+    }
+
+    pub fn controlled_write(
+        &self,
+        id: &str,
+        data: &[u8],
+        expected_pty_id: Option<&str>,
+        actor: Option<&str>,
+        lease_token: Option<&str>,
+        dry_run: bool,
+    ) -> Result<TerminalDescriptor> {
+        if data.len() > MAX_CONTROL_WRITE_BYTES {
+            return Err(anyhow!("terminal write exceeds 1 MB"));
+        }
+        let resolved = self.resolve_id(id)?;
+        if expected_pty_id.is_some_and(|expected| expected != resolved) {
+            return Err(anyhow!(
+                "terminal PTY changed; expected {}, found {resolved}",
+                expected_pty_id.unwrap_or_default()
+            ));
+        }
+        let session = self
+            .sessions
+            .get(&resolved)
+            .ok_or_else(|| anyhow!("unknown terminal"))?
+            .clone();
+        if session.exited.load(Ordering::Acquire) {
+            return Err(anyhow!("terminal has exited"));
+        }
+        if let Ok(mut lease) = session.lease.lock() {
+            if lease
+                .as_ref()
+                .is_some_and(|lease| lease.expires_at <= now_ms())
+            {
+                *lease = None;
+            }
+            if let Some(active) = lease.as_ref() {
+                if lease_token != Some(active.token.as_str()) {
+                    return Err(anyhow!("terminal is leased by {}", active.agent_id));
+                }
+            }
+        }
+        if !dry_run {
+            self.write(&resolved, data)?;
+        }
+        self.record_audit(TerminalAuditEntry {
+            ts: now_ms(),
+            terminal_id: session.terminal_id.clone(),
+            pty_id: resolved.clone(),
+            actor: actor.map(str::to_string),
+            action: "send".to_string(),
+            byte_count: data.len(),
+            dry_run,
+        });
+        Ok(self.describe(&resolved, &session))
+    }
+
+    fn record_audit(&self, entry: TerminalAuditEntry) {
+        if let Ok(mut audit) = self.audit.lock() {
+            if audit.len() >= AUDIT_CAP {
+                audit.pop_front();
+            }
+            audit.push_back(entry);
+        }
+    }
+
+    pub fn audit_entries(&self) -> Vec<TerminalAuditEntry> {
+        self.audit
+            .lock()
+            .map(|audit| audit.iter().cloned().collect())
+            .unwrap_or_default()
+    }
+
+    pub async fn wait_for_output(
+        &self,
+        id: &str,
+        after: u64,
+        pattern: Option<&regex::Regex>,
+        idle_ms: Option<u64>,
+        timeout: Duration,
+    ) -> Result<(OutputSnapshot, bool, bool, Option<i32>)> {
+        let resolved = self.resolve_id(id)?;
+        let session = self
+            .sessions
+            .get(&resolved)
+            .ok_or_else(|| anyhow!("unknown terminal"))?
+            .clone();
+        let started = tokio::time::Instant::now();
+        loop {
+            let (snapshot, exited, exit_code) = self.read_output(&resolved, Some(after), None)?;
+            let text = String::from_utf8_lossy(&snapshot.data);
+            let matched = pattern.is_some_and(|pattern| pattern.is_match(&text));
+            let idle = idle_ms.is_some_and(|idle_ms| {
+                now_ms().saturating_sub(session.last_output_at.load(Ordering::Relaxed)) >= idle_ms
+            });
+            if matched || idle || exited {
+                return Ok((snapshot, matched, idle, exit_code));
+            }
+            let remaining = timeout.saturating_sub(started.elapsed());
+            if remaining.is_zero() {
+                return Ok((snapshot, false, false, exit_code));
+            }
+            let idle_remaining = idle_ms.map(|idle_ms| {
+                let elapsed =
+                    now_ms().saturating_sub(session.last_output_at.load(Ordering::Relaxed));
+                Duration::from_millis(idle_ms.saturating_sub(elapsed))
+            });
+            let wake_after = idle_remaining.map_or(remaining, |idle| idle.min(remaining));
+            if tokio::time::timeout(wake_after, session.output_notify.notified())
+                .await
+                .is_err()
+                && wake_after == remaining
+            {
+                let (snapshot, _, exit_code) = self.read_output(&resolved, Some(after), None)?;
+                return Ok((snapshot, false, false, exit_code));
+            }
+        }
     }
 
     pub fn write(&self, id: &str, data: &[u8]) -> Result<()> {
@@ -503,6 +968,9 @@ impl PtyManager {
             pixel_width: 0,
             pixel_height: 0,
         })?;
+        if let Ok(mut screen) = session.screen.lock() {
+            screen.set_size(rows.max(1), cols.max(1));
+        }
         Ok(())
     }
 
@@ -687,6 +1155,8 @@ mod tests {
         let id = mgr
             .spawn_with_sinks(
                 SpawnOpts {
+                    terminal_id: None,
+                    title: None,
                     cwd: "/".into(),
                     cmd: producer(60),
                     env: HashMap::new(),
@@ -821,6 +1291,8 @@ mod tests {
         let id = mgr
             .spawn_with_sinks(
                 SpawnOpts {
+                    terminal_id: None,
+                    title: None,
                     cwd: "/".into(),
                     cmd: producer(40),
                     env: HashMap::new(),
@@ -859,5 +1331,27 @@ mod tests {
             "stream should flow again once the gate is released"
         );
         let _ = mgr.kill(&id);
+    }
+
+    #[test]
+    fn cursor_reads_report_retention_truncation() {
+        let mut ring = ScrollbackRing::new();
+        let data = vec![b'x'; SCROLLBACK_CAP + 32];
+        ring.push(&data);
+        let snapshot = ring.read_after(Some(0), None);
+        assert!(snapshot.truncated);
+        assert_eq!(snapshot.available_start_offset, 32);
+        assert_eq!(snapshot.start_offset, 32);
+        assert_eq!(snapshot.end_offset, (SCROLLBACK_CAP + 32) as u64);
+        assert_eq!(snapshot.data.len(), SCROLLBACK_CAP);
+    }
+
+    #[test]
+    fn vt_parser_exposes_current_screen_instead_of_raw_history() {
+        let mut parser = vt100::Parser::new(2, 8, 0);
+        parser.process(b"first\rsecond");
+        let contents = parser.screen().contents();
+        assert!(contents.contains("second"));
+        assert!(!contents.contains("first"));
     }
 }
