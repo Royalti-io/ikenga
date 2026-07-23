@@ -20,13 +20,19 @@ export interface IykeShellInfo {
 	route: string | null;
 	/** Phase 12 PR-E. Null when the FE hasn't pushed yet. */
 	panes: IykePanesPayload | null;
+	sidebar_collapsed: boolean | null;
 }
 
 export interface IykeLeafSummary {
 	id: string;
 	focused: boolean;
 	activeTabIdx: number;
-	tabs: Array<{ kind: string; title: string }>;
+	tabs: Array<{
+		kind: string;
+		title: string;
+		terminalId?: string;
+		ptyId?: string;
+	}>;
 }
 
 /**
@@ -39,8 +45,42 @@ export interface IykePanesPayload {
 	tree: unknown;
 }
 
+export interface IykeTerminalInfo {
+	terminal_id: string;
+	pty_id: string;
+	title: string;
+	label: string | null;
+	cwd: string;
+	argv: string[];
+	status: 'running' | 'exited';
+	pid: number | null;
+	foreground_command: { pid: number; name: string; args: string[] } | null;
+	created_at: number;
+	exited_at: number | null;
+	exit_code: number | null;
+	output_start_offset: number;
+	output_end_offset: number;
+	owner_agent_id: string | null;
+	lease_expires_at: number | null;
+	mounted: boolean;
+	focused: boolean;
+	pane_ids: string[];
+	window_labels: string[];
+}
+
+export interface IykeWindowInfo {
+	label: string;
+	kind: 'primary' | 'single-surface' | 'pane-set' | 'workspace';
+	surface_set: string[];
+	project_id: string | null;
+	layout_key: string;
+	panes: IykePanesPayload | null;
+}
+
 export interface IykeStateResponse {
 	schema_version: number;
 	app: IykeAppInfo;
 	shell: IykeShellInfo;
+	terminals: IykeTerminalInfo[];
+	windows: IykeWindowInfo[];
 }

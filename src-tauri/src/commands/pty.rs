@@ -25,6 +25,8 @@ pub struct PtyAttachSnapshot {
 pub async fn pty_spawn(
     app: AppHandle,
     manager: State<'_, Arc<PtyManager>>,
+    terminal_id: Option<String>,
+    title: Option<String>,
     cwd: String,
     cmd: Vec<String>,
     env: Option<HashMap<String, String>>,
@@ -36,6 +38,8 @@ pub async fn pty_spawn(
     }
 
     let opts = SpawnOpts {
+        terminal_id,
+        title,
         cwd,
         cmd,
         env: env.unwrap_or_default(),

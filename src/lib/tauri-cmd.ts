@@ -15,6 +15,8 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 // ─── PTY ──────────────────────────────────────────────────────────────────────
 
 export interface PtySpawnOpts {
+	terminalId?: string;
+	title?: string;
 	cwd: string;
 	cmd: string[];
 	env?: Record<string, string>;
@@ -24,6 +26,8 @@ export interface PtySpawnOpts {
 
 export async function ptySpawn(opts: PtySpawnOpts): Promise<string> {
 	return invoke<string>('pty_spawn', {
+		terminalId: opts.terminalId ?? null,
+		title: opts.title ?? null,
 		cwd: opts.cwd,
 		cmd: opts.cmd,
 		env: opts.env ?? null,

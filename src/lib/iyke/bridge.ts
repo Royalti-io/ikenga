@@ -106,6 +106,7 @@ interface KeyPayload {
 }
 
 interface TerminalSendPayload {
+	request_id?: string;
 	pane?: string | null;
 	data?: string | null;
 	keys?: string[] | null;
@@ -123,6 +124,14 @@ interface TerminalReadResult {
 	bytes_available: number;
 	bytes_returned: number;
 	session_id: string | null;
+	terminal_id: string | null;
+	pty_id: string | null;
+	start_offset: number;
+	end_offset: number;
+	available_start_offset: number;
+	truncated: boolean;
+	exited: boolean;
+	exit_code: number | null;
 	error: string | null;
 }
 
@@ -831,6 +840,14 @@ async function handleTerminalReadRequest(payload: TerminalReadPayload) {
 				bytes_available: 0,
 				bytes_returned: 0,
 				session_id: null,
+				terminal_id: null,
+				pty_id: null,
+				start_offset: 0,
+				end_offset: 0,
+				available_start_offset: 0,
+				truncated: false,
+				exited: false,
+				exit_code: null,
 				error: 'pane has no active terminal tab',
 			});
 			return;
@@ -842,6 +859,14 @@ async function handleTerminalReadRequest(payload: TerminalReadPayload) {
 				bytes_available: 0,
 				bytes_returned: 0,
 				session_id: sessionId,
+				terminal_id: sessionId,
+				pty_id: null,
+				start_offset: 0,
+				end_offset: 0,
+				available_start_offset: 0,
+				truncated: false,
+				exited: false,
+				exit_code: null,
 				error: 'no capture buffer for session (pty not registered or detached)',
 			});
 			return;
@@ -855,6 +880,14 @@ async function handleTerminalReadRequest(payload: TerminalReadPayload) {
 			bytes_available: buf.length,
 			bytes_returned: slice.length,
 			session_id: sessionId,
+			terminal_id: sessionId,
+			pty_id: getPty(sessionId)?.id ?? null,
+			start_offset: 0,
+			end_offset: buf.length,
+			available_start_offset: 0,
+			truncated: false,
+			exited: false,
+			exit_code: null,
 			error: null,
 		});
 	} finally {
@@ -863,6 +896,13 @@ async function handleTerminalReadRequest(payload: TerminalReadPayload) {
 }
 
 async function handleTerminalSend(payload: TerminalSendPayload) {
+	const reply = (matched: boolean) =>
+		payload.request_id
+			? invoke('iyke_action_done', {
+					requestId: payload.request_id,
+					result: { matched },
+				}).catch(() => {})
+			: Promise.resolve();
 	const sessionId = resolveTerminalSessionId(payload.pane ?? null);
 	const actId = useIykeActivity.getState().begin({
 		kind: 'type',
@@ -872,11 +912,13 @@ async function handleTerminalSend(payload: TerminalSendPayload) {
 	try {
 		if (!sessionId) {
 			console.warn('[iyke] terminal-send: pane has no active terminal tab', payload.pane);
+			await reply(false);
 			return;
 		}
 		const pty = getPty(sessionId);
 		if (!pty) {
 			console.warn('[iyke] terminal-send: pty not registered for session', sessionId);
+			await reply(false);
 			return;
 		}
 		let buf = '';
@@ -889,8 +931,12 @@ async function handleTerminalSend(payload: TerminalSendPayload) {
 			}
 			buf += bytes;
 		}
-		if (buf.length === 0) return;
+		if (buf.length === 0) {
+			await reply(false);
+			return;
+		}
 		await pty.write(buf);
+		await reply(true);
 	} finally {
 		useIykeActivity.getState().end(actId);
 	}
@@ -1005,6 +1051,22 @@ export function useIykeBridge(): void {
 			listen<TerminalReadPayload>('iyke://terminal-read-request', (e) => {
 				void handleTerminalReadRequest(e.payload);
 			})
+		);
+		track(
+			listen<{ pane: string; index?: number | null; terminal?: string | null }>(
+				'iyke://tab-activate',
+				(e) => {
+					const store = usePaneStore.getState();
+					const leaf = findLeaf(store.root, e.payload.pane);
+					if (!leaf) return;
+					const index =
+						e.payload.index ??
+						leaf.tabs.findIndex(
+							(tab) => tab.kind === 'terminal' && tab.sessionId === e.payload.terminal
+						);
+					if (index >= 0 && index < leaf.tabs.length) store.switchTab(leaf.id, index);
+				}
+			)
 		);
 
 		return () => {

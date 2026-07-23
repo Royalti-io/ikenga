@@ -1,9 +1,9 @@
 import { useEffect } from 'react';
-
-import { useShellStore } from '@/lib/shell/shell-store';
-import { usePaneStore } from '@/lib/panes/pane-store';
 import { findLeaf, getLeafIdsInOrder } from '@/lib/panes/pane-reducer';
+import { usePaneStore } from '@/lib/panes/pane-store';
 import type { PaneId, PaneNode, PaneView } from '@/lib/panes/types';
+import { useShellStore } from '@/lib/shell/shell-store';
+import { type TerminalTab, useTerminalStore } from '@/terminal/session-store';
 
 import { setShell } from './client';
 import { getIframe, IFRAME_STATE_EVENT } from './iframe-registry';
@@ -28,26 +28,42 @@ export function useIykeShellSync(): void {
 	// unrelated mode/pane change, and `/iyke/state` would report a stale
 	// value right after `/iyke/sidebar` — the exact window a caller polls.
 	const sidebarCollapsed = useShellStore((s) => s.sidebarCollapsed);
+	const terminalTabs = useTerminalStore((s) => s.tabs);
 
 	useEffect(() => {
-		pushShellState();
-	}, [activeMode, focusedId, root, sidebarCollapsed]);
+		pushShellState(activeMode, sidebarCollapsed, root, focusedId, terminalTabs);
+	}, [activeMode, focusedId, root, sidebarCollapsed, terminalTabs]);
 
 	// Re-push when a pkg iframe publishes state (selection etc.) so
 	// `iyke state` reflects it without waiting for a pane-tree mutation.
 	useEffect(() => {
-		const onState = () => pushShellState();
+		const onState = () => {
+			const shell = useShellStore.getState();
+			const panes = usePaneStore.getState();
+			pushShellState(
+				shell.activeMode,
+				shell.sidebarCollapsed,
+				panes.root,
+				panes.focusedId,
+				useTerminalStore.getState().tabs
+			);
+		};
 		window.addEventListener(IFRAME_STATE_EVENT, onState);
 		return () => window.removeEventListener(IFRAME_STATE_EVENT, onState);
 	}, []);
 }
 
-function pushShellState(): void {
-	const { activeMode, sidebarCollapsed } = useShellStore.getState();
-	const paneState = usePaneStore.getState();
-	const view = paneState.focusedView();
-	const route = view && view.kind === 'route' ? view.path : null;
-	const panes = buildPanesPayload(paneState.root, paneState.focusedId);
+function pushShellState(
+	activeMode: string,
+	sidebarCollapsed: boolean,
+	root: PaneNode,
+	focusedId: PaneId,
+	terminalTabs: TerminalTab[]
+): void {
+	const focused = findLeaf(root, focusedId);
+	const view = focused?.tabs[focused.activeTabIdx];
+	const route = view?.kind === 'route' ? view.path : null;
+	const panes = buildPanesPayload(root, focusedId, terminalTabs);
 	setShell({ mode: activeMode, route, panes, sidebarCollapsed }).catch((err) => {
 		console.warn('[iyke] set_shell failed:', err);
 	});
@@ -57,7 +73,13 @@ interface LeafSummary {
 	id: string;
 	focused: boolean;
 	activeTabIdx: number;
-	tabs: Array<{ kind: string; title: string; pinned?: boolean }>;
+	tabs: Array<{
+		kind: string;
+		title: string;
+		pinned?: boolean;
+		terminalId?: string;
+		ptyId?: string;
+	}>;
 	/** Pkg id when the active tab is a /pkg/<id>/ route. */
 	pkg?: string;
 	/** Latest state the pkg iframe published (e.g. open-task selection). */
@@ -69,7 +91,11 @@ interface PanesPayload {
 	tree: PaneNode;
 }
 
-function buildPanesPayload(root: PaneNode, focusedId: PaneId): PanesPayload {
+function buildPanesPayload(
+	root: PaneNode,
+	focusedId: PaneId,
+	terminalTabs: TerminalTab[]
+): PanesPayload {
 	const ids = getLeafIdsInOrder(root);
 	const leaves: LeafSummary[] = ids.map((id) => {
 		const leaf = findLeaf(root, id);
@@ -82,11 +108,17 @@ function buildPanesPayload(root: PaneNode, focusedId: PaneId): PanesPayload {
 			id,
 			focused: id === focusedId,
 			activeTabIdx: leaf.activeTabIdx,
-			tabs: leaf.tabs.map((t) => ({
-				kind: t.kind,
-				title: viewTitle(t),
-				...(t.pinned ? { pinned: true } : {}),
-			})),
+			tabs: leaf.tabs.map((t) => {
+				const terminal =
+					t.kind === 'terminal' ? terminalTabs.find((tab) => tab.id === t.sessionId) : null;
+				return {
+					kind: t.kind,
+					title: viewTitle(t),
+					...(t.pinned ? { pinned: true } : {}),
+					...(t.kind === 'terminal' ? { terminalId: t.sessionId } : {}),
+					...(terminal?.ptyId ? { ptyId: terminal.ptyId } : {}),
+				};
+			}),
 		};
 		// Surface the pkg id + its latest published state (selection etc.) for
 		// pkg-route panes, so external callers can answer "what's open in this

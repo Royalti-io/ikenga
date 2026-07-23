@@ -31,6 +31,7 @@ pub mod secrets;
 pub mod server;
 pub mod sessions;
 pub mod state;
+pub mod terminal;
 pub mod trust;
 
 use std::path::{Path, PathBuf};
@@ -137,6 +138,7 @@ pub async fn start(
     webview_panes: Arc<crate::pkg::webview::WebviewPanesRegistry>,
     playwright_proxy: Arc<playwright_proxy::PlaywrightProxy>,
     pa_db: Arc<crate::commands::db::PaDb>,
+    pty_manager: Arc<crate::pty::PtyManager>,
     control_path: PathBuf,
     app_handle: AppHandle,
     screenshot_pending: crate::commands::ScreenshotPending,
@@ -152,6 +154,7 @@ pub async fn start(
         webview_panes,
         playwright_proxy,
         pa_db,
+        pty_manager,
         token.clone(),
         app_handle,
         screenshot_pending,

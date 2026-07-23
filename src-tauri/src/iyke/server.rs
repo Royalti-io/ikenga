@@ -48,8 +48,8 @@ use super::layout::{get_layout, post_layout_reset};
 use super::mcp::{get_mcp_list, post_mcp_restart};
 use super::memory::{
     get_kv_get, get_kv_list, get_lock_status, get_scratchpad_list, get_scratchpad_read,
-    get_timer_list, get_todo_list, post_agent_register, post_kv_delete, post_kv_set,
-    post_lock_acquire, post_lock_release, post_lock_renew, post_scratchpad_append,
+    get_scratchpad_watch, get_timer_list, get_todo_list, post_agent_register, post_kv_delete,
+    post_kv_set, post_lock_acquire, post_lock_release, post_lock_renew, post_scratchpad_append,
     post_scratchpad_delete, post_scratchpad_write, post_timer_cancel, post_timer_schedule,
     post_todo_complete, post_todo_create, post_todo_update, TimerScheduler,
 };
@@ -63,12 +63,18 @@ use super::projects::{
 use super::secrets::{get_secret, get_secret_list, post_secret_delete, post_secret_set};
 use super::sessions::{get_session_list, post_session_move, post_session_start};
 use super::state::IykeState;
+use super::terminal::{
+    get_terminal_audit, get_terminals, get_windows, post_tab_activate, post_terminal_get,
+    post_terminal_label, post_terminal_lease_acquire, post_terminal_lease_release,
+    post_terminal_wait,
+};
 use super::trust::{get_trust_list, get_trust_preview, post_trust_grant, post_trust_revoke};
 use super::IykeRpc;
 use crate::commands::db::PaDb;
 use crate::commands::ScreenshotPending;
 use crate::pkg::registries::IykeRoutesRegistry;
 use crate::pkg::webview::WebviewPanesRegistry;
+use crate::pty::PtyManager;
 
 #[allow(clippy::too_many_arguments)]
 pub async fn serve(
@@ -78,6 +84,7 @@ pub async fn serve(
     webview_panes: Arc<WebviewPanesRegistry>,
     playwright_proxy: Arc<super::playwright_proxy::PlaywrightProxy>,
     pa_db: Arc<PaDb>,
+    pty_manager: Arc<PtyManager>,
     token: String,
     app_handle: AppHandle,
     screenshot_pending: ScreenshotPending,
@@ -120,6 +127,21 @@ pub async fn serve(
         .route("/iyke/key", post(post_key))
         .route("/iyke/terminal/send", post(post_terminal_send))
         .route("/iyke/terminal/read", get(get_terminal_read))
+        .route("/iyke/terminal/list", get(get_terminals))
+        .route("/iyke/terminal/get", post(post_terminal_get))
+        .route("/iyke/terminal/wait", post(post_terminal_wait))
+        .route("/iyke/terminal/label", post(post_terminal_label))
+        .route(
+            "/iyke/terminal/lease/acquire",
+            post(post_terminal_lease_acquire),
+        )
+        .route(
+            "/iyke/terminal/lease/release",
+            post(post_terminal_lease_release),
+        )
+        .route("/iyke/terminal/audit", get(get_terminal_audit))
+        .route("/iyke/windows", get(get_windows))
+        .route("/iyke/tab/activate", post(post_tab_activate))
         .route("/iyke/wait", post(post_wait))
         .route("/iyke/devtools", post(post_devtools))
         .route("/iyke/pkg/install", post(post_pkg_install))
@@ -219,6 +241,7 @@ pub async fn serve(
         .route("/iyke/scratchpad/append", post(post_scratchpad_append))
         .route("/iyke/scratchpad/read", get(get_scratchpad_read))
         .route("/iyke/scratchpad/list", get(get_scratchpad_list))
+        .route("/iyke/scratchpad/watch", get(get_scratchpad_watch))
         .route("/iyke/scratchpad/delete", post(post_scratchpad_delete))
         // Approve-gate producer hand-off (WP-8) — mcp-iyke `pa_actions_pause` tool.
         .route("/iyke/pa-actions/pause", post(post_pa_actions_pause))
@@ -264,6 +287,7 @@ pub async fn serve(
         .layer(Extension(webview_panes))
         .layer(Extension(playwright_proxy))
         .layer(Extension(pa_db))
+        .layer(Extension(pty_manager))
         .layer(Extension(BrowserPort(port)))
         .layer(Extension(auth_state))
         .layer(Extension(app_handle))
