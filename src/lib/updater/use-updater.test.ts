@@ -6,8 +6,11 @@
  * down mid-flow and reads as a crash even though the install succeeded (the
  * download bar freezes, then the window vanishes). The fix splits install from
  * relaunch: `install()` holds at an `installed` state, and the UI surfaces a
- * deliberate `restart()`. The opt-in auto-install path re-chains the relaunch
- * explicitly via `install({ autoRestart: true })`.
+ * deliberate `restart()`.
+ *
+ * This holds on EVERY path — including the opt-in background auto-install.
+ * A relaunch the user didn't ask for throws away whatever is live in terminals,
+ * chats and pkg panes, so `restartApp` is reachable only through `restart()`.
  *
  * These tests pin that contract at the hook boundary.
  */
@@ -77,16 +80,19 @@ describe('useUpdater — install / restart split', () => {
 		expect(restartApp).toHaveBeenCalledTimes(1);
 	});
 
-	it('install({ autoRestart: true }) chains the relaunch (opt-in auto-install path)', async () => {
+	it('install() takes no opt-in to relaunch — the auto-install path can only reach `installed`', async () => {
 		const { result } = mount();
 		await waitFor(() => expect(result.current.available).toEqual(FAKE_UPDATE));
 
+		// The background auto-install path calls the exact same install() the
+		// banner button does. Passing anything must not resurrect a relaunch.
 		await act(async () => {
-			await result.current.install({ autoRestart: true });
+			await (result.current.install as (opts?: unknown) => Promise<void>)({ autoRestart: true });
 		});
 
 		expect(installUpdate).toHaveBeenCalledTimes(1);
-		expect(restartApp).toHaveBeenCalledTimes(1);
+		expect(restartApp).not.toHaveBeenCalled();
+		expect(result.current.installed).toBe(true);
 	});
 
 	it('a failed install surfaces the error and does NOT relaunch', async () => {

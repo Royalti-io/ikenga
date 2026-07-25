@@ -1092,6 +1092,118 @@ pub async fn get_todo_list(
     Ok(Json(json!({ "scope": scope, "todos": todos })))
 }
 
+// ─── WP-09: agent inbox ──────────────────────────────────────────────────────
+//
+// `fire_due_timer` has always written into `iyke_agent_inbox`, and the sweeper
+// has always pruned it — but nothing could ever read it. A scheduled timer
+// fired into a table no client could see, which made `/iyke/timer/schedule`
+// effectively a no-op for agents. These two routes close that loop.
+//
+// Ack deletes rather than marking (decision D-4): the table has no `acked_at`
+// column, adding one would mean a migration for a queue whose rows the sweeper
+// already discards, and delete-on-ack is what a mailbox cursor actually wants.
+
+#[derive(Deserialize)]
+pub struct AgentInboxQuery {
+    pub agent_id: String,
+    /// Exclusive cursor — return only entries created after this timestamp.
+    /// Feed `next_since` from the previous response back in.
+    #[serde(default)]
+    pub since: Option<i64>,
+    #[serde(default)]
+    pub limit: Option<i64>,
+}
+
+pub async fn get_agent_inbox(
+    Extension(db): Extension<Arc<PaDb>>,
+    Query(q): Query<AgentInboxQuery>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    if q.agent_id.trim().is_empty() {
+        return Err(err(StatusCode::BAD_REQUEST, "agent_id must not be empty"));
+    }
+    let pool = db
+        .ensure_pool()
+        .await
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let limit = q.limit.unwrap_or(100).clamp(1, 500);
+    let since = q.since.unwrap_or(0);
+    let rows = sqlx::query(
+        "SELECT id, agent_id, kind, payload, created_at
+         FROM iyke_agent_inbox
+         WHERE agent_id = ? AND created_at > ?
+         ORDER BY created_at ASC, id ASC
+         LIMIT ?",
+    )
+    .bind(&q.agent_id)
+    .bind(since)
+    .bind(limit)
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| {
+        err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("agent inbox: {e}"),
+        )
+    })?;
+
+    let mut entries: Vec<Value> = Vec::new();
+    let mut next_since = since;
+    for r in rows.iter() {
+        let created_at: i64 = r.get("created_at");
+        next_since = next_since.max(created_at);
+        let payload_raw: String = r.get("payload");
+        entries.push(json!({
+            "id": r.get::<String, _>("id"),
+            "agent_id": r.get::<String, _>("agent_id"),
+            "kind": r.get::<String, _>("kind"),
+            // Hand back parsed JSON when it parses, else the raw string — a
+            // malformed payload should still be visible, not swallowed.
+            "payload": serde_json::from_str::<Value>(&payload_raw)
+                .unwrap_or(Value::String(payload_raw)),
+            "created_at": created_at,
+        }));
+    }
+    Ok(Json(json!({
+        "agent_id": q.agent_id,
+        "entries": entries,
+        "next_since": next_since,
+    })))
+}
+
+#[derive(Deserialize)]
+pub struct AgentInboxAckBody {
+    pub ids: Vec<String>,
+}
+
+pub async fn post_agent_inbox_ack(
+    Extension(db): Extension<Arc<PaDb>>,
+    Json(body): Json<AgentInboxAckBody>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    if body.ids.is_empty() {
+        return Ok(Json(json!({ "ok": true, "deleted": 0 })));
+    }
+    if body.ids.len() > 500 {
+        return Err(err(StatusCode::BAD_REQUEST, "at most 500 ids per ack"));
+    }
+    let pool = db
+        .ensure_pool()
+        .await
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let placeholders = vec!["?"; body.ids.len()].join(",");
+    let sql = format!("DELETE FROM iyke_agent_inbox WHERE id IN ({placeholders})");
+    let mut qb = sqlx::query(&sql);
+    for id in &body.ids {
+        qb = qb.bind(id);
+    }
+    let result = qb
+        .execute(&pool)
+        .await
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("inbox ack: {e}")))?;
+    Ok(Json(
+        json!({ "ok": true, "deleted": result.rows_affected() }),
+    ))
+}
+
 #[derive(Deserialize)]
 pub struct TodoIdBody {
     pub id: String,
@@ -1232,6 +1344,31 @@ pub async fn post_timer_schedule(
             return Err(err(
                 StatusCode::PAYLOAD_TOO_LARGE,
                 "body > 4 KB".to_string(),
+            ));
+        }
+    }
+    // `iyke_timers.agent_id` has an FK to `iyke_agents(id)`. Without this check
+    // an unregistered agent gets a raw `(code: 787) FOREIGN KEY constraint
+    // failed` back, which says nothing about what to do. Now that WP-09 makes
+    // timers actually deliver (they fire into the agent inbox), this is the
+    // first thing an orchestrator hits when it schedules before registering.
+    if let Some(agent_id) = &body.agent_id {
+        let pool = db
+            .ensure_pool()
+            .await
+            .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+        let known: Option<(String,)> = sqlx::query_as("SELECT id FROM iyke_agents WHERE id = ?")
+            .bind(agent_id)
+            .fetch_optional(&pool)
+            .await
+            .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("timer agent: {e}")))?;
+        if known.is_none() {
+            return Err(err(
+                StatusCode::BAD_REQUEST,
+                format!(
+                    "unknown agent_id {agent_id:?} — POST /iyke/agent/register with \
+                     {{\"id\":{agent_id:?},\"name\":…}} first"
+                ),
             ));
         }
     }

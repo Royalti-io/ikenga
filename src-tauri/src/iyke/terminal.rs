@@ -196,6 +196,231 @@ pub async fn post_terminal_get(
         .ok_or_else(|| err(StatusCode::NOT_FOUND, "terminal not found"))
 }
 
+// ─── WP-08: terminal lifecycle over the bridge ───────────────────────────────
+//
+// Before this, an agent could drive terminals but not create them: the only
+// way to get a PTY was for a human to click "New tab". That made the whole
+// multi-agent story unreachable from outside the app.
+//
+// Spawn round-trips through the FRONTEND rather than calling `PtyManager`
+// directly (decision D-1 in the Phase 4 plan). The frontend owns the terminal
+// session store, and a Rust-local PTY would exist in the registry while being
+// invisible in the pane tree — unwatchable and unreclaimable. Going through
+// the frontend means an agent's terminal is an ordinary tab: you can see it,
+// pop it out, and take it over.
+
+/// How long to wait for the frontend to mint a terminal id.
+const SPAWN_RPC_TIMEOUT: Duration = Duration::from_secs(10);
+/// How long to wait for the PTY itself to appear in the registry after the
+/// frontend replies. The frontend spawns on mount, so this covers the React
+/// commit plus `Pty.spawn`'s IPC round-trip.
+const SPAWN_PTY_TIMEOUT: Duration = Duration::from_secs(10);
+const SPAWN_POLL_INTERVAL: Duration = Duration::from_millis(100);
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TerminalSpawnResult {
+    /// Terminal id the frontend minted, or None when it refused (e.g. the
+    /// requested pane doesn't exist).
+    #[serde(default)]
+    pub terminal_id: Option<String>,
+    #[serde(default)]
+    pub error: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct TerminalSpawnBody {
+    /// Working directory. Defaults to the frontend's active-project cwd.
+    #[serde(default)]
+    pub cwd: Option<String>,
+    /// Command + args. Defaults to the platform login shell.
+    #[serde(default)]
+    pub argv: Option<Vec<String>>,
+    #[serde(default)]
+    pub title: Option<String>,
+    /// Apply this unique label once the PTY exists — saves a second call on
+    /// the orchestration path, where every terminal wants a role name.
+    #[serde(default)]
+    pub label: Option<String>,
+    /// Target pane leaf id. Defaults to the focused pane.
+    #[serde(default)]
+    pub pane: Option<String>,
+    /// Acquire a lease for this agent id and return the token, so a spawning
+    /// orchestrator owns the terminal from birth and no one else can write to
+    /// it in the window between spawn and an explicit lease call.
+    #[serde(default)]
+    pub lease_for: Option<String>,
+    #[serde(default)]
+    pub lease_ttl_ms: Option<u64>,
+}
+
+pub async fn post_terminal_spawn(
+    Extension(app): Extension<AppHandle>,
+    Extension(rpc): Extension<crate::iyke::IykeRpc>,
+    Extension(manager): Extension<Arc<PtyManager>>,
+    JsonBody(body): JsonBody<TerminalSpawnBody>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    if let Some(argv) = &body.argv {
+        if argv.is_empty() {
+            return Err(err(StatusCode::BAD_REQUEST, "argv must not be empty"));
+        }
+    }
+    // Reject a duplicate label up front. Spawning and then failing to label
+    // would strand an unnamed terminal the caller didn't ask for.
+    if let Some(label) = &body.label {
+        if label.trim().is_empty() {
+            return Err(err(StatusCode::BAD_REQUEST, "label must not be empty"));
+        }
+        if manager
+            .list_terminals()
+            .iter()
+            .any(|t| t.status == "running" && t.label.as_deref() == Some(label.as_str()))
+        {
+            return Err(err(
+                StatusCode::CONFLICT,
+                format!("terminal label already in use: {label}"),
+            ));
+        }
+    }
+
+    let cwd = body.cwd.clone();
+    let argv = body.argv.clone();
+    let title = body.title.clone();
+    let pane = body.pane.clone();
+    let result = crate::iyke::rpc::request(
+        &app,
+        &rpc.terminal_spawn,
+        "iyke://terminal-spawn",
+        SPAWN_RPC_TIMEOUT,
+        |request_id| {
+            json!({
+                "request_id": request_id,
+                "cwd": cwd,
+                "argv": argv,
+                "title": title,
+                "pane": pane,
+            })
+        },
+    )
+    .await
+    .map_err(|error| err(StatusCode::SERVICE_UNAVAILABLE, error.to_string()))?;
+
+    if let Some(error) = result.error {
+        return Err(err(StatusCode::BAD_REQUEST, error));
+    }
+    let terminal_id = result.terminal_id.ok_or_else(|| {
+        err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "frontend returned no terminal id",
+        )
+    })?;
+
+    // The frontend replies as soon as it has minted the id; the PTY spawns when
+    // the tab mounts. Poll until the kernel actually has it, so callers never
+    // receive an id they can't immediately write to.
+    //
+    // Require a RUNNING descriptor, not merely a matching one. A single
+    // `terminal_id` can legitimately own several PTY records at once: React
+    // StrictMode double-mounts in dev (spawn → dispose → respawn, leaving an
+    // exited record behind), and in production the same shape appears whenever
+    // a shell exits and is restarted from the pane. Exited records linger for
+    // ten minutes by design. Taking the first match would hand the caller a
+    // dead `pty_id` and lease a corpse — the write would then fail against a
+    // terminal the agent believes it owns.
+    let deadline = tokio::time::Instant::now() + SPAWN_PTY_TIMEOUT;
+    let descriptor = loop {
+        let mut matches = manager
+            .list_terminals()
+            .into_iter()
+            .filter(|t| t.terminal_id == terminal_id)
+            .collect::<Vec<_>>();
+        // Newest first, so a respawn wins over the record it replaced.
+        matches.sort_by_key(|t| std::cmp::Reverse(t.created_at));
+        if let Some(d) = matches.into_iter().find(|t| t.status == "running") {
+            break d;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return Err(err(
+                StatusCode::GATEWAY_TIMEOUT,
+                format!("terminal {terminal_id} never reached the pty registry in a running state"),
+            ));
+        }
+        tokio::time::sleep(SPAWN_POLL_INTERVAL).await;
+    };
+
+    // Address the label and lease by the concrete `pty_id` we just resolved,
+    // not the logical `terminal_id`: with several records sharing that id,
+    // `resolve_id` could land on the exited one.
+    let target = descriptor.pty_id.clone();
+
+    let mut out = json!({
+        "terminal_id": descriptor.terminal_id,
+        "pty_id": descriptor.pty_id,
+        "cwd": descriptor.cwd,
+        "argv": descriptor.argv,
+        "status": descriptor.status,
+    });
+
+    if let Some(label) = body.label {
+        match manager.set_label(&target, Some(label)) {
+            Ok(d) => out["label"] = json!(d.label),
+            Err(error) => out["label_error"] = json!(error.to_string()),
+        }
+    }
+    if let Some(agent_id) = body.lease_for {
+        if agent_id.trim().is_empty() {
+            return Err(err(StatusCode::BAD_REQUEST, "lease_for must not be empty"));
+        }
+        match manager.acquire_lease(&target, agent_id, body.lease_ttl_ms.unwrap_or(60_000)) {
+            Ok((token, expires_at)) => {
+                out["lease_token"] = json!(token);
+                out["lease_expires_at"] = json!(expires_at);
+            }
+            Err(error) => out["lease_error"] = json!(error.to_string()),
+        }
+    }
+    Ok(Json(out))
+}
+
+#[derive(Deserialize)]
+pub struct TerminalKillBody {
+    /// Terminal id, pty id, or label.
+    pub terminal: String,
+    /// Also remove the tab from the pane tree. Off by default: killing the
+    /// process leaves the tab in place showing its exit status, which is the
+    /// same thing that happens when a shell exits on its own, and keeps the
+    /// scrollback readable for a post-mortem.
+    #[serde(default)]
+    pub close_tab: bool,
+}
+
+pub async fn post_terminal_kill(
+    Extension(app): Extension<AppHandle>,
+    Extension(manager): Extension<Arc<PtyManager>>,
+    JsonBody(body): JsonBody<TerminalKillBody>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let resolved = manager
+        .resolve_id(&body.terminal)
+        .map_err(|error| err(StatusCode::NOT_FOUND, error.to_string()))?;
+    let terminal_id = manager
+        .list_terminals()
+        .into_iter()
+        .find(|t| t.pty_id == resolved)
+        .map(|t| t.terminal_id);
+    manager
+        .kill(&resolved)
+        .map_err(|error| err(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    if body.close_tab {
+        if let Some(id) = &terminal_id {
+            // Fire-and-forget, like `tab-activate`: the process is already
+            // dead, so a frontend that misses this leaves a harmless exited tab.
+            let _ = app.emit("iyke://terminal-close-tab", json!({ "terminal_id": id }));
+        }
+    }
+    Ok(Json(
+        json!({ "ok": true, "pty_id": resolved, "terminal_id": terminal_id }),
+    ))
+}
+
 pub async fn post_terminal_label(
     Extension(manager): Extension<Arc<PtyManager>>,
     JsonBody(body): JsonBody<TerminalLabelBody>,

@@ -14,7 +14,8 @@ import { TabStrip, Tab, TabRail, RailTab } from '@/components/ui/tab-strip';
 import { useDockStore, DOCK_MIN_WIDTH, DOCK_MAX_WIDTH } from './dock-store';
 import { useDragState } from '@/lib/panes/drag-state';
 import { usePaneStore } from '@/lib/panes/pane-store';
-import { PaneBody, viewLabel } from '@/shell/panes/pane-views';
+import { PaneBody, viewLabel, viewSubtitle } from '@/shell/panes/pane-views';
+import { useTerminalTitles } from '@/terminal/use-terminal-titles';
 import { viewKey } from '@/shell/panes/view-key';
 import { viewWorkspace } from '@/shell/panes/tab-workspace';
 import { createTerminalSession } from '@/terminal/single-terminal';
@@ -48,6 +49,8 @@ export function Dock() {
 	const appendView = useDockStore((s) => s.appendView);
 	const storedWidth = useDockStore((s) => s.width);
 	const setStoredWidth = useDockStore((s) => s.setWidth);
+	// Terminal tabs name themselves by running command + directory.
+	const resolveTerminal = useTerminalTitles();
 
 	const drag = useDragState();
 	const [dropHover, setDropHover] = useState(false);
@@ -124,7 +127,7 @@ export function Dock() {
 								index={idx}
 								active={isActive}
 								ws={ws}
-								label={viewLabel(tab)}
+								label={viewLabel(tab, resolveTerminal)}
 								glyph={<DockTabIcon view={tab} />}
 								onActivate={() => {
 									switchTab(idx);
@@ -209,9 +212,11 @@ export function Dock() {
 								active={isActive}
 								ws={ws}
 								glyph={<DockTabIcon view={tab} />}
-								label={viewLabel(tab)}
-								labelClassName="capitalize"
-								title={viewLabel(tab)}
+								label={viewLabel(tab, resolveTerminal)}
+								// See pane-tab-strip: a terminal label is literal command
+								// and directory names, so it must not be title-cased.
+								labelClassName={tab.kind === 'terminal' ? undefined : 'capitalize'}
+								title={`${viewLabel(tab, resolveTerminal)}\n${viewSubtitle(tab, resolveTerminal)}`}
 								className="px-3"
 								pinned={isPinned}
 								closable={!isPinned}

@@ -5,7 +5,7 @@ use base64::Engine;
 use serde::Serialize;
 use tauri::{AppHandle, State};
 
-use crate::pty::{foreground::ForegroundProcess, PtyManager, SpawnOpts};
+use crate::pty::{foreground::ForegroundProcess, PtyManager, SpawnOpts, TerminalDescriptor};
 
 /// Trailing scrollback handed to a window that is attaching to a live PTY,
 /// plus the token that releases the gate `pty_attach_begin` installed. `data`
@@ -153,4 +153,19 @@ pub async fn pty_foreground_snapshot(
     manager: State<'_, Arc<PtyManager>>,
 ) -> Result<HashMap<String, ForegroundProcess>, String> {
     Ok(manager.foreground_snapshot())
+}
+
+/// Every live terminal descriptor — the same view `GET /iyke/terminal/list`
+/// serves to agents, exposed to the frontend so tab titles can name a terminal
+/// by what it actually is (cwd + live foreground command + any agent-assigned
+/// label) instead of a constant "Terminal".
+///
+/// Read-only and cheap: the foreground lookup behind it is cached for 1s per
+/// PTY in `pty::foreground`, so a few-second UI poll costs one `/proc` read
+/// per terminal at worst.
+#[tauri::command]
+pub async fn pty_terminal_list(
+    manager: State<'_, Arc<PtyManager>>,
+) -> Result<Vec<TerminalDescriptor>, String> {
+    Ok(manager.list_terminals())
 }

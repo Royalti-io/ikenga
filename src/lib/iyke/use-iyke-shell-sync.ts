@@ -3,7 +3,9 @@ import { findLeaf, getLeafIdsInOrder } from '@/lib/panes/pane-reducer';
 import { usePaneStore } from '@/lib/panes/pane-store';
 import type { PaneId, PaneNode, PaneView } from '@/lib/panes/types';
 import { useShellStore } from '@/lib/shell/shell-store';
+import { getHomeSync } from '@/lib/home';
 import { type TerminalTab, useTerminalStore } from '@/terminal/session-store';
+import { formatTerminalTitle } from '@/terminal/terminal-title';
 
 import { setShell } from './client';
 import { getIframe, IFRAME_STATE_EVENT } from './iframe-registry';
@@ -113,7 +115,7 @@ function buildPanesPayload(
 					t.kind === 'terminal' ? terminalTabs.find((tab) => tab.id === t.sessionId) : null;
 				return {
 					kind: t.kind,
-					title: viewTitle(t),
+					title: viewTitle(t, terminal ?? null),
 					...(t.pinned ? { pinned: true } : {}),
 					...(t.kind === 'terminal' ? { terminalId: t.sessionId } : {}),
 					...(terminal?.ptyId ? { ptyId: terminal.ptyId } : {}),
@@ -138,11 +140,25 @@ function buildPanesPayload(
 	return { leaves, tree: root };
 }
 
-function viewTitle(view: PaneView): string {
+function viewTitle(view: PaneView, terminal: TerminalTab | null): string {
 	switch (view.kind) {
 		case 'route':
 			return view.path;
 		case 'terminal':
+			// A bare session uuid told an agent nothing about which terminal it
+			// was looking at. Name it the same way the tab strip does — the
+			// foreground command isn't available on this path (no poll here), so
+			// this is the spawn-time view; `GET /iyke/terminal/list` remains the
+			// live, authoritative surface.
+			return terminal
+				? formatTerminalTitle({
+						cwd: terminal.spec.cwd,
+						argv: terminal.spec.cmd,
+						title: terminal.title,
+						exited: terminal.status === 'exited',
+						home: getHomeSync(),
+					}).label
+				: view.sessionId;
 		case 'chat':
 			return view.sessionId;
 		case 'artifact':

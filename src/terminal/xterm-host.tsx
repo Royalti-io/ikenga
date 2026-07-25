@@ -4,6 +4,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { type ITheme, Terminal } from '@xterm/xterm';
 import { useEffect, useRef, useState } from 'react';
+import { OS_FILE_DROP_EVENT, type OsFileDropDetail } from '@/lib/dnd/os-file-drop';
 import { createOscObserver, fireOscNotification } from '@/lib/terminal/osc-notify';
 import { registerPathLinks } from './path-links';
 import { Pty, type PtySpawnOpts } from './pty-bridge';
@@ -321,6 +322,13 @@ function wirePtyToTerm(
 	return { detachData, detachExit, onDataDispose, onResizeDispose };
 }
 
+/** Quote a filesystem path for a POSIX shell: wrap in single quotes and
+ *  escape any embedded single quote as `'\''`. Dropping a path with a space
+ *  into a shell is useless unquoted. */
+function shellQuote(path: string): string {
+	return `'${path.replace(/'/g, `'\\''`)}'`;
+}
+
 export function XTermHost({
 	spec,
 	pty,
@@ -333,6 +341,7 @@ export function XTermHost({
 	nudgeOnAttach,
 }: Props) {
 	const containerRef = useRef<HTMLDivElement | null>(null);
+	const wrapperRef = useRef<HTMLDivElement | null>(null);
 	const [searchOpen, setSearchOpen] = useState(false);
 	const [searchTerm, setSearchTerm] = useState('');
 	const searchInputRef = useRef<HTMLInputElement | null>(null);
@@ -352,6 +361,10 @@ export function XTermHost({
 	// Hold the search addon ref so the inline search input can drive it.
 	const searchAddonRef = useRef<SearchAddonLike | null>(null);
 	const termRef = useRef<Terminal | null>(null);
+	// Whichever PTY is currently live — the `pty` prop (attach mode) or the
+	// internally-spawned one (spec mode). The drop handler writes the dropped
+	// file's path here.
+	const livePtyRef = useRef<Pty | null>(null);
 
 	useEffect(() => {
 		// We must have either a spec (spawn) or a pty (attach) to render.
@@ -495,6 +508,11 @@ export function XTermHost({
 
 			termRef.current = term;
 			searchAddonRef.current = cachedEntry.searchAddon;
+			// The file-drop handler writes to `livePtyRef`. On a cache hit the
+			// spawn/attach wiring below is skipped, so set it here too —
+			// otherwise a terminal that has been remounted (tab switch, pane
+			// move: the common case) has a null ref and silently drops the path.
+			if (pty) livePtyRef.current = pty;
 
 			if (container.parentElement !== mountEl) {
 				mountEl.appendChild(container);
@@ -632,6 +650,7 @@ export function XTermHost({
 			}
 
 			if (pty) {
+				livePtyRef.current = pty;
 				const wired = wirePtyToTerm(term, pty, oscObserver, status, exit, webglUsed);
 				detachData = wired.detachData;
 				detachExit = wired.detachExit;
@@ -824,6 +843,7 @@ export function XTermHost({
 						return;
 					}
 					ownedPty = p;
+					livePtyRef.current = p;
 					onPtyIdRef.current?.(p.id);
 					const wired = wirePtyToTerm(term, p, oscObserver, status, exit, webglUsed);
 					detachData = wired.detachData;
@@ -842,6 +862,7 @@ export function XTermHost({
 		return () => {
 			cancelled = true;
 			disposed = true;
+			livePtyRef.current = null;
 			// Cancel any in-flight rAFs + retry timeouts so they can't run fit()
 			// after dispose.
 			for (const id of pendingRafs) cancelAnimationFrame(id);
@@ -908,12 +929,46 @@ export function XTermHost({
 		else addon.findPrevious(searchTerm);
 	}
 
+	// Drop a file onto the terminal → insert its shell-quoted path (trailing
+	// space, no newline, so the user reviews before running).
+	//
+	// The path comes from the native OS drag-drop handler, re-dispatched to the
+	// element under the cursor as `OS_FILE_DROP_EVENT` by the global router
+	// (src/lib/dnd/os-file-drop.ts). We can't read it from an HTML5 drop:
+	// WebKitGTK blanks `dataTransfer` for security when the native handler is on,
+	// and the native handler is what carries the real path. Inserting the path
+	// needs no file read, so this works for any file regardless of the fs
+	// allowlist. On macOS (native handler disabled) this event never fires and
+	// terminal path-drop is unavailable — documented in lib.rs.
+	//
+	// MUST stay above the `!spec && !pty` early return below: a hook after a
+	// conditional return changes the hook count between renders, and React
+	// throws "rendered more hooks than during the previous render" the first
+	// time a pane flips between having a terminal and not.
+	useEffect(() => {
+		const el = wrapperRef.current;
+		if (!el) return;
+		const onPaths = (e: Event) => {
+			const detail = (e as CustomEvent<OsFileDropDetail>).detail;
+			if (!detail?.paths?.length) return;
+			e.stopPropagation();
+			const pty = livePtyRef.current;
+			if (!pty) return;
+			pty.write(`${detail.paths.map(shellQuote).join(' ')} `).catch(console.error);
+			termRef.current?.focus();
+		};
+		el.addEventListener(OS_FILE_DROP_EVENT, onPaths);
+		return () => el.removeEventListener(OS_FILE_DROP_EVENT, onPaths);
+	}, []);
+
 	if (!spec && !pty) {
 		return <div className="empty">No PTY. Spawn one above.</div>;
 	}
 
 	return (
 		<div
+			ref={wrapperRef}
+			data-terminal-session={sessionId}
 			style={{
 				position: 'relative',
 				width: '100%',

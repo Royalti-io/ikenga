@@ -18,9 +18,11 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { useEffect } from 'react';
 import { findLeaf, getLeafIdsInOrder } from '@/lib/panes/pane-reducer';
 import { usePaneStore } from '@/lib/panes/pane-store';
+import type { PaneNode } from '@/lib/panes/types';
 import { queryClient } from '@/lib/query-client';
 import { readCapture, stripAnsi } from '@/terminal/pty-output-buffer';
 import { getPty } from '@/terminal/pty-registry';
+import { createTerminalSession } from '@/terminal/single-terminal';
 import { resolvePaneScope, useIykeActivity } from './activity-store';
 import {
 	allSearchDocs,
@@ -895,6 +897,73 @@ async function handleTerminalReadRequest(payload: TerminalReadPayload) {
 	}
 }
 
+/** WP-08 — bridge-driven terminal creation.
+ *
+ * Terminal creation lives here rather than in Rust because the frontend owns
+ * the session store and the pane tree. A Rust-local PTY would be invisible in
+ * the UI: unwatchable, un-poppable, unreclaimable. Going through the frontend
+ * means an agent's terminal is an ordinary tab.
+ *
+ * The new tab MUST become active. The PTY is spawned by `SingleTerminal` on
+ * mount, and a pane only mounts its active tab — so `addTabBackground` here
+ * would return a terminal id whose PTY never comes into existence, and the
+ * caller would block until the spawn timeout.
+ */
+async function handleTerminalSpawn(payload: {
+	request_id: string;
+	cwd?: string | null;
+	argv?: string[] | null;
+	title?: string | null;
+	pane?: string | null;
+}) {
+	const reply = (result: { terminal_id?: string; error?: string }) =>
+		invoke('iyke_terminal_spawn_done', {
+			requestId: payload.request_id,
+			result: { terminal_id: result.terminal_id ?? null, error: result.error ?? null },
+		}).catch(() => {});
+
+	try {
+		const store = usePaneStore.getState();
+		const leafId = payload.pane ?? store.focusedId;
+		const leaf = findLeaf(store.root, leafId);
+		if (!leaf) {
+			await reply({ error: `pane not found: ${leafId}` });
+			return;
+		}
+		const sessionId = createTerminalSession({
+			cwd: payload.cwd ?? undefined,
+			cmd: payload.argv ?? undefined,
+			title: payload.title ?? undefined,
+		});
+		// Activating is load-bearing, not cosmetic — see the note above.
+		store.addTab(leaf.id, { kind: 'terminal', sessionId });
+		await reply({ terminal_id: sessionId });
+	} catch (err) {
+		await reply({ error: err instanceof Error ? err.message : String(err) });
+	}
+}
+
+/** WP-08 — drop the tab for a terminal the bridge killed, when the caller
+ *  asked for it. Fire-and-forget: the process is already dead, so missing this
+ *  just leaves a harmless exited tab behind. */
+function handleTerminalCloseTab(payload: { terminal_id: string }) {
+	const store = usePaneStore.getState();
+	const visit = (node: PaneNode): boolean => {
+		if (node.type === 'leaf') {
+			const idx = node.tabs.findIndex(
+				(t) => t.kind === 'terminal' && t.sessionId === payload.terminal_id
+			);
+			if (idx >= 0) {
+				store.closeTab(node.id, idx);
+				return true;
+			}
+			return false;
+		}
+		return node.children.some(visit);
+	};
+	visit(store.root);
+}
+
 async function handleTerminalSend(payload: TerminalSendPayload) {
 	const reply = (matched: boolean) =>
 		payload.request_id
@@ -1042,6 +1111,20 @@ export function useIykeBridge(): void {
 		track(listen<ClickPayload>('iyke://click', (e) => void handleClick(e.payload)));
 		track(listen<TypePayload>('iyke://type', (e) => handleType(e.payload)));
 		track(listen<KeyPayload>('iyke://key', (e) => handleKey(e.payload)));
+		track(
+			listen<{
+				request_id: string;
+				cwd?: string | null;
+				argv?: string[] | null;
+				title?: string | null;
+				pane?: string | null;
+			}>('iyke://terminal-spawn', (e) => void handleTerminalSpawn(e.payload))
+		);
+		track(
+			listen<{ terminal_id: string }>('iyke://terminal-close-tab', (e) =>
+				handleTerminalCloseTab(e.payload)
+			)
+		);
 		track(
 			listen<TerminalSendPayload>('iyke://terminal-send', (e) => {
 				void handleTerminalSend(e.payload);

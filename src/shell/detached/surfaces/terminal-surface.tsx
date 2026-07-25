@@ -40,11 +40,13 @@
 // chunk the detached graph never loads — so the detached terminal would render
 // without scroll/selection styling. Import it here, scoped to this lazy chunk.
 import '@xterm/xterm/css/xterm.css';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Terminal } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 import { FeedbackState } from '@/components/ui/feedback-state';
 import { Pty } from '@/terminal/pty-bridge';
+import { useTerminalTitleByPtyId } from '@/terminal/use-terminal-titles';
 import { XTermHost } from '@/terminal/xterm-host';
 
 import type { DetachedSurfaceProps } from '../registry';
@@ -62,6 +64,28 @@ export default function TerminalSurface({ ctx }: DetachedSurfaceProps) {
 	const ptyId = parsePtyId(ctx.surfaces);
 	const [pty, setPty] = useState<Pty | null>(null);
 	const [error, setError] = useState<string | null>(null);
+
+	// A popped-out terminal has no session-store entry — the store lives in the
+	// origin window — so it names itself straight off the Rust descriptor,
+	// joined by PTY id. Same `claude · shell` label as the origin tab, and it
+	// tracks the foreground command live here too.
+	const title = useTerminalTitleByPtyId(ptyId);
+
+	// Every spawned window is built with the title "Ikenga", which makes a row
+	// of popped-out terminals indistinguishable in the OS window list and the
+	// alt-tab switcher. Name this one after what it's actually running.
+	// Keyed on the label string, not the title object: the descriptor poll can
+	// hand back a fresh object whose label is unchanged, and there's no reason
+	// to re-cross the IPC boundary for that.
+	const windowTitle = title?.label;
+	useEffect(() => {
+		if (!windowTitle) return;
+		void getCurrentWindow()
+			.setTitle(`${windowTitle} — Ikenga`)
+			.catch(() => {
+				/* non-fatal: the window keeps its default title */
+			});
+	}, [windowTitle]);
 
 	useEffect(() => {
 		if (!ptyId) return;
@@ -122,7 +146,9 @@ export default function TerminalSurface({ ctx }: DetachedSurfaceProps) {
 				style={{ height: 'var(--tab-h, 32px)' }}
 			>
 				<Terminal className="h-3 w-3 shrink-0" />
-				<span title={ptyId}>terminal {ptyId.slice(0, 8)}…</span>
+				<span className="truncate" title={title?.tooltip ?? ptyId}>
+					{title?.label ?? `terminal ${ptyId.slice(0, 8)}…`}
+				</span>
 			</header>
 			<div className="min-h-0 flex-1">
 				{pty ? (

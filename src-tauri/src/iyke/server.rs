@@ -47,11 +47,12 @@ use super::handlers::{
 use super::layout::{get_layout, post_layout_reset};
 use super::mcp::{get_mcp_list, post_mcp_restart};
 use super::memory::{
-    get_kv_get, get_kv_list, get_lock_status, get_scratchpad_list, get_scratchpad_read,
-    get_scratchpad_watch, get_timer_list, get_todo_list, post_agent_register, post_kv_delete,
-    post_kv_set, post_lock_acquire, post_lock_release, post_lock_renew, post_scratchpad_append,
-    post_scratchpad_delete, post_scratchpad_write, post_timer_cancel, post_timer_schedule,
-    post_todo_complete, post_todo_create, post_todo_update, TimerScheduler,
+    get_agent_inbox, get_kv_get, get_kv_list, get_lock_status, get_scratchpad_list,
+    get_scratchpad_read, get_scratchpad_watch, get_timer_list, get_todo_list, post_agent_inbox_ack,
+    post_agent_register, post_kv_delete, post_kv_set, post_lock_acquire, post_lock_release,
+    post_lock_renew, post_scratchpad_append, post_scratchpad_delete, post_scratchpad_write,
+    post_timer_cancel, post_timer_schedule, post_todo_complete, post_todo_create, post_todo_update,
+    TimerScheduler,
 };
 use super::pa_actions::post_pa_actions_pause;
 use super::permissions_audit::get_violations_list;
@@ -63,10 +64,11 @@ use super::projects::{
 use super::secrets::{get_secret, get_secret_list, post_secret_delete, post_secret_set};
 use super::sessions::{get_session_list, post_session_move, post_session_start};
 use super::state::IykeState;
+use super::tasks::{get_task_list, post_task_complete, post_task_create, post_task_update};
 use super::terminal::{
     get_terminal_audit, get_terminals, get_windows, post_tab_activate, post_terminal_get,
-    post_terminal_label, post_terminal_lease_acquire, post_terminal_lease_release,
-    post_terminal_wait,
+    post_terminal_kill, post_terminal_label, post_terminal_lease_acquire,
+    post_terminal_lease_release, post_terminal_spawn, post_terminal_wait,
 };
 use super::trust::{get_trust_list, get_trust_preview, post_trust_grant, post_trust_revoke};
 use super::IykeRpc;
@@ -130,6 +132,8 @@ pub async fn serve(
         .route("/iyke/terminal/list", get(get_terminals))
         .route("/iyke/terminal/get", post(post_terminal_get))
         .route("/iyke/terminal/wait", post(post_terminal_wait))
+        .route("/iyke/terminal/spawn", post(post_terminal_spawn))
+        .route("/iyke/terminal/kill", post(post_terminal_kill))
         .route("/iyke/terminal/label", post(post_terminal_label))
         .route(
             "/iyke/terminal/lease/acquire",
@@ -254,6 +258,12 @@ pub async fn serve(
         .route("/iyke/lock/release", post(post_lock_release))
         .route("/iyke/lock/renew", post(post_lock_renew))
         .route("/iyke/agent/register", post(post_agent_register))
+        .route("/iyke/agent/inbox", get(get_agent_inbox))
+        .route("/iyke/agent/inbox/ack", post(post_agent_inbox_ack))
+        .route("/iyke/task/list", get(get_task_list))
+        .route("/iyke/task/create", post(post_task_create))
+        .route("/iyke/task/update", post(post_task_update))
+        .route("/iyke/task/complete", post(post_task_complete))
         .route("/iyke/todo/create", post(post_todo_create))
         .route("/iyke/todo/update", post(post_todo_update))
         .route("/iyke/todo/list", get(get_todo_list))

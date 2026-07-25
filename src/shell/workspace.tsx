@@ -3,6 +3,7 @@ import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 import { OpenSessionDialogHost } from '@/components/pkg/open-session-dialog-host';
 import { PkgIframeLayer } from '@/components/pkg/pkg-iframe-layer';
 import { dumpBootTimings, mark } from '@/lib/boot-timing';
+import { initOsFileDrop } from '@/lib/dnd/os-file-drop';
 import { useIykeBridge } from '@/lib/iyke/bridge';
 import { useIykeControlListener } from '@/lib/iyke/control-listener';
 import { useIykeShellSync } from '@/lib/iyke/use-iyke-shell-sync';
@@ -114,6 +115,23 @@ export function Workspace() {
 	// Setter kept so settings surfaces can push a reset/default back into
 	// React state without remounting the panel group.
 	useEffect(() => registerPanelSizesSetter(setInitialSizes), []);
+
+	// Route native OS file drops to the surface under the cursor (terminals →
+	// insert path, chat composer → attach). Only fires where the native
+	// drag-drop handler is enabled (Linux/Windows); a no-op on macOS. See
+	// src/lib/dnd/os-file-drop.ts. (drop-zone overlay)
+	useEffect(() => {
+		let dispose: (() => void) | null = null;
+		let cancelled = false;
+		void initOsFileDrop().then((unlisten) => {
+			if (cancelled) unlisten();
+			else dispose = unlisten;
+		});
+		return () => {
+			cancelled = true;
+			dispose?.();
+		};
+	}, []);
 
 	// Persist on layout change (debounced to avoid hammering SQLite while
 	// the user is mid-drag).

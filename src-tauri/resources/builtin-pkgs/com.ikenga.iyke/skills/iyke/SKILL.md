@@ -1,6 +1,6 @@
 ---
 name: iyke
-description: Drive the running Ikenga desktop app from a Claude Code session — read its DOM, query its TanStack cache, navigate panes, capture screenshots, click and type. Use when the user is running the desktop app (or asks you to verify something inside it) and you need to inspect or change its state without them taking their hands off the keyboard.
+description: Drive the running Ikenga desktop app from a Claude Code session — read its DOM, query its TanStack cache, navigate panes, capture screenshots, click and type. ALSO the multi-agent orchestration surface — spawn and control terminals running any LLM CLI, coordinate through scratchpads, todos, locks and leases, and read or write the task board. Use when the user is running the desktop app (or asks you to verify something inside it), or when you are orchestrating several agents or terminals to carry out multi-phase work.
 ---
 
 # Iyke — desktop control bridge
@@ -99,6 +99,145 @@ iyke wait --selector '[data-testid="sent-confirmation"]' --timeout 10000
 iyke query-cache --json | jq '.queries[] | select(.queryKey[0] == "tasks")'
 ```
 Useful when you want to see the data the UI is rendering without scraping the DOM.
+
+## Multi-agent orchestration
+
+Everything above drives the UI. This section is the other half: the control
+plane for running **several terminals — each with a different LLM CLI — through
+a multi-phase job**. All of it is HTTP on the same bridge (`$IYKE_URL` +
+bearer token from `control.json`); the CLI covers some of it, `curl` covers the
+rest.
+
+### Terminals are the substrate
+
+A terminal is anything with a CLI: `claude`, `gemini`, `codex`, `cursor-agent`,
+`aider`, a test runner, a REPL. Two ids matter and they are not the same thing:
+
+- `terminal_id` — stable, survives the process. **Address everything by this.**
+- `pty_id` — the running process. Changes when a shell exits and restarts.
+
+```
+POST /iyke/terminal/spawn   {cwd, argv, title, label, pane, lease_for, lease_ttl_ms}
+POST /iyke/terminal/kill    {terminal, close_tab}
+POST /iyke/terminal/label   {terminal, label}      # unique name among live terminals
+POST /iyke/terminal/lease/acquire {terminal, agent_id, ttl_ms}   → {token, expires_at}
+POST /iyke/terminal/send    {terminal, data, keys, lease_token, expected_pty_id}
+POST /iyke/terminal/wait    {terminal, match|until_idle_ms, after, timeout_ms}
+GET  /iyke/terminal/read?terminal=&after=          # cursor read
+GET  /iyke/terminal/list                           # every live terminal + foreground cmd
+```
+
+Three safety rails, all worth using:
+
+- **Leases.** `lease_for` on spawn (or `lease/acquire` later) gives you a token.
+  Once a terminal is leased, a `send` **without** the matching token is rejected.
+  This is what stops two agents typing into the same shell.
+- **`expected_pty_id`.** Pin the send to the process you think you're talking to.
+  If the shell died and respawned, the write is refused instead of landing in a
+  fresh shell that has no idea what you were doing.
+- **Cursor reads.** `after` = the last `end_offset` you saw. The response carries
+  `truncated` when the ring (256 KB) overflowed past your cursor — if you see it,
+  you lost output and should be checkpointing to a scratchpad more often.
+
+`wait` is the only blocking primitive. Prefer `match` on a sentinel you told the
+model to print (`<<<DONE:impl-a>>>`) over `until_idle_ms`, which cannot tell
+"finished" from "thinking".
+
+Labels and leases are **runtime-only** — an app restart drops them. Durable
+orchestration state belongs in scratchpads, todos and KV.
+
+### Scratchpads — the shared blackboard
+
+```
+POST /iyke/scratchpad/write   {scope, name, body}
+POST /iyke/scratchpad/append  {scope, name, body}
+GET  /iyke/scratchpad/read?scope=&name=
+GET  /iyke/scratchpad/watch?scope=&name=&since=&wait_ms=     # long poll
+```
+
+`watch` is the **only push-shaped primitive in the whole bridge**. It blocks
+until `updated_at > since`, then returns the new body (or `deleted: true`).
+Everything else is request/response.
+
+Three rules that will save you:
+
+1. **One writer per pad.** `(scope, name)` is unique and writes are
+   last-writer-wins with no merge and no conflict signal. Partition by name —
+   `phase2/spec` owned by the orchestrator, `phase2/worker-a` owned by worker A.
+2. **Scope defaults to `project:<active project id>`.** Pass `scope` explicitly
+   for anything cross-project, or your pads silently follow whatever project the
+   human last clicked.
+3. **Use `append` for logs**, `write` for documents. `write` replaces.
+
+The human sees the same pads in the sidebar and can edit them mid-run. That is
+the feature: a plan in a scratchpad is a document you and they share, not a
+buried chat message.
+
+### Todos — the execution graph
+
+```
+POST /iyke/todo/create   {scope, title, body, tags, assignee, blocker_id, task_id}
+POST /iyke/todo/update   {id, status, assignee, blocker_id, ...}
+POST /iyke/todo/complete {id}
+GET  /iyke/todo/list?scope=&status=&assignee=&tag=
+```
+
+`blocker_id` is a self-reference: **this is a dependency DAG**, which is how you
+encode phase ordering. `assignee` should be the terminal label that owns the
+node. `task_id` links a runtime todo to the durable task it serves.
+
+### Locks, KV, timers, inbox
+
+```
+POST /iyke/lock/acquire  {scope, resource, holder, ttl_ms}   # before shared writes
+POST /iyke/lock/release  {scope, resource, holder}
+POST /iyke/kv/set        {scope, key, value}
+POST /iyke/timer/schedule {scope, fire_at, agent_id, payload}
+GET  /iyke/agent/inbox?agent_id=&since=      # timer fires land here
+POST /iyke/agent/inbox/ack {ids}             # ack deletes
+```
+
+Take a lock before two workers touch the same files. Locks expire (a sweeper
+reaps them), so a crashed agent doesn't wedge the run forever.
+
+### Tasks — the durable board
+
+```
+GET  /iyke/task/list?status=&assigned_to=&project_path=
+POST /iyke/task/create   {title, description, priority, assigned_to, actor}
+POST /iyke/task/update   {id, status, progress_pct, task_result, actor}
+POST /iyke/task/complete {id, task_result, outcome_notes, actor}
+```
+
+Agents have full write access here. **Always pass `actor`** — every mutation
+appends a `task_events` row naming you, and that audit trail is the only reason
+unrestricted write access is safe. Tasks are what the human works from; todos
+are your scratch execution graph. Don't confuse them.
+
+### The orchestration shape
+
+```
+register agent
+  ↓
+spawn N terminals (label + lease each at spawn)
+  ↓
+write the phase spec to a scratchpad
+  ↓
+send each worker its prompt (expected_pty_id set)
+  ↓
+wait on each worker's sentinel  ──→  workers checkpoint into their own pads
+  ↓
+take a lock before touching shared files
+  ↓
+complete todos → unblocks the next phase via blocker_id
+  ↓
+write the outcome back to the task (actor = you)
+```
+
+Failure discipline: if a `wait` times out, **read** before you retry — the model
+may be waiting on a prompt rather than stuck. Never send into a terminal you
+don't hold the lease for. Two failed attempts on the same terminal, then stop
+and surface it.
 
 ## When iyke isn't enough
 
