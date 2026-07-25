@@ -489,12 +489,25 @@ async fn ensure_schema(pool: &sqlx::SqlitePool) -> Result<(), String> {
             "0055_chrome_profiles",
             include_str!("../../migrations/0055_chrome_profiles.sql"),
         ),
-        // WP-10: nullable `task_id` on iyke_todos, linking an agent's runtime
-        // execution graph to the durable task board it serves.
+        // email_actions is the audit + undo log for server-side IMAP triage
+        // (royalti-pa/scripts/imap-triage.ts). email_triage_cursor carries
+        // resume state so a run interrupted partway through ~25k moves neither
+        // redoes nor skips work.
         (
             56,
-            "0056_iyke_todo_task_link",
-            include_str!("../../migrations/0056_iyke_todo_task_link.sql"),
+            "0056_email_actions",
+            include_str!("../../migrations/0056_email_actions.sql"),
+        ),
+        // WP-10: nullable `task_id` on iyke_todos, linking an agent's runtime
+        // execution graph to the durable task board it serves.
+        //
+        // Renumbered 0056 → 0057 when this branch merged main, which had
+        // already claimed 56 for email_actions. Migration ids are apply-order
+        // keys, so two files sharing one id means the second never runs.
+        (
+            57,
+            "0057_iyke_todo_task_link",
+            include_str!("../../migrations/0057_iyke_todo_task_link.sql"),
         ),
     ];
 
@@ -893,8 +906,10 @@ mod tests {
     /// (social_queue media/hashtags columns) brings it to 52; 0053/0054
     /// (research + strategy domains, atelier wave-4) bring it to 54; 0055
     /// (chrome_profiles, pkg-browser WP-03) brings it to 55 — it landed
-    /// without a bump, the exact drift this guard exists to catch.
-    const MIGRATION_COUNT: i64 = 56;
+    /// without a bump, the exact drift this guard exists to catch. 0056
+    /// (email_actions + email_triage_cursor) landed without a bump too;
+    /// 0057 (iyke_todo_task_link, WP-10) brings it to 57.
+    const MIGRATION_COUNT: i64 = 57;
 
     /// Schema init applies every embedded migration exactly once. The
     /// `_pa_migrations` table must end with one row per migration tuple.
