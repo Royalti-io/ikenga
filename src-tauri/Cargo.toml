@@ -170,6 +170,7 @@ agent-client-protocol = { version = "0.11", features = ["unstable"] }
 # ANSI cursor-positioning + style escapes. We strip them down to plain text
 # before splitting on newlines so the parser can spot real content lines.
 strip-ansi-escapes = "0.2"
+vt100 = "0.15"
 
 # macOS-only: NSProcessInfo.beginActivity App-Nap inhibitor. Held while a
 # browser MCP tool call is in flight to keep eval round-trips fast even when

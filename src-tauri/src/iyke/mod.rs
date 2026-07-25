@@ -31,6 +31,8 @@ pub mod secrets;
 pub mod server;
 pub mod sessions;
 pub mod state;
+pub mod tasks;
+pub mod terminal;
 pub mod trust;
 
 use std::path::{Path, PathBuf};
@@ -56,6 +58,11 @@ pub struct IykeRpc {
     /// Click/type/key match round-trips. Shared across the three action verbs
     /// (each request_id is a UUID, so concurrent in-flight actions coexist).
     pub action: Pending<handlers::ActionResult>,
+    /// Terminal spawn/kill round-trips. Distinct from `action` because the
+    /// frontend has to hand back the `terminal_id` it minted — `ActionResult`
+    /// only carries a match flag. Per WP-08 the frontend owns terminal
+    /// creation (it holds the session store), so spawn cannot be Rust-local.
+    pub terminal_spawn: Pending<terminal::TerminalSpawnResult>,
 }
 
 impl IykeRpc {
@@ -66,6 +73,7 @@ impl IykeRpc {
             wait: new_pending(),
             terminal_read: new_pending(),
             action: new_pending(),
+            terminal_spawn: new_pending(),
         }
     }
 }
@@ -137,6 +145,7 @@ pub async fn start(
     webview_panes: Arc<crate::pkg::webview::WebviewPanesRegistry>,
     playwright_proxy: Arc<playwright_proxy::PlaywrightProxy>,
     pa_db: Arc<crate::commands::db::PaDb>,
+    pty_manager: Arc<crate::pty::PtyManager>,
     control_path: PathBuf,
     app_handle: AppHandle,
     screenshot_pending: crate::commands::ScreenshotPending,
@@ -152,6 +161,7 @@ pub async fn start(
         webview_panes,
         playwright_proxy,
         pa_db,
+        pty_manager,
         token.clone(),
         app_handle,
         screenshot_pending,

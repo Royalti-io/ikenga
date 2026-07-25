@@ -15,6 +15,8 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 // ─── PTY ──────────────────────────────────────────────────────────────────────
 
 export interface PtySpawnOpts {
+	terminalId?: string;
+	title?: string;
 	cwd: string;
 	cmd: string[];
 	env?: Record<string, string>;
@@ -24,6 +26,8 @@ export interface PtySpawnOpts {
 
 export async function ptySpawn(opts: PtySpawnOpts): Promise<string> {
 	return invoke<string>('pty_spawn', {
+		terminalId: opts.terminalId ?? null,
+		title: opts.title ?? null,
 		cwd: opts.cwd,
 		cmd: opts.cmd,
 		env: opts.env ?? null,
@@ -65,6 +69,41 @@ export async function ptyForeground(id: string): Promise<ForegroundProcess | nul
  *  dispatcher uses this to pick the active claude session for pin delivery. */
 export async function ptyForegroundSnapshot(): Promise<Record<string, ForegroundProcess>> {
 	return invoke<Record<string, ForegroundProcess>>('pty_foreground_snapshot');
+}
+
+/** One live terminal as the Rust core sees it — the same shape
+ *  `GET /iyke/terminal/list` serves to agents. Mirrors `TerminalDescriptor` in
+ *  `src-tauri/src/pty/mod.rs`, which serializes with its Rust field names (no
+ *  `rename_all`), so these stay snake_case.
+ *
+ *  Only the fields the shell actually consumes are typed here; the Rust struct
+ *  carries more (lease/audit offsets) that agents read over the bridge. */
+export interface TerminalDescriptor {
+	/** Session-store tab id (`TerminalTab.id`). Falls back to the pty id when
+	 *  the spawn didn't declare one, so it is never empty. */
+	terminal_id: string;
+	pty_id: string;
+	/** Title the spawner chose — e.g. `claude`, or a Studio preset name.
+	 *  Defaults to the joined argv (`"bash -l"`) when the spawn passed none. */
+	title: string;
+	/** Agent-assigned name, set via `POST /iyke/terminal/label`. Unique among
+	 *  live terminals; null until an agent claims one. */
+	label: string | null;
+	cwd: string;
+	argv: string[];
+	status: 'running' | 'exited';
+	pid: number | null;
+	/** What the terminal is running RIGHT NOW (`claude`, `vim`, `bash`).
+	 *  Null on platforms that can't observe the foreground process group. */
+	foreground_command: ForegroundProcess | null;
+	/** Agent currently holding the write lease, if any. */
+	owner_agent_id: string | null;
+}
+
+/** Every live terminal descriptor, oldest first. Backs terminal tab titles —
+ *  see `src/terminal/terminal-title.ts`. */
+export async function ptyTerminalList(): Promise<TerminalDescriptor[]> {
+	return invoke<TerminalDescriptor[]>('pty_terminal_list');
 }
 
 /**

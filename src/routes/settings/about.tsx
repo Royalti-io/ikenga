@@ -3,7 +3,8 @@
 //
 // Surface order:
 //   1. Header strip — shell name, current version, last check time, [Check now]
-//   2. Available-update card (conditional) — vX → vY, release notes, [Update & relaunch], [Defer 24h]
+//   2. Available-update card (conditional) — vX → vY, release notes, [Update]
+//      → [Restart now] once installed, [Defer 24h]
 //   3. Changelog feed — last 20 releases, collapsible
 //
 // Update mutation routes through the existing `useUpdater` hook (Tauri's
@@ -134,7 +135,7 @@ function AutoUpdateSettings() {
 			</SettingRow>
 			<SettingRow
 				label="Install app updates automatically"
-				desc="Off by default — an app update relaunches Ikenga. When on, a new build downloads and relaunches without a click (deferring still works)."
+				desc="Off by default. When on, a new build downloads and installs in the background — Ikenga never restarts on its own, you press Restart when you're ready (deferring still works)."
 			>
 				<Switch
 					checked={autoInstallApp}

@@ -51,6 +51,8 @@ import { mintThreadId } from '../hooks';
 import { createTerminalSession } from '@/terminal/single-terminal';
 import { buildClaudeWrappedCmd } from '@/terminal/claude-wrap';
 import { usePaneStore } from '@/lib/panes/pane-store';
+import { OS_FILE_DROP_EVENT, type OsFileDropDetail } from '@/lib/dnd/os-file-drop';
+import { fsRead } from '@/lib/tauri-cmd';
 import { open as openExternal } from '@tauri-apps/plugin-shell';
 import { filterSlashCommands, useSlashCommands, type SlashCommand } from '../slash-commands';
 
@@ -184,6 +186,7 @@ export function Composer({ threadId, className, placeholder }: ComposerProps) {
 	/** Hidden file input ref. Triggered by the Attach button so users have a
 	 *  discoverable affordance alongside paste + drag/drop. */
 	const fileInputRef = useRef<HTMLInputElement>(null);
+	const composerRef = useRef<HTMLDivElement>(null);
 	const isSlash = text.trimStart().startsWith('/');
 
 	const slashCommands = useSlashCommands(state?.thread.cwd);
@@ -331,6 +334,44 @@ export function Composer({ threadId, className, placeholder }: ComposerProps) {
 		// Required to allow drop.
 		e.preventDefault();
 	}
+
+	// Native OS file drops (Linux/Windows, where Tauri's drag-drop handler is
+	// enabled) arrive as paths via the global router, NOT as HTML5 File objects
+	// — WebKitGTK blanks `dataTransfer` when the native handler is on, so the
+	// `handleDrop`/`handleDragOver` HTML5 path above only fires on macOS. Here we
+	// read each dropped path and reuse the same image-attach pipeline.
+	//
+	// Reads go through `fsRead`, which enforces the Storage → File roots
+	// allowlist: an image under a configured root (a project dir) attaches; one
+	// from outside is skipped with a warning. macOS is unaffected (HTML5 path).
+	//
+	// Subscribed once: the handler only closes over `appendImagesFromFiles`,
+	// which itself just calls `setPendingImages` (a stable setter), so there is
+	// no stale state to go out of date and no reason to re-bind every render.
+	useEffect(() => {
+		const el = composerRef.current;
+		if (!el) return;
+		const onPaths = async (e: Event) => {
+			const paths = (e as CustomEvent<OsFileDropDetail>).detail?.paths;
+			if (!paths?.length) return;
+			e.stopPropagation();
+			const files: File[] = [];
+			for (const path of paths) {
+				try {
+					const { bytes, mime } = await fsRead(path);
+					if (!SUPPORTED_IMAGE_MIME_TYPES.has(mime)) continue;
+					const name = path.split('/').pop() || 'image';
+					files.push(new File([new Uint8Array(bytes)], name, { type: mime }));
+				} catch (err) {
+					console.warn('[composer] could not read dropped file', path, err);
+				}
+			}
+			if (files.length > 0) await appendImagesFromFiles(files);
+		};
+		el.addEventListener(OS_FILE_DROP_EVENT, onPaths);
+		return () => el.removeEventListener(OS_FILE_DROP_EVENT, onPaths);
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, []);
 
 	function removePendingImage(id: string) {
 		setPendingImages((prev) => prev.filter((p) => p.id !== id));
@@ -569,6 +610,9 @@ export function Composer({ threadId, className, placeholder }: ComposerProps) {
 
 	return (
 		<div
+			ref={composerRef}
+			data-os-drop-target="composer"
+			data-os-drop-label="Drop image to attach"
 			className={cn('border-t-2 border-[var(--rule)] bg-[var(--bg-raised)] px-4 py-3', className)}
 			onDrop={handleDrop}
 			onDragOver={handleDragOver}

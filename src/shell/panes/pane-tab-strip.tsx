@@ -13,6 +13,7 @@ import {
 	ContextMenuSeparator,
 	ContextMenuTrigger,
 } from '@/components/ui/context-menu';
+import { useTerminalTitles } from '@/terminal/use-terminal-titles';
 import { viewLabel, viewSubtitle } from './pane-views';
 import { viewWorkspace } from './tab-workspace';
 import { NewTabMenu, useAnchorRect } from './new-tab-menu';
@@ -35,6 +36,10 @@ export function PaneTabStrip({ leaf, isFocused }: PaneTabStripProps) {
 	// Path of the artifact being pinned to the sidebar via the tab context menu
 	// (null = dialog closed). Reuses the same PinArtifactDialog as the address bar.
 	const [pinPath, setPinPath] = useState<string | null>(null);
+
+	// Names terminal tabs by what they're running and where — `claude · shell`
+	// rather than N tabs all reading "Terminal".
+	const resolveTerminal = useTerminalTitles();
 
 	// Close every closable (non-pinned) tab except `keepIdx`. Read fresh state
 	// and close in DESCENDING index order so earlier closes never shift the
@@ -104,6 +109,7 @@ export function PaneTabStrip({ leaf, isFocused }: PaneTabStripProps) {
 					const isActive = idx === leaf.activeTabIdx;
 					const isPinned = Boolean(tab.pinned);
 					const ws = viewWorkspace(tab);
+					const label = viewLabel(tab, resolveTerminal);
 					return (
 						<ContextMenu key={`${idx}-${tab.kind}`}>
 							<ContextMenuTrigger asChild>
@@ -111,9 +117,13 @@ export function PaneTabStrip({ leaf, isFocused }: PaneTabStripProps) {
 									index={idx}
 									active={isActive}
 									ws={ws}
-									label={viewLabel(tab)}
-									labelClassName="capitalize"
-									title={`${viewLabel(tab)}${isPinned ? ' (pinned)' : ''}\n${viewSubtitle(tab)}`}
+									label={label}
+									// Terminal labels are real command + directory names
+									// (`claude · shell`). Title-casing them would render
+									// "Claude · Shell" and misspell anything lowercase by
+									// convention; route labels still capitalize.
+									labelClassName={tab.kind === 'terminal' ? undefined : 'capitalize'}
+									title={`${label}${isPinned ? ' (pinned)' : ''}\n${viewSubtitle(tab, resolveTerminal)}`}
 									pinned={isPinned}
 									closable={!isPinned}
 									onActivate={() => activate(idx)}

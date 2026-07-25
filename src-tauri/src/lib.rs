@@ -51,7 +51,8 @@ use commands::{
     fs_read, fs_rename, fs_roots_add, fs_roots_list, fs_roots_remove, fs_roots_reset, fs_search,
     fs_trash, fs_unwatch, fs_watch, fs_write, iyke_action_done, iyke_dom_done, iyke_dom_query,
     iyke_endpoint, iyke_log_push, iyke_mcp_info, iyke_network_push, iyke_query_cache_done,
-    iyke_set_shell, iyke_terminal_read_done, iyke_wait_done, list_all_skill_actions,
+    iyke_set_shell, iyke_terminal_read_done, iyke_terminal_spawn_done, iyke_wait_done,
+    list_all_skill_actions,
     list_skill_actions, oba_auto_update_all, oba_backfill_registry, oba_check_update,
     oba_dependents, oba_forget, oba_install_bundle, oba_install_git, oba_install_local,
     oba_install_npx, oba_install_with_deps, oba_missing_requires, oba_relink_dependents,
@@ -70,7 +71,7 @@ use commands::{
     project_artifacts_walk, project_create, project_get_active, project_inventory, project_list,
     project_scaffold_claude, project_set_active, project_skills_list, project_update,
     pty_attach_arm, pty_attach_begin, pty_foreground, pty_foreground_snapshot, pty_kill,
-    pty_resize, pty_spawn, pty_write,
+    pty_resize, pty_spawn, pty_terminal_list, pty_write,
     runtime_retry_bun_fetch, screenshot_capture_done, screenshot_capture_failed,
     screenshot_capture_native_crop, screenshot_get_config, screenshot_pane, screenshot_set_dir,
     screenshot_window, secrets_delete, secrets_delete_scoped, secrets_get, secrets_get_scoped,
@@ -228,7 +229,7 @@ pub fn run() {
             })
             .build(),
         )
-        .manage(pty_manager)
+        .manage(pty_manager.clone())
         .manage(fs_watch_manager)
         .manage(viewer_manager)
         .manage(sessions_manager)
@@ -378,6 +379,7 @@ pub fn run() {
             let webview_panes_for_start = webview_panes_reg.clone();
             let playwright_proxy_for_start = playwright_proxy.clone();
             let pa_db_for_iyke = pa_db.clone();
+            let pty_manager_for_iyke = pty_manager.clone();
             let app_handle_for_iyke = app.handle().clone();
             let pending_for_iyke = screenshot_pending.clone();
             let iyke_routes_for_start = iyke_routes_reg.clone();
@@ -390,6 +392,7 @@ pub fn run() {
                     webview_panes_for_start,
                     playwright_proxy_for_start,
                     pa_db_for_iyke,
+                    pty_manager_for_iyke,
                     control_path,
                     app_handle_for_iyke,
                     pending_for_iyke,
@@ -516,13 +519,25 @@ pub fn run() {
             .title("Ikenga")
             .inner_size(1280.0, 800.0)
             .min_inner_size(960.0, 600.0)
-            .resizable(true)
-            // Disable Tauri's OS-level drag-drop handler so the webview's own
-            // HTML5 drag-and-drop is authoritative. On macOS WKWebView the
-            // native handler intercepts drag operations before the page sees
-            // them, breaking in-page DnD (pane split/move, composer file-drop).
-            // Nothing in the app consumes Tauri's native drag-drop events.
-            .disable_drag_drop_handler();
+            .resizable(true);
+            // Drag-drop handler policy is per-OS.
+            //
+            // macOS: WKWebView's native handler intercepts ALL drag operations
+            // before the page sees them, including in-page HTML5 DnD (pane
+            // split/move). So it stays DISABLED there and the webview's HTML5
+            // events are authoritative — meaning no OS-path drop into terminals
+            // on macOS (documented limitation), but the composer's HTML5
+            // file-drop keeps working.
+            //
+            // Linux/Windows: the native handler intercepts only OS→webview FILE
+            // drops, not in-page element drags, so pane DnD is unaffected — and
+            // it is the ONLY source of a dropped file's absolute path (WebKitGTK
+            // blanks `dataTransfer` for security when the handler is off, so
+            // HTML5 yields empty `files`/`getData`). We keep it ENABLED and route
+            // `onDragDropEvent` paths to the surface under the cursor (see
+            // `src/lib/dnd/os-file-drop.ts`); the composer drop is bridged there.
+            #[cfg(target_os = "macos")]
+            let builder = builder.disable_drag_drop_handler();
             // Overlay title-bar + hidden title are macOS-only; the rest of
             // the window config applies on every platform.
             #[cfg(target_os = "macos")]
@@ -819,6 +834,7 @@ pub fn run() {
             pty_attach_arm,
             pty_foreground,
             pty_foreground_snapshot,
+            pty_terminal_list,
             // multi-window substrate (plans/multi-window WP-03)
             window_spawn,
             window_close,
@@ -992,6 +1008,7 @@ pub fn run() {
             iyke_query_cache_done,
             iyke_wait_done,
             iyke_terminal_read_done,
+            iyke_terminal_spawn_done,
             iyke_action_done,
             iyke::browser_handlers::iyke_browser_reply,
             // backup / restore

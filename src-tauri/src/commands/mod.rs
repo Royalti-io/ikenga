@@ -105,6 +105,7 @@ pub use identity::os_username;
 pub use iyke::{
     iyke_action_done, iyke_dom_done, iyke_dom_query, iyke_endpoint, iyke_log_push,
     iyke_network_push, iyke_query_cache_done, iyke_set_shell, iyke_terminal_read_done,
+    iyke_terminal_spawn_done,
     iyke_wait_done, IykeRuntimeState,
 };
 pub use pa_actions::{
@@ -143,7 +144,7 @@ pub use projects::{
 };
 pub use pty::{
     pty_attach_arm, pty_attach_begin, pty_foreground, pty_foreground_snapshot, pty_kill, pty_resize,
-    pty_spawn, pty_write,
+    pty_spawn, pty_terminal_list, pty_write,
 };
 pub use runtime::runtime_retry_bun_fetch;
 pub use screenshot::{

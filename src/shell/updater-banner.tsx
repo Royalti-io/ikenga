@@ -1,7 +1,8 @@
 // Workspace banner that appears when a newer release is available on the
-// updater endpoint. Click "Update now" → download + verify sig + install +
-// relaunch. Drop-in alongside the existing ConnectorBanner — same surface
-// area, different signal.
+// updater endpoint. Click "Update now" → download + verify sig + install, then
+// the banner switches to "Restart now" — the app never relaunches itself.
+// Drop-in alongside the existing ConnectorBanner — same surface area,
+// different signal.
 //
 // Snooze model: when the user clicks the "×" we silence this banner for 24h
 // (per-version, so a fresh release un-silences automatically). The About
@@ -30,13 +31,15 @@ export function UpdaterBanner() {
 	const isSnoozed = snooze.isSnoozed(available?.version ?? null);
 
 	// Opt-in (default off): when `updates.autoInstallApp` is on, a detected
-	// binary update downloads + relaunches without a click. Snooze still wins
-	// as the escape hatch; `!installing && !installed` stops it re-firing once
-	// a download is in flight or already installed (the manual path holds at
-	// the installed state instead).
+	// binary update downloads + installs without a click — but it still stops
+	// at the "installed, restart to finish" banner below. Nothing relaunches
+	// the app on its own; a surprise restart discards whatever is live in
+	// terminals, chats and pkg panes. Snooze still wins as the escape hatch;
+	// `!installing && !installed` stops it re-firing once a download is in
+	// flight or already installed.
 	useEffect(() => {
 		if (autoInstallApp && available && !isSnoozed && !installing && !installed && !error) {
-			void install({ autoRestart: true });
+			void install();
 		}
 	}, [autoInstallApp, available, isSnoozed, installing, installed, error, install]);
 	// Hide on /settings/about — the user is already on the dedicated surface

@@ -23,6 +23,7 @@ use crate::iyke::handlers::{
 };
 use crate::iyke::rpc;
 use crate::iyke::state::{LogEntry, NetworkEntry};
+use crate::iyke::terminal::TerminalSpawnResult;
 use crate::iyke::{Endpoint, IykeRpc, IykeRuntime, IykeState};
 
 /// Tauri-managed wrapper around the runtime. `Option` so Drop on app exit
@@ -146,6 +147,20 @@ pub async fn iyke_terminal_read_done(
     result: TerminalReadResult,
 ) -> Result<(), String> {
     rpc::resolve(&rpc_state.terminal_read, &request_id, result)
+        .await
+        .map_err(|e| format!("{e:#}"))
+}
+
+/// FE callback for the terminal-spawn round-trip (WP-08). The frontend owns
+/// terminal creation, so it mints the `terminal_id` and hands it back here for
+/// `post_terminal_spawn` to resolve into a full descriptor.
+#[tauri::command]
+pub async fn iyke_terminal_spawn_done(
+    rpc_state: State<'_, IykeRpc>,
+    request_id: String,
+    result: TerminalSpawnResult,
+) -> Result<(), String> {
+    rpc::resolve(&rpc_state.terminal_spawn, &request_id, result)
         .await
         .map_err(|e| format!("{e:#}"))
 }

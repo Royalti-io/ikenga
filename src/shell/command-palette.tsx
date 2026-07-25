@@ -29,6 +29,7 @@ import type { PaneNode, PaneView } from '@/lib/panes/types';
 import { fuzzyMatchSection, slugifySectionId, usePinsStore } from '@/lib/shell/pins-store';
 import { useShellStore } from '@/lib/shell/shell-store';
 import { createTerminalSession } from '@/terminal/single-terminal';
+import { useTerminalTitles, type TerminalTitleResolver } from '@/terminal/use-terminal-titles';
 import { ChromePickerDialog } from './chrome-picker/chrome-picker-dialog';
 import { ActionsGroup } from './palette-actions';
 
@@ -334,24 +335,29 @@ interface SwitcherEntry {
 	view: PaneView;
 }
 
-function collectOpenTabs(node: PaneNode): SwitcherEntry[] {
+function collectOpenTabs(node: PaneNode, resolveTerminal: TerminalTitleResolver): SwitcherEntry[] {
 	if (node.type === 'leaf') {
 		return node.tabs.map((view, tabIdx) => ({
 			paneId: node.id,
 			tabIdx,
-			label: viewLabelShort(view),
+			label: viewLabelShort(view, resolveTerminal),
 			view,
 		}));
 	}
-	return node.children.flatMap(collectOpenTabs);
+	return node.children.flatMap((child) => collectOpenTabs(child, resolveTerminal));
 }
 
-function viewLabelShort(view: PaneView): string {
+function viewLabelShort(view: PaneView, resolveTerminal: TerminalTitleResolver): string {
 	switch (view.kind) {
 		case 'route':
 			return `Route ${view.path}`;
-		case 'terminal':
-			return `Terminal · ${view.sessionId.slice(0, 8)}`;
+		case 'terminal': {
+			// A uuid slice is unsearchable — you can't type "claude" to find the
+			// terminal running claude. The real label is, and it doubles as the
+			// palette's fuzzy-match text.
+			const t = resolveTerminal(view.sessionId);
+			return t ? `Terminal · ${t.label}` : `Terminal · ${view.sessionId.slice(0, 8)}`;
+		}
 		case 'chat':
 			return `Chat · ${view.sessionId.slice(0, 8)}`;
 		case 'artifact':
@@ -370,8 +376,9 @@ function SwitcherGroup({ onClose }: { onClose: () => void }) {
 	const focusedId = usePaneStore((s) => s.focusedId);
 	const focusPane = usePaneStore((s) => s.focusPane);
 	const switchTab = usePaneStore((s) => s.switchTab);
+	const resolveTerminal = useTerminalTitles();
 
-	const entries = collectOpenTabs(root);
+	const entries = collectOpenTabs(root, resolveTerminal);
 
 	function focusEntry(entry: SwitcherEntry) {
 		onClose();

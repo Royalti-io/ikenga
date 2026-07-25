@@ -231,6 +231,13 @@ export class Pty {
 	 */
 	static async spawn(opts: PtySpawnOpts): Promise<Pty> {
 		const id = await ptySpawn({
+			// `terminalId` + `title` are what let the Rust core name this PTY in
+			// `TerminalDescriptor` — the view agents read over
+			// `/iyke/terminal/list` and the shell reads back for tab titles.
+			// Forwarding them is not optional: dropping them leaves every
+			// terminal anonymous on that surface.
+			terminalId: opts.terminalId,
+			title: opts.title,
 			cwd: opts.cwd,
 			cmd: opts.cmd,
 			env: opts.env,

@@ -1,4 +1,5 @@
 import type { PaneView } from '@/lib/panes/types';
+import type { TerminalTitleResolver } from '@/terminal/use-terminal-titles';
 import { RouteView } from './views/route-view';
 import { TerminalView } from './views/terminal-view';
 import { ChatView } from './views/chat-view';
@@ -41,7 +42,16 @@ export function PaneBody({ paneId, view }: PaneBodyProps) {
 
 export { viewKey } from './view-key';
 
-export function viewLabel(view: PaneView): string {
+/**
+ * Tab label for a view.
+ *
+ * `resolveTerminal` is how a terminal tab gets a real name (`claude · shell`)
+ * instead of the constant "Terminal" — it needs the session store plus the live
+ * foreground poll, neither of which belongs in a pure function. Callers that
+ * render tab strips pass `useTerminalTitles()`; everyone else omits it and gets
+ * the old constant, which is still correct, just uninformative.
+ */
+export function viewLabel(view: PaneView, resolveTerminal?: TerminalTitleResolver): string {
 	switch (view.kind) {
 		case 'route': {
 			const segs = view.path.split('/').filter(Boolean);
@@ -49,7 +59,7 @@ export function viewLabel(view: PaneView): string {
 			return segs[segs.length - 1].replace(/-/g, ' ');
 		}
 		case 'terminal':
-			return 'Terminal';
+			return resolveTerminal?.(view.sessionId)?.label ?? 'Terminal';
 		case 'chat':
 			return 'Chat';
 		case 'artifact': {
@@ -70,12 +80,14 @@ export function viewLabel(view: PaneView): string {
 	}
 }
 
-export function viewSubtitle(view: PaneView): string {
+export function viewSubtitle(view: PaneView, resolveTerminal?: TerminalTitleResolver): string {
 	switch (view.kind) {
 		case 'route':
 			return view.path || '/';
 		case 'terminal':
-			return `session: ${view.sessionId}`;
+			// The terminal tooltip is multi-line — label, full cwd, argv, agent
+			// label — so the tab's hover carries everything the label had to drop.
+			return resolveTerminal?.(view.sessionId)?.tooltip ?? `session: ${view.sessionId}`;
 		case 'chat':
 			return `session: ${view.sessionId}`;
 		case 'artifact':

@@ -2,7 +2,8 @@
 // on app boot + every 6h, and exposes:
 //   - available: UpdateInfo | null
 //   - installing: boolean, bytesDownloaded / totalBytes for progress
-//   - install(): kicks off downloadAndInstall + relaunch
+//   - install(): kicks off downloadAndInstall; never relaunches
+//   - restart(): the only path that relaunches, always user-driven
 //   - check(): manual re-check (e.g. "Check now" on the About page)
 //   - lastCheckedAt: epoch ms of the last successful check
 //   - checking: true while a check is in flight
@@ -31,10 +32,10 @@ export type UpdaterState = {
 	checking: boolean;
 	lastCheckedAt: number | null;
 	check: () => Promise<void>;
-	/** Download + install. Pass `{ autoRestart: true }` to chain the relaunch
-	 *  immediately (the opt-in auto-install path); omit it for the manual path
-	 *  so the app holds at the `installed` state for a user-driven restart. */
-	install: (opts?: { autoRestart?: boolean }) => Promise<void>;
+	/** Download + install. Never relaunches — every path (manual click and the
+	 *  opt-in background auto-install alike) holds at the `installed` state so
+	 *  the restart stays a user-driven act that can't discard in-flight work. */
+	install: () => Promise<void>;
 	/** Relaunch to complete an installed update. */
 	restart: () => Promise<void>;
 };
@@ -72,29 +73,27 @@ export function useUpdater(options?: UseUpdaterOptions): UpdaterState {
 		}
 	}, []);
 
-	const install = useCallback(
-		async (opts?: { autoRestart?: boolean }) => {
-			if (!available) return;
-			setInstalling(true);
-			setInstalled(false);
-			setError(null);
-			try {
-				await installUpdate(available, (b, t) => {
-					setBytesDownloaded(b);
-					setTotalBytes(t);
-				});
-				// Install done — hold here. The relaunch is a separate, deliberate
-				// step so the window doesn't vanish mid-flow (see updater.ts).
-				setInstalling(false);
-				setInstalled(true);
-				if (opts?.autoRestart) await restartApp();
-			} catch (e) {
-				setError(e instanceof Error ? e.message : String(e));
-				setInstalling(false);
-			}
-		},
-		[available]
-	);
+	const install = useCallback(async () => {
+		if (!available) return;
+		setInstalling(true);
+		setInstalled(false);
+		setError(null);
+		try {
+			await installUpdate(available, (b, t) => {
+				setBytesDownloaded(b);
+				setTotalBytes(t);
+			});
+			// Install done — hold here, always. The relaunch is a separate,
+			// deliberate step: it doesn't just avoid the mid-flow teardown
+			// (see updater.ts), it protects unsaved work in terminals, chats
+			// and pkg panes that a surprise restart would throw away.
+			setInstalling(false);
+			setInstalled(true);
+		} catch (e) {
+			setError(e instanceof Error ? e.message : String(e));
+			setInstalling(false);
+		}
+	}, [available]);
 
 	const restart = useCallback(async () => {
 		try {

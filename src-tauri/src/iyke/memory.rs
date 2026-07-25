@@ -5,7 +5,9 @@
 //! `scope` omitted on a write resolves to the active project at request
 //! time (DESIGN.md §1 amendment for the projects-first-class plan).
 
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use axum::{extract::Query, http::StatusCode, Extension, Json};
@@ -49,6 +51,63 @@ const BODY_MAX: usize = 100_000;
 const LOCK_DEFAULT_TTL_MS: i64 = 60_000;
 const LOCK_MAX_TTL_MS: i64 = 600_000;
 const LOCK_WAIT_MAX_MS: u64 = 30_000;
+const SCRATCHPAD_WATCH_MAX_MS: u64 = 60_000;
+
+fn scratchpad_version() -> &'static AtomicI64 {
+    static VERSION: AtomicI64 = AtomicI64::new(0);
+    &VERSION
+}
+
+fn observe_scratchpad_version(version: i64) {
+    let _ = scratchpad_version().fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+        (version > current).then_some(version)
+    });
+}
+
+fn next_scratchpad_version() -> i64 {
+    let now = now_ms();
+    scratchpad_version()
+        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+            Some((current + 1).max(now))
+        })
+        .unwrap_or(0)
+        .max(now)
+}
+
+fn scratchpad_notifiers() -> &'static Mutex<HashMap<String, Arc<Notify>>> {
+    static NOTIFIERS: OnceLock<Mutex<HashMap<String, Arc<Notify>>>> = OnceLock::new();
+    NOTIFIERS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn scratchpad_tombstones() -> &'static Mutex<HashMap<String, i64>> {
+    static TOMBSTONES: OnceLock<Mutex<HashMap<String, i64>>> = OnceLock::new();
+    TOMBSTONES.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn scratchpad_key(scope: &str, name: &str) -> String {
+    format!("{scope}\0{name}")
+}
+
+fn scratchpad_notifier(scope: &str, name: &str) -> Arc<Notify> {
+    let key = scratchpad_key(scope, name);
+    let mut notifiers = scratchpad_notifiers()
+        .lock()
+        .expect("scratchpad notifier lock");
+    notifiers.entry(key).or_default().clone()
+}
+
+fn scratchpad_changed(scope: &str, name: &str, version: i64, deleted: bool) {
+    observe_scratchpad_version(version);
+    let key = scratchpad_key(scope, name);
+    if let Ok(mut tombstones) = scratchpad_tombstones().lock() {
+        if deleted {
+            tombstones.insert(key, version);
+        } else {
+            tombstones.remove(&key);
+        }
+    }
+    scratchpad_notifier(scope, name).notify_waiters();
+}
 
 fn err(status: StatusCode, msg: impl Into<String>) -> (StatusCode, String) {
     (status, msg.into())
@@ -168,6 +227,16 @@ pub struct ScopeOnlyQuery {
     pub scope: Option<String>,
 }
 
+#[derive(Deserialize)]
+pub struct ScratchpadWatchQuery {
+    pub scope: Option<String>,
+    pub name: String,
+    #[serde(default)]
+    pub since: i64,
+    #[serde(default)]
+    pub wait_ms: Option<u64>,
+}
+
 #[derive(Serialize)]
 struct ScratchpadInfo {
     id: String,
@@ -178,6 +247,7 @@ struct ScratchpadInfo {
 
 pub async fn post_scratchpad_write(
     Extension(db): Extension<Arc<PaDb>>,
+    Extension(app): Extension<AppHandle>,
     Json(body): Json<ScratchpadWriteBody>,
 ) -> Result<Json<Value>, (StatusCode, String)> {
     if body.body.len() > MAX_SCRATCHPAD_BYTES {
@@ -199,7 +269,7 @@ pub async fn post_scratchpad_write(
          VALUES (?, ?, ?, ?, ?, ?)
          ON CONFLICT(scope, name) DO UPDATE SET
              body = excluded.body,
-             updated_at = excluded.updated_at",
+             updated_at = MAX(iyke_scratchpads.updated_at + 1, excluded.updated_at)",
     )
     .bind(&id)
     .bind(&scope)
@@ -215,8 +285,8 @@ pub async fn post_scratchpad_write(
             format!("scratchpad write: {e}"),
         )
     })?;
-    let final_id: String =
-        sqlx::query_scalar("SELECT id FROM iyke_scratchpads WHERE scope = ? AND name = ?")
+    let (final_id, updated_at): (String, i64) =
+        sqlx::query_as("SELECT id, updated_at FROM iyke_scratchpads WHERE scope = ? AND name = ?")
             .bind(&scope)
             .bind(&body.name)
             .fetch_one(&pool)
@@ -227,13 +297,19 @@ pub async fn post_scratchpad_write(
                     format!("scratchpad lookup: {e}"),
                 )
             })?;
+    scratchpad_changed(&scope, &body.name, updated_at, false);
+    let _ = app.emit(
+        "iyke://scratchpad-changed",
+        json!({ "scope": scope, "name": body.name, "action": "write", "updated_at": updated_at }),
+    );
     Ok(Json(
-        json!({ "id": final_id, "scope": scope, "updated_at": now }),
+        json!({ "id": final_id, "scope": scope, "updated_at": updated_at }),
     ))
 }
 
 pub async fn post_scratchpad_append(
     Extension(db): Extension<Arc<PaDb>>,
+    Extension(app): Extension<AppHandle>,
     Json(body): Json<ScratchpadAppendBody>,
 ) -> Result<Json<Value>, (StatusCode, String)> {
     let pool = db
@@ -243,63 +319,60 @@ pub async fn post_scratchpad_append(
     validate_name(&body.name)?;
     let scope = resolve_scope(&pool, body.scope).await?;
 
-    let existing: Option<(String, String)> =
-        sqlx::query_as("SELECT id, body FROM iyke_scratchpads WHERE scope = ? AND name = ?")
-            .bind(&scope)
-            .bind(&body.name)
-            .fetch_optional(&pool)
-            .await
-            .map_err(|e| {
-                err(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("scratchpad lookup: {e}"),
-                )
-            })?;
-
+    if body.body.len() > MAX_SCRATCHPAD_BYTES {
+        return Err(err(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "body > 1 MB".to_string(),
+        ));
+    }
     let now = now_ms();
     let separator = if body.with_separator {
         format!("\n\n---\n_{}_\n\n", chrono_like(now))
     } else {
         String::new()
     };
-
-    let (id, new_body) = match existing {
-        Some((id, prev)) => {
-            let combined = format!("{prev}{separator}{}", body.body);
-            if combined.len() > MAX_SCRATCHPAD_BYTES {
-                return Err(err(
-                    StatusCode::PAYLOAD_TOO_LARGE,
-                    "combined body > 1 MB".to_string(),
-                ));
-            }
-            (id, combined)
-        }
-        None => {
-            if body.body.len() > MAX_SCRATCHPAD_BYTES {
-                return Err(err(
-                    StatusCode::PAYLOAD_TOO_LARGE,
-                    "body > 1 MB".to_string(),
-                ));
-            }
-            (Uuid::new_v4().to_string(), body.body.clone())
-        }
-    };
-
-    sqlx::query(
+    let append_body = format!("{separator}{}", body.body);
+    let id = Uuid::new_v4().to_string();
+    let result: Option<(String, i64)> = sqlx::query_as(
         "INSERT INTO iyke_scratchpads (id, scope, name, body, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?)
-         ON CONFLICT(scope, name) DO UPDATE SET body = excluded.body, updated_at = excluded.updated_at",
+         ON CONFLICT(scope, name) DO UPDATE SET
+             body = iyke_scratchpads.body || ?,
+             updated_at = MAX(iyke_scratchpads.updated_at + 1, excluded.updated_at)
+         WHERE length(CAST(iyke_scratchpads.body AS BLOB)) + ? <= ?
+         RETURNING id, updated_at",
     )
     .bind(&id)
     .bind(&scope)
     .bind(&body.name)
-    .bind(&new_body)
+    .bind(&body.body)
     .bind(now)
     .bind(now)
-    .execute(&pool)
+    .bind(&append_body)
+    .bind(append_body.len() as i64)
+    .bind(MAX_SCRATCHPAD_BYTES as i64)
+    .fetch_optional(&pool)
     .await
-    .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("scratchpad append: {e}")))?;
-    Ok(Json(json!({ "id": id, "scope": scope, "updated_at": now })))
+    .map_err(|e| {
+        err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("scratchpad append: {e}"),
+        )
+    })?;
+    let Some((final_id, updated_at)) = result else {
+        return Err(err(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "combined body > 1 MB".to_string(),
+        ));
+    };
+    scratchpad_changed(&scope, &body.name, updated_at, false);
+    let _ = app.emit(
+        "iyke://scratchpad-changed",
+        json!({ "scope": scope, "name": body.name, "action": "append", "updated_at": updated_at }),
+    );
+    Ok(Json(
+        json!({ "id": final_id, "scope": scope, "updated_at": updated_at }),
+    ))
 }
 
 fn chrono_like(unix_ms: i64) -> String {
@@ -345,6 +418,83 @@ pub async fn get_scratchpad_read(
     }
 }
 
+pub async fn get_scratchpad_watch(
+    Extension(db): Extension<Arc<PaDb>>,
+    Query(q): Query<ScratchpadWatchQuery>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let pool = db
+        .ensure_pool()
+        .await
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    validate_name(&q.name)?;
+    let scope = resolve_scope(&pool, q.scope).await?;
+    let notifier = scratchpad_notifier(&scope, &q.name);
+    let read_change = || async {
+        sqlx::query_as::<_, (String, String, i64)>(
+            "SELECT id, body, updated_at FROM iyke_scratchpads WHERE scope = ? AND name = ? AND updated_at > ?",
+        )
+        .bind(&scope)
+        .bind(&q.name)
+        .bind(q.since)
+        .fetch_optional(&pool)
+        .await
+    };
+    let notified = notifier.notified();
+    tokio::pin!(notified);
+    let mut row = read_change().await.map_err(|e| {
+        err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("scratchpad watch: {e}"),
+        )
+    })?;
+    let deleted_version = scratchpad_tombstones()
+        .lock()
+        .ok()
+        .and_then(|tombstones| tombstones.get(&scratchpad_key(&scope, &q.name)).copied())
+        .filter(|version| *version > q.since);
+    if row.is_none() && deleted_version.is_none() {
+        if let Some(wait_ms) = q.wait_ms.filter(|wait_ms| *wait_ms > 0) {
+            let _ = tokio::time::timeout(
+                Duration::from_millis(wait_ms.min(SCRATCHPAD_WATCH_MAX_MS)),
+                &mut notified,
+            )
+            .await;
+            row = read_change().await.map_err(|e| {
+                err(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("scratchpad watch: {e}"),
+                )
+            })?;
+        }
+    }
+    if let Some((id, body, updated_at)) = row {
+        return Ok(Json(json!({
+            "updated": true,
+            "deleted": false,
+            "id": id,
+            "scope": scope,
+            "name": q.name,
+            "body": body,
+            "updated_at": updated_at
+        })));
+    }
+    let deleted_version = scratchpad_tombstones()
+        .lock()
+        .ok()
+        .and_then(|tombstones| tombstones.get(&scratchpad_key(&scope, &q.name)).copied())
+        .filter(|version| *version > q.since);
+    match deleted_version {
+        Some(updated_at) => Ok(Json(json!({
+            "updated": true,
+            "deleted": true,
+            "scope": scope,
+            "name": q.name,
+            "updated_at": updated_at
+        }))),
+        None => Ok(Json(json!({ "updated": false }))),
+    }
+}
+
 pub async fn get_scratchpad_list(
     Extension(db): Extension<Arc<PaDb>>,
     Query(q): Query<ScopeOnlyQuery>,
@@ -385,6 +535,7 @@ pub struct ScratchpadDeleteBody {
 
 pub async fn post_scratchpad_delete(
     Extension(db): Extension<Arc<PaDb>>,
+    Extension(app): Extension<AppHandle>,
     Json(body): Json<ScratchpadDeleteBody>,
 ) -> Result<Json<Value>, (StatusCode, String)> {
     let pool = db
@@ -403,6 +554,12 @@ pub async fn post_scratchpad_delete(
                 format!("scratchpad delete: {e}"),
             )
         })?;
+    let updated_at = next_scratchpad_version();
+    scratchpad_changed(&scope, &body.name, updated_at, true);
+    let _ = app.emit(
+        "iyke://scratchpad-changed",
+        json!({ "scope": scope, "name": body.name, "action": "delete", "updated_at": updated_at }),
+    );
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -935,6 +1092,118 @@ pub async fn get_todo_list(
     Ok(Json(json!({ "scope": scope, "todos": todos })))
 }
 
+// ─── WP-09: agent inbox ──────────────────────────────────────────────────────
+//
+// `fire_due_timer` has always written into `iyke_agent_inbox`, and the sweeper
+// has always pruned it — but nothing could ever read it. A scheduled timer
+// fired into a table no client could see, which made `/iyke/timer/schedule`
+// effectively a no-op for agents. These two routes close that loop.
+//
+// Ack deletes rather than marking (decision D-4): the table has no `acked_at`
+// column, adding one would mean a migration for a queue whose rows the sweeper
+// already discards, and delete-on-ack is what a mailbox cursor actually wants.
+
+#[derive(Deserialize)]
+pub struct AgentInboxQuery {
+    pub agent_id: String,
+    /// Exclusive cursor — return only entries created after this timestamp.
+    /// Feed `next_since` from the previous response back in.
+    #[serde(default)]
+    pub since: Option<i64>,
+    #[serde(default)]
+    pub limit: Option<i64>,
+}
+
+pub async fn get_agent_inbox(
+    Extension(db): Extension<Arc<PaDb>>,
+    Query(q): Query<AgentInboxQuery>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    if q.agent_id.trim().is_empty() {
+        return Err(err(StatusCode::BAD_REQUEST, "agent_id must not be empty"));
+    }
+    let pool = db
+        .ensure_pool()
+        .await
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let limit = q.limit.unwrap_or(100).clamp(1, 500);
+    let since = q.since.unwrap_or(0);
+    let rows = sqlx::query(
+        "SELECT id, agent_id, kind, payload, created_at
+         FROM iyke_agent_inbox
+         WHERE agent_id = ? AND created_at > ?
+         ORDER BY created_at ASC, id ASC
+         LIMIT ?",
+    )
+    .bind(&q.agent_id)
+    .bind(since)
+    .bind(limit)
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| {
+        err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("agent inbox: {e}"),
+        )
+    })?;
+
+    let mut entries: Vec<Value> = Vec::new();
+    let mut next_since = since;
+    for r in rows.iter() {
+        let created_at: i64 = r.get("created_at");
+        next_since = next_since.max(created_at);
+        let payload_raw: String = r.get("payload");
+        entries.push(json!({
+            "id": r.get::<String, _>("id"),
+            "agent_id": r.get::<String, _>("agent_id"),
+            "kind": r.get::<String, _>("kind"),
+            // Hand back parsed JSON when it parses, else the raw string — a
+            // malformed payload should still be visible, not swallowed.
+            "payload": serde_json::from_str::<Value>(&payload_raw)
+                .unwrap_or(Value::String(payload_raw)),
+            "created_at": created_at,
+        }));
+    }
+    Ok(Json(json!({
+        "agent_id": q.agent_id,
+        "entries": entries,
+        "next_since": next_since,
+    })))
+}
+
+#[derive(Deserialize)]
+pub struct AgentInboxAckBody {
+    pub ids: Vec<String>,
+}
+
+pub async fn post_agent_inbox_ack(
+    Extension(db): Extension<Arc<PaDb>>,
+    Json(body): Json<AgentInboxAckBody>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    if body.ids.is_empty() {
+        return Ok(Json(json!({ "ok": true, "deleted": 0 })));
+    }
+    if body.ids.len() > 500 {
+        return Err(err(StatusCode::BAD_REQUEST, "at most 500 ids per ack"));
+    }
+    let pool = db
+        .ensure_pool()
+        .await
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let placeholders = vec!["?"; body.ids.len()].join(",");
+    let sql = format!("DELETE FROM iyke_agent_inbox WHERE id IN ({placeholders})");
+    let mut qb = sqlx::query(&sql);
+    for id in &body.ids {
+        qb = qb.bind(id);
+    }
+    let result = qb
+        .execute(&pool)
+        .await
+        .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("inbox ack: {e}")))?;
+    Ok(Json(
+        json!({ "ok": true, "deleted": result.rows_affected() }),
+    ))
+}
+
 #[derive(Deserialize)]
 pub struct TodoIdBody {
     pub id: String,
@@ -1075,6 +1344,31 @@ pub async fn post_timer_schedule(
             return Err(err(
                 StatusCode::PAYLOAD_TOO_LARGE,
                 "body > 4 KB".to_string(),
+            ));
+        }
+    }
+    // `iyke_timers.agent_id` has an FK to `iyke_agents(id)`. Without this check
+    // an unregistered agent gets a raw `(code: 787) FOREIGN KEY constraint
+    // failed` back, which says nothing about what to do. Now that WP-09 makes
+    // timers actually deliver (they fire into the agent inbox), this is the
+    // first thing an orchestrator hits when it schedules before registering.
+    if let Some(agent_id) = &body.agent_id {
+        let pool = db
+            .ensure_pool()
+            .await
+            .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+        let known: Option<(String,)> = sqlx::query_as("SELECT id FROM iyke_agents WHERE id = ?")
+            .bind(agent_id)
+            .fetch_optional(&pool)
+            .await
+            .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("timer agent: {e}")))?;
+        if known.is_none() {
+            return Err(err(
+                StatusCode::BAD_REQUEST,
+                format!(
+                    "unknown agent_id {agent_id:?} — POST /iyke/agent/register with \
+                     {{\"id\":{agent_id:?},\"name\":…}} first"
+                ),
             ));
         }
     }
@@ -1539,6 +1833,67 @@ mod tests {
         let second = fire_due_timer(&pool, None).await;
         assert_eq!(first.as_deref(), Some("t4"));
         assert!(second.is_none());
+    }
+
+    #[tokio::test]
+    async fn scratchpad_watch_returns_only_newer_content() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = Arc::new(PaDb::new(dir.path().join("watch.db")));
+        let pool = db.ensure_pool().await.unwrap();
+        sqlx::query(
+            "INSERT INTO iyke_scratchpads (id, scope, name, body, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+        )
+        .bind("scratch-1")
+        .bind("project:test")
+        .bind("handoff")
+        .bind("ready")
+        .bind(100_i64)
+        .bind(200_i64)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let Json(updated) = get_scratchpad_watch(
+            Extension(db.clone()),
+            Query(ScratchpadWatchQuery {
+                scope: Some("project:test".into()),
+                name: "handoff".into(),
+                since: 199,
+                wait_ms: None,
+            }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(updated.get("updated").and_then(Value::as_bool), Some(true));
+        assert_eq!(updated.get("body").and_then(Value::as_str), Some("ready"));
+
+        let Json(unchanged) = get_scratchpad_watch(
+            Extension(db),
+            Query(ScratchpadWatchQuery {
+                scope: Some("project:test".into()),
+                name: "handoff".into(),
+                since: 200,
+                wait_ms: None,
+            }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(unchanged, json!({ "updated": false }));
+    }
+
+    #[test]
+    fn scratchpad_tombstone_is_versioned_and_cleared_by_write() {
+        let scope = "project:tombstone-test";
+        let name = "handoff";
+        let version = next_scratchpad_version();
+        scratchpad_changed(scope, name, version, true);
+        let key = scratchpad_key(scope, name);
+        assert_eq!(
+            scratchpad_tombstones().lock().unwrap().get(&key).copied(),
+            Some(version)
+        );
+        scratchpad_changed(scope, name, version + 1, false);
+        assert!(!scratchpad_tombstones().lock().unwrap().contains_key(&key));
     }
 
     #[test]

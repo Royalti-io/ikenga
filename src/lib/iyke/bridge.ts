@@ -18,9 +18,11 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { useEffect } from 'react';
 import { findLeaf, getLeafIdsInOrder } from '@/lib/panes/pane-reducer';
 import { usePaneStore } from '@/lib/panes/pane-store';
+import type { PaneNode } from '@/lib/panes/types';
 import { queryClient } from '@/lib/query-client';
 import { readCapture, stripAnsi } from '@/terminal/pty-output-buffer';
 import { getPty } from '@/terminal/pty-registry';
+import { createTerminalSession } from '@/terminal/single-terminal';
 import { resolvePaneScope, useIykeActivity } from './activity-store';
 import {
 	allSearchDocs,
@@ -106,6 +108,7 @@ interface KeyPayload {
 }
 
 interface TerminalSendPayload {
+	request_id?: string;
 	pane?: string | null;
 	data?: string | null;
 	keys?: string[] | null;
@@ -123,6 +126,14 @@ interface TerminalReadResult {
 	bytes_available: number;
 	bytes_returned: number;
 	session_id: string | null;
+	terminal_id: string | null;
+	pty_id: string | null;
+	start_offset: number;
+	end_offset: number;
+	available_start_offset: number;
+	truncated: boolean;
+	exited: boolean;
+	exit_code: number | null;
 	error: string | null;
 }
 
@@ -831,6 +842,14 @@ async function handleTerminalReadRequest(payload: TerminalReadPayload) {
 				bytes_available: 0,
 				bytes_returned: 0,
 				session_id: null,
+				terminal_id: null,
+				pty_id: null,
+				start_offset: 0,
+				end_offset: 0,
+				available_start_offset: 0,
+				truncated: false,
+				exited: false,
+				exit_code: null,
 				error: 'pane has no active terminal tab',
 			});
 			return;
@@ -842,6 +861,14 @@ async function handleTerminalReadRequest(payload: TerminalReadPayload) {
 				bytes_available: 0,
 				bytes_returned: 0,
 				session_id: sessionId,
+				terminal_id: sessionId,
+				pty_id: null,
+				start_offset: 0,
+				end_offset: 0,
+				available_start_offset: 0,
+				truncated: false,
+				exited: false,
+				exit_code: null,
 				error: 'no capture buffer for session (pty not registered or detached)',
 			});
 			return;
@@ -855,6 +882,14 @@ async function handleTerminalReadRequest(payload: TerminalReadPayload) {
 			bytes_available: buf.length,
 			bytes_returned: slice.length,
 			session_id: sessionId,
+			terminal_id: sessionId,
+			pty_id: getPty(sessionId)?.id ?? null,
+			start_offset: 0,
+			end_offset: buf.length,
+			available_start_offset: 0,
+			truncated: false,
+			exited: false,
+			exit_code: null,
 			error: null,
 		});
 	} finally {
@@ -862,7 +897,81 @@ async function handleTerminalReadRequest(payload: TerminalReadPayload) {
 	}
 }
 
+/** WP-08 — bridge-driven terminal creation.
+ *
+ * Terminal creation lives here rather than in Rust because the frontend owns
+ * the session store and the pane tree. A Rust-local PTY would be invisible in
+ * the UI: unwatchable, un-poppable, unreclaimable. Going through the frontend
+ * means an agent's terminal is an ordinary tab.
+ *
+ * The new tab MUST become active. The PTY is spawned by `SingleTerminal` on
+ * mount, and a pane only mounts its active tab — so `addTabBackground` here
+ * would return a terminal id whose PTY never comes into existence, and the
+ * caller would block until the spawn timeout.
+ */
+async function handleTerminalSpawn(payload: {
+	request_id: string;
+	cwd?: string | null;
+	argv?: string[] | null;
+	title?: string | null;
+	pane?: string | null;
+}) {
+	const reply = (result: { terminal_id?: string; error?: string }) =>
+		invoke('iyke_terminal_spawn_done', {
+			requestId: payload.request_id,
+			result: { terminal_id: result.terminal_id ?? null, error: result.error ?? null },
+		}).catch(() => {});
+
+	try {
+		const store = usePaneStore.getState();
+		const leafId = payload.pane ?? store.focusedId;
+		const leaf = findLeaf(store.root, leafId);
+		if (!leaf) {
+			await reply({ error: `pane not found: ${leafId}` });
+			return;
+		}
+		const sessionId = createTerminalSession({
+			cwd: payload.cwd ?? undefined,
+			cmd: payload.argv ?? undefined,
+			title: payload.title ?? undefined,
+		});
+		// Activating is load-bearing, not cosmetic — see the note above.
+		store.addTab(leaf.id, { kind: 'terminal', sessionId });
+		await reply({ terminal_id: sessionId });
+	} catch (err) {
+		await reply({ error: err instanceof Error ? err.message : String(err) });
+	}
+}
+
+/** WP-08 — drop the tab for a terminal the bridge killed, when the caller
+ *  asked for it. Fire-and-forget: the process is already dead, so missing this
+ *  just leaves a harmless exited tab behind. */
+function handleTerminalCloseTab(payload: { terminal_id: string }) {
+	const store = usePaneStore.getState();
+	const visit = (node: PaneNode): boolean => {
+		if (node.type === 'leaf') {
+			const idx = node.tabs.findIndex(
+				(t) => t.kind === 'terminal' && t.sessionId === payload.terminal_id
+			);
+			if (idx >= 0) {
+				store.closeTab(node.id, idx);
+				return true;
+			}
+			return false;
+		}
+		return node.children.some(visit);
+	};
+	visit(store.root);
+}
+
 async function handleTerminalSend(payload: TerminalSendPayload) {
+	const reply = (matched: boolean) =>
+		payload.request_id
+			? invoke('iyke_action_done', {
+					requestId: payload.request_id,
+					result: { matched },
+				}).catch(() => {})
+			: Promise.resolve();
 	const sessionId = resolveTerminalSessionId(payload.pane ?? null);
 	const actId = useIykeActivity.getState().begin({
 		kind: 'type',
@@ -872,11 +981,13 @@ async function handleTerminalSend(payload: TerminalSendPayload) {
 	try {
 		if (!sessionId) {
 			console.warn('[iyke] terminal-send: pane has no active terminal tab', payload.pane);
+			await reply(false);
 			return;
 		}
 		const pty = getPty(sessionId);
 		if (!pty) {
 			console.warn('[iyke] terminal-send: pty not registered for session', sessionId);
+			await reply(false);
 			return;
 		}
 		let buf = '';
@@ -889,8 +1000,12 @@ async function handleTerminalSend(payload: TerminalSendPayload) {
 			}
 			buf += bytes;
 		}
-		if (buf.length === 0) return;
+		if (buf.length === 0) {
+			await reply(false);
+			return;
+		}
 		await pty.write(buf);
+		await reply(true);
 	} finally {
 		useIykeActivity.getState().end(actId);
 	}
@@ -997,6 +1112,20 @@ export function useIykeBridge(): void {
 		track(listen<TypePayload>('iyke://type', (e) => handleType(e.payload)));
 		track(listen<KeyPayload>('iyke://key', (e) => handleKey(e.payload)));
 		track(
+			listen<{
+				request_id: string;
+				cwd?: string | null;
+				argv?: string[] | null;
+				title?: string | null;
+				pane?: string | null;
+			}>('iyke://terminal-spawn', (e) => void handleTerminalSpawn(e.payload))
+		);
+		track(
+			listen<{ terminal_id: string }>('iyke://terminal-close-tab', (e) =>
+				handleTerminalCloseTab(e.payload)
+			)
+		);
+		track(
 			listen<TerminalSendPayload>('iyke://terminal-send', (e) => {
 				void handleTerminalSend(e.payload);
 			})
@@ -1005,6 +1134,22 @@ export function useIykeBridge(): void {
 			listen<TerminalReadPayload>('iyke://terminal-read-request', (e) => {
 				void handleTerminalReadRequest(e.payload);
 			})
+		);
+		track(
+			listen<{ pane: string; index?: number | null; terminal?: string | null }>(
+				'iyke://tab-activate',
+				(e) => {
+					const store = usePaneStore.getState();
+					const leaf = findLeaf(store.root, e.payload.pane);
+					if (!leaf) return;
+					const index =
+						e.payload.index ??
+						leaf.tabs.findIndex(
+							(tab) => tab.kind === 'terminal' && tab.sessionId === e.payload.terminal
+						);
+					if (index >= 0 && index < leaf.tabs.length) store.switchTab(leaf.id, index);
+				}
+			)
 		);
 
 		return () => {

@@ -3,6 +3,8 @@
 // goes through iykeFetch so the FE shares one auth + transport path
 // with every other caller.
 
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+
 import { iykeFetch } from './client';
 
 async function postJson<T>(path: string, body: unknown): Promise<T> {
@@ -48,12 +50,27 @@ export interface ScratchpadListResponse {
 	scope: string;
 	scratchpads: ScratchpadListEntry[];
 }
+export interface ScratchpadChangedEvent {
+	scope: string;
+	name: string;
+	action: 'write' | 'append' | 'delete';
+	updated_at?: number;
+}
+
 export interface ScratchpadReadResponse {
 	id: string;
 	scope: string;
 	name: string;
 	body: string;
 	updated_at: number;
+}
+
+export function listenScratchpadChanges(
+	callback: (payload: ScratchpadChangedEvent) => void
+): Promise<UnlistenFn> {
+	return listen<ScratchpadChangedEvent>('iyke://scratchpad-changed', (event) =>
+		callback(event.payload)
+	);
 }
 
 export function listScratchpads(scope?: string) {

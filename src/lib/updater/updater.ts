@@ -76,8 +76,9 @@ export async function installUpdate(
 }
 
 /** Relaunch to complete an already-installed update. Kept separate from
- * `installUpdate` so the caller can gate it behind a user click (or the
- * opt-in auto-install path can chain it explicitly). */
+ * `installUpdate` so it is always gated behind a user click — including on the
+ * opt-in auto-install path, which installs in the background but still waits
+ * for the user to press Restart. */
 export async function restartApp(): Promise<void> {
 	await relaunch();
 }
