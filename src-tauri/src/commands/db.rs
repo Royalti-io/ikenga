@@ -509,6 +509,18 @@ async fn ensure_schema(pool: &sqlx::SqlitePool) -> Result<(), String> {
             "0057_iyke_todo_task_link",
             include_str!("../../migrations/0057_iyke_todo_task_link.sql"),
         ),
+        // email_index is the headers-only substrate for mailbox triage: ~88k
+        // messages across five accounts that `imap-propose.ts` clusters and
+        // scores. Deliberately NOT a reshape of email_messages — that table
+        // keeps bodies for the reply/draft path, which genuinely needs them.
+        // email_ingest_cursor carries uidvalidity, which email_triage_cursor
+        // (0056) lacks: a UIDVALIDITY reset silently repoints every cached UID
+        // at a different message, so the ingest halts on a mismatch.
+        (
+            58,
+            "0058_email_index",
+            include_str!("../../migrations/0058_email_index.sql"),
+        ),
     ];
 
     for (id, name, sql) in migrations {
@@ -908,8 +920,9 @@ mod tests {
     /// (chrome_profiles, pkg-browser WP-03) brings it to 55 — it landed
     /// without a bump, the exact drift this guard exists to catch. 0056
     /// (email_actions + email_triage_cursor) landed without a bump too;
-    /// 0057 (iyke_todo_task_link, WP-10) brings it to 57.
-    const MIGRATION_COUNT: i64 = 57;
+    /// 0057 (iyke_todo_task_link, WP-10) brings it to 57; 0058 (email_index +
+    /// email_ingest_cursor, headers-first mailbox ingest) brings it to 58.
+    const MIGRATION_COUNT: i64 = 58;
 
     /// Schema init applies every embedded migration exactly once. The
     /// `_pa_migrations` table must end with one row per migration tuple.
