@@ -303,7 +303,23 @@ async fn serve_file(root: &PathBuf, rel_path: &str, mut req: Request<Body>) -> R
     let svc = ServeDir::new(root);
     // ServeDir's error type is Infallible — unwrapping is safe.
     match svc.oneshot(req).await {
-        Ok(resp) => resp.into_response(),
+        Ok(resp) => {
+            let mut resp = resp.into_response();
+            // ServeDir sets Last-Modified/ETag but no Cache-Control, which lets
+            // the webview apply *heuristic* freshness and serve a stale artifact
+            // from memory — no request, so no revalidation, so an edited file
+            // never appears. Observed 2026-08-04: a rewritten artifact kept
+            // rendering its previous version across a pane refresh AND a
+            // brand-new tab, which reads as "my edit didn't save".
+            //
+            // `no-cache` still allows caching, it just forces revalidation, so
+            // the ETag path keeps 304s cheap. Artifacts are edited constantly —
+            // this is the same reasoning, and the same header, already applied
+            // to the shell's own assets above.
+            resp.headers_mut()
+                .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+            resp
+        }
     }
 }
 
