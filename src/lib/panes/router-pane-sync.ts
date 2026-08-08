@@ -12,6 +12,8 @@ import { useRouter, type AnyRouter } from '@tanstack/react-router';
 
 import { usePaneStore } from './pane-store';
 import { findLeaf } from './pane-reducer';
+import { modeForRoute } from '@/lib/shell/mode-routes';
+import { useShellStore } from '@/lib/shell/shell-store';
 
 function focusedRoute(): string | null {
 	const { root, focusedId } = usePaneStore.getState();
@@ -56,6 +58,17 @@ export function useRouterPaneSync(): void {
 			}
 			const path = focusedRoute();
 			if (path === null) return;
+			// Direction C — re-sync the activity mode to the focused route's
+			// exclusive owner (pkg:<id>, packages, ngwa, settings) so the rail
+			// + sidebar follow a programmatic / deep-link / restored navigation
+			// the same way they follow a rail-icon click. Shared routes
+			// (sessions, artifacts, /, …) return null and leave the current
+			// mode untouched. Mirrors the iyke `go` path (control-listener).
+			const mode = modeForRoute(path);
+			if (mode) {
+				const cur = useShellStore.getState().activeMode;
+				if (cur !== mode) useShellStore.getState().setActiveMode(mode);
+			}
 			if (path === lastSyncedPath) return;
 			if (browserPath(router) === path) {
 				lastSyncedPath = path;
@@ -72,6 +85,13 @@ export function useRouterPaneSync(): void {
 		const path = focusedRoute();
 		if (path && browserPath(router) !== path) {
 			void router.navigate({ to: path, replace: true });
+		}
+		// Cold-start Direction C: a persisted focused pane on a pkg/system
+		// route re-syncs the activity mode on launch (same rule as Direction B).
+		const coldMode = path ? modeForRoute(path) : null;
+		if (coldMode) {
+			const cur = useShellStore.getState().activeMode;
+			if (cur !== coldMode) useShellStore.getState().setActiveMode(coldMode);
 		}
 
 		return () => {
