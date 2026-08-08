@@ -3,8 +3,8 @@
  *
  * Extracted from `components/markdown.tsx` so the markdown renderer and the
  * xterm terminal link provider share one definition of "this token looks like
- * a file path" — they must agree, or a path that linkifies in chat would fail
- * to linkify in the terminal (and vice versa).
+ * a file path" — they must agree, or a path that linkifies in one surface
+ * would fail to linkify in the other (and vice versa).
  *
  * Everything here is pure (no React, no pane store). The async
  * monorepo-disambiguation walk and the `FilePathPill` component stay in

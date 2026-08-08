@@ -22,7 +22,8 @@ import {
 // Frontend hydrates from Tauri at boot (hydrateSettingsFromRust) and
 // write-throughs on every relevant setter.
 
-const KV_CHAT_ADAPTER = 'agent.chatAdapterId';
+const KV_DEFAULT_ENGINE = 'agent.defaultEngineId';
+const KV_LEGACY_CHAT_ADAPTER = 'agent.chatAdapterId';
 const KV_CLAUDE_ROOTS = 'claude.projectRoots';
 const KV_CLAUDE_WATCH = 'claude.watchEnabled';
 const KV_ONBOARDING = 'onboarding.state';
@@ -231,12 +232,12 @@ interface ShellState {
 	userName: string;
 	setUserName: (name: string) => void;
 
-	// ─── Chat adapter ────────────────────────────────────────────────────
-	// Which engine adapter pkg drives the chat surface. Mirrors the
+	// ─── Default engine agent ────────────────────────────────────────────
+	// Which engine adapter pkg drives terminal sessions. Mirrors the
 	// agent step's `selectedAgentId` after onboarding completes; left
 	// null when the user picks offline mode.
-	chatAdapterId: string | null;
-	setChatAdapterId: (id: string | null) => void;
+	defaultEngineId: string | null;
+	setDefaultEngineId: (id: string | null) => void;
 
 	// ─── Auto-update preferences ─────────────────────────────────────────
 	// `updatesAutoCheck` gates the boot + 6h poll for BOTH the app binary
@@ -409,16 +410,18 @@ export function migrateShellStore(persisted: unknown, _version: number): unknown
 	delete p.agent_onboarded;
 	delete p.selected_agent_id;
 
-	// v9: seed canonical chat adapter id from the onboarding payload when
+	// v9: seed canonical default engine id from the onboarding payload when
 	// missing on disk. (v15 removed the telemetry consent seeding that used
 	// to live here.)
 	const px = p as Partial<ShellState> & {
 		onboarding?: OnboardingState;
+		defaultEngineId?: string | null;
 		chatAdapterId?: string | null;
 	};
-	if (typeof px.chatAdapterId === 'undefined') {
-		px.chatAdapterId = px.onboarding?.selectedAgentId ?? null;
+	if (typeof px.defaultEngineId === 'undefined') {
+		px.defaultEngineId = px.chatAdapterId ?? px.onboarding?.selectedAgentId ?? null;
 	}
+	delete (p as unknown as Record<string, unknown>).chatAdapterId;
 
 	// v15: the telemetry consent step and its persisted state are gone.
 	// Drop any stale keys from localStorage/settings_kv hydration so the
@@ -448,10 +451,10 @@ export const useShellStore = create<ShellState>()(
 				kvSet(KV_USER_NAME, trimmed);
 			},
 
-			chatAdapterId: null,
-			setChatAdapterId: (chatAdapterId) => {
-				set({ chatAdapterId });
-				kvSet(KV_CHAT_ADAPTER, chatAdapterId);
+			defaultEngineId: null,
+			setDefaultEngineId: (defaultEngineId) => {
+				set({ defaultEngineId });
+				kvSet(KV_DEFAULT_ENGINE, defaultEngineId);
 			},
 
 			updatesAutoCheck: true,
@@ -713,7 +716,7 @@ export const useShellStore = create<ShellState>()(
 				} catch (err) {
 					// Surface the failure — rolling this back silently strands the
 					// user on the previous project (often the path-less `default`),
-					// which is exactly what makes new terminals/chats open in `~`.
+					// which is exactly what makes new terminals open in `~`.
 					console.warn('[shell-store] projectSetActive failed:', err);
 					// Roll back the optimistic flip — but only if nobody
 					// flipped again in the meantime.
@@ -750,7 +753,7 @@ export const useShellStore = create<ShellState>()(
 					const s = get();
 					suppressKv = true;
 					try {
-						kvSet(KV_CHAT_ADAPTER, s.chatAdapterId);
+						kvSet(KV_DEFAULT_ENGINE, s.defaultEngineId);
 						kvSet(KV_CLAUDE_ROOTS, s.claudeProjectRoots);
 						kvSet(KV_CLAUDE_WATCH, s.claudeWatchEnabled);
 						kvSet(KV_ONBOARDING, s.onboarding);
@@ -766,9 +769,11 @@ export const useShellStore = create<ShellState>()(
 				suppressKv = true;
 				try {
 					const next: Partial<ShellState> = {};
-					const adapter = parseKv<string | null>(all[KV_CHAT_ADAPTER]);
+					const adapter = parseKv<string | null>(
+						all[KV_DEFAULT_ENGINE] ?? all[KV_LEGACY_CHAT_ADAPTER]
+					);
 					if (adapter === null || typeof adapter === 'string') {
-						next.chatAdapterId = adapter;
+						next.defaultEngineId = adapter;
 					}
 					const roots = parseKv<string[]>(all[KV_CLAUDE_ROOTS]);
 					if (Array.isArray(roots)) next.claudeProjectRoots = roots;
@@ -804,7 +809,7 @@ export const useShellStore = create<ShellState>()(
 		// v8: onboarding wizard scaffold — added `onboarding` slice. Migrates
 		//     legacy `agent_onboarded` / `selected_agent_id` keys (from the
 		//     predecessor onboarding plan) into the new OnboardingState.
-		// v9: canonical chat adapter id. (v15 removed the telemetry consent
+		// v9: canonical default engine id. (v15 removed the telemetry consent
 		//     seeding that used to live here.)
 		// v10: widen CoreMode with 'pkgs' for the registry browser activity-bar
 		//     entry. Migrate keeps the same valid-set check, just widened.
@@ -837,7 +842,7 @@ export const useShellStore = create<ShellState>()(
 			// persisted here — a stale localStorage snapshot (e.g. a path-less
 			// `default` left over from an old session) would rehydrate over the
 			// authoritative Rust copy and make `activeProjectCwd()` fall back to
-			// `~`, so new terminals/chats spawn in $HOME instead of the active
+			// `~`, so new terminals spawn in $HOME instead of the active
 			// project root. Keep them out of the persisted blob.
 			partialize: (state) =>
 				Object.fromEntries(

@@ -4,7 +4,7 @@ import type { LucideIcon } from 'lucide-react';
 import { cn } from '@/components/ui/utils';
 
 // Shared status chip — the one pill the chrome's state/metadata markers render
-// through (pkg-store StateChip/Update/Trust/Violation/Origin, chat event-kind
+// through (pkg-store StateChip/Update/Trust/Violation/Origin, terminal event
 // labels, …). One shape: a mono uppercase pill with an optional leading dot or
 // icon. Tone → semantic token, killing the hardcoded emerald-500/amber-500/
 // red-500/cyan-500 bypass that lived in pkg/v2/atoms.tsx.

@@ -1,7 +1,7 @@
 // Persisted preference for the wizard's terminal-handoff decision.
 //
 // `attach` — when the grid swaps to loupe, move the terminal into the
-//            loupe's Chat tab body and close the right pane.
+//            loupe's Terminal tab body and close the right pane.
 // `keep`   — leave the terminal sitting in the right pane.
 // `ask`    — show a modal each time (default until the user picks).
 //

@@ -515,7 +515,7 @@ export function mountArtifactBridge(): void {
 	const notesHandle: NotesHandle = {
 		send: (text, opts) => {
 			// v0: log a structured payload. Phase 2 routes via postMessage
-			// back to the originating chat session.
+			// back to the originating terminal session.
 			console.log('[ikenga.notes]', {
 				artifactId: manifest.id,
 				text,

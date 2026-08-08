@@ -3720,31 +3720,46 @@ export async function pinScreenshotWrite(base64Png: string): Promise<string> {
 	return invoke<string>('pin_screenshot_write', { base64Png });
 }
 
-/** Routing sink. `terminal` writes the structured prompt to the active claude
- *  PTY's stdin (claude pulls the full payload via `mcp-iyke.read_pin`).
- *  `sidepane` fires a `pin://routed` Tauri event the FE listens to and posts
- *  into the active side-pane terminal. `both` runs both branches. */
-export type RouteSink = 'terminal' | 'sidepane' | 'both';
+/** Routing sink.
+ *  - `terminal` writes a one-line nudge to the active claude PTY's stdin;
+ *    claude pulls the full payload via `mcp-iyke.read_pin`.
+ *  - `chi` spawns a headless one-off agent run seeded with the pin prompt
+ *    and returns its `runId`. Spends tokens, so it is never auto-selected.
+ *  - `clipboard` returns the rendered prompt in `clipboardText` for the FE
+ *    to copy. Zero side effects, always available — the auto fallback.
+ *
+ *  The `sidepane` and `both` sinks were removed with the chat surface: they
+ *  emitted a `pin://routed` event whose only consumer was the side-pane
+ *  Chat composer, so after WP-05 they silently swallowed pins. */
+export type RouteSink = 'terminal' | 'chi' | 'clipboard';
 
 export interface RouteResult {
-	/** Sink actually used. `null` when nothing was reachable. */
+	/** Sink actually used, which may differ from the requested one — a
+	 *  `terminal` route whose PTY died degrades to `clipboard`. */
 	sink: RouteSink | null;
 	/** PTY id used when the terminal branch fired. */
 	ptyId: string | null;
 	/** Foreground command on that PTY at routing time (e.g. `"claude"`). */
 	ptyForeground: string | null;
+	/** Chi run id, when the `chi` sink fired. */
+	runId: string | null;
+	/** Rendered prompt to copy, when the `clipboard` sink fired. */
+	clipboardText: string | null;
 	comment: Comment;
 }
 
 /** Dispatch a pin to its routing sink. Auto-detects when `overrideSink` is
- *  omitted: most-recently-active claude PTY wins; falls back to side-pane
- *  terminal. ⌥-click on the pin in the grid passes an explicit override.
+ *  omitted: most-recently-active claude PTY wins, else clipboard. ⌥-click on
+ *  the pin in the grid passes an explicit override.
  *
  *  `preferredPtyId` lets the caller pin delivery to a specific terminal
  *  (typically the most-recently-focused tab) so two concurrent claude PTYs
  *  don't race for the route. The dispatcher honours the hint only if that
  *  PTY's foreground is still claude; otherwise it falls back to the snapshot
- *  scan. */
+ *  scan.
+ *
+ *  Callers should prefer `routePin` in `@/lib/artifact/route-pin`, which also
+ *  performs the clipboard write when the result asks for one. */
 export async function commentRoute(args: {
 	id: number;
 	overrideSink?: RouteSink;
@@ -3754,6 +3769,8 @@ export async function commentRoute(args: {
 		sink: string | null;
 		pty_id: string | null;
 		pty_foreground: string | null;
+		run_id: string | null;
+		clipboard_text: string | null;
 		comment: Comment;
 	}>('comment_route', {
 		id: args.id,
@@ -3764,24 +3781,10 @@ export async function commentRoute(args: {
 		sink: (raw.sink as RouteSink | null) ?? null,
 		ptyId: raw.pty_id,
 		ptyForeground: raw.pty_foreground,
+		runId: raw.run_id,
+		clipboardText: raw.clipboard_text,
 		comment: raw.comment,
 	};
-}
-
-/** Payload emitted on `pin://routed` when the sidepane branch fires. The
- *  FE listens for this and posts the structured prompt into the active
- *  side-pane terminal. */
-export interface PinRoutedEvent {
-	id: number;
-	sink: 'sidepane';
-	artifact_path: string;
-	selector: string;
-	text: string;
-	screenshot_path: string | null;
-}
-
-export async function listenPinRouted(handler: (e: PinRoutedEvent) => void): Promise<UnlistenFn> {
-	return listen<PinRoutedEvent>('pin://routed', (e) => handler(e.payload));
 }
 
 // ─── Approve-gate run-then-pause seam (pa_action_drafts) ──────────────────────

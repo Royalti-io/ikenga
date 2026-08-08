@@ -28,12 +28,12 @@ import { cn } from '@/components/ui/utils';
 import { useFocusTrap } from '@/lib/a11y/focus';
 import { extractManifestJson } from '@/lib/artifact/manifest-from-file';
 import { writeManifestIntoHtml } from '@/lib/artifact/manifest-write';
+import { routeOutcomeLabel, routePin } from '@/lib/artifact/route-pin';
 import { usePaneStore } from '@/lib/panes/pane-store';
 import { useRecordRecentArtifact } from '@/lib/shell/artifact-grid-recent-artifacts';
 import {
 	type Comment,
 	commentList,
-	commentRoute,
 	commentSetStatus,
 	fsListenWatch,
 	fsRead,
@@ -560,7 +560,10 @@ function LoupePinOverlay({
 				overrideSink = studioSinkToRouteOverride(sink);
 			}
 			try {
-				await commentRoute({ id: pin.id, preferredPtyId, overrideSink });
+				const res = await routePin({ id: pin.id, preferredPtyId, overrideSink });
+				// Routing is otherwise invisible — the clipboard sink in
+				// particular has no in-app effect — so always echo where it went.
+				console.info('[loupe] pin routed:', routeOutcomeLabel(res));
 				qc.invalidateQueries({ queryKey: ['artifact-studio', 'loupe', 'pins', path] });
 			} catch (e) {
 				console.error('[loupe] pin route failed', e);

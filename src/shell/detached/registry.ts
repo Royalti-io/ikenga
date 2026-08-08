@@ -16,7 +16,7 @@
 //
 // `resolveSurface` checks for an exact key first, then falls back to a
 // prefix match (the substring before the first `:`). This keeps the registry
-// keys clean ("chat", "viewer") while allowing context to travel in the id.
+// keys clean ("terminal", "viewer") while allowing context to travel in the id.
 
 import { type ComponentType, type LazyExoticComponent, lazy } from 'react';
 

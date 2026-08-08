@@ -110,15 +110,14 @@ function PkgRouteIndex() {
 	if (state.kind === 'skill_actions') {
 		// WP-13: a skill pkg's landing surface is its action toolbar. Later WPs
 		// flesh this out (full action gallery, inputs forms, run history); for
-		// now it's the dispatch-only lighthouse — confirm-mode actions seed the
-		// active chat session, other modes render as disabled placeholders.
+		// now it's the dispatch-only lighthouse — confirm-mode actions no-op,
+		// other modes render as disabled placeholders.
 		return (
 			<div className="flex flex-col gap-4 p-6">
 				<div>
 					<div className="mb-1 font-semibold">Actions</div>
 					<div className="text-sm opacity-70">
-						Run an action for <code>{pkgId}</code>. Confirm-mode actions seed the focused chat
-						session.
+						Run an action for <code>{pkgId}</code>. Confirm-mode actions are currently disabled.
 					</div>
 				</div>
 				<ActionBar pkgId={pkgId} />

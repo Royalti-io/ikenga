@@ -6,7 +6,7 @@ import { initOsFileDrop } from '@/lib/dnd/os-file-drop';
 import { useIykeBridge } from '@/lib/iyke/bridge';
 import { useIykeControlListener } from '@/lib/iyke/control-listener';
 import { useIykeShellSync } from '@/lib/iyke/use-iyke-shell-sync';
-import { usePinRoutedListener } from '@/lib/iyke/use-pin-routed-listener';
+
 import { IFRAME_POOL_ENABLED } from '@/lib/panes/iframe-pool';
 import { loadPaneTree, persistPaneTree } from '@/lib/panes/pane-persistence';
 import { usePaneStore } from '@/lib/panes/pane-store';
@@ -71,12 +71,6 @@ export function Workspace() {
 	// Warm the lazy artifact viewer chunks during idle so the first
 	// PDF/XLSX/code file open isn't a cold fetch.
 	usePreloadViewers();
-	// Artifact-grid: when the pin-routing dispatcher emits `pin://routed`
-	// (auto-detect fall-through to sidepane, or explicit Sidepane/Both),
-	// pre-fill the target chat thread's composer with the structured
-	// prompt. Workspace-level so a pin created from any artifact pane
-	// dispatches reliably, not just from the grid.
-	usePinRoutedListener();
 	// Approve-gate seam: when an approve-aware action pauses a batch
 	// (`pa-action-paused`), open /outbox/approvals in the focused pane so the
 	// operator can sign off the drafts. Workspace-level so any action's pause
@@ -116,7 +110,7 @@ export function Workspace() {
 	useEffect(() => registerPanelSizesSetter(setInitialSizes), []);
 
 	// Route native OS file drops to the surface under the cursor (terminals →
-	// insert path, chat composer → attach). Only fires where the native
+	// insert path). Only fires where the native
 	// drag-drop handler is enabled (Linux/Windows); a no-op on macOS. See
 	// src/lib/dnd/os-file-drop.ts. (drop-zone overlay)
 	useEffect(() => {

@@ -33,7 +33,7 @@ export function ClearDataSectionBody() {
 
 	async function handleClear() {
 		const ok = await confirmDialog(
-			'This wipes locally cached app state: chat threads, viewer recents, render queue, mbox sync, storyboards, layout, dock, sequences, browser localStorage, AND the durable settings_kv mirror (theme/agent/onboarding state). Stronghold secrets, screenshots on disk, and your Supabase data are kept. The app will reload.',
+			'This wipes locally cached app state: terminal sessions, viewer recents, render queue, mbox sync, storyboards, layout, dock, sequences, browser localStorage, AND the durable settings_kv mirror (theme/agent/onboarding state). Stronghold secrets, screenshots on disk, and your Supabase data are kept. The app will reload.',
 			{ title: 'Clear all local data', kind: 'warning' }
 		);
 		if (!ok) return;
@@ -52,8 +52,6 @@ export function ClearDataSectionBody() {
 					'storyboards',
 					'storyboard_beats',
 					'storyboard_jobs',
-					'chat_sessions',
-					'chat_messages',
 				];
 				for (const t of tables) {
 					try {

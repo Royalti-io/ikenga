@@ -16,9 +16,7 @@ import { APPROVE_GATE_FIXTURES } from './approve-gate-panel.fixtures';
 afterEach(cleanup);
 
 function setup(
-	over: Partial<
-		Record<'onApprove' | 'onReject' | 'onEdit', ReturnType<typeof vi.fn>>
-	> = {}
+	over: Partial<Record<'onApprove' | 'onReject' | 'onEdit', ReturnType<typeof vi.fn>>> = {}
 ) {
 	const h = {
 		onApprove: vi.fn(),

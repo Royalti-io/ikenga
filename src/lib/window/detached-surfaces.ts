@@ -1,9 +1,9 @@
 // Detached-surface tracking for the PRIMARY window (plans/multi-window).
 //
-// When a pane is popped out (`spawnWindow({ surface_set: ["chat:<id>"] })`),
+// When a pane is popped out (`spawnWindow({ surface_set: ["terminal:<id>"] })`),
 // its surface is now live in a separate thin window. Without this tracker the
-// primary window keeps rendering the same surface too, so the chat / terminal /
-// viewer shows up DUPLICATED in both windows (and, for terminal + chat, two
+// primary window keeps rendering the same surface too, so the terminal /
+// viewer shows up DUPLICATED in both windows (and, for terminal, two
 // live views drive the same shared Rust-core session).
 //
 // The source of truth is the Rust `WindowRegistry`: every spawned window's
@@ -26,7 +26,7 @@ import { closeWindow, listWindows } from '@/lib/tauri-cmd';
 import { isDetachedWindow } from './window-context';
 
 interface DetachedSurfacesState {
-	/** `surfaceId` (e.g. `"chat:<threadId>"`) → label of the window hosting it. */
+	/** `surfaceId` (e.g. `"terminal:<ptyId>"`) → label of the window hosting it. */
 	surfaceToWindow: Record<string, string>;
 }
 
@@ -90,7 +90,7 @@ export async function syncDetachedSurfaces(): Promise<void> {
 		for (const surfaceId of Object.keys(prev)) {
 			// Only terminal surfaces are armed: `TerminalView` is the sole
 			// consumer, and therefore the sole caller of
-			// `clearPendingReclaimNudge`. Arming a `chat:`/viewer surface here
+			// `clearPendingReclaimNudge`. Arming a `viewer` surface here
 			// would add an entry nothing ever clears, leaking one Set slot per
 			// non-terminal pop-out for the life of the session.
 			if (!(surfaceId in map) && surfaceId.startsWith('terminal:')) {
@@ -137,7 +137,7 @@ export function markSurfaceDetached(surfaceId: string, label: string): void {
 
 /**
  * Reclaim a popped-out surface back into the primary window: close its detached
- * window (the underlying PTY / chat session / file is unaffected — only the thin
+ * window (the underlying PTY / file is unaffected — only the thin
  * window goes away) and drop it from the map so the pane re-mounts the live
  * surface inline. Optimistic, with a reconciling `refresh()` on failure.
  */

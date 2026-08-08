@@ -95,7 +95,7 @@ const SUPPORTED_ENGINES: ReadonlyArray<{
 	{
 		id: 'ollama',
 		display: 'Ollama',
-		description: 'Local models â chat only, no tool use yet.',
+		description: 'Local models â terminal use, no tool use yet.',
 		binaryHint: 'ollama',
 		docsUrl: 'https://ollama.com',
 	},
@@ -152,7 +152,7 @@ export function AgentBody({ onContinue }: AgentBodyProps) {
 		setOverrideError(null);
 		try {
 			// Spawn-and-respond is the only verification we owe the user â the
-			// chat adapter will surface a clear error if the binary fails on
+			// engine adapter will surface a clear error if the binary fails on
 			// first send. Pin a generic 'custom' id and stash the path in the
 			// payload so the adapter can pick it up.
 			const customAgent: DetectedAgent = {

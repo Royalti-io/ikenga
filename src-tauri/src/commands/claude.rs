@@ -305,10 +305,9 @@ pub struct SessionHandle {
 /// S-2: this function used to ALSO walk `<app_cache>/sessions/<thread_id>/
 /// .claude/projects/` because pre-D-13 threads wrote their transcripts there
 /// and those were the only copies. That walk is gone now — the S-3 migration
-/// (`scripts/migrate-chat-transcripts.ts`) has been applied and verified:
-/// 19 of 19 transcripts moved into `$HOME/.claude/projects`, hash-checked, and
-/// every `chat_sessions` row carrying a `claude_session_id` resolves against
-/// the new location. Nothing reachable is lost by dropping the walk.
+/// has been applied and verified: 19 of 19 transcripts moved into
+/// `$HOME/.claude/projects` and hash-checked. Nothing reachable is lost by
+/// dropping the walk.
 fn jsonl_projects_roots(_app: &AppHandle) -> Vec<PathBuf> {
     let mut roots = Vec::new();
     if let Some(home) = projects_root() {

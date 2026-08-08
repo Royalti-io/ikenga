@@ -37,6 +37,7 @@ pub enum EngineId {
     Claude,
     Gemini,
     Codex,
+    Antigravity,
 }
 
 /// Which tier a scope lives at — a user-global root vs. a per-project root.
@@ -341,6 +342,81 @@ fn gemini_layout() -> EngineLayout {
     }
 }
 
+// ── Antigravity ───────────────────────────────────────────────────────────
+fn antigravity_layout() -> EngineLayout {
+    let mut kinds = BTreeMap::new();
+
+    kinds.insert(
+        PrimitiveKind::Skill,
+        KindLayout {
+            exists: true,
+            status: KindStatus::Active,
+            scopes: both_scopes(),
+            format: ConfigFormat::MdYaml,
+            mechanism: Mechanism::SymlinkDir,
+            location: "{root}/.agents/skills/{name}/",
+            strict_keys: false,
+        },
+    );
+    kinds.insert(
+        PrimitiveKind::Agent,
+        KindLayout {
+            exists: true,
+            status: KindStatus::Active,
+            scopes: both_scopes(),
+            format: ConfigFormat::MdYaml,
+            mechanism: Mechanism::SymlinkDir,
+            location: "{user_root}/agents/{name}.md",
+            strict_keys: false,
+        },
+    );
+    kinds.insert(
+        PrimitiveKind::Command,
+        KindLayout {
+            exists: true,
+            status: KindStatus::Active,
+            scopes: both_scopes(),
+            format: ConfigFormat::Toml,
+            mechanism: Mechanism::File,
+            location: "{user_root}/commands/**/{name}.toml",
+            strict_keys: false,
+        },
+    );
+    kinds.insert(
+        PrimitiveKind::Hook,
+        KindLayout {
+            exists: true,
+            status: KindStatus::Active,
+            scopes: both_scopes(),
+            format: ConfigFormat::JsonEmbedded,
+            mechanism: Mechanism::SettingsKey,
+            location: "{settings_file}#hooks",
+            strict_keys: true,
+        },
+    );
+    kinds.insert(
+        PrimitiveKind::Mcp,
+        KindLayout {
+            exists: true,
+            status: KindStatus::Active,
+            scopes: both_scopes(),
+            format: ConfigFormat::JsonEmbedded,
+            mechanism: Mechanism::SettingsKey,
+            location: "{user_root}/../config/mcp_config.json#mcpServers.{name}",
+            strict_keys: true,
+        },
+    );
+
+    EngineLayout {
+        engine: EngineId::Antigravity,
+        display: "Antigravity CLI",
+        badge: "AG",
+        tint: "antigravity",
+        scopes: user_project_scopes("~/.gemini/antigravity-cli", "<root>/.gemini"),
+        kinds,
+    }
+}
+
 // ── Codex ─────────────────────────────────────────────────────────────────
 fn codex_layout() -> EngineLayout {
     let mut kinds = BTreeMap::new();
@@ -427,7 +503,12 @@ fn codex_layout() -> EngineLayout {
 /// All engine layouts, in display order (`Claude`, `Gemini`, `Codex`).
 /// This is the frozen `G-ADAPTER` data the scanner + TS bridge consume.
 pub fn engine_layouts() -> Vec<EngineLayout> {
-    vec![claude_layout(), gemini_layout(), codex_layout()]
+    vec![
+        claude_layout(),
+        gemini_layout(),
+        codex_layout(),
+        antigravity_layout(),
+    ]
 }
 
 /// Look up a single engine's layout by id.
@@ -461,14 +542,20 @@ mod tests {
     }
 
     #[test]
-    fn all_three_engines_present() {
+    fn all_four_engines_present() {
         let all = engine_layouts();
-        assert_eq!(all.len(), 3);
+        assert_eq!(all.len(), 4);
         assert_eq!(all[0].engine, EngineId::Claude);
         assert_eq!(all[1].engine, EngineId::Gemini);
         assert_eq!(all[2].engine, EngineId::Codex);
+        assert_eq!(all[3].engine, EngineId::Antigravity);
         // by_id agrees
-        for e in [EngineId::Claude, EngineId::Gemini, EngineId::Codex] {
+        for e in [
+            EngineId::Claude,
+            EngineId::Gemini,
+            EngineId::Codex,
+            EngineId::Antigravity,
+        ] {
             assert_eq!(engine_layout_by_id(e).unwrap().engine, e);
         }
     }
@@ -620,6 +707,7 @@ mod tests {
         assert!(json.contains("\"engine\":\"claude\""));
         assert!(json.contains("\"engine\":\"gemini\""));
         assert!(json.contains("\"engine\":\"codex\""));
+        assert!(json.contains("\"engine\":\"antigravity\""));
         assert!(json.contains("\"mechanism\":\"symlink-dir\""));
         assert!(json.contains("\"format\":\"json-embedded\""));
         assert!(json.contains("\"format\":\"md-yaml\""));

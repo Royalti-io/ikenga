@@ -24,7 +24,7 @@ const OFFLINE_AGENT_ID = 'engine-noop';
 function AgentSettingsPage() {
 	const navigate = useNavigate();
 	const selectedAgentId = useShellStore((s) => s.onboarding.selectedAgentId);
-	const chatAdapterId = useShellStore((s) => s.chatAdapterId);
+	const defaultEngineId = useShellStore((s) => s.defaultEngineId);
 	const payload = useShellStore(
 		(s) =>
 			s.onboarding.steps.agent.payload as
@@ -79,15 +79,15 @@ function AgentSettingsPage() {
 							Coding agent
 						</h2>
 						<p className="max-w-prose text-sm leading-relaxed text-muted-foreground">
-							Which engine drives chat sessions. Change here re-opens the onboarding picker so you
-							can rescan your machine and pick another agent.
+							Which engine drives terminal sessions. Change here re-opens the onboarding picker so
+							you can rescan your machine and pick another agent.
 						</p>
 					</header>
 
 					<SettingGroup title="Current selection">
 						<SettingRow
 							label="Engine"
-							desc="Mirrors the onboarding step's choice and the chat adapter id."
+							desc="Mirrors the onboarding step's choice and the default agent id."
 						>
 							<div className="flex items-center gap-2">
 								<Bot className="h-4 w-4 text-muted-foreground" />
@@ -125,11 +125,11 @@ function AgentSettingsPage() {
 						)}
 
 						<SettingRow
-							label="Chat adapter id"
-							desc="The pkg id wired into the chat surface. `null` when offline."
+							label="Default agent id"
+							desc="The pkg id wired as the default terminal agent. `null` when offline."
 						>
 							<span className="font-mono text-[11px] text-muted-foreground">
-								{chatAdapterId ?? '(none)'}
+								{defaultEngineId ?? '(none)'}
 							</span>
 						</SettingRow>
 					</SettingGroup>

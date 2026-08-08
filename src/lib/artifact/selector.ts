@@ -4,7 +4,7 @@
 // short CSS selector that:
 //   - uniquely identifies the element within its document (so the engine
 //     can find it again after a small rewrite),
-//   - reads well in a chat chip (`section#sales > .row` beats
+//   - reads well in a terminal chip (`section#sales > .row` beats
 //     `body > div:nth-of-type(2) > div > div > div:nth-of-type(3)`),
 //   - degrades gracefully when the element has no id and no useful classes.
 //

@@ -1542,7 +1542,8 @@ fn parse_engine(s: &str) -> Result<EngineId, String> {
         "claude" => Ok(EngineId::Claude),
         "gemini" => Ok(EngineId::Gemini),
         "codex" => Ok(EngineId::Codex),
-        _ => Err(format!("engine must be claude|gemini|codex, got {s:?}")),
+        "antigravity" | "antigravity-cli" => Ok(EngineId::Antigravity),
+        _ => Err(format!("engine must be claude|gemini|codex|antigravity, got {s:?}")),
     }
 }
 
@@ -1586,6 +1587,7 @@ fn engine_dotdir_name(engine: EngineId) -> &'static str {
         EngineId::Claude => ".claude",
         EngineId::Gemini => ".gemini",
         EngineId::Codex => ".codex",
+        EngineId::Antigravity => ".gemini/antigravity-cli",
     }
 }
 
@@ -1659,6 +1661,16 @@ fn engine_file_path(
             .join("agents")
             .join(&leaf),
         (EngineId::Gemini, PrimitiveKind::Command) => engine_user_dotdir(engine, user_home)
+            .join("commands")
+            .join(&leaf),
+        // ── Antigravity ──────────────────────────────────────────────────────
+        (EngineId::Antigravity, PrimitiveKind::Skill) => {
+            scope_root.join(".agents").join("skills").join(&leaf)
+        }
+        (EngineId::Antigravity, PrimitiveKind::Agent) => engine_user_dotdir(engine, user_home)
+            .join("agents")
+            .join(&leaf),
+        (EngineId::Antigravity, PrimitiveKind::Command) => engine_user_dotdir(engine, user_home)
             .join("commands")
             .join(&leaf),
         // ── Codex ──────────────────────────────────────────────────────────
@@ -1865,6 +1877,7 @@ fn engine_wire_id(engine: EngineId) -> &'static str {
         EngineId::Claude => "claude",
         EngineId::Gemini => "gemini",
         EngineId::Codex => "codex",
+        EngineId::Antigravity => "antigravity-cli",
     }
 }
 

@@ -121,11 +121,6 @@ pub fn run() {
     let claude_code_engine: engines::claude_code::server::ClaudeCodeEngineState = Arc::new(
         engines::claude_code::server::ClaudeCodeEngine::new(sessions_manager.clone()),
     );
-    // Phase 2: Gemini ACP engine. Spawns the `gemini --acp` child
-    // lazily on first new_session per thread; one child per threadId,
-    // reused across prompts. (ADR-013 §1.)
-    let gemini_acp_engine: engines::gemini_acp::GeminiAcpEngineState =
-        Arc::new(engines::gemini_acp::GeminiAcpEngine::new());
     // Phase 3: Codex PTY engine. Lazy-spawns the `codex` CLI in a PTY on
     // first prompt per thread. Shares the global `PtyManager` so codex
     // children show up in pty diagnostics alongside the rest of the
@@ -147,12 +142,10 @@ pub fn run() {
     {
         let reg = engine_registry.clone();
         let claude_handle = engines::EngineHandle::ClaudeCode(claude_code_engine.clone());
-        let gemini_handle = engines::EngineHandle::GeminiAcp(gemini_acp_engine.clone());
         let codex_handle = engines::EngineHandle::CodexPty(codex_pty_engine.clone());
         let cursor_agent_handle = engines::EngineHandle::CursorAgent(cursor_agent_engine.clone());
         tauri::async_runtime::block_on(async move {
             reg.insert("claude-code", claude_handle).await;
-            reg.insert("gemini", gemini_handle).await;
             reg.insert("codex", codex_handle).await;
             reg.insert("cursor-agent", cursor_agent_handle).await;
         });
@@ -224,7 +217,6 @@ pub fn run() {
         .manage(viewer_manager)
         .manage(sessions_manager)
         .manage(claude_code_engine)
-        .manage(gemini_acp_engine)
         .manage(codex_pty_engine)
         .manage(cursor_agent_engine)
         .manage(engine_registry)

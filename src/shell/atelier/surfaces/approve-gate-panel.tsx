@@ -706,7 +706,7 @@ export function ApproveGatePanel(props: ApproveGatePanelProps) {
 										</span>
 										<span>
 											<kbd>⌘</kbd>
-											<kbd>K</kbd> send to chat
+											<kbd>K</kbd> dispatch
 										</span>
 										{edits[selected.id]?.savedAt && (
 											<span className="saved">Saved {edits[selected.id]?.savedAt}</span>

@@ -9,8 +9,8 @@
  * deliberate `restart()`.
  *
  * This holds on EVERY path — including the opt-in background auto-install.
- * A relaunch the user didn't ask for throws away whatever is live in terminals,
- * chats and pkg panes, so `restartApp` is reachable only through `restart()`.
+ * A relaunch the user didn't ask for throws away whatever is live in terminals
+ * and pkg panes, so `restartApp` is reachable only through `restart()`.
  *
  * These tests pin that contract at the hook boundary.
  */

@@ -1,6 +1,6 @@
 /**
  * os-file-drop — routes native OS file drops to the drop surface under the
- * cursor (terminals → insert path, chat composer → attach), with a live
+ * cursor (terminals → insert path), with a live
  * drop-zone overlay so the target highlights as you drag, the way Zed and
  * other editors do it.
  *

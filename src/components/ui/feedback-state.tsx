@@ -5,8 +5,8 @@ import { cn } from '@/components/ui/utils';
 
 // Consolidated empty / loading / error / stale feedback surface — the single
 // component the pane/view/dock "no content" states render through. Replaces 8
-// hand-rolled implementations (StubPanel, ChatView empty/loading/error,
-// TerminalView placeholder, ToolOutputView stale, DockEmpty, SessionsPage
+// hand-rolled implementations (StubPanel, TerminalView placeholder,
+// ToolOutputView stale, DockEmpty, SessionsPage
 // loading/empty/error). Token-only tones; tone is conveyed by icon + text, not
 // colour alone (WCAG 1.4.1).
 //

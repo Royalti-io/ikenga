@@ -11,7 +11,7 @@ describe('filterTreeViews', () => {
 	it('drops artifact tabs and keeps route tabs', () => {
 		let root: PaneNode = newRoute('/inbox');
 		const id = (root as LeafNode).id;
-		root = addTab(root, id, { kind: 'artifact', path: '/chat.html' });
+		root = addTab(root, id, { kind: 'artifact', path: '/note.html' });
 		root = addTab(root, id, { kind: 'route', path: '/finance' });
 
 		const live = new Set<string>();
@@ -62,7 +62,7 @@ describe('filterTreeViews', () => {
 
 		const r = filterTreeViews(root, (v) => v.kind !== 'artifact');
 		expect(r).not.toBeNull();
-		// Right pane's only tab was a chat — drops the leaf, parent split
+		// Right pane's only tab was an artifact — drops the leaf, parent split
 		// collapses to its single remaining child.
 		expect(r!.type).toBe('leaf');
 		expect(leafCount(r!)).toBe(1);

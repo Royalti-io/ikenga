@@ -6,7 +6,7 @@
 //
 // Per the unified plan §"Right rail tabs", the grid-density rail is a
 // slide-in pin overlay (active pin or "inbox" button opens it). There is
-// no default background content now that the chat surface is removed.
+// no default background content now that the terminal/chat surface is removed.
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Inbox, Settings, X } from 'lucide-react';
@@ -15,11 +15,11 @@ import { createPortal } from 'react-dom';
 import { cn } from '@/components/ui/utils';
 import { useFocusTrap } from '@/lib/a11y/focus';
 import { usePaneStore } from '@/lib/panes/pane-store';
+import { routeOutcomeLabel, routePin } from '@/lib/artifact/route-pin';
 import {
 	type Comment,
 	type CommentStatus,
 	commentList,
-	commentRoute,
 	commentSetStatus,
 	type FileEntry,
 	fsList,
@@ -47,6 +47,20 @@ function showResolvedKey(path: string): string {
 }
 
 const SETTINGS_QK = (path: string) => ['artifact-grid', 'settings', path] as const;
+
+/** Labels for the ⌥-click override popover's explicit sink buttons. `auto`
+ *  is absent by design — the popover exists to override auto-detection. */
+const SINK_LABELS: Record<Exclude<RouteSink, never>, string> = {
+	terminal: 'Terminal',
+	chi: 'Chi run',
+	clipboard: 'Copy',
+};
+
+const SINK_HINTS: Record<Exclude<RouteSink, never>, string> = {
+	terminal: 'Write a pin reference to the active claude PTY',
+	chi: 'Spawn a headless agent run for this pin',
+	clipboard: 'Copy the full prompt for manual paste',
+};
 
 // When the visible-pin count (post Open/All filter) hits this threshold, the
 // sidebar auto-flips from the active-pin view to inbox-mode: a flat list of
@@ -143,8 +157,25 @@ export function StudioGrid({ path, paneId }: GridPaneProps) {
 		pin: Comment;
 	} | null>(null);
 	const [settingsOpen, setSettingsOpen] = useState(false);
+	// Transient confirmation of where the last pin click actually landed.
+	// Routing is otherwise invisible — the clipboard sink in particular has
+	// no observable effect in-app, so without this the click looks like a
+	// no-op. Auto-clears so it doesn't read as persistent state.
+	const [routeNote, setRouteNoteRaw] = useState<string | null>(null);
+	const routeNoteTimer = useRef<number | null>(null);
+	const setRouteNote = useCallback((note: string) => {
+		setRouteNoteRaw(note);
+		if (routeNoteTimer.current !== null) window.clearTimeout(routeNoteTimer.current);
+		routeNoteTimer.current = window.setTimeout(() => setRouteNoteRaw(null), 2600);
+	}, []);
+	useEffect(
+		() => () => {
+			if (routeNoteTimer.current !== null) window.clearTimeout(routeNoteTimer.current);
+		},
+		[]
+	);
 
-	// Grid-density right rail is Chat-only per the unified plan. Pin
+	// Grid-density right rail is pins-only per the unified plan. Pin
 	// detail / inbox surface as a slide-in overlay over the rail; opens
 	// automatically when the user clicks a pin and can be summoned via
 	// the inbox button.
@@ -187,7 +218,7 @@ export function StudioGrid({ path, paneId }: GridPaneProps) {
 
 	// Auto-open the pins overlay when the user clicks a pin so routing
 	// detail is immediately visible. Closing the overlay drops back to
-	// Chat without clearing the active pin selection.
+	// the pins rail without clearing the active pin selection.
 	useEffect(() => {
 		if (activePin) setPinsOverlayOpen(true);
 	}, [activePin]);
@@ -291,15 +322,17 @@ export function StudioGrid({ path, paneId }: GridPaneProps) {
 			const ts = useTerminalStore.getState();
 			const preferredPtyId = ts.tabs.find((t) => t.id === ts.activeId)?.ptyId ?? null;
 			try {
-				await commentRoute({ id: pin.id, overrideSink: sink, preferredPtyId });
+				const res = await routePin({ id: pin.id, overrideSink: sink, preferredPtyId });
+				setRouteNote(routeOutcomeLabel(res));
 				// Re-fetch pins so the status flip (open → in_progress when the
 				// agent acknowledges) lands quickly.
 				qc.invalidateQueries({ queryKey: ['artifact-grid', path, 'pins'] });
 			} catch (e) {
 				console.error('[artifact-grid] route failed', e);
+				setRouteNote('route failed');
 			}
 		},
-		[path, qc, effectiveSink]
+		[path, qc, effectiveSink, setRouteNote]
 	);
 
 	const onResolvePin = useCallback(
@@ -337,13 +370,15 @@ export function StudioGrid({ path, paneId }: GridPaneProps) {
 			const ts = useTerminalStore.getState();
 			const preferredPtyId = ts.tabs.find((t) => t.id === ts.activeId)?.ptyId ?? null;
 			try {
-				await commentRoute({ id: pin.id, overrideSink: sink, preferredPtyId });
+				const res = await routePin({ id: pin.id, overrideSink: sink, preferredPtyId });
+				setRouteNote(routeOutcomeLabel(res));
 				qc.invalidateQueries({ queryKey: ['artifact-grid', path, 'pins'] });
 			} catch (e) {
 				console.error('[artifact-grid] route failed', e);
+				setRouteNote('route failed');
 			}
 		},
-		[path, qc, effectiveSink]
+		[path, qc, effectiveSink, setRouteNote]
 	);
 
 	const onPinAltClick = useCallback((artifact: FileEntry, pin: Comment, rect: DOMRect) => {
@@ -428,6 +463,7 @@ export function StudioGrid({ path, paneId }: GridPaneProps) {
 				showResolved={showResolved}
 				onToggleShowResolved={toggleShowResolved}
 				onOpenSettings={() => setSettingsOpen(true)}
+				routeNote={routeNote}
 			/>
 			<div className="grid flex-1 min-h-0 grid-cols-[1fr_360px]">
 				<div className="overflow-y-auto bg-background p-6">
@@ -595,6 +631,9 @@ interface GridChromeProps {
 	showResolved: boolean;
 	onToggleShowResolved: (next: boolean) => void;
 	onOpenSettings: () => void;
+	/** Transient "where the last pin landed" note; replaces the live-PTY
+	 *  chip while set so a routed pin always produces visible feedback. */
+	routeNote?: string | null;
 }
 
 function GridChrome({
@@ -604,6 +643,7 @@ function GridChrome({
 	showResolved,
 	onToggleShowResolved,
 	onOpenSettings,
+	routeNote,
 }: GridChromeProps) {
 	return (
 		<div className="flex shrink-0 items-center gap-3 border-b border-border bg-muted/20 px-3 py-1.5 text-xs">
@@ -622,8 +662,13 @@ function GridChrome({
 					allCount={counts.allPins}
 					onChange={onToggleShowResolved}
 				/>
-				<span>
-					{claudePty ? (
+				<span aria-live="polite">
+					{routeNote ? (
+						<span className="text-foreground">
+							<span className="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-[var(--live)]" />
+							{routeNote}
+						</span>
+					) : claudePty ? (
 						<>
 							<span className="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-[var(--live)]" />
 							claude · {claudePty.ptyId.slice(0, 6)}
@@ -631,7 +676,7 @@ function GridChrome({
 					) : (
 						<>
 							<span className="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-muted-foreground/40" />
-							no claude · sidepane fallback
+							no claude · copies to clipboard
 						</>
 					)}
 				</span>
@@ -932,20 +977,17 @@ function OverridePopover({ anchor, onPick, onClose }: OverridePopoverProps) {
 			style={{ left: anchor.x, top: anchor.y, minWidth: 180 }}
 		>
 			<div className="flex gap-1 p-1.5">
-				<button
-					type="button"
-					onClick={() => onPick('terminal')}
-					className="flex-1 rounded border border-border bg-background px-2 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.10em] text-foreground hover:border-foreground/60 hover:bg-foreground/5"
-				>
-					Terminal
-				</button>
-				<button
-					type="button"
-					onClick={() => onPick('sidepane')}
-					className="flex-1 rounded border border-border bg-background px-2 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.10em] text-foreground hover:border-foreground/60 hover:bg-foreground/5"
-				>
-					Sidepane
-				</button>
+				{(['terminal', 'chi', 'clipboard'] as const).map((sink) => (
+					<button
+						key={sink}
+						type="button"
+						onClick={() => onPick(sink)}
+						title={SINK_HINTS[sink]}
+						className="flex-1 rounded border border-border bg-background px-2 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.10em] text-foreground hover:border-foreground/60 hover:bg-foreground/5"
+					>
+						{SINK_LABELS[sink]}
+					</button>
+				))}
 			</div>
 			<div className="border-t border-border px-2 py-1 font-mono text-[9px] uppercase tracking-[0.14em] text-muted-foreground">
 				override default sink
@@ -1120,7 +1162,7 @@ function SinkSegments({
 				'inline-flex overflow-hidden rounded border border-border ' + (disabled ? 'opacity-50' : '')
 			}
 		>
-			{(['auto', 'terminal', 'sidepane', 'both'] as const).map((opt) => (
+			{(['auto', 'terminal', 'chi', 'clipboard'] as const).map((opt) => (
 				<button
 					key={opt}
 					type="button"
@@ -1185,7 +1227,7 @@ function GridSidebar({ activePin, claudePty, onResolve }: GridSidebarProps) {
 	return (
 		<aside className="flex flex-col overflow-y-auto border-l border-border bg-muted/20">
 			<div className="border-b border-border px-4 py-2 font-mono text-[10px] font-bold uppercase tracking-[0.22em] text-muted-foreground">
-				Pin → {claudePty ? 'Terminal claude' : 'Side-pane Chat (fallback)'}
+				Pin → {claudePty ? 'Terminal claude' : 'Clipboard (fallback)'}
 			</div>
 			{!activePin ? (
 				<div className="p-5 font-mono text-xs leading-relaxed text-muted-foreground">
@@ -1198,7 +1240,7 @@ function GridSidebar({ activePin, claudePty, onResolve }: GridSidebarProps) {
 						</>
 					) : (
 						<>
-							the side-pane <span className="text-[var(--achievement)]">Chat</span> thread. Run{' '}
+							the side-pane <span className="text-[var(--achievement)]">terminal</span>. Run{' '}
 							<span className="text-[var(--achievement)]">claude</span> in a terminal pane to switch
 							routing to the terminal sink.
 						</>
@@ -1271,7 +1313,7 @@ function GridSidebarInbox({
 				</span>
 			</div>
 			<div className="border-b border-border px-4 py-1.5 font-mono text-[9px] uppercase tracking-[0.14em] text-muted-foreground">
-				Pin → {claudePty ? 'Terminal claude' : 'Side-pane Chat (fallback)'}
+				Pin → {claudePty ? 'Terminal claude' : 'Clipboard (fallback)'}
 			</div>
 			<div role="list" className="flex-1 overflow-y-auto">
 				{rows.map((row) => (

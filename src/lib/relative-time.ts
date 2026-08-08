@@ -1,11 +1,9 @@
 /**
- * Human-readable relative timestamps for the chat surface (and anywhere
+ * Human-readable relative timestamps for the terminal surface (and anywhere
  * else that wants the same conventions).
  *
- * Mirrors the formatter in `design/shell/chat-redesign/2026-05-18-user-
- * turn-variants.html`. Pure function, no React dependency — render-side
- * callers should re-invoke it when they want fresh strings (a 1-minute
- * timer in the chat thread, for example).
+ * Pure function, no React dependency — render-side callers should re-invoke
+ * it when they want fresh strings.
  *
  * Buckets:
  *   < 1 min            → 'just now'

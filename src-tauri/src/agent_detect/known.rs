@@ -128,6 +128,15 @@ const CAP_GEMINI: AgentCapabilities = AgentCapabilities {
     session_resume: false,
 };
 
+const CAP_ANTIGRAVITY: AgentCapabilities = AgentCapabilities {
+    streaming: false,
+    tool_use: true,
+    thinking: true,
+    artifacts: true,
+    mcp: true,
+    session_resume: true,
+};
+
 const CAP_CURSOR: AgentCapabilities = AgentCapabilities {
     streaming: true,
     tool_use: true,
@@ -290,6 +299,32 @@ pub const KNOWN_AGENTS: &[AgentDef] = &[
             ],
         }),
         capabilities: CAP_GEMINI,
+    },
+    AgentDef {
+        id: "antigravity-cli",
+        display: "Antigravity CLI",
+        executables: &[
+            ExecutableSpec {
+                target_family: TargetFamily::Unix,
+                names: &["agy"],
+                extra_dirs: &["~/.local/bin"],
+            },
+            ExecutableSpec {
+                target_family: TargetFamily::Windows,
+                names: &["agy.cmd", "agy.exe"],
+                extra_dirs: &[],
+            },
+        ],
+        version_arg: Some("--version"),
+        version_regex: Some(DEFAULT_VERSION_REGEX),
+        auth_check: Some(AuthCheck::Any {
+            checks: &[
+                AuthCheck::EnvVar {
+                    name: "GEMINI_API_KEY",
+                },
+            ],
+        }),
+        capabilities: CAP_ANTIGRAVITY,
     },
     AgentDef {
         id: "cursor-agent",

@@ -85,8 +85,8 @@ export function useUpdater(options?: UseUpdaterOptions): UpdaterState {
 			});
 			// Install done — hold here, always. The relaunch is a separate,
 			// deliberate step: it doesn't just avoid the mid-flow teardown
-			// (see updater.ts), it protects unsaved work in terminals, chats
-			// and pkg panes that a surprise restart would throw away.
+			// (see updater.ts), it protects unsaved work in terminals and pkg
+			// panes that a surprise restart would throw away.
 			setInstalling(false);
 			setInstalled(true);
 		} catch (e) {

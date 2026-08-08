@@ -1,4 +1,4 @@
-// Sync cwd resolver for agent / terminal / chat spawns.
+// Sync cwd resolver for agent / terminal spawns.
 //
 // Per D3 + D9 in plans/shell/2026-05-17-projects-and-artifact-wizard.md:
 // agent cwd = active project's root_path, so `.claude/skills/`, commands,

@@ -34,7 +34,7 @@ export function UpdaterBanner() {
 	// binary update downloads + installs without a click — but it still stops
 	// at the "installed, restart to finish" banner below. Nothing relaunches
 	// the app on its own; a surprise restart discards whatever is live in
-	// terminals, chats and pkg panes. Snooze still wins as the escape hatch;
+	// terminals and pkg panes. Snooze still wins as the escape hatch;
 	// `!installing && !installed` stops it re-firing once a download is in
 	// flight or already installed.
 	useEffect(() => {

@@ -357,11 +357,10 @@ fn user_envelope(text: &str) -> String {
     s
 }
 
-/// Return a `(command, child)` for the requested engine. WP-02 starts with
-/// Claude Code; other engines return an unsupported error.
+/// Return a `(command, child)` for the requested engine.
 fn build_engine_command(
     engine_id: &str,
-    _prompt: &str,
+    prompt: &str,
     cwd: &str,
     model: Option<&str>,
     mode: Option<&str>,
@@ -396,6 +395,30 @@ fn build_engine_command(
             }
             if let Some(m) = model {
                 cmd.arg("--model").arg(m);
+            }
+
+            Ok(cmd)
+        }
+        "antigravity-cli" => {
+            let mut cmd = Command::new("agy");
+            cmd.arg("-p")
+                .arg(prompt)
+                .arg("--output-format")
+                .arg("stream-json")
+                .current_dir(cwd)
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .env("PATH", crate::runtime::augmented_path());
+
+            if let Some(id) = resume_id {
+                cmd.arg("--conversation").arg(id);
+            }
+            if let Some(m) = model {
+                cmd.arg("--model").arg(m);
+            }
+            if let Some(mo) = mode {
+                cmd.arg("--mode").arg(mo);
             }
 
             Ok(cmd)
@@ -572,6 +595,118 @@ async fn claude_one_off_task(
     let _ = child.try_wait();
 }
 
+async fn antigravity_one_off_task(
+    db: Arc<PaDb>,
+    _cache: ChiCache,
+    run_id: String,
+    output_path: PathBuf,
+    child: Arc<Mutex<Child>>,
+    cancelled: Arc<AtomicBool>,
+    _stdin: tokio::process::ChildStdin,
+    stdout: tokio::process::ChildStdout,
+    stderr: Option<tokio::process::ChildStderr>,
+    _prompt: String,
+) {
+    if let Some(stderr) = stderr {
+        tauri::async_runtime::spawn(async move {
+            let mut lines = BufReader::new(stderr).lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                log::debug!(target: "ikenga::chi", "antigravity stderr: {line}");
+            }
+        });
+    }
+
+    let mut reader = BufReader::new(stdout).lines();
+    let mut output = String::new();
+    let mut external_id: Option<String> = None;
+    let mut saw_done = false;
+    let mut stop_reason: Option<String> = None;
+
+    while let Ok(Some(line)) = reader.next_line().await {
+        if let Ok(val) = serde_json::from_str::<serde_json::Value>(&line) {
+            if let Some(event) = val.get("event").and_then(|e| e.as_str()) {
+                match event {
+                    "init" => {
+                        if let Some(conv_id) = val.get("conversation_id").and_then(|id| id.as_str()) {
+                            if external_id.is_none() {
+                                external_id = Some(conv_id.to_string());
+                                cache_update_external_id(&db, &run_id, conv_id).await.ok();
+                                cache_update_status(&db, &run_id, "running", None).await.ok();
+                            }
+                        }
+                    }
+                    "step_update" => {
+                        if let Some(step_update) = val.get("step_update") {
+                            if let Some(step_type) = step_update.get("step_type").and_then(|t| t.as_str()) {
+                                if step_type == "agent_response" {
+                                    if let Some(delta) = step_update.get("text_delta").and_then(|d| d.as_str()) {
+                                        output.push_str(delta);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    "result" => {
+                        saw_done = true;
+                        if let Some(result) = val.get("result") {
+                            if let Some(status) = result.get("status").and_then(|s| s.as_str()) {
+                                if status != "SUCCESS" {
+                                    stop_reason = Some("error".to_string());
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        write_output_file(&output_path, &output, None).await.ok();
+    }
+
+    let (status, error, done_output) = if cancelled.load(Ordering::SeqCst) {
+        ("cancelled", None, Some(output))
+    } else if saw_done {
+        if stop_reason.as_deref() == Some("error") {
+            (
+                "failed",
+                Some("antigravity reported stop_reason error"),
+                Some(output),
+            )
+        } else {
+            ("done", None, Some(output))
+        }
+    } else {
+        (
+            "failed",
+            Some("engine child exited without a done envelope"),
+            Some(output),
+        )
+    };
+
+    let output_truncated = done_output.as_ref().map(|s| s.len() > 100_000).unwrap_or(false);
+    let output_json = done_output.as_deref().unwrap_or("");
+
+    let file_error = if let Err(e) = write_output_file(&output_path, output_json, error).await {
+        Some(format!("write output file: {e}"))
+    } else {
+        error.map(|s| s.to_string())
+    };
+
+    cache_update_done(
+        &db,
+        &run_id,
+        status,
+        file_error.as_deref(),
+        output_truncated,
+        None,
+    )
+    .await
+    .ok();
+
+    let mut child = child.lock().await;
+    let _ = child.try_wait();
+}
+
 async fn write_output_file(
     path: &Path,
     output: &str,
@@ -606,13 +741,26 @@ pub async fn chi_run(
     runtime: State<'_, Arc<ChiRuntime>>,
     opts: ChiRunOpts,
 ) -> Result<ChiRunResult, String> {
+    spawn_chi_run(db.inner().clone(), cache.inner(), runtime.inner(), opts, "cli").await
+}
+
+/// Core of `chi_run`, callable from other commands that need to launch an
+/// agent without going through the Tauri command boundary (e.g.
+/// `comment_route`'s `chi` sink). `owner` tags the cache row so the audit
+/// trail distinguishes a CLI-initiated run from a pin-initiated one.
+pub(crate) async fn spawn_chi_run(
+    db: Arc<PaDb>,
+    cache: &ChiCache,
+    runtime: &Arc<ChiRuntime>,
+    opts: ChiRunOpts,
+    owner: &str,
+) -> Result<ChiRunResult, String> {
     cache.ensure_cache_dir()?;
     let run_id = uuid::Uuid::new_v4().to_string();
     let output_path = cache.run_output_path(&run_id);
 
     // Initial one-off TTL is 1 hour; long-lived sessions will refresh this.
-    let db = db.inner().clone();
-    cache_insert(&db, &run_id, &opts, &output_path, "cli").await?;
+    cache_insert(&db, &run_id, &opts, &output_path, owner).await?;
 
     let cwd = opts
         .cwd
@@ -642,16 +790,23 @@ pub async fn chi_run(
     });
     runtime.insert(&run_id, handle).await;
 
-    let db = db.clone();
-    let cache = cache.inner().clone();
+    let cache = cache.clone();
     let output_path = output_path.clone();
     let prompt = opts.prompt.clone();
     let run_id_for_task = run_id.clone();
+    let engine_id = opts.engine_id.clone();
     tauri::async_runtime::spawn(async move {
-        claude_one_off_task(
-            db, cache, run_id_for_task, output_path, child, cancelled, stdin, stdout, stderr, prompt,
-        )
-        .await;
+        if engine_id == "antigravity-cli" {
+            antigravity_one_off_task(
+                db, cache, run_id_for_task, output_path, child, cancelled, stdin, stdout, stderr, prompt,
+            )
+            .await;
+        } else {
+            claude_one_off_task(
+                db, cache, run_id_for_task, output_path, child, cancelled, stdin, stdout, stderr, prompt,
+            )
+            .await;
+        }
     });
 
     Ok(ChiRunResult {
@@ -716,22 +871,38 @@ pub async fn chi_resume(
     let db = db.clone();
     let cache = cache.clone();
     let output_path = output_path.clone();
-    let _engine_id = row.engine_id.clone();
+    let engine_id = row.engine_id.clone();
     let run_id_for_task = run_id.clone();
     tauri::async_runtime::spawn(async move {
-        claude_one_off_task(
-            db,
-            cache,
-            run_id_for_task,
-            output_path,
-            child,
-            cancelled,
-            stdin,
-            stdout,
-            stderr,
-            prompt,
-        )
-        .await;
+        if engine_id == "antigravity-cli" {
+            antigravity_one_off_task(
+                db,
+                cache,
+                run_id_for_task,
+                output_path,
+                child,
+                cancelled,
+                stdin,
+                stdout,
+                stderr,
+                prompt,
+            )
+            .await;
+        } else {
+            claude_one_off_task(
+                db,
+                cache,
+                run_id_for_task,
+                output_path,
+                child,
+                cancelled,
+                stdin,
+                stdout,
+                stderr,
+                prompt,
+            )
+            .await;
+        }
     });
 
     Ok(ChiRunResult {
@@ -940,5 +1111,28 @@ mod tests {
         write_output_file(&path, "partial output", None).await.unwrap();
         let file = read_output_file(&path).await.unwrap();
         assert_eq!(file.output.as_deref(), Some("partial output"));
+    }
+
+    #[test]
+    fn test_build_engine_command_antigravity() {
+        let cmd = build_engine_command(
+            "antigravity-cli",
+            "hello",
+            "/tmp",
+            Some("gemini-2.0-flash"),
+            Some("plan"),
+            Some("conv-123"),
+        )
+        .unwrap();
+
+        assert_eq!(cmd.as_std().get_program(), "agy");
+        let args: Vec<&str> = cmd.as_std().get_args().map(|s| s.to_str().unwrap()).collect();
+        assert_eq!(args, vec![
+            "-p", "hello",
+            "--output-format", "stream-json",
+            "--conversation", "conv-123",
+            "--model", "gemini-2.0-flash",
+            "--mode", "plan"
+        ]);
     }
 }

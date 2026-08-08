@@ -30,8 +30,8 @@ function StoragePage() {
 						</h2>
 						<p className="max-w-prose text-sm leading-relaxed text-muted-foreground">
 							Where Ikenga reads from and writes to on disk — file-browser roots, screenshot
-							destination, and the local SQLite + browser caches that power chat, viewer, and layout
-							state.
+							destination, and the local SQLite + browser caches that power terminal, viewer, and
+							layout state.
 						</p>
 					</header>
 
@@ -49,7 +49,7 @@ function StoragePage() {
 					<SettingGroup title="Claude project roots">
 						<SettingRow
 							label="Moved to Settings → Projects"
-							desc="Project roots are now first-class projects with icons, colors, and per-project scoping for chats, packages, and todos. The activity-bar indicator and ⌘P switcher live there too."
+							desc="Project roots are now first-class projects with icons, colors, and per-project scoping for sessions, packages, and todos. The activity-bar indicator and ⌘P switcher live there too."
 						>
 							<Button asChild variant="outline" size="sm">
 								<Link to="/settings/projects">
