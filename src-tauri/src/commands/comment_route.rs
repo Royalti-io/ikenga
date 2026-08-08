@@ -162,6 +162,7 @@ pub async fn comment_route(
                 timeout_seconds: None,
                 parent_id: None,
                 resume_session_id: None,
+                persistent: false,
             };
             let run =
                 spawn_chi_run(db.inner().clone(), &cache, &runtime, opts, "pin").await?;

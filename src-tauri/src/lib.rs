@@ -13,6 +13,9 @@ pub mod platform;
 mod pty;
 mod runtime;
 pub mod vault_key;
+mod terminal;
+
+
 mod viewer_server;
 // Multi-window substrate (plans/multi-window): the G-WINDOW-MODEL contract
 // (WP-02) + the window registry / spawn-close-list commands (WP-03).

@@ -22,6 +22,7 @@ use crate::claude::stream_parser::StreamParser;
 use crate::commands::claude::claude_list_sessions;
 use crate::commands::db::PaDb;
 use crate::engines::claude_code::mode::AcpSessionMode;
+use crate::terminal::multiplexer;
 
 /// Cache state. Lives in `app_data_dir` and is `.manage()`d in `lib.rs`.
 #[derive(Clone, Debug)]
@@ -88,10 +89,16 @@ pub struct ChiRunOpts {
     pub model: Option<String>,
     pub mode: Option<String>,
     #[allow(dead_code)]
-    pub timeout_seconds: Option<u32>, // reserved; not yet persisted in chi_cache
+    pub timeout_seconds: Option<u32>,
     pub parent_id: Option<String>,
     #[serde(rename = "resumeSessionId")]
     pub resume_session_id: Option<String>,
+    /// If true, try to launch via the tmux multiplexer so the session
+    /// survives an app restart. Falls back to in-process if tmux is
+    /// unavailable. The tmux session name is stored in
+    /// `chi_cache.terminal_session_id`.
+    #[serde(default)]
+    pub persistent: bool,
 }
 
 #[derive(Serialize)]
@@ -771,6 +778,55 @@ pub(crate) async fn spawn_chi_run(
         .map(|c| c.into_owned())
         .unwrap_or_else(|_| cwd.clone());
 
+    // ── Persistent (tmux-backed) path ────────────────────────────────────────
+    // Try this first so we never spawn a redundant in-process child.
+    if opts.persistent && multiplexer::tmux_available() {
+        let conf = multiplexer::RunnerConf {
+            run_id: &run_id,
+            engine_id: &opts.engine_id,
+            prompt: &opts.prompt,
+            cwd: &cwd,
+            model: opts.model.as_deref(),
+            mode: opts.mode.as_deref(),
+            resume_session_id: opts.resume_session_id.as_deref(),
+            output_path: &output_path.to_string_lossy(),
+            timeout_seconds: opts.timeout_seconds.map(|s| s as u64),
+        };
+        match multiplexer::spawn_in_tmux(&conf, &cache.cache_dir()) {
+            multiplexer::SpawnResult::Ok { session_name } => {
+                cache_update_status(&db, &run_id, "running", None).await.ok();
+                if let Ok(pool) = db.ensure_pool().await {
+                    sqlx::query(
+                        "UPDATE chi_cache SET terminal_session_id = ? WHERE run_id = ?",
+                    )
+                    .bind(&session_name)
+                    .bind(&run_id)
+                    .execute(&pool)
+                    .await
+                    .ok();
+                }
+                log::info!(
+                    target: "ikenga::chi",
+                    "chi run {run_id} started in tmux session '{session_name}'"
+                );
+                return Ok(ChiRunResult {
+                    run_id,
+                    status: "running".to_string(),
+                    output: None,
+                    output_truncated: None,
+                    error: None,
+                });
+            }
+            multiplexer::SpawnResult::Unavailable { reason } => {
+                log::warn!(
+                    target: "ikenga::chi",
+                    "tmux unavailable ({reason}), falling back to in-process task"
+                );
+            }
+        }
+    }
+
+    // ── In-process (non-persistent) path ─────────────────────────────────────
     let cmd = build_engine_command(
         &opts.engine_id,
         &opts.prompt,
@@ -817,6 +873,8 @@ pub(crate) async fn spawn_chi_run(
         error: None,
     })
 }
+
+
 
 /// Resume an existing Chi session using its engine-native `external_id`.
 #[tauri::command]
