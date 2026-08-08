@@ -4,6 +4,8 @@
 //! and cancelling agent sessions.
 //! WP-02: wires the Claude Code engine so `iyke chi run` / `resume` / `cancel`
 //! and `list` / `status` actually spawn, monitor, and read the agent child.
+//! WP-07: multi-engine parity — Codex (`codex exec --json`) wired;
+//!         cursor-agent returns `RUNTIME_NOT_IMPLEMENTED` cleanly.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -22,6 +24,7 @@ use crate::claude::stream_parser::StreamParser;
 use crate::commands::claude::claude_list_sessions;
 use crate::commands::db::PaDb;
 use crate::engines::claude_code::mode::AcpSessionMode;
+use crate::engines::codex_pty::parser as codex_parser;
 use crate::terminal::multiplexer;
 
 /// Cache state. Lives in `app_data_dir` and is `.manage()`d in `lib.rs`.
@@ -430,6 +433,40 @@ fn build_engine_command(
 
             Ok(cmd)
         }
+        // Codex uses `codex exec --json` for new sessions and
+        // `codex exec resume <thread_id> --json` for subsequent turns.
+        // `--skip-git-repo-check` makes the spawn predictable inside
+        // arbitrary project dirs (codex defaults to refusing outside a
+        // git repo). `-` as the positional arg means "read prompt from stdin".
+        "codex" => {
+            let mut cmd = Command::new("codex");
+            if let Some(id) = resume_id {
+                cmd.args(["exec", "resume", id, "--json"]);
+            } else {
+                cmd.args(["exec", "--json"]);
+            }
+            cmd.args(["--skip-git-repo-check", "--cd", cwd, "-"])
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .env("PATH", crate::runtime::augmented_path());
+            // `--model` is a codex global flag (before the subcommand);
+            // codex itself selects the default model from its config if
+            // omitted, so we only pass it when explicitly set.
+            if let Some(m) = model {
+                cmd.arg("--model").arg(m);
+            }
+            Ok(cmd)
+        }
+        // cursor-agent is scaffolded but not yet runnable through the chi
+        // surface. Return a clean error rather than falling through to an
+        // unhelpful "command not found" OS error.
+        "cursor-agent" => Err(
+            "cursor-agent runtime not implemented — \
+             the cursor-agent CLI does not yet expose a stable non-interactive mode \
+             compatible with the chi pipe protocol (ADR-013 Phase 4)"
+                .to_string(),
+        ),
         _ => Err(format!("engine not yet supported by iyke chi: {engine_id}")),
     }
 }
@@ -714,6 +751,135 @@ async fn antigravity_one_off_task(
     let _ = child.try_wait();
 }
 
+/// Background task for a Codex one-off (`codex exec --json`).
+///
+/// Reads the JSONL event stream from stdout via the existing
+/// `codex_pty::parser`, extracts `agent_message` text chunks and the
+/// `thread.started` thread id (stored as `external_id` so `chi_resume`
+/// can pass it back as `--resume <id>`).
+async fn codex_one_off_task(
+    db: Arc<PaDb>,
+    _cache: ChiCache,
+    run_id: String,
+    output_path: PathBuf,
+    child: Arc<Mutex<Child>>,
+    cancelled: Arc<AtomicBool>,
+    mut stdin: tokio::process::ChildStdin,
+    stdout: tokio::process::ChildStdout,
+    stderr: Option<tokio::process::ChildStderr>,
+    prompt: String,
+) {
+    // Write prompt to stdin then close it so codex knows EOF.
+    if let Err(e) = stdin.write_all(prompt.as_bytes()).await {
+        cache_update_status(&db, &run_id, "failed", Some(&format!("stdin write: {e}")))
+            .await
+            .ok();
+        return;
+    }
+    let _ = stdin.flush().await;
+    let _ = stdin.shutdown().await;
+
+    if let Some(stderr) = stderr {
+        tauri::async_runtime::spawn(async move {
+            let mut lines = BufReader::new(stderr).lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                log::debug!(target: "ikenga::chi", "codex stderr: {line}");
+            }
+        });
+    }
+
+    let mut reader = BufReader::new(stdout).lines();
+    let mut output = String::new();
+    let mut external_id: Option<String> = None;
+    let mut saw_done = false;
+    let mut failed = false;
+
+    while let Ok(Some(line)) = reader.next_line().await {
+        if cancelled.load(Ordering::SeqCst) {
+            break;
+        }
+        let event = match codex_parser::parse_event(&line) {
+            Ok(e) => e,
+            Err(e) => {
+                log::debug!(target: "ikenga::chi", "codex parse error: {e}");
+                continue;
+            }
+        };
+        match &event {
+            codex_parser::ParsedEvent::ThreadStarted { thread_id } => {
+                if external_id.is_none() {
+                    external_id = Some(thread_id.clone());
+                    cache_update_external_id(&db, &run_id, thread_id).await.ok();
+                    cache_update_status(&db, &run_id, "running", None).await.ok();
+                }
+            }
+            codex_parser::ParsedEvent::TurnCompleted { .. } => {
+                saw_done = true;
+            }
+            codex_parser::ParsedEvent::TurnFailed { message } => {
+                saw_done = true;
+                failed = true;
+                output.push_str(&format!("[error] {message}\n"));
+            }
+            codex_parser::ParsedEvent::Error { message } => {
+                output.push_str(&format!("[warning] {message}\n"));
+            }
+            codex_parser::ParsedEvent::Item { phase, kind } => {
+                // Accumulate agent_message text chunks (completed/updated phases only).
+                if matches!(
+                    phase,
+                    codex_parser::ItemPhase::Completed | codex_parser::ItemPhase::Updated
+                ) {
+                    if let codex_parser::ItemKind::AgentMessage { text, .. } = kind {
+                        if !text.is_empty() {
+                            output.push_str(text);
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+        write_output_file(&output_path, &output, None).await.ok();
+    }
+
+    let (status, error, done_output) = if cancelled.load(Ordering::SeqCst) {
+        ("cancelled", None, Some(output))
+    } else if saw_done && !failed {
+        ("done", None, Some(output))
+    } else if failed {
+        ("failed", Some("codex reported turn.failed"), Some(output))
+    } else {
+        (
+            "failed",
+            Some("codex child exited without turn.completed"),
+            Some(output),
+        )
+    };
+
+    let output_truncated = done_output.as_ref().map(|s| s.len() > 100_000).unwrap_or(false);
+    let output_json = done_output.as_deref().unwrap_or("");
+
+    let file_error = if let Err(e) = write_output_file(&output_path, output_json, error).await {
+        Some(format!("write output file: {e}"))
+    } else {
+        error.map(|s| s.to_string())
+    };
+
+    cache_update_done(
+        &db,
+        &run_id,
+        status,
+        file_error.as_deref(),
+        output_truncated,
+        None,
+    )
+    .await
+    .ok();
+
+    let mut child = child.lock().await;
+    let _ = child.try_wait();
+}
+
 async fn write_output_file(
     path: &Path,
     output: &str,
@@ -857,6 +1023,11 @@ pub(crate) async fn spawn_chi_run(
                 db, cache, run_id_for_task, output_path, child, cancelled, stdin, stdout, stderr, prompt,
             )
             .await;
+        } else if engine_id == "codex" {
+            codex_one_off_task(
+                db, cache, run_id_for_task, output_path, child, cancelled, stdin, stdout, stderr, prompt,
+            )
+            .await;
         } else {
             claude_one_off_task(
                 db, cache, run_id_for_task, output_path, child, cancelled, stdin, stdout, stderr, prompt,
@@ -934,6 +1105,20 @@ pub async fn chi_resume(
     tauri::async_runtime::spawn(async move {
         if engine_id == "antigravity-cli" {
             antigravity_one_off_task(
+                db,
+                cache,
+                run_id_for_task,
+                output_path,
+                child,
+                cancelled,
+                stdin,
+                stdout,
+                stderr,
+                prompt,
+            )
+            .await;
+        } else if engine_id == "codex" {
+            codex_one_off_task(
                 db,
                 cache,
                 run_id_for_task,
