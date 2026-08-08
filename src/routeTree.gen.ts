@@ -35,7 +35,6 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as SettingsIndexRouteImport } from './routes/settings/index'
 import { Route as SessionsIndexRouteImport } from './routes/sessions/index'
 import { Route as OnboardingIndexRouteImport } from './routes/onboarding/index'
-import { Route as SettingsTelemetryRouteImport } from './routes/settings/telemetry'
 import { Route as SettingsStorageRouteImport } from './routes/settings/storage'
 import { Route as SettingsSecretsRouteImport } from './routes/settings/secrets'
 import { Route as SettingsProjectsRouteImport } from './routes/settings/projects'
@@ -59,7 +58,6 @@ import { Route as OutboxNewsletterRouteImport } from './routes/outbox/newsletter
 import { Route as OutboxEmailRouteImport } from './routes/outbox/email'
 import { Route as OutboxApprovalsRouteImport } from './routes/outbox/approvals'
 import { Route as OnboardingWelcomeRouteImport } from './routes/onboarding/welcome'
-import { Route as OnboardingTelemetryRouteImport } from './routes/onboarding/telemetry'
 import { Route as OnboardingSummaryRouteImport } from './routes/onboarding/summary'
 import { Route as OnboardingScaffoldingRouteImport } from './routes/onboarding/scaffolding'
 import { Route as OnboardingRootsRouteImport } from './routes/onboarding/roots'
@@ -208,11 +206,6 @@ const OnboardingIndexRoute = OnboardingIndexRouteImport.update({
   path: '/',
   getParentRoute: () => OnboardingRouteRoute,
 } as any)
-const SettingsTelemetryRoute = SettingsTelemetryRouteImport.update({
-  id: '/telemetry',
-  path: '/telemetry',
-  getParentRoute: () => SettingsRouteRoute,
-} as any)
 const SettingsStorageRoute = SettingsStorageRouteImport.update({
   id: '/storage',
   path: '/storage',
@@ -326,11 +319,6 @@ const OutboxApprovalsRoute = OutboxApprovalsRouteImport.update({
 const OnboardingWelcomeRoute = OnboardingWelcomeRouteImport.update({
   id: '/welcome',
   path: '/welcome',
-  getParentRoute: () => OnboardingRouteRoute,
-} as any)
-const OnboardingTelemetryRoute = OnboardingTelemetryRouteImport.update({
-  id: '/telemetry',
-  path: '/telemetry',
   getParentRoute: () => OnboardingRouteRoute,
 } as any)
 const OnboardingSummaryRoute = OnboardingSummaryRouteImport.update({
@@ -453,7 +441,6 @@ export interface FileRoutesByFullPath {
   '/onboarding/roots': typeof OnboardingRootsRoute
   '/onboarding/scaffolding': typeof OnboardingScaffoldingRoute
   '/onboarding/summary': typeof OnboardingSummaryRoute
-  '/onboarding/telemetry': typeof OnboardingTelemetryRoute
   '/onboarding/welcome': typeof OnboardingWelcomeRoute
   '/outbox/approvals': typeof OutboxApprovalsRoute
   '/outbox/email': typeof OutboxEmailRoute
@@ -477,7 +464,6 @@ export interface FileRoutesByFullPath {
   '/settings/projects': typeof SettingsProjectsRoute
   '/settings/secrets': typeof SettingsSecretsRoute
   '/settings/storage': typeof SettingsStorageRoute
-  '/settings/telemetry': typeof SettingsTelemetryRoute
   '/onboarding/': typeof OnboardingIndexRoute
   '/sessions/': typeof SessionsIndexRoute
   '/settings/': typeof SettingsIndexRoute
@@ -519,7 +505,6 @@ export interface FileRoutesByTo {
   '/onboarding/roots': typeof OnboardingRootsRoute
   '/onboarding/scaffolding': typeof OnboardingScaffoldingRoute
   '/onboarding/summary': typeof OnboardingSummaryRoute
-  '/onboarding/telemetry': typeof OnboardingTelemetryRoute
   '/onboarding/welcome': typeof OnboardingWelcomeRoute
   '/outbox/approvals': typeof OutboxApprovalsRoute
   '/outbox/email': typeof OutboxEmailRoute
@@ -543,7 +528,6 @@ export interface FileRoutesByTo {
   '/settings/projects': typeof SettingsProjectsRoute
   '/settings/secrets': typeof SettingsSecretsRoute
   '/settings/storage': typeof SettingsStorageRoute
-  '/settings/telemetry': typeof SettingsTelemetryRoute
   '/onboarding': typeof OnboardingIndexRoute
   '/sessions': typeof SessionsIndexRoute
   '/settings': typeof SettingsIndexRoute
@@ -590,7 +574,6 @@ export interface FileRoutesById {
   '/onboarding/roots': typeof OnboardingRootsRoute
   '/onboarding/scaffolding': typeof OnboardingScaffoldingRoute
   '/onboarding/summary': typeof OnboardingSummaryRoute
-  '/onboarding/telemetry': typeof OnboardingTelemetryRoute
   '/onboarding/welcome': typeof OnboardingWelcomeRoute
   '/outbox/approvals': typeof OutboxApprovalsRoute
   '/outbox/email': typeof OutboxEmailRoute
@@ -614,7 +597,6 @@ export interface FileRoutesById {
   '/settings/projects': typeof SettingsProjectsRoute
   '/settings/secrets': typeof SettingsSecretsRoute
   '/settings/storage': typeof SettingsStorageRoute
-  '/settings/telemetry': typeof SettingsTelemetryRoute
   '/onboarding/': typeof OnboardingIndexRoute
   '/sessions/': typeof SessionsIndexRoute
   '/settings/': typeof SettingsIndexRoute
@@ -662,7 +644,6 @@ export interface FileRouteTypes {
     | '/onboarding/roots'
     | '/onboarding/scaffolding'
     | '/onboarding/summary'
-    | '/onboarding/telemetry'
     | '/onboarding/welcome'
     | '/outbox/approvals'
     | '/outbox/email'
@@ -686,7 +667,6 @@ export interface FileRouteTypes {
     | '/settings/projects'
     | '/settings/secrets'
     | '/settings/storage'
-    | '/settings/telemetry'
     | '/onboarding/'
     | '/sessions/'
     | '/settings/'
@@ -728,7 +708,6 @@ export interface FileRouteTypes {
     | '/onboarding/roots'
     | '/onboarding/scaffolding'
     | '/onboarding/summary'
-    | '/onboarding/telemetry'
     | '/onboarding/welcome'
     | '/outbox/approvals'
     | '/outbox/email'
@@ -752,7 +731,6 @@ export interface FileRouteTypes {
     | '/settings/projects'
     | '/settings/secrets'
     | '/settings/storage'
-    | '/settings/telemetry'
     | '/onboarding'
     | '/sessions'
     | '/settings'
@@ -798,7 +776,6 @@ export interface FileRouteTypes {
     | '/onboarding/roots'
     | '/onboarding/scaffolding'
     | '/onboarding/summary'
-    | '/onboarding/telemetry'
     | '/onboarding/welcome'
     | '/outbox/approvals'
     | '/outbox/email'
@@ -822,7 +799,6 @@ export interface FileRouteTypes {
     | '/settings/projects'
     | '/settings/secrets'
     | '/settings/storage'
-    | '/settings/telemetry'
     | '/onboarding/'
     | '/sessions/'
     | '/settings/'
@@ -1050,13 +1026,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OnboardingIndexRouteImport
       parentRoute: typeof OnboardingRouteRoute
     }
-    '/settings/telemetry': {
-      id: '/settings/telemetry'
-      path: '/telemetry'
-      fullPath: '/settings/telemetry'
-      preLoaderRoute: typeof SettingsTelemetryRouteImport
-      parentRoute: typeof SettingsRouteRoute
-    }
     '/settings/storage': {
       id: '/settings/storage'
       path: '/storage'
@@ -1218,13 +1187,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OnboardingWelcomeRouteImport
       parentRoute: typeof OnboardingRouteRoute
     }
-    '/onboarding/telemetry': {
-      id: '/onboarding/telemetry'
-      path: '/telemetry'
-      fullPath: '/onboarding/telemetry'
-      preLoaderRoute: typeof OnboardingTelemetryRouteImport
-      parentRoute: typeof OnboardingRouteRoute
-    }
     '/onboarding/summary': {
       id: '/onboarding/summary'
       path: '/summary'
@@ -1367,7 +1329,6 @@ interface OnboardingRouteRouteChildren {
   OnboardingRootsRoute: typeof OnboardingRootsRoute
   OnboardingScaffoldingRoute: typeof OnboardingScaffoldingRoute
   OnboardingSummaryRoute: typeof OnboardingSummaryRoute
-  OnboardingTelemetryRoute: typeof OnboardingTelemetryRoute
   OnboardingWelcomeRoute: typeof OnboardingWelcomeRoute
   OnboardingIndexRoute: typeof OnboardingIndexRoute
 }
@@ -1380,7 +1341,6 @@ const OnboardingRouteRouteChildren: OnboardingRouteRouteChildren = {
   OnboardingRootsRoute: OnboardingRootsRoute,
   OnboardingScaffoldingRoute: OnboardingScaffoldingRoute,
   OnboardingSummaryRoute: OnboardingSummaryRoute,
-  OnboardingTelemetryRoute: OnboardingTelemetryRoute,
   OnboardingWelcomeRoute: OnboardingWelcomeRoute,
   OnboardingIndexRoute: OnboardingIndexRoute,
 }
@@ -1445,7 +1405,6 @@ interface SettingsRouteRouteChildren {
   SettingsProjectsRoute: typeof SettingsProjectsRoute
   SettingsSecretsRoute: typeof SettingsSecretsRoute
   SettingsStorageRoute: typeof SettingsStorageRoute
-  SettingsTelemetryRoute: typeof SettingsTelemetryRoute
   SettingsIndexRoute: typeof SettingsIndexRoute
 }
 
@@ -1465,7 +1424,6 @@ const SettingsRouteRouteChildren: SettingsRouteRouteChildren = {
   SettingsProjectsRoute: SettingsProjectsRoute,
   SettingsSecretsRoute: SettingsSecretsRoute,
   SettingsStorageRoute: SettingsStorageRoute,
-  SettingsTelemetryRoute: SettingsTelemetryRoute,
   SettingsIndexRoute: SettingsIndexRoute,
 }
 

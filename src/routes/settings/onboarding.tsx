@@ -29,7 +29,6 @@ const STEP_LABELS: Record<OnboardingStepId, string> = {
 	connectors: 'Connectors',
 	scaffolding: '.claude/ scaffold',
 	appearance: 'Appearance',
-	telemetry: 'Telemetry',
 	summary: 'Summary',
 };
 

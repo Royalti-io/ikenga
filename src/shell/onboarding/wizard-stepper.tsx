@@ -5,7 +5,7 @@
 // this layout:
 //   ┌──────────────────────────────────────────────┐  <- title bar (Tauri)
 //   │▰▰▰▱▱▱▱▱▱  progress fill (doubles as stepper) │  4px tall
-//   │  brand ─────────────── step N of 9 · Welcome │  header
+//   │  brand ─────────────── step N of 8 · Welcome │  header
 //   ├──────────────────────────────────────────────┤
 //   │              <step body content>             │  scrollable
 //   ├──────────────────────────────────────────────┤
@@ -43,7 +43,6 @@ const STEP_LABELS: Record<OnboardingStepId, string> = {
 	connectors: 'Connectors',
 	scaffolding: 'Scaffolding',
 	appearance: 'Appearance',
-	telemetry: 'Telemetry',
 	summary: 'Summary',
 };
 

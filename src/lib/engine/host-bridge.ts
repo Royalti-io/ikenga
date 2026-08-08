@@ -79,7 +79,7 @@ export function chatEventToEngineEvent(event: ChatEvent): EngineEvent | null {
 				isError: event.isError,
 			};
 		case 'done': {
-			// The shell emits richer telemetry on `done` (usage, totalCostUsd,
+			// The shell tracks richer usage metrics on `done` (usage, totalCostUsd,
 			// durationMs). The engine contract only carries usage tokens — we'd
 			// need a separate `usage` event for that. For now collapse to a single
 			// `done` and emit usage upstream of this mapper if the shape is known.

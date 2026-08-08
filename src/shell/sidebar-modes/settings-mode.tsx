@@ -11,7 +11,6 @@ import {
 	Palette,
 	Plug,
 	ShieldAlert,
-	ShieldCheck,
 	Sparkles,
 	Stethoscope,
 	type LucideIcon,
@@ -58,10 +57,6 @@ const NAV: NavSection[] = [
 	{
 		label: 'Storage',
 		items: [{ to: '/settings/storage', label: 'Storage', Icon: HardDrive }],
-	},
-	{
-		label: 'Privacy',
-		items: [{ to: '/settings/telemetry', label: 'Telemetry', Icon: ShieldCheck }],
 	},
 	{
 		label: 'Other',

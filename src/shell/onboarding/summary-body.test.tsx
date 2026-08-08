@@ -7,7 +7,6 @@ import { createDefaultOnboardingState, useShellStore } from '@/lib/shell/shell-s
 import type { AgentStepPayload } from './agent-body';
 import type { AppearancePayload } from './appearance-body';
 import type { ScaffoldingPayload } from './scaffolding-body';
-import type { TelemetryPayload } from './telemetry-body';
 import { buildCards, findBlockingState } from './summary-body';
 
 const CTX = {
@@ -26,8 +25,8 @@ describe('buildCards', () => {
 	it('emits one card per step except summary', () => {
 		const steps = useShellStore.getState().onboarding.steps;
 		const cards = buildCards(steps, CTX);
-		// 9 steps total minus the summary card.
-		expect(cards).toHaveLength(8);
+		// 8 steps total minus the summary card.
+		expect(cards).toHaveLength(7);
 		expect(cards.map((c) => c.id)).not.toContain('summary');
 	});
 
@@ -52,11 +51,11 @@ describe('buildCards', () => {
 
 	it('marks skipped steps with `skipped: true`', () => {
 		const s = useShellStore.getState();
-		s.markOnboardingStepSkipped('telemetry');
+		s.markOnboardingStepSkipped('connectors');
 		const cards = buildCards(useShellStore.getState().onboarding.steps, CTX);
-		const telemetry = cards.find((c) => c.id === 'telemetry');
-		expect(telemetry?.skipped).toBe(true);
-		expect(telemetry?.value).toBe('Skipped');
+		const connectors = cards.find((c) => c.id === 'connectors');
+		expect(connectors?.skipped).toBe(true);
+		expect(connectors?.value).toBe('Skipped');
 	});
 
 	it('renders the appearance choice via the theme store snapshot', () => {
@@ -70,17 +69,6 @@ describe('buildCards', () => {
 		expect(ap?.value).toMatch(/Kola Daylight/);
 		expect(ap?.value).toMatch(/Light/);
 		expect(ap?.value).toMatch(/Compact/);
-	});
-
-	it('renders telemetry ON when payload.enabled=true', () => {
-		const s = useShellStore.getState();
-		const p: TelemetryPayload = { enabled: true };
-		s.setOnboardingPayload('telemetry', p);
-		s.markOnboardingStepCompleted('telemetry');
-
-		const cards = buildCards(useShellStore.getState().onboarding.steps, CTX);
-		const t = cards.find((c) => c.id === 'telemetry');
-		expect(t?.value).toMatch(/ON/);
 	});
 
 	it('renders scaffolding payload choices', () => {
