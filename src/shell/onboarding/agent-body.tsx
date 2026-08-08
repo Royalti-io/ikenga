@@ -10,27 +10,24 @@
 // Tests rely on `OFFLINE_PAYLOAD`, `agentToPayload`, `shouldShowAuthWarning`,
 // and `findEngineNoopEntry` â keep those exports stable.
 
-import { useEffect, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { open as openExternal } from '@tauri-apps/plugin-shell';
+import { useEffect, useState } from 'react';
 
 import { LoreTerm } from '@/components/lore/lore-term';
 import { Button } from '@/components/ui/button';
 import { StatusChip } from '@/components/ui/status-chip';
 import { cn } from '@/components/ui/utils';
-import { type DetectedAgent, pkgInstallFromRegistry, pkgKernelStatus } from '@/lib/tauri-cmd';
 import {
 	fetchIndex,
 	fetchPkgDetail,
-	resolveInstallPlan,
 	type RegistryEntry,
 	type RegistryIndex,
+	resolveInstallPlan,
 } from '@/lib/registry/client';
 import { useShellStore } from '@/lib/shell/shell-store';
 import { type AgentDetectEntry, useAgentDetect } from '@/lib/shell/use-agent-detect';
-import { setDefaultEngineId } from '@/chat/default-adapter';
-import { engineOnboardingFor } from '@/chat/engines';
-import { EngineAuthPanel } from '@/chat/ui/engine-auth-panel';
+import { type DetectedAgent, pkgInstallFromRegistry, pkgKernelStatus } from '@/lib/tauri-cmd';
 import { EngineLogo } from '@/shell/onboarding/engine-logo';
 
 import { useOnboardingStep } from './use-onboarding-step';
@@ -110,12 +107,9 @@ export function AgentBody({ onContinue }: AgentBodyProps) {
 	const { record, setPayload } = useOnboardingStep<AgentStepPayload>('agent');
 	const selectedAgentId = useShellStore((s) => s.onboarding.selectedAgentId);
 	const setSelectedAgentId = useShellStore((s) => s.setSelectedAgentId);
-	const setChatAdapterId = useShellStore((s) => s.setChatAdapterId);
 
 	const { results, refresh } = useAgentDetect(SUPPORTED_ENGINE_IDS);
 	const isOffline = selectedAgentId === OFFLINE_AGENT_ID;
-	const selectedAgent = selectedAgentId ? (results[selectedAgentId]?.agent ?? null) : null;
-	const missingAuth = !!(selectedAgent && selectedAgent.authed === false);
 
 	// Pre-select the first detected engine the first time the user lands
 	// here. Honour any existing choice so re-entering from Settings keeps
@@ -132,9 +126,7 @@ export function AgentBody({ onContinue }: AgentBodyProps) {
 
 	function applySelection(agent: DetectedAgent) {
 		setSelectedAgentId(agent.id);
-		setChatAdapterId(agent.id);
 		setPayload(agentToPayload(agent));
-		void setDefaultEngineId(agent.id);
 	}
 
 	const handleSelect = (agent: DetectedAgent) => {
@@ -225,9 +217,7 @@ export function AgentBody({ onContinue }: AgentBodyProps) {
 		onSuccess: () => {
 			setOfflineError(null);
 			setSelectedAgentId(OFFLINE_AGENT_ID);
-			setChatAdapterId(null);
 			setPayload(OFFLINE_PAYLOAD);
-			void setDefaultEngineId(OFFLINE_AGENT_ID);
 		},
 		onError: (e) => {
 			const raw = (e as Error).message ?? String(e);
@@ -411,31 +401,6 @@ export function AgentBody({ onContinue }: AgentBodyProps) {
 					data-testid="agents-offline-error"
 				>
 					{offlineError}
-				</div>
-			)}
-
-			{/* ââ Per-engine auth (ADR-013 Â§5) âââââââââââââââââââââââââââââââ */}
-			{missingAuth && selectedAgent && engineOnboardingFor(selectedAgent.id) && (
-				<div
-					className="mt-6 rounded-md border p-4"
-					style={{
-						borderColor: 'var(--warning, var(--border-strong))',
-						background: 'var(--warning-soft, var(--bg-surface))',
-					}}
-					data-testid="agents-auth-warning"
-				>
-					<div className="text-[13px] font-semibold">
-						{selectedAgent.display} isn't signed in yet
-					</div>
-					<div className="mb-3 mt-1 text-xs" style={{ color: 'var(--fg-muted)' }}>
-						{selectedAgent.auth_hint ??
-							'Set the API key or run the auth command below. You can also finish onboarding now and fix this later from Settings â Engine.'}
-					</div>
-					<EngineAuthPanel
-						engineId={selectedAgent.id}
-						engineLabel={selectedAgent.display}
-						onAuthComplete={refresh}
-					/>
 				</div>
 			)}
 

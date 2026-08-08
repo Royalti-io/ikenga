@@ -46,11 +46,11 @@ export function DataHealthPanel() {
 						)}
 					</h2>
 					<p className="mt-0.5 max-w-prose text-[11.5px] text-muted-foreground">
-						Dangling soft-links in the domain tables. The Atelier/PA migrations declare no
-						foreign keys — cross-domain references are plain TEXT "soft links", so deleting a
-						parent row can silently strand a child that pointed at it. This scan only reads;
-						it never deletes. These are real records (a deal, a task, a content piece) — repair
-						or clear the reference in the owning app rather than removing the row here.
+						Dangling soft-links in the domain tables. The Atelier/PA migrations declare no foreign
+						keys — cross-domain references are plain TEXT "soft links", so deleting a parent row can
+						silently strand a child that pointed at it. This scan only reads; it never deletes.
+						These are real records (a deal, a task, a content piece) — repair or clear the reference
+						in the owning app rather than removing the row here.
 					</p>
 				</div>
 				<div className="flex shrink-0 items-center gap-1.5">
@@ -66,9 +66,7 @@ export function DataHealthPanel() {
 				</div>
 			</div>
 
-			{scanQuery.isLoading && (
-				<FeedbackState variant="loading" heading="Scanning soft-links…" />
-			)}
+			{scanQuery.isLoading && <FeedbackState variant="loading" heading="Scanning soft-links…" />}
 			{scanQuery.error && (
 				<FeedbackState
 					variant="error"
@@ -150,8 +148,8 @@ export function DataHealthPanel() {
 					</table>
 					<div className="border-t border-border bg-muted/20 px-3 py-2 font-mono text-[10px] text-muted-foreground/70">
 						{rows.length} soft-link{rows.length === 1 ? '' : 's'} with dangling references (
-						{totalOrphans} row{totalOrphans === 1 ? '' : 's'} total). Open each record in its
-						owning app to repair or clear the reference — nothing is deleted here.
+						{totalOrphans} row{totalOrphans === 1 ? '' : 's'} total). Open each record in its owning
+						app to repair or clear the reference — nothing is deleted here.
 					</div>
 				</div>
 			)}

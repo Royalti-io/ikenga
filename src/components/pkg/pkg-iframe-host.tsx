@@ -37,11 +37,6 @@ import { AppBridge, PostMessageTransport } from '@modelcontextprotocol/ext-apps/
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { useEffect, useRef, useState } from 'react';
-import {
-	type OpenSessionDialogOptions,
-	openSessionDialog,
-} from '@/components/pkg/open-session-dialog';
-import { sendToActiveSession } from '@/components/pkg/send-to-active-session';
 import { registerIykeIframe } from '@/lib/iyke/iframe-registry';
 import {
 	IFRAME_POOL_ENABLED,
@@ -139,20 +134,6 @@ interface HostCallResult {
 //   to wrapping raw stdout when the sidecar emits non-JSON.
 // - `host.navigate({ path })` — navigates the focused pane to the given
 //   route path. Mirrors the `hostNavigate` shape used by older pkgs.
-// - `host.openSessionDialog({ initialPrompt?, title?, engineId?, sessionKind?,
-//   cwd?, source? })` — opens the shell's New-Session dialog pre-filled with
-//   the passed args; the user reads, edits, picks Chat vs Terminal, and
-//   clicks Start (or Cancel). G-SESSION-DIALOG (Round 7, 2026-05-22) —
-//   replaces the retired `host.startChatSession` verb + WP-10's separate
-//   confirm modal. The dialog IS the consent surface. Gated on `engine:invoke`
-//   (install-time sensitive per WP-13).
-// - `host.sendToActiveSession({ prompt, source? })` — posts a user turn
-//   into the focused chat pane's existing thread (WP-22 / G-ACTIVE-SESSION).
-//   Gated on the same `engine:invoke` scope. **No per-call confirm modal**
-//   — the user is already watching the thread the message lands in; the
-//   source-stamp + strict refusal are the mitigations (locked 2026-05-21,
-//   plans/groundwork/10-* §Prompt-injection notes). Refuses with
-//   `reason: 'no-active-session'` when no chat pane is focused.
 //
 // Anything else under `host.*` returns an MCP-protocol error (isError:
 // true) so the iframe's error handling fires. We intentionally do NOT
@@ -645,85 +626,6 @@ export async function dispatchHostCall(
 		};
 	}
 
-	// host.openSessionDialog({ initialPrompt?, title?, engineId?, sessionKind?,
-	// cwd?, source? }) — open the shell's New-Session dialog pre-filled with
-	// the passed args; the user reads, edits, picks Chat vs Terminal, and
-	// clicks Start (or Cancel). G-SESSION-DIALOG (Round 7, 2026-05-22). The
-	// dialog IS the consent surface — no separate confirm modal. Gated on
-	// `engine:invoke` (install-time sensitive per WP-13) so pkgs declaring
-	// the scope cleared a trust prompt at install.
-	if (name === 'host.openSessionDialog') {
-		// Scope gate — same shape as host.startChatSession; the dialog is the
-		// per-call consent on top of the install-time trust check. Returns the
-		// frozen `{ ok: false, reason: 'scope-denied' }` envelope as
-		// structuredContent so callers can branch on it cleanly.
-		if (!(await pkgDeclaresScope(pkgId, 'engine', 'invoke'))) {
-			return {
-				content: [{ type: 'text', text: "host.openSessionDialog: pkg lacks 'engine:invoke'" }],
-				isError: true,
-				structuredContent: { ok: false, reason: 'scope-denied' },
-			};
-		}
-
-		const opts = coerceOpenSessionDialogArgs(args);
-		const result = await openSessionDialog(opts);
-
-		// Frozen signature: result is already in the shape callers expect
-		// (chat | terminal | cancelled | scope-denied). Pass through verbatim
-		// as structuredContent; mirror a human-readable summary into content
-		// so the MCP wire's text channel has something useful.
-		const summary = summarizeResult(result);
-		return {
-			content: [{ type: 'text', text: summary }],
-			structuredContent: result as unknown as Record<string, unknown>,
-		};
-	}
-
-	// host.sendToActiveSession({ prompt, source? }) — post a user turn into
-	// the focused chat pane's existing thread (WP-22 / G-ACTIVE-SESSION).
-	// Reuses the `engine:invoke` scope (install-time sensitive per WP-13).
-	// **No per-call confirm modal** (locked 2026-05-21, see
-	// plans/groundwork/10-* §Prompt-injection notes): the user is already
-	// watching the thread the message lands in, the source-stamp creates
-	// the audit trail, and refusal-on-no-active-session is the safety floor.
-	// The signature is frozen by G-ACTIVE-SESSION — WP-21's palette codes
-	// against `{ ok, threadId?, reason? }` and depends on its stability.
-	if (name === 'host.sendToActiveSession') {
-		const prompt = typeof args.prompt === 'string' ? args.prompt : null;
-		if (!prompt) {
-			return errResult('host.sendToActiveSession: missing required `prompt` argument');
-		}
-		const source = typeof args.source === 'string' ? args.source : undefined;
-
-		// Scope gate (mirrors host.startChatSession). The kernel doesn't
-		// enforce scopes on host.* verbs FE-side. Surface as `scope-denied`
-		// in the structured payload so palette callers can branch cleanly
-		// instead of treating it as a generic error.
-		if (!(await pkgDeclaresScope(pkgId, 'engine', 'invoke'))) {
-			return {
-				content: [{ type: 'text', text: "lacks the 'engine:invoke' scope" }],
-				isError: true,
-				structuredContent: { ok: false, reason: 'scope-denied' },
-			};
-		}
-
-		const res = await sendToActiveSession({ prompt, source });
-		if (!res.ok) {
-			// reason: 'no-active-session' | 'scope-denied' (the latter is
-			// already handled above; keep the branch defensive in case the
-			// core grows new refusal codes).
-			return {
-				content: [{ type: 'text', text: `refused: ${res.reason}` }],
-				isError: true,
-				structuredContent: { ok: false, reason: res.reason },
-			};
-		}
-		return {
-			content: [{ type: 'text', text: `sent to ${res.threadId}` }],
-			structuredContent: { ok: true, threadId: res.threadId },
-		};
-	}
-
 	// ─── approve-gate write verbs (host.paActions.*) — WP-18a ───────────────────
 	// Four thin wrappers over the existing, tested `pa_actions_*` Rust commands
 	// (the same ones the /outbox/approvals route calls). The outbound pkg's
@@ -1038,31 +940,6 @@ export async function dispatchHostCall(
 function isStringRecord(v: unknown): v is Record<string, string> {
 	if (v === null || typeof v !== 'object' || Array.isArray(v)) return false;
 	return Object.values(v as Record<string, unknown>).every((x) => typeof x === 'string');
-}
-
-/**
- * Defensive arg coercion for `host.openSessionDialog`. The verb's signature
- * is frozen (G-SESSION-DIALOG); junk values for typed fields fall through to
- * undefined rather than crashing the dialog. The dialog then applies its own
- * defaults (chat mode, default engine, active project root).
- */
-function coerceOpenSessionDialogArgs(args: Record<string, unknown>): OpenSessionDialogOptions {
-	const initialPrompt = typeof args.initialPrompt === 'string' ? args.initialPrompt : undefined;
-	const title = typeof args.title === 'string' ? args.title : undefined;
-	const engineId = typeof args.engineId === 'string' ? args.engineId : undefined;
-	const cwd = typeof args.cwd === 'string' ? args.cwd : undefined;
-	const sessionKind =
-		args.sessionKind === 'chat' || args.sessionKind === 'terminal' ? args.sessionKind : undefined;
-	const source = typeof args.source === 'string' ? args.source : undefined;
-	return { initialPrompt, title, engineId, sessionKind, cwd, source };
-}
-
-function summarizeResult(result: Awaited<ReturnType<typeof openSessionDialog>>): string {
-	if (result.ok && result.kind === 'chat') return `chat session started: ${result.threadId}`;
-	if (result.ok && result.kind === 'terminal') return `terminal opened: ${result.paneId}`;
-	if (!result.ok && result.reason === 'cancelled') return 'cancelled by user';
-	if (!result.ok && result.reason === 'scope-denied') return 'scope denied';
-	return 'unknown result';
 }
 
 function errResult(message: string): HostCallResult {
@@ -1553,27 +1430,24 @@ export function PkgIframeHostInner({
 	useEffect(() => {
 		let unlisten: UnlistenFn | null = null;
 		let cancelled = false;
-		listen<{ pkg_id: string; method: string; params?: unknown }>(
-			'pkg-mcp-notification',
-			(evt) => {
-				if (evt.payload.pkg_id !== pkgId) return;
-				const bridge = bridgeRef.current;
-				if (!bridge) return;
-				try {
-					// `method` is `notifications/message` (LoggingMessageNotification),
-					// which is a member of the AppBridge notification union; `params`
-					// is the server's original logging params (`{ level, logger, data }`).
-					// Cast at the boundary — the runtime JSON is broader than what we
-					// can statically prove from an `unknown` Tauri payload.
-					void bridge.notification({
-						method: evt.payload.method,
-						params: evt.payload.params,
-					} as Parameters<AppBridge['notification']>[0]);
-				} catch {
-					// Bridge may be mid-teardown; the iframe still has the poll fallback.
-				}
-			},
-		)
+		listen<{ pkg_id: string; method: string; params?: unknown }>('pkg-mcp-notification', (evt) => {
+			if (evt.payload.pkg_id !== pkgId) return;
+			const bridge = bridgeRef.current;
+			if (!bridge) return;
+			try {
+				// `method` is `notifications/message` (LoggingMessageNotification),
+				// which is a member of the AppBridge notification union; `params`
+				// is the server's original logging params (`{ level, logger, data }`).
+				// Cast at the boundary — the runtime JSON is broader than what we
+				// can statically prove from an `unknown` Tauri payload.
+				void bridge.notification({
+					method: evt.payload.method,
+					params: evt.payload.params,
+				} as Parameters<AppBridge['notification']>[0]);
+			} catch {
+				// Bridge may be mid-teardown; the iframe still has the poll fallback.
+			}
+		})
 			.then((un) => {
 				if (cancelled) {
 					un();

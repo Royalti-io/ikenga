@@ -2,29 +2,36 @@
 //
 // Layout: chrome / [renderer | right-rail] / version-strip.
 //
-// Right rail is tabbed (Chat / Code / DOM / Manifest), default Chat.
+// Right rail is tabbed (Terminal / Code / DOM / Manifest), default Terminal.
 // The Code, DOM, and Manifest tabs are only meaningful for a single
 // focused artifact, so they live on this density only (grid and compare
-// surface Chat-only rails per the unified plan).
+// have no right rail per the unified plan).
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useFocusTrap } from '@/lib/a11y/focus';
-import { createPortal } from 'react-dom';
+import { type ArtifactManifest, ArtifactManifestSchema } from '@ikenga/contract/artifact';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 import {
 	FolderTree,
 	Pencil,
 	Pin as PinGlyph,
+	RefreshCw,
 	Save,
 	Settings as SinkIcon,
 	SquareDashedMousePointer,
-	Terminal as TerminalIcon,
+	TreePine,
 	X,
 } from 'lucide-react';
-import { cn } from '@/components/ui/utils';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 import { IconButton } from '@/components/ui/icon-button';
+import { cn } from '@/components/ui/utils';
+import { useFocusTrap } from '@/lib/a11y/focus';
+import { extractManifestJson } from '@/lib/artifact/manifest-from-file';
+import { writeManifestIntoHtml } from '@/lib/artifact/manifest-write';
+import { usePaneStore } from '@/lib/panes/pane-store';
+import { useRecordRecentArtifact } from '@/lib/shell/artifact-grid-recent-artifacts';
 import {
+	type Comment,
 	commentList,
 	commentRoute,
 	commentSetStatus,
@@ -33,42 +40,31 @@ import {
 	fsUnwatch,
 	fsWatch,
 	fsWrite,
-	iykeDomQuery,
-	type Comment,
 	type IykeDomResult,
+	iykeDomQuery,
 } from '@/lib/tauri-cmd';
-import { useTerminalStore } from '@/terminal/session-store';
-import { RefreshCw, TreePine } from 'lucide-react';
-import { usePaneStore } from '@/lib/panes/pane-store';
-import { useChatStore } from '@/chat';
-import { StudioSourceEditor } from '@/shell/artifact-studio/studio-source-editor';
-import { StudioManifestEditor } from '@/shell/artifact-studio/studio-manifest-editor';
-import { StudioEngineChat } from '@/shell/artifact-studio/studio-engine-chat';
+import { type PickResult, PinComposer } from '@/shell/artifact-studio/pin-composer';
+import { pickRenderer } from '@/shell/artifact-studio/renderers';
+import { RightRail, useRightRailTab } from '@/shell/artifact-studio/right-rail';
 import { StudioCommentMode } from '@/shell/artifact-studio/studio-comment-mode';
+import { StudioManifestEditor } from '@/shell/artifact-studio/studio-manifest-editor';
 import { StudioPromoteDialog } from '@/shell/artifact-studio/studio-promote-dialog';
-import { StudioTextEditMode } from '@/shell/artifact-studio/studio-text-edit-mode';
+import {
+	type StudioSink,
+	StudioSinkPopover,
+	studioSinkToPreferredPtyId,
+	studioSinkToRouteOverride,
+	useArtifactSink,
+} from '@/shell/artifact-studio/studio-sink-popover';
+import { StudioSourceEditor } from '@/shell/artifact-studio/studio-source-editor';
 import {
 	StudioTerminal,
 	StudioTerminalAttachButton,
 	TerminalChip,
 } from '@/shell/artifact-studio/studio-terminal';
-import { PinComposer, type PickResult } from '@/shell/artifact-studio/pin-composer';
-import {
-	StudioSinkPopover,
-	studioSinkToPreferredPtyId,
-	studioSinkToRouteOverride,
-	useArtifactSink,
-	type StudioSink,
-} from '@/shell/artifact-studio/studio-sink-popover';
-import { pickRenderer } from '@/shell/artifact-studio/renderers';
-import { RightRail, useRightRailTab } from '@/shell/artifact-studio/right-rail';
+import { StudioTextEditMode } from '@/shell/artifact-studio/studio-text-edit-mode';
 import { VersionStrip } from '@/shell/artifact-studio/version-strip';
-import { useRecordRecentArtifact } from '@/lib/shell/artifact-grid-recent-artifacts';
-import { extractManifestJson } from '@/lib/artifact/manifest-from-file';
-import { writeManifestIntoHtml } from '@/lib/artifact/manifest-write';
-import { getOrMintStudioThreadId } from '@/lib/artifact/studio-thread';
-import { isArtifactWriteToolUse } from '@/lib/artifact/engine-writes';
-import { ArtifactManifestSchema, type ArtifactManifest } from '@ikenga/contract/artifact';
+import { useTerminalStore } from '@/terminal/session-store';
 
 interface StudioLoupeProps {
 	path: string;
@@ -89,10 +85,9 @@ export function StudioLoupe({ path, paneId, attachedTerminalId }: StudioLoupePro
 	const [promoteOpen, setPromoteOpen] = useState(false);
 	const [sinkOpen, setSinkOpen] = useState(false);
 	const [pendingPick, setPendingPick] = useState<PickResult | null>(null);
-	// Single agent slot — the chat tab's body switches between
-	// StudioEngineChat and the embedded PTY based on attachment, and its
-	// label/icon relabel accordingly. Always start on the agent slot.
-	const [rightTab, setRightTab] = useRightRailTab('chat');
+	// Single agent slot — the terminal tab renders the embedded PTY (or a
+	// picker when no terminal is attached). Always start on the agent slot.
+	const [rightTab, setRightTab] = useRightRailTab('terminal');
 	const { sink, setSink } = useArtifactSink(path);
 
 	const onAttachTerminal = useCallback(
@@ -178,11 +173,6 @@ export function StudioLoupe({ path, paneId, attachedTerminalId }: StudioLoupePro
 		[path]
 	);
 
-	useEngineWriteSync(path, (nextSource) => {
-		setSource(nextSource);
-		setSavedSource(nextSource);
-	});
-
 	const onKeyDown = useCallback(
 		(e: React.KeyboardEvent<HTMLDivElement>) => {
 			const isSave = (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's';
@@ -247,7 +237,7 @@ export function StudioLoupe({ path, paneId, attachedTerminalId }: StudioLoupePro
 				artifactPath={path}
 				attachedTerminalId={attachedTerminalId}
 				onAttachTerminal={onAttachTerminal}
-				onShowTerminalTab={() => setRightTab('chat')}
+				onShowTerminalTab={() => setRightTab('terminal')}
 				onDetachTerminal={onDetachTerminal}
 				onCommentModeToggle={() => {
 					setCommentMode((v) => !v);
@@ -308,24 +298,16 @@ export function StudioLoupe({ path, paneId, attachedTerminalId }: StudioLoupePro
 						<RightRail
 							tab={rightTab}
 							onChangeTab={setRightTab}
-							tabLabelOverrides={attachedTerminalId ? { chat: 'Terminal' } : undefined}
-							tabGlyphOverrides={
-								attachedTerminalId ? { chat: <TerminalIcon className="h-3 w-3" /> } : undefined
-							}
 							slots={{
-								// Agent slot — Chat thread by default, swapped to the
-								// embedded PTY when an attachment is active. Tab label
-								// + icon flip via the overrides above.
-								chat: attachedTerminalId ? (
+								// Terminal slot — embedded PTY or picker.
+								terminal: (
 									<StudioTerminal
 										paneId={paneId}
 										artifactPath={path}
-										attachedTerminalId={attachedTerminalId}
+										attachedTerminalId={attachedTerminalId ?? null}
 										onAttach={onAttachTerminal}
 										onDetach={onDetachTerminal}
 									/>
-								) : (
-									<StudioEngineChat path={path} onEngineEdit={applyEngineEdit} />
 								),
 								code: <StudioSourceEditor value={source} onChange={setSource} />,
 								dom: <DomInspector paneId={paneId} path={path} />,
@@ -1145,67 +1127,4 @@ function StudioChrome({
 			</span>
 		</div>
 	);
-}
-
-// ─── Engine-write sync (lifted from studio-pane.tsx) ─────────────────
-
-function useEngineWriteSync(path: string, onWrite: (nextSource: string) => void) {
-	const onWriteRef = useRef(onWrite);
-	onWriteRef.current = onWrite;
-
-	useEffect(() => {
-		const threadId = getOrMintStudioThreadId(path);
-		const processedIds = new Set<string>();
-
-		const unsubscribe = useChatStore.subscribe((state) => {
-			const events = state.threads[threadId]?.events;
-			if (!events || events.length === 0) return;
-
-			const useById = new Map<string, ReturnType<typeof toToolUse>>();
-			for (const e of events) {
-				const u = toToolUse(e);
-				if (u) useById.set(u.id, u);
-			}
-
-			for (const e of events) {
-				if (e.kind !== 'tool_result') continue;
-				if (processedIds.has(e.id)) continue;
-				if (e.isError) {
-					processedIds.add(e.id);
-					continue;
-				}
-				const use = useById.get(e.id);
-				if (!use || !isArtifactWriteToolUse(use, path)) {
-					processedIds.add(e.id);
-					continue;
-				}
-				processedIds.add(e.id);
-				void fsRead(path)
-					.then((res) => {
-						const text = new TextDecoder('utf-8', { fatal: false }).decode(
-							new Uint8Array(res.bytes)
-						);
-						onWriteRef.current(text);
-					})
-					.catch(() => {
-						// Best-effort — iframe fs_watch still reloads.
-					});
-			}
-		});
-
-		return () => {
-			unsubscribe();
-		};
-	}, [path]);
-}
-
-function toToolUse(
-	e: unknown
-): { kind: 'tool_use'; id: string; name: string; input: unknown } | null {
-	if (!e || typeof e !== 'object') return null;
-	const ev = e as { kind?: unknown; id?: unknown; name?: unknown; input?: unknown };
-	if (ev.kind !== 'tool_use' || typeof ev.id !== 'string' || typeof ev.name !== 'string') {
-		return null;
-	}
-	return { kind: 'tool_use', id: ev.id, name: ev.name, input: ev.input };
 }

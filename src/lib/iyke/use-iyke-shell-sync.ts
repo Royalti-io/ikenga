@@ -159,15 +159,11 @@ function viewTitle(view: PaneView, terminal: TerminalTab | null): string {
 						home: getHomeSync(),
 					}).label
 				: view.sessionId;
-		case 'chat':
-			return view.sessionId;
 		case 'artifact':
 			return view.path;
 		case 'artifact-studio':
 			return 'artifact-studio';
 		case 'scratchpad':
 			return `${view.scope}/${view.name}`;
-		case 'tool-output':
-			return `tool-output:${view.toolUseId}`;
 	}
 }

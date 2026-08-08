@@ -182,7 +182,11 @@ function main() {
 		const jsonlPath = jsonls[0]!;
 		const sessionId = sessionIdFromJsonlPath(jsonlPath);
 		if (!sessionId) {
-			outcomes.push({ threadId, kind: 'skipped', reason: `could not parse session id from ${jsonlPath}` });
+			outcomes.push({
+				threadId,
+				kind: 'skipped',
+				reason: `could not parse session id from ${jsonlPath}`,
+			});
 			continue;
 		}
 		// Sanity: file must actually be a regular file with content.

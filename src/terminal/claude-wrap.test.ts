@@ -44,9 +44,7 @@ describe('buildClaudeWrappedCmd', () => {
 		// `'--dangerously-skip-permissions'`.
 		expect(run).not.toContain(`'-p'`);
 		expect(run).not.toContain(`'--print'`);
-		expect(run).toBe(
-			`'claude' '--dangerously-skip-permissions' '[via: groundwork/wp-card]'`,
-		);
+		expect(run).toBe(`'claude' '--dangerously-skip-permissions' '[via: groundwork/wp-card]'`);
 	});
 
 	it('places the positional prompt last, after every flag', () => {
@@ -57,14 +55,14 @@ describe('buildClaudeWrappedCmd', () => {
 			resumeSessionId: 'abc-123',
 		});
 		expect(claudeInvocation(cmd)).toBe(
-			`'claude' '--dangerously-skip-permissions' '--resume' 'abc-123' '--permission-mode' 'plan' '--model' 'opus' 'do the thing'`,
+			`'claude' '--dangerously-skip-permissions' '--resume' 'abc-123' '--permission-mode' 'plan' '--model' 'opus' 'do the thing'`
 		);
 	});
 
 	it('emits --resume when a session id is given', () => {
 		const cmd = buildClaudeWrappedCmd({ resumeSessionId: 'sess-9' });
 		expect(claudeInvocation(cmd)).toBe(
-			`'claude' '--dangerously-skip-permissions' '--resume' 'sess-9'`,
+			`'claude' '--dangerously-skip-permissions' '--resume' 'sess-9'`
 		);
 	});
 

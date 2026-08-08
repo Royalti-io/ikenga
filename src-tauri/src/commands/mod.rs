@@ -8,7 +8,6 @@ pub mod agent_ops;
 pub mod backup;
 #[cfg(debug_assertions)]
 pub mod bg_spike;
-pub mod chat;
 pub mod chi;
 pub mod claude;
 pub mod claude_config;
@@ -64,16 +63,10 @@ pub use backup::{
 };
 #[cfg(debug_assertions)]
 pub use bg_spike::{bg_spike_reply, bg_spike_run, new_state as new_bg_spike_state};
-pub use chat::{
-    chat_answer_question, chat_cancel, chat_engines_list, chat_fork_session, chat_initialize,
-    chat_load_session, chat_new_session, chat_prompt, chat_respond_permission, chat_set_effort,
-    chat_set_mode, chat_set_model,
-};
 pub use chi::{chi_cancel, chi_list, chi_resume, chi_run, chi_status, ChiCache, ChiRuntime};
 pub use claude::{
-    chat_thread_move, chat_threads_list_by_project, claude_list_sessions, claude_read_jsonl,
-    session_cancel, session_destroy, session_destroy_all, session_ensure, session_send,
-    session_tool_result,
+    claude_list_sessions, claude_read_jsonl, session_cancel, session_destroy, session_destroy_all,
+    session_ensure, session_send, session_tool_result,
 };
 pub use claude_config::{
     claude_asset_list_pins, claude_asset_pin, claude_asset_unpin, claude_assets_discover,

@@ -34,10 +34,7 @@ use commands::{
     activity_sections_list, activity_sections_remove, activity_sections_update,
     agent_ops_delete_job, agent_ops_list_jobs, agent_ops_run_now, agent_ops_set_enabled,
     agent_ops_tail_run, agent_ops_upsert_job, atelier_file_read, atelier_file_write, backup_delete,
-    backup_export, backup_import, backup_list, chat_answer_question, chat_cancel,
-    chat_engines_list, chat_fork_session, chat_initialize, chat_load_session, chat_new_session,
-    chat_prompt, chat_respond_permission, chat_set_effort, chat_set_mode, chat_set_model,
-    chat_thread_move, chat_threads_list_by_project, chi_cancel, chi_list, chi_resume, chi_run,
+    backup_export, backup_import, backup_list, chi_cancel, chi_list, chi_resume, chi_run,
     chi_status, ChiRuntime, claude_asset_list_pins, claude_asset_pin, claude_asset_unpin,
     claude_assets_discover, claude_config_load, claude_config_read_file, claude_config_unwatch,
     claude_config_watch, claude_list_sessions, claude_primitive_copy, claude_primitive_copy_batch,
@@ -859,34 +856,12 @@ pub fn run() {
             // claude
             claude_list_sessions,
             claude_read_jsonl,
-            // chat sessions (thread_id-keyed)
-            chat_threads_list_by_project,
-            chat_thread_move,
             session_ensure,
             session_send,
             session_tool_result,
             session_cancel,
             session_destroy,
             session_destroy_all,
-            // acp (phase 3 — runs alongside legacy session_* until phase 10)
-            chat_initialize,
-            chat_new_session,
-            chat_prompt,
-            chat_cancel,
-            // acp permission round-trip (phase 4)
-            chat_respond_permission,
-            chat_answer_question,
-            // acp session modes (phase 5)
-            chat_set_mode,
-            // adr-011 phase 3: session-level model + effort (per-turn deferred)
-            chat_set_model,
-            chat_set_effort,
-            // acp session fork + faster resume (phase 8)
-            chat_fork_session,
-            chat_load_session,
-            // Multi-engine catalog: returns registered engine ids so the FE
-            // can intersect with `detect_agents` for the live-install UI.
-            chat_engines_list,
             // chi-first agent surface (WP-01)
             chi_run,
             chi_resume,

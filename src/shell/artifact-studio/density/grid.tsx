@@ -4,44 +4,43 @@
 // element's normalized position; clicking a pin runs the routing
 // dispatcher.
 //
-// Per the unified plan §"Right rail tabs", the grid-density rail is
-// Chat-only. The Phase 1 `Chat | Pins` tab pair has been replaced with
-// Chat + a slide-in pin overlay (active pin or "inbox" button opens it).
+// Per the unified plan §"Right rail tabs", the grid-density rail is a
+// slide-in pin overlay (active pin or "inbox" button opens it). There is
+// no default background content now that the chat surface is removed.
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { createPortal } from 'react-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Inbox, Settings, X } from 'lucide-react';
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { cn } from '@/components/ui/utils';
 import { useFocusTrap } from '@/lib/a11y/focus';
-import { StudioFolderChat } from '@/shell/artifact-studio/studio-folder-chat';
+import { usePaneStore } from '@/lib/panes/pane-store';
 import {
+	type Comment,
+	type CommentStatus,
 	commentList,
 	commentRoute,
 	commentSetStatus,
+	type FileEntry,
 	fsList,
 	ptyForegroundSnapshot,
+	type RouteSink,
 	settingsGet,
 	settingsSet,
-	type Comment,
-	type CommentStatus,
-	type FileEntry,
-	type RouteSink,
 } from '@/lib/tauri-cmd';
-import { ViewerRouter } from '@/viewer/auto-router';
-import { usePaneStore } from '@/lib/panes/pane-store';
-import { useTerminalStore } from '@/terminal/session-store';
 import {
 	type ArtifactGridSettings,
 	type DefaultSink,
-	type StackMode,
 	defaultSinkAsOverride,
 	effectiveDefaultSink,
 	effectiveStackMode,
 	loadSettings,
+	type StackMode,
 	setFolderDefaultSink,
 	setFolderStackMode,
 } from '@/shell/artifact-studio/grid-settings';
+import { useTerminalStore } from '@/terminal/session-store';
+import { ViewerRouter } from '@/viewer/auto-router';
 
 function showResolvedKey(path: string): string {
 	return `artifact-grid:show-resolved:${path}`;
@@ -466,7 +465,6 @@ export function StudioGrid({ path, paneId }: GridPaneProps) {
 					hasActivePin={!!activePin}
 					overlayOpen={pinsOverlayOpen}
 					onToggleOverlay={() => setPinsOverlayOpen((v) => !v)}
-					chat={<StudioFolderChat folderPath={path} />}
 					pinsOverlay={
 						inboxRows.length >= INBOX_THRESHOLD ? (
 							<GridSidebarInbox
@@ -513,11 +511,10 @@ interface RightRailProps {
 	overlayOpen: boolean;
 	onToggleOverlay: () => void;
 	onCloseOverlay: () => void;
-	chat: ReactNode;
 	pinsOverlay: ReactNode;
 }
 
-/** Chat-only right rail with a slide-in pins overlay. The overlay opens
+/** Pin rail with a slide-in pins overlay. The overlay opens
  *  automatically when the user clicks a pin (active-pin detail) and can
  *  be summoned via the inbox button when ≥ INBOX_THRESHOLD pins are
  *  visible. Code / DOM / Manifest tabs from the unified plan are
@@ -531,7 +528,6 @@ function RightRail({
 	overlayOpen,
 	onToggleOverlay,
 	onCloseOverlay,
-	chat,
 	pinsOverlay,
 }: RightRailProps) {
 	const showInboxButton = inboxCount > 0 || hasActivePin;
@@ -540,7 +536,7 @@ function RightRail({
 		<div className="relative flex h-full min-h-0 flex-col border-l border-border bg-background">
 			<div className="flex shrink-0 items-center justify-between border-b border-border bg-muted/20 px-2 py-1.5">
 				<span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-					Chat
+					Pins
 				</span>
 				{showInboxButton && (
 					<button
@@ -569,7 +565,7 @@ function RightRail({
 					</button>
 				)}
 			</div>
-			<div className="flex-1 min-h-0 overflow-hidden">{chat}</div>
+			<div className="flex-1 min-h-0 overflow-hidden" />
 			{overlayOpen && (
 				<div className="absolute inset-0 z-10 flex flex-col bg-background shadow-lg">
 					<div className="flex shrink-0 items-center justify-between border-b border-border bg-muted/30 px-2 py-1.5">

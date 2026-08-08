@@ -54,7 +54,9 @@ interface ElevatedCaps {
 }
 
 /** Read elevated caps from a manifest-shaped record. */
-function extractElevatedCaps(manifest: Record<string, unknown> | null | undefined): ElevatedCaps | null {
+function extractElevatedCaps(
+	manifest: Record<string, unknown> | null | undefined
+): ElevatedCaps | null {
 	if (!manifest) return null;
 	const caps = manifest.capabilities as Record<string, unknown> | undefined;
 	if (!caps) return null;
@@ -164,9 +166,8 @@ function ElevatedCapsPanel({
 							<span className="font-medium text-foreground">
 								Trusted capabilities require builtin provenance.
 							</span>{' '}
-							Elevated capabilities will be{' '}
-							<span className="font-medium">inert</span> until the pkg is
-							signature-verified (WP-06 signing pipeline pending).
+							Elevated capabilities will be <span className="font-medium">inert</span> until the pkg
+							is signature-verified (WP-06 signing pipeline pending).
 						</span>
 					</div>
 				)}

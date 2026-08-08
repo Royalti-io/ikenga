@@ -5,14 +5,9 @@
 //
 // Hydrate semantics: tabs whose backing session is gone are dropped.
 // Terminal tabs require an entry in `useTerminalStore` (which must be
-// rehydrated first by the caller); chat tabs are kept when their
-// sessionId looks like a Claude session UUID (the chat module hydrates
-// them from `~/.claude/projects/**` on mount). Placeholder sessionIds
-// minted by new-tab-menu (`chat-<timestamp>`) are dropped on restart
-// since they don't map to any on-disk session. After filtering, any
-// leaf with zero tabs is removed; any split with one remaining child
-// collapses; if the whole tree is empty, we fall back to a single
-// route('/') leaf.
+// rehydrated first by the caller). After filtering, any leaf with zero
+// tabs is removed; any split with one remaining child collapses; if the
+// whole tree is empty, we fall back to a single route('/') leaf.
 
 import { debounce, loadLayoutState, saveLayoutState } from '@/lib/layout-state';
 import { useShellStore } from '@/lib/shell/shell-store';
@@ -134,21 +129,8 @@ function isViewLive(view: PaneView, liveTerminalIds: Set<string>): boolean {
 			return true;
 		case 'terminal':
 			return liveTerminalIds.has(view.sessionId);
-		case 'chat':
-			// Keep when sessionId is a Claude session UUID (the chat module
-			// hydrates from `~/.claude/projects/**` on mount). Drop placeholder
-			// ids minted by new-tab-menu — those don't map to on-disk sessions.
-			return UUID_RE.test(view.sessionId);
-		case 'tool-output':
-			// Tool-output viewers are tied to a specific tool_use id in a
-			// thread's event stream. The chat module hydrates events on mount,
-			// so the viewer can resolve its pair (or render the "stale"
-			// placeholder if the pair was pruned).
-			return true;
 	}
 }
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function equalSizes(n: number): number[] {
 	if (n <= 0) return [];

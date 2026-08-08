@@ -2,11 +2,9 @@ import type { PaneView } from '@/lib/panes/types';
 import type { TerminalTitleResolver } from '@/terminal/use-terminal-titles';
 import { RouteView } from './views/route-view';
 import { TerminalView } from './views/terminal-view';
-import { ChatView } from './views/chat-view';
 import { ArtifactView } from './views/artifact-view';
 import { ArtifactStudioView } from './views/artifact-studio-view';
 import { ScratchpadView } from './views/scratchpad-view';
-import { ToolOutputView } from './views/tool-output-view';
 
 interface PaneBodyProps {
 	paneId: string;
@@ -19,8 +17,6 @@ export function PaneBody({ paneId, view }: PaneBodyProps) {
 			return <RouteView paneId={paneId} path={view.path} />;
 		case 'terminal':
 			return <TerminalView sessionId={view.sessionId} />;
-		case 'chat':
-			return <ChatView sessionId={view.sessionId} />;
 		case 'artifact':
 			return <ArtifactView path={view.path} paneId={paneId} />;
 		case 'artifact-studio':
@@ -35,8 +31,6 @@ export function PaneBody({ paneId, view }: PaneBodyProps) {
 			);
 		case 'scratchpad':
 			return <ScratchpadView scope={view.scope} name={view.name} />;
-		case 'tool-output':
-			return <ToolOutputView threadId={view.threadId} toolUseId={view.toolUseId} />;
 	}
 }
 
@@ -60,8 +54,6 @@ export function viewLabel(view: PaneView, resolveTerminal?: TerminalTitleResolve
 		}
 		case 'terminal':
 			return resolveTerminal?.(view.sessionId)?.label ?? 'Terminal';
-		case 'chat':
-			return 'Chat';
 		case 'artifact': {
 			const name = view.path.split('/').filter(Boolean).pop();
 			return name ?? 'Artifact';
@@ -73,10 +65,6 @@ export function viewLabel(view: PaneView, resolveTerminal?: TerminalTitleResolve
 		}
 		case 'scratchpad':
 			return view.name;
-		case 'tool-output':
-			// Short id is enough — the pane subtitle carries the full toolUseId
-			// for disambiguation when several viewers are open at once.
-			return `Tool · ${view.toolUseId.slice(0, 8)}`;
 	}
 }
 
@@ -88,15 +76,11 @@ export function viewSubtitle(view: PaneView, resolveTerminal?: TerminalTitleReso
 			// The terminal tooltip is multi-line — label, full cwd, argv, agent
 			// label — so the tab's hover carries everything the label had to drop.
 			return resolveTerminal?.(view.sessionId)?.tooltip ?? `session: ${view.sessionId}`;
-		case 'chat':
-			return `session: ${view.sessionId}`;
 		case 'artifact':
 			return view.path;
 		case 'artifact-studio':
 			return view.density === 'compare' && view.vs ? `${view.path} ↔ ${view.vs}` : view.path;
 		case 'scratchpad':
 			return view.scope;
-		case 'tool-output':
-			return `thread: ${view.threadId.slice(0, 8)}… · tool: ${view.toolUseId}`;
 	}
 }

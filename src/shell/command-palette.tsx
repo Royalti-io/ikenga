@@ -1,6 +1,5 @@
 import { Command } from 'cmdk';
 import {
-	Bot,
 	CheckSquare,
 	FileText,
 	FolderKanban,
@@ -65,11 +64,6 @@ export function CommandPalette({ open, mode, onOpenChange }: CommandPaletteProps
 		// setTimeout so the dialog can unmount before nav fires (avoids focus
 		// ping-pong between the input and the destination route).
 		setTimeout(() => navigateFocused(to), 0);
-	}
-
-	function newClaudeSession() {
-		onOpenChange(false);
-		setTimeout(() => navigateFocused('/sessions?new=1'), 0);
 	}
 
 	/**
@@ -218,11 +212,6 @@ export function CommandPalette({ open, mode, onOpenChange }: CommandPaletteProps
 												shortcut="⌘⇧N"
 											/>
 											<PaletteItem
-												onSelect={newClaudeSession}
-												Icon={Bot}
-												label="New Chat / Claude Session"
-											/>
-											<PaletteItem
 												onSelect={() => onOpenChange(false)}
 												disabled={true}
 												Icon={RefreshCw}
@@ -306,11 +295,6 @@ export function CommandPalette({ open, mode, onOpenChange }: CommandPaletteProps
 													label="Go to Outbox · Approvals"
 												/>
 												<PaletteItem
-													onSelect={() => go('/sessions')}
-													Icon={TerminalIcon}
-													label="Go to Sessions"
-												/>
-												<PaletteItem
 													onSelect={() => go('/settings')}
 													Icon={Settings}
 													label="Go to Settings"
@@ -358,16 +342,12 @@ function viewLabelShort(view: PaneView, resolveTerminal: TerminalTitleResolver):
 			const t = resolveTerminal(view.sessionId);
 			return t ? `Terminal · ${t.label}` : `Terminal · ${view.sessionId.slice(0, 8)}`;
 		}
-		case 'chat':
-			return `Chat · ${view.sessionId.slice(0, 8)}`;
 		case 'artifact':
 			return `Artifact ${view.path}`;
 		case 'artifact-studio':
 			return 'Artifact studio';
 		case 'scratchpad':
 			return `Scratchpad ${view.name}`;
-		case 'tool-output':
-			return `Tool · ${view.toolUseId.slice(0, 8)}`;
 	}
 }
 
@@ -503,17 +483,11 @@ function iconForView(view: PaneView): typeof Inbox {
 			return Layers;
 		case 'terminal':
 			return TerminalIcon;
-		case 'chat':
-			return MessageSquare;
 		case 'artifact':
 			return FolderOpen;
 		case 'artifact-studio':
 			return FolderOpen;
 		case 'scratchpad':
-			return FileText;
-		case 'tool-output':
-			// No tool-call-specific icon in the icon set; FileText fits the
-			// "inspecting a result" cue better than FolderOpen.
 			return FileText;
 	}
 }
@@ -752,9 +726,6 @@ export function useCommandPalette() {
 			if (mod && key === 'k') {
 				e.preventDefault();
 				setState((s) => ({ open: !s.open, mode: 'all' }));
-			} else if (mod && e.shiftKey && key === 'n') {
-				e.preventDefault();
-				navigateFocused('/sessions?new=1');
 			} else if (e.key === 'Escape') {
 				setState({ open: false, mode: 'all' });
 			}

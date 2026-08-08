@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
-import { OpenSessionDialogHost } from '@/components/pkg/open-session-dialog-host';
 import { PkgIframeLayer } from '@/components/pkg/pkg-iframe-layer';
 import { dumpBootTimings, mark } from '@/lib/boot-timing';
 import { initOsFileDrop } from '@/lib/dnd/os-file-drop';
@@ -371,8 +370,6 @@ export function Workspace() {
 			/>
 
 			<TerminalHandoffPrompt />
-
-			<OpenSessionDialogHost />
 
 			<WizardPopRecoveryChip />
 			<RuntimeBunChip />

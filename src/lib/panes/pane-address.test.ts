@@ -19,10 +19,6 @@ describe('getPaneAddress', () => {
 		expect(getPaneAddress({ kind: 'artifact', path: '/tmp/x.html' })).toBe('/tmp/x.html');
 	});
 
-	it('returns null for chat views', () => {
-		expect(getPaneAddress({ kind: 'chat', sessionId: 'abc' })).toBeNull();
-	});
-
 	it('returns null for terminal views', () => {
 		expect(getPaneAddress({ kind: 'terminal', sessionId: 'tty1' })).toBeNull();
 	});
@@ -63,8 +59,7 @@ describe('hasAddressBar', () => {
 		expect(hasAddressBar({ kind: 'artifact', path: '/y' })).toBe(true);
 	});
 
-	it('is false for chat + terminal', () => {
-		expect(hasAddressBar({ kind: 'chat', sessionId: 's' })).toBe(false);
+	it('is false for terminal', () => {
 		expect(hasAddressBar({ kind: 'terminal', sessionId: 's' })).toBe(false);
 	});
 });
@@ -204,8 +199,10 @@ describe('formatPaneAddressForDisplay', () => {
 		expect(formatPaneAddressForDisplay({ kind: 'route', path: '/inbox' }, map)).toBe('/inbox');
 	});
 
-	it('returns null for views without a natural address (chat / terminal)', () => {
-		expect(formatPaneAddressForDisplay({ kind: 'chat', sessionId: 'abc' }, new Map())).toBeNull();
+	it('returns null for views without a natural address (scratchpad / terminal)', () => {
+		expect(
+			formatPaneAddressForDisplay({ kind: 'scratchpad', scope: 'x', name: 'y' }, new Map())
+		).toBeNull();
 		expect(
 			formatPaneAddressForDisplay({ kind: 'terminal', sessionId: 'tty1' }, new Map())
 		).toBeNull();

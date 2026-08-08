@@ -29,8 +29,7 @@ const ref = (name: string, extra?: Partial<RequiresEntry>): RequiresEntry => ({
 	...extra,
 });
 
-const installed = (names: string[]): Set<string> =>
-	new Set(names.map((n) => `skill:${n}`));
+const installed = (names: string[]): Set<string> => new Set(names.map((n) => `skill:${n}`));
 
 // resolveCatalogClosure only reads kind+name off store entries via installedKeys,
 // so we never need a full ClaudeStoreEntry here — the Set is the contract.

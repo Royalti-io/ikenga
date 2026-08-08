@@ -43,7 +43,10 @@ function parse(): WindowContext {
 	// One repeated `surfaces` param per entry (registry.rs appends them that
 	// way) — NOT a comma-joined CSV: a surface id can contain a comma (e.g.
 	// `viewer:/a/b,c.md`), which a comma-split would fracture.
-	const surfaces = params.getAll('surfaces').map((s) => s.trim()).filter(Boolean);
+	const surfaces = params
+		.getAll('surfaces')
+		.map((s) => s.trim())
+		.filter(Boolean);
 	const projectId = params.get('project');
 	return {
 		label,

@@ -27,13 +27,11 @@ import { Route as CronRouteImport } from './routes/cron'
 import { Route as ClaudeAssetsSmokeRouteImport } from './routes/claude-assets-smoke'
 import { Route as AgentRunsRouteImport } from './routes/agent-runs'
 import { Route as SettingsRouteRouteImport } from './routes/settings/route'
-import { Route as SessionsRouteRouteImport } from './routes/sessions/route'
 import { Route as OutboxRouteRouteImport } from './routes/outbox/route'
 import { Route as OnboardingRouteRouteImport } from './routes/onboarding/route'
 import { Route as ClaudeRouteRouteImport } from './routes/claude/route'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as SettingsIndexRouteImport } from './routes/settings/index'
-import { Route as SessionsIndexRouteImport } from './routes/sessions/index'
 import { Route as OnboardingIndexRouteImport } from './routes/onboarding/index'
 import { Route as SettingsStorageRouteImport } from './routes/settings/storage'
 import { Route as SettingsSecretsRouteImport } from './routes/settings/secrets'
@@ -65,14 +63,9 @@ import { Route as OnboardingPackagesRouteImport } from './routes/onboarding/pack
 import { Route as OnboardingConnectorsRouteImport } from './routes/onboarding/connectors'
 import { Route as OnboardingAppearanceRouteImport } from './routes/onboarding/appearance'
 import { Route as OnboardingAgentRouteImport } from './routes/onboarding/agent'
-import { Route as ClaudeRuntimeMcpsRouteImport } from './routes/claude/runtime-mcps'
 import { Route as ArtifactsHomeRouteImport } from './routes/artifacts/home'
 import { Route as PkgPkgIdRouteRouteImport } from './routes/pkg/$pkgId/route'
-import { Route as SessionsByAgentIndexRouteImport } from './routes/sessions/by-agent/index'
-import { Route as SessionsAllIndexRouteImport } from './routes/sessions/all/index'
-import { Route as SessionsSessionIdIndexRouteImport } from './routes/sessions/$sessionId/index'
 import { Route as PkgPkgIdIndexRouteImport } from './routes/pkg/$pkgId/index'
-import { Route as SessionsByAgentAgentRouteImport } from './routes/sessions/by-agent/$agent'
 import { Route as PkgPkgIdSplatRouteImport } from './routes/pkg/$pkgId/$'
 import { Route as ArtifactsByKindKindRouteImport } from './routes/artifacts/by-kind.$kind'
 
@@ -166,11 +159,6 @@ const SettingsRouteRoute = SettingsRouteRouteImport.update({
   path: '/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
-const SessionsRouteRoute = SessionsRouteRouteImport.update({
-  id: '/sessions',
-  path: '/sessions',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const OutboxRouteRoute = OutboxRouteRouteImport.update({
   id: '/outbox',
   path: '/outbox',
@@ -195,11 +183,6 @@ const SettingsIndexRoute = SettingsIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => SettingsRouteRoute,
-} as any)
-const SessionsIndexRoute = SessionsIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => SessionsRouteRoute,
 } as any)
 const OnboardingIndexRoute = OnboardingIndexRouteImport.update({
   id: '/',
@@ -356,11 +339,6 @@ const OnboardingAgentRoute = OnboardingAgentRouteImport.update({
   path: '/agent',
   getParentRoute: () => OnboardingRouteRoute,
 } as any)
-const ClaudeRuntimeMcpsRoute = ClaudeRuntimeMcpsRouteImport.update({
-  id: '/runtime-mcps',
-  path: '/runtime-mcps',
-  getParentRoute: () => ClaudeRouteRoute,
-} as any)
 const ArtifactsHomeRoute = ArtifactsHomeRouteImport.update({
   id: '/artifacts/home',
   path: '/artifacts/home',
@@ -371,30 +349,10 @@ const PkgPkgIdRouteRoute = PkgPkgIdRouteRouteImport.update({
   path: '/pkg/$pkgId',
   getParentRoute: () => rootRouteImport,
 } as any)
-const SessionsByAgentIndexRoute = SessionsByAgentIndexRouteImport.update({
-  id: '/by-agent/',
-  path: '/by-agent/',
-  getParentRoute: () => SessionsRouteRoute,
-} as any)
-const SessionsAllIndexRoute = SessionsAllIndexRouteImport.update({
-  id: '/all/',
-  path: '/all/',
-  getParentRoute: () => SessionsRouteRoute,
-} as any)
-const SessionsSessionIdIndexRoute = SessionsSessionIdIndexRouteImport.update({
-  id: '/$sessionId/',
-  path: '/$sessionId/',
-  getParentRoute: () => SessionsRouteRoute,
-} as any)
 const PkgPkgIdIndexRoute = PkgPkgIdIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => PkgPkgIdRouteRoute,
-} as any)
-const SessionsByAgentAgentRoute = SessionsByAgentAgentRouteImport.update({
-  id: '/by-agent/$agent',
-  path: '/by-agent/$agent',
-  getParentRoute: () => SessionsRouteRoute,
 } as any)
 const PkgPkgIdSplatRoute = PkgPkgIdSplatRouteImport.update({
   id: '/$',
@@ -409,10 +367,9 @@ const ArtifactsByKindKindRoute = ArtifactsByKindKindRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/claude': typeof ClaudeRouteRouteWithChildren
+  '/claude': typeof ClaudeRouteRoute
   '/onboarding': typeof OnboardingRouteRouteWithChildren
   '/outbox': typeof OutboxRouteRouteWithChildren
-  '/sessions': typeof SessionsRouteRouteWithChildren
   '/settings': typeof SettingsRouteRouteWithChildren
   '/agent-runs': typeof AgentRunsRoute
   '/claude-assets-smoke': typeof ClaudeAssetsSmokeRoute
@@ -433,7 +390,6 @@ export interface FileRoutesByFullPath {
   '/uiroutes-smoke': typeof UiroutesSmokeRoute
   '/pkg/$pkgId': typeof PkgPkgIdRouteRouteWithChildren
   '/artifacts/home': typeof ArtifactsHomeRoute
-  '/claude/runtime-mcps': typeof ClaudeRuntimeMcpsRoute
   '/onboarding/agent': typeof OnboardingAgentRoute
   '/onboarding/appearance': typeof OnboardingAppearanceRoute
   '/onboarding/connectors': typeof OnboardingConnectorsRoute
@@ -465,19 +421,14 @@ export interface FileRoutesByFullPath {
   '/settings/secrets': typeof SettingsSecretsRoute
   '/settings/storage': typeof SettingsStorageRoute
   '/onboarding/': typeof OnboardingIndexRoute
-  '/sessions/': typeof SessionsIndexRoute
   '/settings/': typeof SettingsIndexRoute
   '/artifacts/by-kind/$kind': typeof ArtifactsByKindKindRoute
   '/pkg/$pkgId/$': typeof PkgPkgIdSplatRoute
-  '/sessions/by-agent/$agent': typeof SessionsByAgentAgentRoute
   '/pkg/$pkgId/': typeof PkgPkgIdIndexRoute
-  '/sessions/$sessionId/': typeof SessionsSessionIdIndexRoute
-  '/sessions/all/': typeof SessionsAllIndexRoute
-  '/sessions/by-agent/': typeof SessionsByAgentIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/claude': typeof ClaudeRouteRouteWithChildren
+  '/claude': typeof ClaudeRouteRoute
   '/outbox': typeof OutboxRouteRouteWithChildren
   '/agent-runs': typeof AgentRunsRoute
   '/claude-assets-smoke': typeof ClaudeAssetsSmokeRoute
@@ -497,7 +448,6 @@ export interface FileRoutesByTo {
   '/todos': typeof TodosRoute
   '/uiroutes-smoke': typeof UiroutesSmokeRoute
   '/artifacts/home': typeof ArtifactsHomeRoute
-  '/claude/runtime-mcps': typeof ClaudeRuntimeMcpsRoute
   '/onboarding/agent': typeof OnboardingAgentRoute
   '/onboarding/appearance': typeof OnboardingAppearanceRoute
   '/onboarding/connectors': typeof OnboardingConnectorsRoute
@@ -529,23 +479,17 @@ export interface FileRoutesByTo {
   '/settings/secrets': typeof SettingsSecretsRoute
   '/settings/storage': typeof SettingsStorageRoute
   '/onboarding': typeof OnboardingIndexRoute
-  '/sessions': typeof SessionsIndexRoute
   '/settings': typeof SettingsIndexRoute
   '/artifacts/by-kind/$kind': typeof ArtifactsByKindKindRoute
   '/pkg/$pkgId/$': typeof PkgPkgIdSplatRoute
-  '/sessions/by-agent/$agent': typeof SessionsByAgentAgentRoute
   '/pkg/$pkgId': typeof PkgPkgIdIndexRoute
-  '/sessions/$sessionId': typeof SessionsSessionIdIndexRoute
-  '/sessions/all': typeof SessionsAllIndexRoute
-  '/sessions/by-agent': typeof SessionsByAgentIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/claude': typeof ClaudeRouteRouteWithChildren
+  '/claude': typeof ClaudeRouteRoute
   '/onboarding': typeof OnboardingRouteRouteWithChildren
   '/outbox': typeof OutboxRouteRouteWithChildren
-  '/sessions': typeof SessionsRouteRouteWithChildren
   '/settings': typeof SettingsRouteRouteWithChildren
   '/agent-runs': typeof AgentRunsRoute
   '/claude-assets-smoke': typeof ClaudeAssetsSmokeRoute
@@ -566,7 +510,6 @@ export interface FileRoutesById {
   '/uiroutes-smoke': typeof UiroutesSmokeRoute
   '/pkg/$pkgId': typeof PkgPkgIdRouteRouteWithChildren
   '/artifacts/home': typeof ArtifactsHomeRoute
-  '/claude/runtime-mcps': typeof ClaudeRuntimeMcpsRoute
   '/onboarding/agent': typeof OnboardingAgentRoute
   '/onboarding/appearance': typeof OnboardingAppearanceRoute
   '/onboarding/connectors': typeof OnboardingConnectorsRoute
@@ -598,15 +541,10 @@ export interface FileRoutesById {
   '/settings/secrets': typeof SettingsSecretsRoute
   '/settings/storage': typeof SettingsStorageRoute
   '/onboarding/': typeof OnboardingIndexRoute
-  '/sessions/': typeof SessionsIndexRoute
   '/settings/': typeof SettingsIndexRoute
   '/artifacts/by-kind/$kind': typeof ArtifactsByKindKindRoute
   '/pkg/$pkgId/$': typeof PkgPkgIdSplatRoute
-  '/sessions/by-agent/$agent': typeof SessionsByAgentAgentRoute
   '/pkg/$pkgId/': typeof PkgPkgIdIndexRoute
-  '/sessions/$sessionId/': typeof SessionsSessionIdIndexRoute
-  '/sessions/all/': typeof SessionsAllIndexRoute
-  '/sessions/by-agent/': typeof SessionsByAgentIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -615,7 +553,6 @@ export interface FileRouteTypes {
     | '/claude'
     | '/onboarding'
     | '/outbox'
-    | '/sessions'
     | '/settings'
     | '/agent-runs'
     | '/claude-assets-smoke'
@@ -636,7 +573,6 @@ export interface FileRouteTypes {
     | '/uiroutes-smoke'
     | '/pkg/$pkgId'
     | '/artifacts/home'
-    | '/claude/runtime-mcps'
     | '/onboarding/agent'
     | '/onboarding/appearance'
     | '/onboarding/connectors'
@@ -668,15 +604,10 @@ export interface FileRouteTypes {
     | '/settings/secrets'
     | '/settings/storage'
     | '/onboarding/'
-    | '/sessions/'
     | '/settings/'
     | '/artifacts/by-kind/$kind'
     | '/pkg/$pkgId/$'
-    | '/sessions/by-agent/$agent'
     | '/pkg/$pkgId/'
-    | '/sessions/$sessionId/'
-    | '/sessions/all/'
-    | '/sessions/by-agent/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -700,7 +631,6 @@ export interface FileRouteTypes {
     | '/todos'
     | '/uiroutes-smoke'
     | '/artifacts/home'
-    | '/claude/runtime-mcps'
     | '/onboarding/agent'
     | '/onboarding/appearance'
     | '/onboarding/connectors'
@@ -732,22 +662,16 @@ export interface FileRouteTypes {
     | '/settings/secrets'
     | '/settings/storage'
     | '/onboarding'
-    | '/sessions'
     | '/settings'
     | '/artifacts/by-kind/$kind'
     | '/pkg/$pkgId/$'
-    | '/sessions/by-agent/$agent'
     | '/pkg/$pkgId'
-    | '/sessions/$sessionId'
-    | '/sessions/all'
-    | '/sessions/by-agent'
   id:
     | '__root__'
     | '/'
     | '/claude'
     | '/onboarding'
     | '/outbox'
-    | '/sessions'
     | '/settings'
     | '/agent-runs'
     | '/claude-assets-smoke'
@@ -768,7 +692,6 @@ export interface FileRouteTypes {
     | '/uiroutes-smoke'
     | '/pkg/$pkgId'
     | '/artifacts/home'
-    | '/claude/runtime-mcps'
     | '/onboarding/agent'
     | '/onboarding/appearance'
     | '/onboarding/connectors'
@@ -800,23 +723,17 @@ export interface FileRouteTypes {
     | '/settings/secrets'
     | '/settings/storage'
     | '/onboarding/'
-    | '/sessions/'
     | '/settings/'
     | '/artifacts/by-kind/$kind'
     | '/pkg/$pkgId/$'
-    | '/sessions/by-agent/$agent'
     | '/pkg/$pkgId/'
-    | '/sessions/$sessionId/'
-    | '/sessions/all/'
-    | '/sessions/by-agent/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  ClaudeRouteRoute: typeof ClaudeRouteRouteWithChildren
+  ClaudeRouteRoute: typeof ClaudeRouteRoute
   OnboardingRouteRoute: typeof OnboardingRouteRouteWithChildren
   OutboxRouteRoute: typeof OutboxRouteRouteWithChildren
-  SessionsRouteRoute: typeof SessionsRouteRouteWithChildren
   SettingsRouteRoute: typeof SettingsRouteRouteWithChildren
   AgentRunsRoute: typeof AgentRunsRoute
   ClaudeAssetsSmokeRoute: typeof ClaudeAssetsSmokeRoute
@@ -970,13 +887,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/sessions': {
-      id: '/sessions'
-      path: '/sessions'
-      fullPath: '/sessions'
-      preLoaderRoute: typeof SessionsRouteRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/outbox': {
       id: '/outbox'
       path: '/outbox'
@@ -1011,13 +921,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/settings/'
       preLoaderRoute: typeof SettingsIndexRouteImport
       parentRoute: typeof SettingsRouteRoute
-    }
-    '/sessions/': {
-      id: '/sessions/'
-      path: '/'
-      fullPath: '/sessions/'
-      preLoaderRoute: typeof SessionsIndexRouteImport
-      parentRoute: typeof SessionsRouteRoute
     }
     '/onboarding/': {
       id: '/onboarding/'
@@ -1236,13 +1139,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OnboardingAgentRouteImport
       parentRoute: typeof OnboardingRouteRoute
     }
-    '/claude/runtime-mcps': {
-      id: '/claude/runtime-mcps'
-      path: '/runtime-mcps'
-      fullPath: '/claude/runtime-mcps'
-      preLoaderRoute: typeof ClaudeRuntimeMcpsRouteImport
-      parentRoute: typeof ClaudeRouteRoute
-    }
     '/artifacts/home': {
       id: '/artifacts/home'
       path: '/artifacts/home'
@@ -1257,40 +1153,12 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PkgPkgIdRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/sessions/by-agent/': {
-      id: '/sessions/by-agent/'
-      path: '/by-agent'
-      fullPath: '/sessions/by-agent/'
-      preLoaderRoute: typeof SessionsByAgentIndexRouteImport
-      parentRoute: typeof SessionsRouteRoute
-    }
-    '/sessions/all/': {
-      id: '/sessions/all/'
-      path: '/all'
-      fullPath: '/sessions/all/'
-      preLoaderRoute: typeof SessionsAllIndexRouteImport
-      parentRoute: typeof SessionsRouteRoute
-    }
-    '/sessions/$sessionId/': {
-      id: '/sessions/$sessionId/'
-      path: '/$sessionId'
-      fullPath: '/sessions/$sessionId/'
-      preLoaderRoute: typeof SessionsSessionIdIndexRouteImport
-      parentRoute: typeof SessionsRouteRoute
-    }
     '/pkg/$pkgId/': {
       id: '/pkg/$pkgId/'
       path: '/'
       fullPath: '/pkg/$pkgId/'
       preLoaderRoute: typeof PkgPkgIdIndexRouteImport
       parentRoute: typeof PkgPkgIdRouteRoute
-    }
-    '/sessions/by-agent/$agent': {
-      id: '/sessions/by-agent/$agent'
-      path: '/by-agent/$agent'
-      fullPath: '/sessions/by-agent/$agent'
-      preLoaderRoute: typeof SessionsByAgentAgentRouteImport
-      parentRoute: typeof SessionsRouteRoute
     }
     '/pkg/$pkgId/$': {
       id: '/pkg/$pkgId/$'
@@ -1308,18 +1176,6 @@ declare module '@tanstack/react-router' {
     }
   }
 }
-
-interface ClaudeRouteRouteChildren {
-  ClaudeRuntimeMcpsRoute: typeof ClaudeRuntimeMcpsRoute
-}
-
-const ClaudeRouteRouteChildren: ClaudeRouteRouteChildren = {
-  ClaudeRuntimeMcpsRoute: ClaudeRuntimeMcpsRoute,
-}
-
-const ClaudeRouteRouteWithChildren = ClaudeRouteRoute._addFileChildren(
-  ClaudeRouteRouteChildren,
-)
 
 interface OnboardingRouteRouteChildren {
   OnboardingAgentRoute: typeof OnboardingAgentRoute
@@ -1367,26 +1223,6 @@ const OutboxRouteRouteChildren: OutboxRouteRouteChildren = {
 
 const OutboxRouteRouteWithChildren = OutboxRouteRoute._addFileChildren(
   OutboxRouteRouteChildren,
-)
-
-interface SessionsRouteRouteChildren {
-  SessionsIndexRoute: typeof SessionsIndexRoute
-  SessionsByAgentAgentRoute: typeof SessionsByAgentAgentRoute
-  SessionsSessionIdIndexRoute: typeof SessionsSessionIdIndexRoute
-  SessionsAllIndexRoute: typeof SessionsAllIndexRoute
-  SessionsByAgentIndexRoute: typeof SessionsByAgentIndexRoute
-}
-
-const SessionsRouteRouteChildren: SessionsRouteRouteChildren = {
-  SessionsIndexRoute: SessionsIndexRoute,
-  SessionsByAgentAgentRoute: SessionsByAgentAgentRoute,
-  SessionsSessionIdIndexRoute: SessionsSessionIdIndexRoute,
-  SessionsAllIndexRoute: SessionsAllIndexRoute,
-  SessionsByAgentIndexRoute: SessionsByAgentIndexRoute,
-}
-
-const SessionsRouteRouteWithChildren = SessionsRouteRoute._addFileChildren(
-  SessionsRouteRouteChildren,
 )
 
 interface SettingsRouteRouteChildren {
@@ -1447,10 +1283,9 @@ const PkgPkgIdRouteRouteWithChildren = PkgPkgIdRouteRoute._addFileChildren(
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  ClaudeRouteRoute: ClaudeRouteRouteWithChildren,
+  ClaudeRouteRoute: ClaudeRouteRoute,
   OnboardingRouteRoute: OnboardingRouteRouteWithChildren,
   OutboxRouteRoute: OutboxRouteRouteWithChildren,
-  SessionsRouteRoute: SessionsRouteRouteWithChildren,
   SettingsRouteRoute: SettingsRouteRouteWithChildren,
   AgentRunsRoute: AgentRunsRoute,
   ClaudeAssetsSmokeRoute: ClaudeAssetsSmokeRoute,

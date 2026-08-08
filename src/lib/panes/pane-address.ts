@@ -2,7 +2,7 @@
 //
 // A "pane address" is the displayable location string shown in the pane URL
 // bar. Only views that have a natural path/URL get an address (and a URL
-// bar) — chat/terminal panels are address-less.
+// bar) — terminal panels are address-less.
 //
 // The parser turns a typed-in address back into a `PaneView` candidate so the
 // URL bar can navigate. Unknown shapes return null and the toolbar should
@@ -11,7 +11,7 @@
 import type { PaneView } from './types';
 
 /** Returns the displayable address for a view, or null if the view has no
- * natural URL/path (chat, terminal). */
+ * natural URL/path (terminal). */
 export function getPaneAddress(view: PaneView): string | null {
 	switch (view.kind) {
 		case 'route':
@@ -28,10 +28,8 @@ export function getPaneAddress(view: PaneView): string | null {
 			if (view.attachedTerminalId) params.push(`term=${view.attachedTerminalId}`);
 			return params.length > 0 ? `${view.path}?${params.join('&')}` : view.path;
 		}
-		case 'chat':
 		case 'terminal':
 		case 'scratchpad':
-		case 'tool-output':
 			return null;
 	}
 }

@@ -11,8 +11,6 @@ import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { createRouter, RouterProvider } from '@tanstack/react-router';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { bootDefaultChatAdapterId } from '@/chat/default-adapter';
-import { bootUserTurnVariant } from '@/chat/user-turn-variant';
 import { installIkengaDomSync, useIkengaStore } from '@/lib/ikenga/theme-store';
 import { queryClient } from '@/lib/query-client';
 import { initDefaultCwd } from '@/lib/shell/default-cwd';
@@ -56,7 +54,7 @@ export function bootPrimary(): void {
 	// (test env, pre-setup boot) leave the persisted snapshot in place.
 	void useShellStore.getState().hydrateFileRootsFromRust();
 
-	// Resolve $HOME once so `defaultCwd()` (used by chat/terminal/session
+	// Resolve $HOME once so `defaultCwd()` (used by terminal/session
 	// fallbacks) can return it synchronously. Fire-and-forget — failure leaves
 	// the helper falling back to '~'.
 	void initDefaultCwd();
@@ -66,8 +64,6 @@ export function bootPrimary(): void {
 	// successes overwrite Zustand state with the Tauri-side authoritative copy.
 	void useShellStore.getState().hydrateSettingsFromRust();
 	void useIkengaStore.getState().hydrateAppearanceFromRust();
-	void bootDefaultChatAdapterId();
-	void bootUserTurnVariant();
 
 	// Pull the durable projects list + active project id (migration 0015,
 	// Phase 0). The Rust side owns the truth; this just seeds the in-memory

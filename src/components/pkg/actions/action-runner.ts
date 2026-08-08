@@ -17,11 +17,23 @@
 // focus-steal that breaks `sendToActiveSession` for native pane clicks. The
 // remaining `streaming` (non-setup) / `silent` / `form` modes land in later WPs.
 
-import {
-	type OpenSessionDialogResult,
-	openSessionDialog,
-} from '@/components/pkg/open-session-dialog';
 import type { SkillAction } from '@/lib/tauri-cmd';
+
+/** Chat-sunset stub — the New-Session dialog is gone, so all dispatches
+ *  resolve as a clean no-op. The skill-action surface remains visible while
+ *  Chi agents move to CLI/MCP invocation. */
+export interface OpenSessionDialogResult {
+	ok: boolean;
+	reason?: 'scope-denied' | 'cancelled';
+}
+
+async function openSessionDialog(_opts: {
+	initialPrompt: string;
+	source: string;
+	sessionKind: 'chat' | 'terminal';
+}): Promise<OpenSessionDialogResult> {
+	return { ok: true };
+}
 
 const DISPATCHABLE_UX_MODES = ['confirm', 'approve'] as const;
 

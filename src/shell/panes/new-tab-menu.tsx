@@ -1,15 +1,12 @@
-import { useEffect, useState } from 'react';
 import { Command } from 'cmdk';
-import { Terminal as TerminalIcon, MessageSquare, Hash } from 'lucide-react';
+import { Hash, Terminal as TerminalIcon } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { CommandRow, type CommandRowProps } from '@/components/ui/command-row';
-import type { LeafNode, PaneView } from '@/lib/panes/types';
 import { usePaneStore } from '@/lib/panes/pane-store';
-import { createTerminalSession } from '@/terminal/single-terminal';
-import { mintThreadId } from '@/chat';
-import { activeProjectCwd } from '@/lib/shell/active-project-cwd';
-import { sessionEnsure } from '@/lib/tauri-cmd';
-import { NAV_GROUPS } from '@/shell/nav-config';
+import type { LeafNode, PaneView } from '@/lib/panes/types';
 import { defaultShellLabel } from '@/lib/platform';
+import { NAV_GROUPS } from '@/shell/nav-config';
+import { createTerminalSession } from '@/terminal/single-terminal';
 
 interface NewTabMenuProps {
 	leaf: LeafNode;
@@ -90,18 +87,6 @@ export function NewTabMenu({ leaf, open, onClose, anchor }: NewTabMenuProps) {
 							Icon={TerminalIcon}
 							label="Claude terminal"
 							shortcut="⌘⇧T"
-						/>
-						<MenuItem
-							onSelect={() => {
-								const threadId = mintThreadId();
-								void sessionEnsure(threadId, activeProjectCwd(), {}).catch((e) =>
-									console.warn('sessionEnsure (new-tab):', e)
-								);
-								commit({ kind: 'chat', sessionId: threadId });
-							}}
-							Icon={MessageSquare}
-							label="New Chat"
-							detail="streaming Claude"
 						/>
 					</Command.Group>
 

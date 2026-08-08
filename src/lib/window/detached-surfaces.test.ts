@@ -27,7 +27,13 @@ const mockListWindows = vi.mocked(listWindows);
 const mockCloseWindow = vi.mocked(closeWindow);
 
 function descriptor(label: string, surfaces: string[]): WindowDescriptor {
-	return { label, kind: 'single-surface', surface_set: surfaces, project_id: null, layout_key: label };
+	return {
+		label,
+		kind: 'single-surface',
+		surface_set: surfaces,
+		project_id: null,
+		layout_key: label,
+	};
 }
 
 function isDetached(surfaceId: string): boolean {

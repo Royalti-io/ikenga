@@ -6,7 +6,6 @@ export type PaneId = string;
 export type PaneView = (
 	| { kind: 'route'; path: string }
 	| { kind: 'terminal'; sessionId: string }
-	| { kind: 'chat'; sessionId: string }
 	| { kind: 'artifact'; path: string }
 	// Unified Artifact Studio with three densities:
 	//   grid    — folder (Lightroom-style contact sheet of artifact thumbnails)
@@ -26,10 +25,6 @@ export type PaneView = (
 			attachedTerminalId?: string;
 	  }
 	| { kind: 'scratchpad'; scope: string; name: string }
-	// ADR-011 phase 2: dedicated viewer for a tool call result. Payload is
-	// pointer-only (`threadId` + `toolUseId`); the renderer looks up the
-	// tool_use + tool_result from the chat store at mount time.
-	| { kind: 'tool-output'; threadId: string; toolUseId: string }
 ) & { pinned?: boolean };
 
 export type PaneDirection = 'horizontal' | 'vertical';

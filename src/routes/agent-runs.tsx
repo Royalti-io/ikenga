@@ -67,9 +67,8 @@ function AgentRunsPage() {
 				<div className="max-w-sm">
 					<div className="text-base font-medium">agent-ops not installed</div>
 					<p className="mt-1 text-sm text-muted-foreground">
-						Install the <code className="font-mono text-xs">com.ikenga.agent-ops</code> pkg to
-						view agent run history. Once installed, this route redirects automatically to the Runs
-						view.
+						Install the <code className="font-mono text-xs">com.ikenga.agent-ops</code> pkg to view
+						agent run history. Once installed, this route redirects automatically to the Runs view.
 					</p>
 				</div>
 				<button

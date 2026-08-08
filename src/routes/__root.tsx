@@ -3,7 +3,6 @@ import { Outlet, createRootRoute, useLocation, useNavigate } from '@tanstack/rea
 
 import { Workspace } from '@/shell/workspace';
 import { usePaneScope } from '@/shell/panes/views/route-view';
-import { startAcpNotifyBridge } from '@/lib/notifications/acp-notify-bridge';
 import { startIykeTimerBridge } from '@/lib/notifications/iyke-timer-bridge';
 import { useShellStore } from '@/lib/shell/shell-store';
 
@@ -26,10 +25,8 @@ function RootRoute() {
 	// would otherwise call this on every focus toggle.
 	useEffect(() => {
 		if (paneScope !== null) return;
-		const stopAcp = startAcpNotifyBridge();
 		const stopTimer = startIykeTimerBridge();
 		return () => {
-			stopAcp();
 			stopTimer();
 		};
 	}, [paneScope]);

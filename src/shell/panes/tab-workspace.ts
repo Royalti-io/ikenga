@@ -5,7 +5,6 @@ import { type IkengaWorkspace } from '@/lib/ikenga/theme-store';
 // routes are admitted to the union; pkg routes (`/pkg/...`) all roll up to
 // 'app'.
 const ROUTE_PREFIXES: Array<[string, IkengaWorkspace]> = [
-	['/sessions', 'sessions'],
 	['/settings', 'settings'],
 	['/files', 'files'],
 ];
@@ -20,18 +19,11 @@ export function viewWorkspace(view: PaneView): IkengaWorkspace {
 		}
 		case 'terminal':
 			return 'sessions';
-		case 'chat':
-			return 'sessions';
 		case 'artifact':
 			return 'files';
 		case 'artifact-studio':
 			return 'files';
 		case 'scratchpad':
 			return 'app';
-		case 'tool-output':
-			// Tool-output viewers belong to a chat session — share the
-			// 'sessions' tint so the activity-bar and pane chrome stay
-			// consistent with the originating chat tab.
-			return 'sessions';
 	}
 }

@@ -37,49 +37,9 @@ import {
 	type HomeInboxRow,
 	type HomeTaskRow,
 } from '@/lib/queries/home-widgets';
-import { sessionsListQueryOptions, type SessionSummary } from '@/lib/queries/sessions';
 import { listScratchpads } from '@/lib/iyke/memory';
 import { useAllSkillActions } from '@/shell/palette-actions';
 import type { SkillAction } from '@/lib/tauri-cmd';
-
-// ───────────────────────── session helpers ─────────────────────────
-// Map a SessionSummary's last activity timestamp to a coarse state used by
-// the home widget. "live" = touched in the last 5min; "warm" = within the
-// last hour (still recent enough to pick back up without context loss); the
-// rest fall through to "idle".
-
-type SessionState = 'live' | 'warm' | 'idle';
-
-function sessionState(s: SessionSummary, nowMs: number): SessionState {
-	const last = s.lastMessageAt ? Date.parse(s.lastMessageAt) : Date.parse(s.startedAt);
-	if (Number.isNaN(last)) return 'idle';
-	const age = nowMs - last;
-	if (age < 5 * 60_000) return 'live';
-	if (age < 60 * 60_000) return 'warm';
-	return 'idle';
-}
-
-function shortAgo(iso: string | null, nowMs: number): string {
-	if (!iso) return '';
-	const then = Date.parse(iso);
-	if (Number.isNaN(then)) return '';
-	const min = Math.max(0, Math.round((nowMs - then) / 60_000));
-	if (min < 60) return `${min}m`;
-	if (min < 60 * 24) return `${Math.floor(min / 60)}h ${min % 60}m`;
-	return `${Math.round(min / 1440)}d ago`;
-}
-
-// Heuristic agent tag — pulls a leading slash-command from the title or the
-// first segment of projectDir. Cheap and right most of the time; the canonical
-// detectAgentSlug() in @/lib/queries/sessions is overkill for a 4-char chip.
-function quickAgentTag(s: SessionSummary): string {
-	if (s.title) {
-		const m = s.title.trim().match(/^\/?([a-z][a-z0-9-]{0,6})/i);
-		if (m) return m[1].toLowerCase().slice(0, 6);
-	}
-	const seg = (s.projectDir || '').split('/').filter(Boolean).pop();
-	return seg ? seg.slice(0, 6) : '—';
-}
 
 // ───────────────────────── icons ─────────────────────────
 
@@ -88,11 +48,6 @@ const Icons = {
 		<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden={true}>
 			<circle cx="12" cy="12" r="9" />
 			<path d="M12 7v5l3 3" />
-		</svg>
-	),
-	sessions: (
-		<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden={true}>
-			<path d="M4 6h16M4 12h10M4 18h6" />
 		</svg>
 	),
 	quick: (
@@ -161,15 +116,7 @@ const Icons = {
 
 // ───────────────────────── layout types ─────────────────────────
 
-type WidgetKind =
-	| 'greeting'
-	| 'sessions'
-	| 'finance'
-	| 'quick'
-	| 'pad'
-	| 'tasks'
-	| 'inbox'
-	| 'boards';
+type WidgetKind = 'greeting' | 'finance' | 'quick' | 'pad' | 'tasks' | 'inbox' | 'boards';
 
 interface WidgetPlacement {
 	id: string;
@@ -185,9 +132,8 @@ interface WidgetPlacement {
 // the viewport, scaling down only (never up).
 const DEFAULT_LAYOUT: WidgetPlacement[] = [
 	{ id: 'greeting', kind: 'greeting', x: 20, y: 30, w: 560, h: 320 },
-	{ id: 'sessions', kind: 'sessions', x: 20, y: 380, w: 440, h: 260, patina: 'warm' },
-	{ id: 'finance', kind: 'finance', x: 20, y: 660, w: 440, h: 200 },
 	{ id: 'quick', kind: 'quick', x: 620, y: 30, w: 400, h: 240 },
+	{ id: 'finance', kind: 'finance', x: 20, y: 380, w: 440, h: 260, patina: 'warm' },
 	{ id: 'pad', kind: 'pad', x: 1060, y: 30, w: 320, h: 240 },
 	{ id: 'tasks', kind: 'tasks', x: 620, y: 300, w: 360, h: 240 },
 	{ id: 'inbox', kind: 'inbox', x: 1020, y: 300, w: 360, h: 240 },
@@ -196,7 +142,6 @@ const DEFAULT_LAYOUT: WidgetPlacement[] = [
 
 const PALETTE_SHELL = [
 	{ id: 'greeting', title: 'Greeting', icon: Icons.clock },
-	{ id: 'sessions', title: 'Recent sessions', icon: Icons.sessions },
 	{ id: 'quick', title: 'Quick actions', icon: Icons.quick },
 	{ id: 'pad', title: 'Scratchpad', icon: Icons.pad },
 	{ id: 'clock', title: 'World clock', icon: Icons.clock, placed: false },
@@ -362,25 +307,7 @@ function GreetingBody({ name }: { name: string }) {
 	}, []);
 	const tod = dailyAddress(now);
 	const q = quoteOfTheDay(now, 'daily-address');
-	const { data: sessions } = useQuery(sessionsListQueryOptions(null, 12));
-	const counts = useMemo(() => {
-		const nowMs = now.getTime();
-		let live = 0;
-		let warm = 0;
-		for (const s of sessions ?? []) {
-			const st = sessionState(s, nowMs);
-			if (st === 'live') live += 1;
-			else if (st === 'warm') warm += 1;
-		}
-		return { live, warm };
-	}, [sessions, now]);
-	const { live, warm } = counts;
-	const shape =
-		live === 0 && warm === 0
-			? 'No sessions open. A clean slate.'
-			: live > 0 && warm > 0
-				? `${live} session${live === 1 ? '' : 's'} still open, ${warm} paused. ${live > 1 ? "There's momentum to pick back up." : "Pick it back up when you're ready."}`
-				: `${live + warm} session${(live + warm) === 1 ? '' : 's'} still ${live ? 'open' : 'paused'}.`;
+	const shape = 'A clean slate.';
 	return (
 		<>
 			<div
@@ -423,9 +350,6 @@ function GreetingBody({ name }: { name: string }) {
 				<span className="sep">·</span>
 				<span>{now.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}</span>
 				<span className="sep">·</span>
-				<span>
-					{live} active session{live === 1 ? '' : 's'}
-				</span>
 			</div>
 			<div className="shape">{shape}</div>
 			{q && (
@@ -440,53 +364,6 @@ function GreetingBody({ name }: { name: string }) {
 					</div>
 				</div>
 			)}
-		</>
-	);
-}
-
-function SessionsBody() {
-	// 30s refetch so the home stays current without bouncing on every focus.
-	const { data, isLoading } = useQuery(sessionsListQueryOptions(null, 6));
-	const nowMs = Date.now();
-	const sessions = data ?? [];
-	if (isLoading && sessions.length === 0) {
-		return (
-			<div
-				style={{ color: 'var(--fg-faint)', fontSize: 12, padding: '20px 0', textAlign: 'center' }}
-			>
-				Loading…
-			</div>
-		);
-	}
-	if (sessions.length === 0) {
-		return (
-			<div
-				style={{ color: 'var(--fg-faint)', fontSize: 12, padding: '20px 0', textAlign: 'center' }}
-			>
-				No recent sessions.
-			</div>
-		);
-	}
-	const dotCls = (st: SessionState) => (st === 'live' ? 'live' : st === 'warm' ? 'warm' : '');
-	return (
-		<>
-			{sessions.map((s) => {
-				const st = sessionState(s, nowMs);
-				const title = (s.title?.trim() || s.sessionId.slice(0, 8)).replace(/^\/\S+\s*/, '');
-				return (
-					<div className="w-row" key={s.sessionId}>
-						<DotSpan
-							cls={dotCls(st)}
-							label={st === 'live' ? 'Live' : st === 'warm' ? 'Warm' : 'Idle'}
-						/>
-						<span className="w-label">
-							<span className="w-agent-tag">{quickAgentTag(s)}</span>
-							{title}
-						</span>
-						<span className="w-meta">{shortAgo(s.lastMessageAt ?? s.startedAt, nowMs)}</span>
-					</div>
-				);
-			})}
 		</>
 	);
 }
@@ -582,7 +459,14 @@ function QuickBody() {
 					<button
 						type="button"
 						onClick={() => void refetch()}
-						style={{ ...QMETA_STYLE, textDecoration: 'underline', cursor: 'pointer', border: 0, background: 'none', padding: 0 }}
+						style={{
+							...QMETA_STYLE,
+							textDecoration: 'underline',
+							cursor: 'pointer',
+							border: 0,
+							background: 'none',
+							padding: 0,
+						}}
 					>
 						Retry
 					</button>
@@ -684,7 +568,11 @@ function TasksBody() {
 			{tasks.map((t: HomeTaskRow) => {
 				const blocked = t.status === 'blocked';
 				const cls = blocked ? 'danger' : t.priority === 'high' ? 'warm' : '';
-				const label = blocked ? 'Blocked' : t.priority === 'high' ? 'High priority' : 'Normal priority';
+				const label = blocked
+					? 'Blocked'
+					: t.priority === 'high'
+						? 'High priority'
+						: 'Normal priority';
 				const due = t.due_date ? taskDueLabel(t.due_date, now) : null;
 				return (
 					<div className="w-row" key={t.id}>
@@ -727,7 +615,8 @@ function fromLabel(fromAddress: string): string {
  *  default (uncoloured) dot rather than guessing. */
 function inboxDotCls(category: string | null): { cls: string; label: string } {
 	if (category === 'urgent') return { cls: 'danger', label: 'Urgent' };
-	if (category === 'needs_reply' || category === 'warn') return { cls: 'warm', label: 'Needs reply' };
+	if (category === 'needs_reply' || category === 'warn')
+		return { cls: 'warm', label: 'Needs reply' };
 	return { cls: '', label: 'Info' };
 }
 
@@ -776,7 +665,12 @@ function InboxBody() {
  * open question stays open — deferred, not resolved here.
  */
 function BoardsBody() {
-	const { data: installed, isLoading, isError, refetch } = useQuery(homeBoardsPkgStatusQueryOptions());
+	const {
+		data: installed,
+		isLoading,
+		isError,
+		refetch,
+	} = useQuery(homeBoardsPkgStatusQueryOptions());
 	if (isLoading) return <SkeletonRows count={2} />;
 	if (isError) {
 		return (
@@ -792,8 +686,8 @@ function BoardsBody() {
 			<div style={{ ...CENTER_NOTE_STYLE, fontStyle: 'italic' }}>
 				Studio pkg not installed.
 				<br />
-				This widget lights up once it's installed — board/frame query surface
-				still TBD (design open question).
+				This widget lights up once it's installed — board/frame query surface still TBD (design open
+				question).
 			</div>
 		);
 	}
@@ -850,7 +744,9 @@ function FinanceBody() {
 					<>
 						{runwayMonths.toFixed(1)}
 						<span style={{ fontSize: 16, color: 'var(--fg-muted)', marginLeft: 2 }}>mo</span>{' '}
-						<em style={runwayMonths < RUNWAY_TARGET_MONTHS ? { color: 'var(--danger)' } : undefined}>
+						<em
+							style={runwayMonths < RUNWAY_TARGET_MONTHS ? { color: 'var(--danger)' } : undefined}
+						>
 							of {RUNWAY_TARGET_MONTHS} target
 						</em>
 					</>
@@ -890,7 +786,9 @@ function FinanceBody() {
 					}}
 				>
 					<span>{cashUsd != null ? `cash $${(cashUsd / 1000).toFixed(1)}k` : 'cash —'}</span>
-					<span>{burnUsd30d != null ? `burn $${(burnUsd30d / 1000).toFixed(1)}k/mo` : 'burn —'}</span>
+					<span>
+						{burnUsd30d != null ? `burn $${(burnUsd30d / 1000).toFixed(1)}k/mo` : 'burn —'}
+					</span>
 				</div>
 			)}
 			<div
@@ -914,15 +812,6 @@ function FinanceBody() {
 	);
 }
 
-// Tag count for the Sessions header. Lives outside widgetMeta so the
-// `tag` field can read live query state without making widgetMeta a hook.
-function SessionsTag() {
-	const { data } = useQuery(sessionsListQueryOptions(null, 12));
-	const nowMs = Date.now();
-	const live = (data ?? []).reduce((n, s) => (sessionState(s, nowMs) === 'live' ? n + 1 : n), 0);
-	return <>{live} active</>;
-}
-
 function widgetMeta(kind: WidgetKind): {
 	title: string;
 	icon: ReactNode;
@@ -931,13 +820,6 @@ function widgetMeta(kind: WidgetKind): {
 	cls?: string;
 } | null {
 	switch (kind) {
-		case 'sessions':
-			return {
-				title: 'Recent sessions',
-				icon: Icons.sessions,
-				tag: <SessionsTag />,
-				Body: SessionsBody,
-			};
 		case 'quick':
 			return { title: 'Quick actions', icon: Icons.quick, tag: '⌘ K', Body: QuickBody };
 		case 'pad':

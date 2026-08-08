@@ -63,7 +63,6 @@ use super::projects::{
     post_project_set_active, post_project_update,
 };
 use super::secrets::{get_secret, get_secret_list, post_secret_delete, post_secret_set};
-use super::sessions::{get_session_list, post_session_move, post_session_start};
 use super::state::IykeState;
 use super::tasks::{get_task_list, post_task_complete, post_task_create, post_task_update};
 use super::terminal::{
@@ -214,10 +213,6 @@ pub async fn serve(
         .route("/iyke/project/archive", post(post_project_archive))
         .route("/iyke/project/set-active", post(post_project_set_active))
         .route("/iyke/project/active", get(get_project_active))
-        // Chat sessions (Phase 3 of projects-first-class plan).
-        .route("/iyke/session/list", get(get_session_list))
-        .route("/iyke/session/move", post(post_session_move))
-        .route("/iyke/session/start", post(post_session_start))
         // Chi-first agent surface (WP-03).
         .route("/iyke/chi/run", post(post_chi_run))
         .route("/iyke/chi/resume", post(post_chi_resume))

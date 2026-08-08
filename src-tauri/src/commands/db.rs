@@ -531,6 +531,11 @@ async fn ensure_schema(pool: &sqlx::SqlitePool) -> Result<(), String> {
             "0059_chi_cache",
             include_str!("../../migrations/0059_chi_cache.sql"),
         ),
+        (
+            60,
+            "0060_drop_chat_sessions",
+            include_str!("../../migrations/0060_drop_chat_sessions.sql"),
+        ),
     ];
 
     for (id, name, sql) in migrations {
@@ -586,7 +591,6 @@ async fn bootstrap_default_project(pool: &sqlx::SqlitePool) -> Result<(), String
     .map_err(|e| format!("seed default project: {e}"))?;
 
     for table in [
-        "chat_sessions",
         "pkg_installed",
         "layout_state",
         "browser_sessions",
