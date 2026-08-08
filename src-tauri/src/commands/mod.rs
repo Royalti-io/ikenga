@@ -9,6 +9,7 @@ pub mod backup;
 #[cfg(debug_assertions)]
 pub mod bg_spike;
 pub mod chat;
+pub mod chi;
 pub mod claude;
 pub mod claude_config;
 pub mod claude_store;
@@ -68,6 +69,7 @@ pub use chat::{
     chat_load_session, chat_new_session, chat_prompt, chat_respond_permission, chat_set_effort,
     chat_set_mode, chat_set_model,
 };
+pub use chi::{chi_cancel, chi_list, chi_resume, chi_run, chi_status, ChiCache};
 pub use claude::{
     chat_thread_move, chat_threads_list_by_project, claude_list_sessions, claude_read_jsonl,
     session_cancel, session_destroy, session_destroy_all, session_ensure, session_send,
@@ -84,8 +86,7 @@ pub use claude_store::{
     claude_store_import, claude_store_list, oba_auto_update_all, oba_backfill_registry,
     oba_check_update, oba_dependents, oba_forget, oba_install_bundle, oba_install_git,
     oba_install_local, oba_install_npx, oba_install_with_deps, oba_missing_requires,
-    oba_relink_dependents,
-    oba_safe_delete, oba_set_auto_update, oba_unlink_one, oba_update,
+    oba_relink_dependents, oba_safe_delete, oba_set_auto_update, oba_unlink_one, oba_update,
 };
 pub use comment_route::comment_route;
 pub use comments::{
@@ -105,8 +106,7 @@ pub use identity::os_username;
 pub use iyke::{
     iyke_action_done, iyke_dom_done, iyke_dom_query, iyke_endpoint, iyke_log_push,
     iyke_network_push, iyke_query_cache_done, iyke_set_shell, iyke_terminal_read_done,
-    iyke_terminal_spawn_done,
-    iyke_wait_done, IykeRuntimeState,
+    iyke_terminal_spawn_done, iyke_wait_done, IykeRuntimeState,
 };
 pub use pa_actions::{
     pa_actions_commit, pa_actions_list, pa_actions_pause, pa_actions_reject, pa_actions_retry,
@@ -143,8 +143,8 @@ pub use projects::{
     project_list, project_scaffold_claude, project_set_active, project_skills_list, project_update,
 };
 pub use pty::{
-    pty_attach_arm, pty_attach_begin, pty_foreground, pty_foreground_snapshot, pty_kill, pty_resize,
-    pty_spawn, pty_terminal_list, pty_write,
+    pty_attach_arm, pty_attach_begin, pty_foreground, pty_foreground_snapshot, pty_kill,
+    pty_resize, pty_spawn, pty_terminal_list, pty_write,
 };
 pub use runtime::runtime_retry_bun_fetch;
 pub use screenshot::{

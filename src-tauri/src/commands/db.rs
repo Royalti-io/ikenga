@@ -521,6 +521,16 @@ async fn ensure_schema(pool: &sqlx::SqlitePool) -> Result<(), String> {
             "0058_email_index",
             include_str!("../../migrations/0058_email_index.sql"),
         ),
+        // chi_cache is the local mapping layer for the Chi-first agent surface.
+        // Agent records (Claude JSONL, Devin sidecar ledger, etc.) remain the
+        // source of truth; this table only stores run_id → external_id mapping,
+        // one-off output metadata, and terminal session links for future
+        // persistence. WP-01 of plans/2026-08-08-ikenga-chi-first.
+        (
+            59,
+            "0059_chi_cache",
+            include_str!("../../migrations/0059_chi_cache.sql"),
+        ),
     ];
 
     for (id, name, sql) in migrations {

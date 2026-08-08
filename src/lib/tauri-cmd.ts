@@ -4723,3 +4723,84 @@ export async function closeWindow(label: string): Promise<void> {
 export async function listWindows(): Promise<WindowDescriptor[]> {
 	return invoke<WindowDescriptor[]>('window_list');
 }
+
+// ── Chi-first agent surface (plans/2026-08-08-ikenga-chi-first WP-01) ─────────
+
+export type ChiRunStatus =
+	| 'queued'
+	| 'running'
+	| 'awaiting_auth'
+	| 'done'
+	| 'failed'
+	| 'cancelled'
+	| 'timed_out';
+
+export interface ChiRunResult {
+	run_id: string;
+	status: ChiRunStatus;
+	output?: string;
+	output_truncated?: boolean;
+	error?: string;
+}
+
+export interface ChiCacheRow {
+	run_id: string;
+	engine_id: string;
+	external_id?: string;
+	brief?: string;
+	cwd?: string;
+	model?: string;
+	mode?: string;
+	status: string;
+	output_path?: string;
+	output_truncated?: boolean;
+	error?: string;
+	artifacts?: unknown;
+	parent_id?: string;
+	owner: string;
+	terminal_session_id?: string;
+	started_at?: string;
+	ended_at?: string;
+	last_seen_at?: string;
+	expires_at?: string;
+}
+
+export interface ChiRunOpts extends Record<string, unknown> {
+	engineId: string;
+	prompt: string;
+	cwd?: string;
+	model?: string;
+	mode?: string;
+	timeoutSeconds?: number;
+	parentId?: string;
+	resumeSessionId?: string;
+}
+
+/** Start a new Chi run. The engine child is spawned in WP-02; WP-01 mints
+ *  a run id and persists a cache row. */
+export async function chiRun(opts: ChiRunOpts): Promise<ChiRunResult> {
+	return invoke<ChiRunResult>('chi_run', opts);
+}
+
+/** Resume an existing Chi run by its Ikenga run_id. */
+export async function chiResume(runId: string, prompt: string): Promise<ChiRunResult> {
+	return invoke<ChiRunResult>('chi_resume', { runId, prompt });
+}
+
+/** Read the status of a Chi run from the cache. */
+export async function chiStatus(runId: string): Promise<ChiRunResult> {
+	return invoke<ChiRunResult>('chi_status', { runId });
+}
+
+/** List cached Chi runs, optionally filtered by engine. */
+export async function chiList(
+	engineId?: string | null,
+	limit?: number | null
+): Promise<ChiCacheRow[]> {
+	return invoke<ChiCacheRow[]>('chi_list', { engineId: engineId ?? null, limit: limit ?? null });
+}
+
+/** Cancel a Chi run. */
+export async function chiCancel(runId: string): Promise<ChiRunResult> {
+	return invoke<ChiRunResult>('chi_cancel', { runId });
+}
