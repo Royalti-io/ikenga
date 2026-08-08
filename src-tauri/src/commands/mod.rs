@@ -69,7 +69,7 @@ pub use chat::{
     chat_load_session, chat_new_session, chat_prompt, chat_respond_permission, chat_set_effort,
     chat_set_mode, chat_set_model,
 };
-pub use chi::{chi_cancel, chi_list, chi_resume, chi_run, chi_status, ChiCache};
+pub use chi::{chi_cancel, chi_list, chi_resume, chi_run, chi_status, ChiCache, ChiRuntime};
 pub use claude::{
     chat_thread_move, chat_threads_list_by_project, claude_list_sessions, claude_read_jsonl,
     session_cancel, session_destroy, session_destroy_all, session_ensure, session_send,

@@ -38,7 +38,7 @@ use commands::{
     chat_engines_list, chat_fork_session, chat_initialize, chat_load_session, chat_new_session,
     chat_prompt, chat_respond_permission, chat_set_effort, chat_set_mode, chat_set_model,
     chat_thread_move, chat_threads_list_by_project, chi_cancel, chi_list, chi_resume, chi_run,
-    chi_status, claude_asset_list_pins, claude_asset_pin, claude_asset_unpin,
+    chi_status, ChiRuntime, claude_asset_list_pins, claude_asset_pin, claude_asset_unpin,
     claude_assets_discover, claude_config_load, claude_config_read_file, claude_config_unwatch,
     claude_config_watch, claude_list_sessions, claude_primitive_copy, claude_primitive_copy_batch,
     claude_primitive_disable, claude_primitive_disable_for, claude_primitive_enable,
@@ -291,6 +291,9 @@ pub fn run() {
 
             // WP-01 (chi-first agent surface): cache directory + metadata cache.
             app.manage(ChiCache::new(data_dir.clone()));
+
+            // WP-02: runtime state for live Chi children.
+            app.manage(Arc::new(ChiRuntime::new()));
 
             // Phase 1 (projects-first-class): expire-and-delete sweeper for
             // iyke_locks. 30s cadence; cheap.
