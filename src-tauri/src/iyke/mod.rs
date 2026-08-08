@@ -29,7 +29,6 @@ pub mod projects;
 pub mod rpc;
 pub mod secrets;
 pub mod server;
-pub mod sessions;
 pub mod state;
 pub mod tasks;
 pub mod terminal;

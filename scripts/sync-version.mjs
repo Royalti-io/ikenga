@@ -10,40 +10,40 @@ import { readFileSync, writeFileSync } from 'node:fs';
 
 const version = JSON.parse(readFileSync('package.json', 'utf8')).version;
 if (!version) {
-  console.error('sync-version: no version in package.json');
-  process.exit(1);
+	console.error('sync-version: no version in package.json');
+	process.exit(1);
 }
 
 const edits = [
-  // tauri.conf.json — first top-level "version" field
-  {
-    path: 'src-tauri/tauri.conf.json',
-    re: /("version":\s*")[^"]+(")/,
-    label: 'tauri.conf.json',
-  },
-  // Cargo.toml — the [package] version is the first `version = "..."` line
-  {
-    path: 'src-tauri/Cargo.toml',
-    re: /^(version\s*=\s*")[^"]+(")/m,
-    label: 'Cargo.toml',
-  },
-  // Cargo.lock — the ikenga-desktop package entry
-  {
-    path: 'src-tauri/Cargo.lock',
-    re: /(name = "ikenga-desktop"\nversion = ")[^"]+(")/,
-    label: 'Cargo.lock',
-  },
+	// tauri.conf.json — first top-level "version" field
+	{
+		path: 'src-tauri/tauri.conf.json',
+		re: /("version":\s*")[^"]+(")/,
+		label: 'tauri.conf.json',
+	},
+	// Cargo.toml — the [package] version is the first `version = "..."` line
+	{
+		path: 'src-tauri/Cargo.toml',
+		re: /^(version\s*=\s*")[^"]+(")/m,
+		label: 'Cargo.toml',
+	},
+	// Cargo.lock — the ikenga-desktop package entry
+	{
+		path: 'src-tauri/Cargo.lock',
+		re: /(name = "ikenga-desktop"\nversion = ")[^"]+(")/,
+		label: 'Cargo.lock',
+	},
 ];
 
 for (const { path, re, label } of edits) {
-  const before = readFileSync(path, 'utf8');
-  if (!re.test(before)) {
-    console.error(`sync-version: pattern not found in ${label} (${path})`);
-    process.exit(1);
-  }
-  const after = before.replace(re, `$1${version}$2`);
-  if (after !== before) writeFileSync(path, after);
-  console.log(`sync-version: ${label} → ${version}`);
+	const before = readFileSync(path, 'utf8');
+	if (!re.test(before)) {
+		console.error(`sync-version: pattern not found in ${label} (${path})`);
+		process.exit(1);
+	}
+	const after = before.replace(re, `$1${version}$2`);
+	if (after !== before) writeFileSync(path, after);
+	console.log(`sync-version: ${label} → ${version}`);
 }
 
 console.log(`sync-version: done (${version})`);

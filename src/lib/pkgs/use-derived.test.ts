@@ -261,9 +261,7 @@ describe('deriveFromQueries', () => {
 						}),
 					],
 				},
-				registryEntries: [
-					makeRegistryEntry('@ikenga/pkg-engine-claude-code', { latest: '0.2.0' }),
-				],
+				registryEntries: [makeRegistryEntry('@ikenga/pkg-engine-claude-code', { latest: '0.2.0' })],
 			});
 			expect(d.installed[0]?.latest).toBe('0.2.0');
 			expect(d.updates).toHaveLength(1);

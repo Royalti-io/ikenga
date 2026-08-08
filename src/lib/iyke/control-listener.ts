@@ -16,7 +16,6 @@
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { useEffect } from 'react';
 
-import { mintThreadId } from '@/chat';
 import { usePaneStore } from '@/lib/panes/pane-store';
 import type { PaneView } from '@/lib/panes/types';
 import { modeForRoute } from '@/lib/shell/mode-routes';
@@ -222,20 +221,6 @@ function paneViewFromOpenPayload(payload: unknown): PaneView | null {
 			typeof cmdRaw === 'string' && cmdRaw.trim().length > 0 ? cmdRaw.split(/\s+/) : undefined;
 		const sessionId = createTerminalSession(cmd ? { cmd, title: cmdRaw as string } : undefined);
 		return { kind: 'terminal', sessionId };
-	}
-
-	if (kind === 'chat') {
-		const sessionId = p.session_id;
-		if (typeof sessionId !== 'string' || sessionId.length === 0) {
-			console.warn('[iyke] iyke:open chat ignored — missing session_id');
-			return null;
-		}
-		// `iyke open chat new` is the "start a fresh session" sentinel — resolve
-		// it to a real frontend-minted UUID, exactly as the UI's New-Chat button
-		// does. Using the literal "new" as a threadId collides across panes and
-		// breaks pop-out live-sync (the detached window subscribes to the wrong
-		// channel). See plans/multi-window 04-discussion Round 3.
-		return { kind: 'chat', sessionId: sessionId === 'new' ? mintThreadId() : sessionId };
 	}
 
 	if (kind === 'artifact') {

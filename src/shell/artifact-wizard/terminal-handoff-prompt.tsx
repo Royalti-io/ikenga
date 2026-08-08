@@ -49,7 +49,7 @@ export function TerminalHandoffPrompt() {
 					<DialogTitle>Attach terminal to the loupe?</DialogTitle>
 					<DialogDescription>
 						The agent wrote <code className="font-mono text-foreground">{fileName}</code> and the
-						Studio loupe is now open. Attach the terminal to the loupe's Chat tab (and close the
+						Studio loupe is now open. Attach the terminal to the loupe's Terminal tab (and close the
 						right pane) or keep the terminal where it is.
 					</DialogDescription>
 				</DialogHeader>

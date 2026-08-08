@@ -312,6 +312,7 @@ fn hook_target(
         // Claude; Gemini's settings file is its user `settings.json`.
         EngineId::Claude => hook_path(scope, project_root, hook_file).map_err(map_path_err)?,
         EngineId::Gemini => gemini_settings_path()?,
+        EngineId::Antigravity => antigravity_config_path()?,
         // Codex hooks: standalone `~/.codex/hooks.json` (JSON) per the layout
         // `location`. (Inline `config.toml#hooks` is the alternate home handled
         // by the TOML engine; the layout's canonical write target is hooks.json.)
@@ -336,8 +337,8 @@ fn mcp_target(
     let path = match engine {
         // Claude MCP: standalone `.mcp.json` (project) / `~/.claude.json` (user).
         EngineId::Claude => mcp_path(scope, project_root).map_err(map_path_err)?,
-        // Gemini MCP: `~/.gemini/settings.json#mcpServers` (STRICT).
         EngineId::Gemini => gemini_settings_path()?,
+        EngineId::Antigravity => antigravity_config_path()?,
         // Codex MCP: `~/.codex/config.toml#mcp_servers` (TOML, lenient).
         EngineId::Codex => codex_dir()?.join("config.toml"),
     };
@@ -492,6 +493,7 @@ fn engine_id_str(engine: EngineId) -> &'static str {
         EngineId::Claude => "claude",
         EngineId::Gemini => "gemini",
         EngineId::Codex => "codex",
+        EngineId::Antigravity => "antigravity-cli",
     }
 }
 
@@ -504,6 +506,18 @@ fn gemini_settings_path() -> Result<PathBuf, StoreError> {
         })?
         .join(".gemini")
         .join("settings.json"))
+}
+
+/// Antigravity's config file (`~/.gemini/config/mcp_config.json`).
+#[allow(dead_code)]
+fn antigravity_config_path() -> Result<PathBuf, StoreError> {
+    Ok(home_dir()
+        .map_err(|e| StoreError::Unsupported {
+            message: e.to_string(),
+        })?
+        .join(".gemini")
+        .join("config")
+        .join("mcp_config.json"))
 }
 
 /// Codex's user config dir (`~/.codex`).

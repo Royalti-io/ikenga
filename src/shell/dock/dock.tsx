@@ -1,11 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import {
-	ChevronLeft,
-	ChevronRight,
-	Plus,
-	MessageSquare,
-	Terminal as TerminalIcon,
-} from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, Terminal as TerminalIcon } from 'lucide-react';
 import type { PaneView } from '@/lib/panes/types';
 import { CommandRow } from '@/components/ui/command-row';
 import { FeedbackState } from '@/components/ui/feedback-state';
@@ -19,21 +13,7 @@ import { useTerminalTitles } from '@/terminal/use-terminal-titles';
 import { viewKey } from '@/shell/panes/view-key';
 import { viewWorkspace } from '@/shell/panes/tab-workspace';
 import { createTerminalSession } from '@/terminal/single-terminal';
-import { mintThreadId } from '@/chat';
-import { activeProjectCwd } from '@/lib/shell/active-project-cwd';
-import { sessionEnsure } from '@/lib/tauri-cmd';
 import { cn } from '@/components/ui/utils';
-
-function newChatTab(): { kind: 'chat'; sessionId: string } {
-	const threadId = mintThreadId();
-	// Register the session row in Rust ahead of any send so the streaming
-	// child can spawn on the first prompt. Fire-and-forget — sessionEnsure
-	// is idempotent and the adapter also calls it on attach.
-	void sessionEnsure(threadId, activeProjectCwd(), {}).catch((e) =>
-		console.warn('sessionEnsure (dock):', e)
-	);
-	return { kind: 'chat', sessionId: threadId };
-}
 
 const COLLAPSED_WIDTH = '36px';
 
@@ -260,9 +240,6 @@ export function Dock() {
 					<PaneBody key={viewKey(activeTab)} paneId="__dock__" view={activeTab} />
 				) : (
 					<DockEmpty
-						onSeedChat={() => {
-							appendView(newChatTab());
-						}}
 						onSeedTerminal={() => {
 							appendView({ kind: 'terminal', sessionId: createTerminalSession() });
 						}}
@@ -344,8 +321,6 @@ function DockResizeHandle({ width, setWidth }: { width: number; setWidth: (n: nu
 
 function DockTabIcon({ view }: { view: PaneView }) {
 	switch (view.kind) {
-		case 'chat':
-			return <MessageSquare className="h-3.5 w-3.5" />;
 		case 'terminal':
 			return <TerminalIcon className="h-3.5 w-3.5" />;
 		default:
@@ -400,7 +375,6 @@ function DockAddButton({ onAdd }: { onAdd: (view: PaneView) => void }) {
 					role="menu"
 					className="absolute right-0 top-full z-50 mt-1 w-44 overflow-hidden rounded-md border border-border bg-popover py-1 text-popover-foreground shadow-lg"
 				>
-					<DockMenuItem Icon={MessageSquare} label="New chat" onClick={() => pick(newChatTab())} />
 					<DockMenuItem
 						Icon={TerminalIcon}
 						label="New terminal"
@@ -438,13 +412,7 @@ function DockMenuItem({
 	return <CommandRow size="sm" as="menuitem" Icon={Icon} label={label} onSelect={onClick} />;
 }
 
-function DockEmpty({
-	onSeedChat,
-	onSeedTerminal,
-}: {
-	onSeedChat: () => void;
-	onSeedTerminal: () => void;
-}) {
+function DockEmpty({ onSeedTerminal }: { onSeedTerminal: () => void }) {
 	return (
 		<FeedbackState
 			variant="empty"
@@ -459,14 +427,6 @@ function DockEmpty({
 			}
 			action={
 				<>
-					<button
-						type="button"
-						onClick={onSeedChat}
-						className="rounded border px-3 py-1 text-xs hover:bg-card"
-						style={{ borderColor: 'var(--border)' }}
-					>
-						New chat
-					</button>
 					<button
 						type="button"
 						onClick={onSeedTerminal}

@@ -36,9 +36,10 @@ use super::claude::{
 };
 use super::comments::{get_pin_read, post_pin_acknowledge, post_pin_resolve};
 use super::handlers::{
-    get_dom, get_iframe_state, get_logs, get_network, get_pkg_list, get_query_cache, get_state,
-    get_terminal_read, post_click, post_close, post_devtools, post_focus, post_go,
-    post_iframe_message, post_key, post_mode, post_oba_install_local, post_open,
+    get_chi_list, get_chi_status, get_dom, get_iframe_state, get_logs, get_network, get_pkg_list,
+    get_query_cache, get_state, get_terminal_read, post_chi_cancel, post_chi_resume, post_chi_run,
+    post_click, post_close, post_devtools, post_focus, post_go, post_iframe_message, post_key,
+    post_mode, post_oba_install_local, post_open,
     post_pkg_dev_register, post_pkg_dev_reload, post_pkg_dev_unregister, post_pkg_health_remove,
     post_pkg_health_remove_all, post_pkg_health_scan, post_pkg_install, post_pkg_scope_set,
     post_pkg_uninstall, post_refresh, post_resize, post_screenshot_pane, post_screenshot_window,
@@ -62,7 +63,6 @@ use super::projects::{
     post_project_set_active, post_project_update,
 };
 use super::secrets::{get_secret, get_secret_list, post_secret_delete, post_secret_set};
-use super::sessions::{get_session_list, post_session_move, post_session_start};
 use super::state::IykeState;
 use super::tasks::{get_task_list, post_task_complete, post_task_create, post_task_update};
 use super::terminal::{
@@ -213,10 +213,12 @@ pub async fn serve(
         .route("/iyke/project/archive", post(post_project_archive))
         .route("/iyke/project/set-active", post(post_project_set_active))
         .route("/iyke/project/active", get(get_project_active))
-        // Chat sessions (Phase 3 of projects-first-class plan).
-        .route("/iyke/session/list", get(get_session_list))
-        .route("/iyke/session/move", post(post_session_move))
-        .route("/iyke/session/start", post(post_session_start))
+        // Chi-first agent surface (WP-03).
+        .route("/iyke/chi/run", post(post_chi_run))
+        .route("/iyke/chi/resume", post(post_chi_resume))
+        .route("/iyke/chi/status", get(get_chi_status))
+        .route("/iyke/chi/list", get(get_chi_list))
+        .route("/iyke/chi/cancel", post(post_chi_cancel))
         // Claude config (Phase 4 — 4-tier discovery + pins).
         .route("/iyke/claude/assets", get(get_claude_assets_list))
         .route("/iyke/claude/asset/pin", post(post_claude_asset_pin))

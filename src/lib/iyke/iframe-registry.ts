@@ -10,11 +10,6 @@
 
 import { invoke } from '@tauri-apps/api/core';
 
-import {
-	openSessionDialog,
-	type OpenSessionDialogOptions,
-} from '@/components/pkg/open-session-dialog';
-import { sendToActiveSession } from '@/components/pkg/send-to-active-session';
 import { usePaneStore } from '@/lib/panes/pane-store';
 import { findLeaf } from '@/lib/panes/pane-reducer';
 import { resolvePath } from '@/lib/paths/file-paths';
@@ -218,81 +213,6 @@ export function installIykeIframeMessageListener() {
 						new CustomEvent(IFRAME_STATE_EVENT, { detail: { paneId: reg.paneId, key } })
 					);
 				}
-				return;
-			}
-			// First-party artifact channel for host.openSessionDialog (WP-27 /
-			// G-SESSION-DIALOG). Mirrors the verb's shape from pkg-iframe-host
-			// but without a scope check — plan-folder artifacts are first-party.
-			// The dialog itself is the consent surface (Round 7 lock); no
-			// separate confirm modal. Result envelope is the frozen union
-			// from open-session-dialog.ts.
-			case 'host.openSessionDialog': {
-				const reqId = data.request_id;
-				const src = e.source as Window | null;
-				const respond = (result: unknown) => {
-					if (!reqId || !src) return;
-					try {
-						src.postMessage(
-							{
-								__iyke: true,
-								kind: 'host.openSessionDialog:result',
-								request_id: reqId,
-								payload: result,
-							},
-							'*'
-						);
-					} catch {}
-				};
-				const payload = (data.payload ?? {}) as Record<string, unknown>;
-				const opts: OpenSessionDialogOptions = {
-					initialPrompt:
-						typeof payload.initialPrompt === 'string' ? payload.initialPrompt : undefined,
-					title: typeof payload.title === 'string' ? payload.title : undefined,
-					engineId: typeof payload.engineId === 'string' ? payload.engineId : undefined,
-					sessionKind:
-						payload.sessionKind === 'chat' || payload.sessionKind === 'terminal'
-							? payload.sessionKind
-							: undefined,
-					cwd: typeof payload.cwd === 'string' ? payload.cwd : undefined,
-					source: typeof payload.source === 'string' ? payload.source : undefined,
-				};
-				void openSessionDialog(opts).then(respond);
-				return;
-			}
-			// First-party artifact channel for the WP-22 attach verb. Mirrors
-			// the openSessionDialog case above: artifacts are
-			// first-party so they skip the pkg `engine:invoke` scope check
-			// (Round-6 Opt-A). No per-call confirm modal — see
-			// plans/groundwork/10-* §Prompt-injection notes (locked
-			// 2026-05-21). The source-stamp inside the core is the audit
-			// trail; `reason: 'no-active-session'` is the safety floor.
-			// Frozen by G-ACTIVE-SESSION — WP-21's palette codes against the
-			// `{ ok, threadId?, reason? }` shape on the result message.
-			case 'host.sendToActiveSession': {
-				const reqId = data.request_id;
-				const src = e.source as Window | null;
-				const respond = (result: unknown) => {
-					if (!reqId || !src) return;
-					try {
-						src.postMessage(
-							{
-								__iyke: true,
-								kind: 'host.sendToActiveSession:result',
-								request_id: reqId,
-								payload: result,
-							},
-							'*'
-						);
-					} catch {}
-				};
-				const payload = (data.payload ?? {}) as Record<string, unknown>;
-				const prompt = typeof payload.prompt === 'string' ? payload.prompt : null;
-				if (!prompt) {
-					respond({ ok: false, error: 'missing prompt' });
-					return;
-				}
-				const source = typeof payload.source === 'string' ? payload.source : undefined;
-				void sendToActiveSession({ prompt, source }).then(respond);
 				return;
 			}
 			// First-party artifact channel: open a sibling artifact (a

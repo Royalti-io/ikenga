@@ -60,7 +60,6 @@ describe('WizardStepper — progress rail', () => {
 			'connectors',
 			'scaffolding',
 			'appearance',
-			'telemetry',
 			'summary',
 		]);
 		const state = useShellStore.getState().onboarding;
@@ -75,7 +74,7 @@ describe('WizardStepper — progress rail', () => {
 		expect(OPTIONAL_ONBOARDING_STEPS.has('summary')).toBe(false);
 		expect(OPTIONAL_ONBOARDING_STEPS.has('agent')).toBe(false);
 		expect(OPTIONAL_ONBOARDING_STEPS.has('connectors')).toBe(true);
-		expect(OPTIONAL_ONBOARDING_STEPS.has('telemetry')).toBe(true);
+		expect(OPTIONAL_ONBOARDING_STEPS.has('appearance')).toBe(true);
 	});
 });
 

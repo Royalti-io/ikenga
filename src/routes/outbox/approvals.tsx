@@ -5,7 +5,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
 import { useMemo } from 'react';
-import { openSessionDialog } from '@/components/pkg/open-session-dialog';
 import {
 	deriveWorkerHealth,
 	paActionsListQueryOptions,
@@ -43,17 +42,6 @@ function ApprovalsPage() {
 	const onEdit = (id: string, patch: { subject?: string; body?: string }) =>
 		void paActionsUpdate(id, patch);
 
-	// Hand a draft off to a fresh Chi conversation seeded with its content.
-	const handoff = (id: string) => {
-		const d = drafts.find((x) => x.id === id);
-		if (!d) return;
-		void openSessionDialog({
-			initialPrompt: `Refine this ${d.channel} draft to ${d.recipient}.\n\nSubject: ${d.subject}\n\n${d.body}`,
-			source: 'approve-gate',
-			sessionKind: 'chat',
-		});
-	};
-
 	return (
 		<div className="h-full bg-background">
 			<ApproveGatePanel
@@ -63,8 +51,6 @@ function ApprovalsPage() {
 				onReject={onReject}
 				onEdit={onEdit}
 				onRetry={onRetry}
-				onSendToChat={handoff}
-				onContinueSession={handoff}
 			/>
 		</div>
 	);

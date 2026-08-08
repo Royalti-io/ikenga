@@ -1,54 +1,25 @@
 // startArtifact — wires up the agent + Studio loupe handoff.
 //
-// Two agent flavors share most of the flow:
-//
-//   - **Terminal** (claude / codex / gemini / custom): spawn a PTY, type
-//     the kickoff via bracketed paste, mount as a `terminal` pane.
-//   - **Chat**: mint an ACP chat thread, mount as a `chat` pane, push the
-//     kickoff through the adapter's send pipeline.
-//
-// Either way the Studio opens in grid density on the chosen folder
-// alongside the agent pane. A file-watcher then swaps grid → loupe when
-// the agent's first `.html` lands. Terminal flow runs the handoff-prompt
-// after the swap; chat skips it (no terminal to attach).
+// Spawn a PTY with the chosen agent (claude / codex / gemini / custom), type
+// the kickoff via bracketed paste, and mount it as a `terminal` pane. The
+// Studio opens in grid density on the chosen folder alongside the agent pane;
+// a file-watcher then swaps grid → loupe when the agent's first `.html` lands
+// and runs the handoff prompt.
 //
 // The watcher outlives the wizard component — fire-and-forget side effect
 // with a 30-minute self-timeout so it doesn't leak if the agent never
 // writes anything.
-//
-// The chat half of that flow is also exported on its own as
-// `startSeededChat()` — the shared seam for non-wizard callers that need to
-// open a chat pane pre-loaded with a kickoff prompt. The shell's New-Session
-// dialog (WP-27 / G-SESSION-DIALOG, supersedes the retired
-// `host.startChatSession` verb / WP-10) drives this through its own Start
-// handler; keep this the single mint → mount → send path so behavior stays
-// consistent across the wizard, the dialog, and any future seeded-session
-// entrypoint.
-//
-// Phase-4 (WP-22) adds a *sibling* path in
-// `src/components/pkg/send-to-active-session.ts` that targets the focused
-// chat pane's existing thread instead of minting. That sibling reuses this
-// file's `appendUserTurn → adapter.send → drain` pipeline but skips the
-// mint + mount + pane-split steps. The frozen verb is
-// `host.sendToActiveSession({ prompt, source? })` (G-ACTIVE-SESSION).
 
-import { mintThreadId, defaultChatAdapterId } from '@/chat';
-import { appendUserTurn, createThread } from '@/chat/persist';
-import { getAdapter } from '@/chat/registry';
-import { useChatStore } from '@/chat/store';
 import {
 	fsListenWatch,
 	fsMkdir,
 	fsUnwatch,
 	fsWatch,
 	ptyWrite,
-	sessionEnsure,
 	type Project,
 } from '@/lib/tauri-cmd';
 import { findLeaf } from '@/lib/panes/pane-reducer';
 import { usePaneStore } from '@/lib/panes/pane-store';
-import { defaultCwd } from '@/lib/shell/default-cwd';
-import { useShellStore } from '@/lib/shell/shell-store';
 import { createTerminalSession } from '@/terminal/single-terminal';
 import { useTerminalStore } from '@/terminal/session-store';
 import { type Archetype, slugifyName } from '@/shell/artifact-wizard/archetypes';
@@ -56,7 +27,6 @@ import { requestOrApplyHandoff } from '@/shell/artifact-wizard/handoff-pref';
 import { useWizardPopStore } from '@/shell/artifact-wizard/pop-recovery-store';
 
 export type AgentChoice =
-	| { kind: 'chat' }
 	| { kind: 'claude' }
 	| { kind: 'codex' }
 	| { kind: 'gemini' }
@@ -77,7 +47,7 @@ export interface StartArgs {
 	agent: AgentChoice;
 }
 
-function resolveAgentCmd(agent: Exclude<AgentChoice, { kind: 'chat' }>): {
+function resolveAgentCmd(agent: AgentChoice): {
 	cmd: string[];
 	title: string;
 } {
@@ -96,8 +66,6 @@ function resolveAgentCmd(agent: Exclude<AgentChoice, { kind: 'chat' }>): {
 export interface StartResult {
 	/** Set when the agent surface is a terminal pane. */
 	terminalSessionId: string | null;
-	/** Set when the agent surface is a chat pane. */
-	threadId: string | null;
 	slug: string;
 	kickoffPrompt: string;
 }
@@ -142,11 +110,10 @@ export async function startArtifact(args: StartArgs): Promise<StartResult> {
 		});
 	}
 
-	// Layout (shared across both agent flavors): Studio on the left (active
-	// pane) in grid density pointed at the chosen folder, agent surface
-	// (terminal or chat) split off to the right. We re-focus the Studio so
-	// the user can drive it without a click. When the watcher fires, the
-	// Studio's view swaps grid → loupe in place; the agent pane stays
+	// Layout: Studio on the left (active pane) in grid density pointed at the
+	// chosen folder, terminal agent split off to the right. We re-focus the
+	// Studio so the user can drive it without a click. When the watcher fires,
+	// the Studio's view swaps grid → loupe in place; the agent pane stays
 	// untouched on the right.
 	const cwd = args.project.root_path ?? args.folder;
 	const paneStore = usePaneStore.getState();
@@ -157,43 +124,18 @@ export async function startArtifact(args: StartArgs): Promise<StartResult> {
 		density: 'grid',
 	});
 
-	let terminalSessionId: string | null = null;
-	let threadId: string | null = null;
-	let agentLeafId: string;
-
-	if (args.agent.kind === 'chat') {
-		// The chat surface delegates its full mint → mount → send pipeline to
-		// the shared `startSeededChat` seam. With `split: 'right'` it splits
-		// the focused (Studio) leaf horizontally and mounts the chat pane on
-		// the new right leaf, returning that pane's id.
-		const seeded = await startSeededChat({
-			prompt: kickoffPrompt,
-			projectId: args.project.id,
-			title: `${args.archetype.label}: ${args.project.display_name}`,
-			split: 'right',
-		});
-		threadId = seeded.threadId;
-		agentLeafId = seeded.paneId;
-	} else {
-		paneStore.splitPane(studioLeafId, 'horizontal');
-		agentLeafId = usePaneStore.getState().focusedId;
-		terminalSessionId = mountTerminalAgent({
-			agent: args.agent,
-			cwd,
-			archetypeLabel: args.archetype.label,
-			agentLeafId,
-		});
-		// Type the kickoff prompt into the PTY once it's ready. Fire and
-		// forget — the chat path's autoSend covers the equivalent step.
-		void typeKickoff(terminalSessionId, kickoffPrompt);
-	}
+	paneStore.splitPane(studioLeafId, 'horizontal');
+	const agentLeafId = usePaneStore.getState().focusedId;
+	const terminalSessionId = mountTerminalAgent({
+		agent: args.agent,
+		cwd,
+		archetypeLabel: args.archetype.label,
+		agentLeafId,
+	});
+	void typeKickoff(terminalSessionId, kickoffPrompt);
 
 	usePaneStore.getState().focusPane(studioLeafId);
 
-	// Watch the project root recursively and swap the Studio leaf's view
-	// from grid → loupe when the agent's file lands under the chosen
-	// folder. After the swap, terminal flows run the handoff prompt;
-	// chat flows skip it (no terminal to attach).
 	if (args.project.root_path) {
 		void watchForArtifact({
 			rootPath: args.project.root_path,
@@ -205,13 +147,13 @@ export async function startArtifact(args: StartArgs): Promise<StartResult> {
 		});
 	}
 
-	return { terminalSessionId, threadId, slug, kickoffPrompt };
+	return { terminalSessionId, slug, kickoffPrompt };
 }
 
 // ─── Agent mounts ────────────────────────────────────────────────────────
 
 function mountTerminalAgent(args: {
-	agent: Exclude<AgentChoice, { kind: 'chat' }>;
+	agent: AgentChoice;
 	cwd: string;
 	archetypeLabel: string;
 	agentLeafId: string;
@@ -227,141 +169,6 @@ function mountTerminalAgent(args: {
 		sessionId,
 	});
 	return sessionId;
-}
-
-export interface StartSeededChatOptions {
-	/** Kickoff prompt; rendered as the thread's first user turn and sent. */
-	prompt: string;
-	/** Project to scope the thread to. Defaults to the active project
-	 *  (`shell-store.activeProjectId`). The session cwd is resolved from this
-	 *  project's `root_path`, falling back to `defaultCwd()` when the project
-	 *  has none (e.g. the seed Default project). */
-	projectId?: string;
-	/** Chat pane title. Defaults to `'Untitled session'`. */
-	title?: string;
-	/** Engine/adapter to mount the thread on (`claude-code`, `gemini`, …).
-	 *  Defaults to `defaultChatAdapterId()`. Persisted as the thread's
-	 *  `engine_id` per ADR-013 §2. */
-	engineId?: string;
-	/** Where to mount the chat pane. `'right'`/`'bottom'` split the focused
-	 *  leaf (horizontal/vertical) and mount on the new leaf; `null` (default)
-	 *  mounts on the currently-focused leaf without splitting. */
-	split?: 'right' | 'bottom' | null;
-}
-
-export interface StartSeededChatResult {
-	threadId: string;
-	paneId: string;
-}
-
-/**
- * Mint a fresh chat thread, mount a chat pane, and send the kickoff prompt.
- *
- * The artifact-creation wizard's proven mint → ensure → persist → mount → send
- * pipeline, lifted out of its `onConfirm` chain so non-wizard callers (the
- * shell's New-Session dialog Start handler) can reuse it without
- * re-implementing the dance. Returns the thread + pane ids so callers can
- * publish them as state, focus the pane, etc.
- *
- * Ordering is load-bearing: the thread is minted and persisted before the pane
- * mounts (so the pane hydrates from the in-memory store rather than racing the
- * DB → store loop), and the kickoff send is fire-and-forget after mount.
- */
-export async function startSeededChat(
-	opts: StartSeededChatOptions
-): Promise<StartSeededChatResult> {
-	const { prompt, title = 'Untitled session', split = null } = opts;
-
-	const shell = useShellStore.getState();
-	const projectId = opts.projectId ?? shell.activeProjectId;
-	const project = shell.projects.find((p) => p.id === projectId);
-	const cwd = project?.root_path ?? defaultCwd();
-	const adapterId = opts.engineId ?? defaultChatAdapterId();
-
-	const threadId = mintThreadId();
-	const now = Date.now();
-
-	// Rust-side session row up front so the streaming child can spawn on
-	// the first prompt (idempotent — adapter.attach also calls this).
-	await sessionEnsure(threadId, cwd, {});
-
-	// Persist the thread so it survives a reload.
-	await createThread({
-		id: threadId,
-		adapterId,
-		cwd,
-		claudeSessionId: null,
-		model: null,
-		title,
-		projectId,
-	});
-
-	// Mirror into the in-memory store so the chat pane mounts with the
-	// thread already known. Without this the pane has to wait for the
-	// DB → store hydration loop, which races with autoSend below.
-	useChatStore.getState().upsertThread({
-		id: threadId,
-		adapterId,
-		// ADR-013 §2: `engineId` is the persisted engine for the thread.
-		// New threads default to the adapter that minted them, matching
-		// what `createThread()` writes to `chat_sessions.engine_id`.
-		engineId: adapterId,
-		title,
-		cwd,
-		model: null,
-		claudeSessionId: null,
-		ptyId: null,
-		projectId,
-		createdAt: now,
-		updatedAt: now,
-	});
-
-	// Resolve the mount target, splitting the focused leaf first if asked.
-	const paneStore = usePaneStore.getState();
-	let paneId = paneStore.focusedId;
-	if (split) {
-		paneStore.splitPane(paneId, split === 'right' ? 'horizontal' : 'vertical');
-		paneId = usePaneStore.getState().focusedId;
-	}
-
-	// Mount the chat pane and auto-send the kickoff prompt.
-	usePaneStore.getState().addTab(paneId, {
-		kind: 'chat',
-		sessionId: threadId,
-	});
-	void autoSendKickoff(threadId, adapterId, prompt);
-
-	return { threadId, paneId };
-}
-
-async function autoSendKickoff(threadId: string, adapterId: string, text: string): Promise<void> {
-	try {
-		const turn = await appendUserTurn(threadId, text);
-		useChatStore.getState().appendEvents(threadId, [
-			{
-				kind: 'user_turn',
-				text: turn.text,
-				sequence: turn.sequence,
-				createdAt: turn.createdAt,
-			},
-		]);
-		const adapter = getAdapter(adapterId);
-		useChatStore.getState().setStatus(threadId, 'streaming');
-		const { iterable } = adapter.send({ threadId, text });
-		try {
-			for await (const _ev of iterable) {
-				// drain — the adapter's own listeners persist + push events
-			}
-		} finally {
-			if (useChatStore.getState().threads[threadId]?.status === 'streaming') {
-				useChatStore.getState().setStatus(threadId, 'idle');
-			}
-		}
-	} catch (e) {
-		const msg = e instanceof Error ? e.message : String(e);
-		console.error('[wizard] chat autoSend failed:', e);
-		useChatStore.getState().setStatus(threadId, 'error', msg);
-	}
 }
 
 /** Wait for the PTY id to land in the session-store, give the agent a beat
@@ -427,10 +234,9 @@ async function watchForArtifact(args: {
 	rootPath: string;
 	folderPrefix: string;
 	studioLeafId: string;
-	/** The leaf the agent surface (terminal OR chat) was mounted on. */
+	/** The leaf the agent terminal was mounted on. */
 	agentLeafId: string;
-	/** Set when the agent is a terminal — used to feed the handoff prompt.
-	 *  Null for chat agents (no terminal to attach). */
+	/** Set to the terminal session id when a handoff prompt should be typed. */
 	terminalSessionId: string | null;
 	slug: string;
 }): Promise<void> {
@@ -482,9 +288,8 @@ async function watchForArtifact(args: {
 				postedAt: Date.now(),
 			});
 		}
-		// Terminal flows: prompt the user (or apply their persisted pref)
-		// for the right-pane terminal handoff. Chat flows skip — there's
-		// no PTY owner to flip and the chat pane stays beside the loupe.
+		// Prompt the user (or apply their persisted pref) for the right-pane
+		// terminal handoff.
 		if (terminalSessionId) {
 			void requestOrApplyHandoff({
 				terminalSessionId,

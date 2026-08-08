@@ -97,7 +97,7 @@ function ScratchpadsPage() {
 				</div>
 				<p className="mt-1 text-sm text-muted-foreground">
 					Project-scoped, zero-structure notes. Anything an agent or you can write — plans,
-					handoffs, working context — that should outlive a chat.
+					handoffs, working context — that should outlive a terminal.
 				</p>
 			</div>
 

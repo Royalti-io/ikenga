@@ -8,10 +8,10 @@ function newRoute(path: string): LeafNode {
 }
 
 describe('filterTreeViews', () => {
-	it('drops chat tabs and keeps route tabs', () => {
+	it('drops artifact tabs and keeps route tabs', () => {
 		let root: PaneNode = newRoute('/inbox');
 		const id = (root as LeafNode).id;
-		root = addTab(root, id, { kind: 'chat', sessionId: 'c1' });
+		root = addTab(root, id, { kind: 'artifact', path: '/note.html' });
 		root = addTab(root, id, { kind: 'route', path: '/finance' });
 
 		const live = new Set<string>();
@@ -47,22 +47,22 @@ describe('filterTreeViews', () => {
 		expect(r1.ok).toBe(true);
 		root = r1.root;
 		const ids = getLeafIdsInOrder(root);
-		// Replace the right pane's tabs with chat-only.
-		root = (function setAllChat(node: PaneNode): PaneNode {
+		// Replace the right pane's tabs with artifact-only.
+		root = (function setAllArtifact(node: PaneNode): PaneNode {
 			if (node.type === 'leaf') {
 				if (node.id !== ids[1]) return node;
 				return {
 					...node,
-					tabs: [{ kind: 'chat', sessionId: 'c1' }],
+					tabs: [{ kind: 'artifact', path: '/c1.html' }],
 					activeTabIdx: 0,
 				};
 			}
-			return { ...node, children: node.children.map(setAllChat) };
+			return { ...node, children: node.children.map(setAllArtifact) };
 		})(root);
 
-		const r = filterTreeViews(root, (v) => v.kind !== 'chat');
+		const r = filterTreeViews(root, (v) => v.kind !== 'artifact');
 		expect(r).not.toBeNull();
-		// Right pane's only tab was a chat — drops the leaf, parent split
+		// Right pane's only tab was an artifact — drops the leaf, parent split
 		// collapses to its single remaining child.
 		expect(r!.type).toBe('leaf');
 		expect(leafCount(r!)).toBe(1);
@@ -72,29 +72,29 @@ describe('filterTreeViews', () => {
 		let root: PaneNode = newRoute('/a');
 		const r1 = splitLeaf(root, (root as LeafNode).id, 'horizontal');
 		root = r1.root;
-		// Force every tab to chat.
+		// Force every tab to artifact.
 		root = (function rewrite(node: PaneNode): PaneNode {
 			if (node.type === 'leaf') {
 				return {
 					...node,
-					tabs: [{ kind: 'chat', sessionId: `c-${node.id}` }],
+					tabs: [{ kind: 'artifact', path: `/${node.id}.html` }],
 					activeTabIdx: 0,
 				};
 			}
 			return { ...node, children: node.children.map(rewrite) };
 		})(root);
 
-		const r = filterTreeViews(root, (v) => v.kind !== 'chat');
+		const r = filterTreeViews(root, (v) => v.kind !== 'artifact');
 		expect(r).toBeNull();
 	});
 
 	it('clamps activeTabIdx when filtering removes the active tab', () => {
 		let root: PaneNode = newRoute('/inbox');
 		const id = (root as LeafNode).id;
-		root = addTab(root, id, { kind: 'chat', sessionId: 'c1' }); // active becomes idx 1
+		root = addTab(root, id, { kind: 'artifact', path: '/c1.html' }); // active becomes idx 1
 		expect((root as LeafNode).activeTabIdx).toBe(1);
 
-		const r = filterTreeViews(root, (v) => v.kind !== 'chat') as LeafNode;
+		const r = filterTreeViews(root, (v) => v.kind !== 'artifact') as LeafNode;
 		expect(r.tabs).toHaveLength(1);
 		expect(r.activeTabIdx).toBe(0);
 	});
@@ -106,20 +106,20 @@ describe('filterTreeViews', () => {
 		expect(leafCount(root)).toBe(3);
 
 		const ids = getLeafIdsInOrder(root);
-		// Mark middle leaf as chat-only so it gets dropped.
+		// Mark middle leaf as artifact-only so it gets dropped.
 		root = (function rewrite(node: PaneNode): PaneNode {
 			if (node.type === 'leaf') {
 				if (node.id !== ids[1]) return node;
 				return {
 					...node,
-					tabs: [{ kind: 'chat', sessionId: 'c-mid' }],
+					tabs: [{ kind: 'artifact', path: '/c-mid.html' }],
 					activeTabIdx: 0,
 				};
 			}
 			return { ...node, children: node.children.map(rewrite) };
 		})(root);
 
-		const r = filterTreeViews(root, (v) => v.kind !== 'chat');
+		const r = filterTreeViews(root, (v) => v.kind !== 'artifact');
 		expect(r).not.toBeNull();
 		expect(leafCount(r!)).toBe(2);
 		expect(r!.type).toBe('split');

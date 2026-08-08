@@ -1,6 +1,6 @@
 /* Render + a11y + interaction tests for <ApproveGatePanel />.
  * Covers the queue render, the accessible-name contract (the 5 quality-gate blockers),
- * J/K row navigation, ⌘S edit, the 10s undo window, and the reject/send-to-chat seams. */
+ * J/K row navigation, ⌘S edit, the 10s undo window, and the reject seam. */
 
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -16,18 +16,11 @@ import { APPROVE_GATE_FIXTURES } from './approve-gate-panel.fixtures';
 afterEach(cleanup);
 
 function setup(
-	over: Partial<
-		Record<
-			'onApprove' | 'onReject' | 'onSendToChat' | 'onContinueSession' | 'onEdit',
-			ReturnType<typeof vi.fn>
-		>
-	> = {}
+	over: Partial<Record<'onApprove' | 'onReject' | 'onEdit', ReturnType<typeof vi.fn>>> = {}
 ) {
 	const h = {
 		onApprove: vi.fn(),
 		onReject: vi.fn(),
-		onSendToChat: vi.fn(),
-		onContinueSession: vi.fn(),
 		onEdit: vi.fn(),
 		...over,
 	};
@@ -122,12 +115,6 @@ describe('ApproveGatePanel', () => {
 		expect(screen.queryByText('Valentim de Carvalho')).toBeNull();
 	});
 
-	it('Send to chat fires its seam', () => {
-		const h = setup();
-		fireEvent.click(screen.getByRole('button', { name: /Send to chat/ }));
-		expect(h.onSendToChat).toHaveBeenCalledWith('4f8e2');
-	});
-
 	it('checking rows reveals the bulk bar and Approve all commits the checked set', () => {
 		const h = setup();
 		fireEvent.click(screen.getByRole('checkbox', { name: 'Select Hannah Ekudo draft' }));
@@ -181,7 +168,9 @@ describe('deriveWorkerHealth (WP-11 liveness legend)', () => {
 	});
 
 	it('reads DEGRADED when a due committed row ages past T_expect while the worker is still live', () => {
-		const rows = [makeRow({ status: 'committed', committedAt: ago(6 * MIN), claimedAt: ago(1 * MIN) })];
+		const rows = [
+			makeRow({ status: 'committed', committedAt: ago(6 * MIN), claimedAt: ago(1 * MIN) }),
+		];
 		const h = deriveWorkerHealth(rows, NOW);
 		expect(h.state).toBe('degraded');
 		expect(h.queued).toBe(1);
@@ -208,7 +197,9 @@ describe('deriveWorkerHealth (WP-11 liveness legend)', () => {
 	});
 
 	it('reads DEAD when the last worker activity is older than T_dead', () => {
-		const rows = [makeRow({ status: 'committed', committedAt: ago(20 * MIN), claimedAt: ago(18 * MIN) })];
+		const rows = [
+			makeRow({ status: 'committed', committedAt: ago(20 * MIN), claimedAt: ago(18 * MIN) }),
+		];
 		expect(deriveWorkerHealth(rows, NOW).state).toBe('dead');
 	});
 
@@ -286,8 +277,6 @@ function renderPanel(drafts: PausedDraftView[], health?: WorkerHealth) {
 	const h = {
 		onApprove: vi.fn(),
 		onReject: vi.fn(),
-		onSendToChat: vi.fn(),
-		onContinueSession: vi.fn(),
 		onEdit: vi.fn(),
 		onRetry: vi.fn(),
 	};

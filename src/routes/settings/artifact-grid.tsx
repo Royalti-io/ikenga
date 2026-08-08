@@ -5,6 +5,7 @@ import {
 	type DefaultSink,
 	type StackMode,
 	GLOBAL_KEYS,
+	parseDefaultSink,
 	setGlobalDefaultSink,
 	setGlobalStackMode,
 } from '@/shell/artifact-studio/grid-settings';
@@ -36,7 +37,7 @@ function ArtifactGridSettingsPage() {
 				settingsGet(GLOBAL_KEYS.stackMode),
 			]);
 			return {
-				defaultSink: (sink === 'terminal' || sink === 'sidepane' ? sink : 'auto') as DefaultSink,
+				defaultSink: parseDefaultSink(sink) ?? 'auto',
 				stackMode: (stack === 'expanded' ? 'expanded' : 'collapsed') as StackMode,
 			};
 		},
@@ -79,7 +80,7 @@ function ArtifactGridSettingsPage() {
 			<SettingGroup title="Routing">
 				<SettingRow
 					label="Default sink"
-					desc="Where pin clicks dispatch when no override is set. Auto picks the foreground claude PTY if one exists, falling back to the side-pane Chat thread."
+					desc="Where pin clicks dispatch when no override is set. Auto picks the foreground claude PTY if one exists, falling back to the side-pane terminal."
 				>
 					<SegmentedSink value={sink} onChange={onSink} />
 				</SettingRow>
@@ -97,7 +98,7 @@ function ArtifactGridSettingsPage() {
 			<SettingGroup title="Wizard">
 				<SettingRow
 					label="Terminal handoff"
-					desc="When the wizard's Studio swaps from grid to loupe (the agent wrote a file), what to do with the wizard's terminal pane. Attach moves it into the loupe's Chat tab; Keep leaves it in the right pane; Ask shows a modal each time."
+					desc="When the wizard's Studio swaps from grid to loupe (the agent wrote a file), what to do with the wizard's terminal pane. Attach moves it into the loupe's Terminal tab; Keep leaves it in the right pane; Ask shows a modal each time."
 				>
 					<SegmentedHandoff value={handoff} onChange={onHandoff} />
 				</SettingRow>
@@ -143,7 +144,7 @@ function SegmentedSink({
 }) {
 	return (
 		<div className="inline-flex overflow-hidden rounded border border-border">
-			{(['auto', 'terminal', 'sidepane', 'both'] as const).map((opt) => (
+			{(['auto', 'terminal', 'chi', 'clipboard'] as const).map((opt) => (
 				<button
 					key={opt}
 					type="button"

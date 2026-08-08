@@ -14,8 +14,8 @@ export { tabUid } from '@/lib/panes/pane-reducer';
 /** Stable, collision-free-*by-content* identity for a view — used as a React
  *  `key` where the caller only ever has one instance of a given
  *  session/target at a time (the dock's single active tab). Kind-prefixed so
- *  a terminal and a chat sharing the same id string never collide.
- *  terminal/chat ids are globally-unique uuids, so distinct sessions always
+ *  a terminal and a route sharing the same id string never collide.
+ *  Terminal ids are globally-unique uuids, so distinct sessions always
  *  get distinct keys. Does NOT distinguish two tabs with identical content
  *  in the same pane — use `tabUid` for that (pane.tsx, route-view.tsx).
  *
@@ -27,15 +27,11 @@ export function viewKey(view: PaneView): string {
 			return `route:${view.path}`;
 		case 'terminal':
 			return `terminal:${view.sessionId}`;
-		case 'chat':
-			return `chat:${view.sessionId}`;
 		case 'artifact':
 			return `artifact:${view.path}`;
 		case 'artifact-studio':
 			return `studio:${view.path}:${view.density}:${view.vs ?? ''}`;
 		case 'scratchpad':
 			return `scratch:${view.scope}:${view.name}`;
-		case 'tool-output':
-			return `tool:${view.threadId}:${view.toolUseId}`;
 	}
 }

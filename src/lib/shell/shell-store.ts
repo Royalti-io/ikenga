@@ -22,8 +22,8 @@ import {
 // Frontend hydrates from Tauri at boot (hydrateSettingsFromRust) and
 // write-throughs on every relevant setter.
 
-const KV_TELEMETRY = 'telemetry.enabled';
-const KV_CHAT_ADAPTER = 'agent.chatAdapterId';
+const KV_DEFAULT_ENGINE = 'agent.defaultEngineId';
+const KV_LEGACY_CHAT_ADAPTER = 'agent.chatAdapterId';
 const KV_CLAUDE_ROOTS = 'claude.projectRoots';
 const KV_CLAUDE_WATCH = 'claude.watchEnabled';
 const KV_ONBOARDING = 'onboarding.state';
@@ -132,7 +132,6 @@ export type OnboardingStepId =
 	| 'connectors' // dynamic; substeps are derived (Phase 5)
 	| 'scaffolding'
 	| 'appearance'
-	| 'telemetry'
 	| 'summary';
 
 export type OnboardingStatus = 'pending' | 'in_progress' | 'completed' | 'skipped';
@@ -170,7 +169,6 @@ export const ONBOARDING_STEPS: readonly OnboardingStepId[] = Object.freeze([
 	'connectors',
 	'scaffolding',
 	'appearance',
-	'telemetry',
 	'summary',
 ]);
 
@@ -181,7 +179,6 @@ export const OPTIONAL_ONBOARDING_STEPS: ReadonlySet<OnboardingStepId> = new Set<
 	'connectors',
 	'scaffolding',
 	'appearance',
-	'telemetry',
 ]);
 
 /** Bump when the OnboardingState shape changes in a way that needs migration. */
@@ -210,11 +207,6 @@ export function createDefaultOnboardingState(): OnboardingState {
 	};
 }
 
-// Telemetry default — locked to OFF per APPROVAL.md (privacy-first).
-// Phase 4's telemetry step uses this as the initial payload until the user
-// flips the toggle.
-export const DEFAULT_TELEMETRY_PAYLOAD = Object.freeze({ enabled: false });
-
 interface ShellState {
 	activeMode: ActivityMode;
 	setActiveMode: (m: ActivityMode) => void;
@@ -240,19 +232,12 @@ interface ShellState {
 	userName: string;
 	setUserName: (name: string) => void;
 
-	// ─── Telemetry consent ───────────────────────────────────────────────
-	// Canonical home for the telemetry preference. The onboarding wizard's
-	// `telemetry` step writes to this field directly so Settings → Privacy
-	// reads the same source. Default OFF — APPROVAL.md, no dark patterns.
-	telemetryConsent: boolean;
-	setTelemetryConsent: (enabled: boolean) => void;
-
-	// ─── Chat adapter ────────────────────────────────────────────────────
-	// Which engine adapter pkg drives the chat surface. Mirrors the
+	// ─── Default engine agent ────────────────────────────────────────────
+	// Which engine adapter pkg drives terminal sessions. Mirrors the
 	// agent step's `selectedAgentId` after onboarding completes; left
 	// null when the user picks offline mode.
-	chatAdapterId: string | null;
-	setChatAdapterId: (id: string | null) => void;
+	defaultEngineId: string | null;
+	setDefaultEngineId: (id: string | null) => void;
 
 	// ─── Auto-update preferences ─────────────────────────────────────────
 	// `updatesAutoCheck` gates the boot + 6h poll for BOTH the app binary
@@ -425,23 +410,25 @@ export function migrateShellStore(persisted: unknown, _version: number): unknown
 	delete p.agent_onboarded;
 	delete p.selected_agent_id;
 
-	// v9 carry-over: seed canonical telemetry consent + chat adapter from
-	// the onboarding payload when they're missing on disk. Lets the
-	// onboarding step writes flow into settings without losing existing
-	// preferences for users mid-upgrade.
+	// v9: seed canonical default engine id from the onboarding payload when
+	// missing on disk. (v15 removed the telemetry consent seeding that used
+	// to live here.)
 	const px = p as Partial<ShellState> & {
 		onboarding?: OnboardingState;
-		telemetryConsent?: boolean;
+		defaultEngineId?: string | null;
 		chatAdapterId?: string | null;
 	};
-	if (typeof px.telemetryConsent !== 'boolean') {
-		const fromOnboarding = (
-			px.onboarding?.steps?.telemetry?.payload as { enabled?: boolean } | undefined
-		)?.enabled;
-		px.telemetryConsent = typeof fromOnboarding === 'boolean' ? fromOnboarding : false;
+	if (typeof px.defaultEngineId === 'undefined') {
+		px.defaultEngineId = px.chatAdapterId ?? px.onboarding?.selectedAgentId ?? null;
 	}
-	if (typeof px.chatAdapterId === 'undefined') {
-		px.chatAdapterId = px.onboarding?.selectedAgentId ?? null;
+	delete (p as unknown as Record<string, unknown>).chatAdapterId;
+
+	// v15: the telemetry consent step and its persisted state are gone.
+	// Drop any stale keys from localStorage/settings_kv hydration so the
+	// store snapshot stays clean and doesn't try to re-introduce the field.
+	delete (p as unknown as Record<string, unknown>).telemetryConsent;
+	if (p.onboarding) {
+		delete ((p.onboarding as unknown as { steps?: Record<string, unknown> }).steps ?? {}).telemetry;
 	}
 
 	return p;
@@ -464,16 +451,10 @@ export const useShellStore = create<ShellState>()(
 				kvSet(KV_USER_NAME, trimmed);
 			},
 
-			telemetryConsent: false,
-			setTelemetryConsent: (telemetryConsent) => {
-				set({ telemetryConsent });
-				kvSet(KV_TELEMETRY, telemetryConsent);
-			},
-
-			chatAdapterId: null,
-			setChatAdapterId: (chatAdapterId) => {
-				set({ chatAdapterId });
-				kvSet(KV_CHAT_ADAPTER, chatAdapterId);
+			defaultEngineId: null,
+			setDefaultEngineId: (defaultEngineId) => {
+				set({ defaultEngineId });
+				kvSet(KV_DEFAULT_ENGINE, defaultEngineId);
 			},
 
 			updatesAutoCheck: true,
@@ -735,7 +716,7 @@ export const useShellStore = create<ShellState>()(
 				} catch (err) {
 					// Surface the failure — rolling this back silently strands the
 					// user on the previous project (often the path-less `default`),
-					// which is exactly what makes new terminals/chats open in `~`.
+					// which is exactly what makes new terminals open in `~`.
 					console.warn('[shell-store] projectSetActive failed:', err);
 					// Roll back the optimistic flip — but only if nobody
 					// flipped again in the meantime.
@@ -772,8 +753,7 @@ export const useShellStore = create<ShellState>()(
 					const s = get();
 					suppressKv = true;
 					try {
-						kvSet(KV_TELEMETRY, s.telemetryConsent);
-						kvSet(KV_CHAT_ADAPTER, s.chatAdapterId);
+						kvSet(KV_DEFAULT_ENGINE, s.defaultEngineId);
 						kvSet(KV_CLAUDE_ROOTS, s.claudeProjectRoots);
 						kvSet(KV_CLAUDE_WATCH, s.claudeWatchEnabled);
 						kvSet(KV_ONBOARDING, s.onboarding);
@@ -789,11 +769,11 @@ export const useShellStore = create<ShellState>()(
 				suppressKv = true;
 				try {
 					const next: Partial<ShellState> = {};
-					const tel = parseKv<boolean>(all[KV_TELEMETRY]);
-					if (typeof tel === 'boolean') next.telemetryConsent = tel;
-					const adapter = parseKv<string | null>(all[KV_CHAT_ADAPTER]);
+					const adapter = parseKv<string | null>(
+						all[KV_DEFAULT_ENGINE] ?? all[KV_LEGACY_CHAT_ADAPTER]
+					);
 					if (adapter === null || typeof adapter === 'string') {
-						next.chatAdapterId = adapter;
+						next.defaultEngineId = adapter;
 					}
 					const roots = parseKv<string[]>(all[KV_CLAUDE_ROOTS]);
 					if (Array.isArray(roots)) next.claudeProjectRoots = roots;
@@ -829,8 +809,8 @@ export const useShellStore = create<ShellState>()(
 		// v8: onboarding wizard scaffold — added `onboarding` slice. Migrates
 		//     legacy `agent_onboarded` / `selected_agent_id` keys (from the
 		//     predecessor onboarding plan) into the new OnboardingState.
-		// v9: canonical telemetry consent + chat adapter id. Seeded from any
-		//     existing onboarding payload so user choices survive the bump.
+		// v9: canonical default engine id. (v15 removed the telemetry consent
+		//     seeding that used to live here.)
 		// v10: widen CoreMode with 'pkgs' for the registry browser activity-bar
 		//     entry. Migrate keeps the same valid-set check, just widened.
 		// v11: widen CoreMode with 'artifact-grid' for the artifact-grid
@@ -846,6 +826,8 @@ export const useShellStore = create<ShellState>()(
 		//     and clobbering the main nav. Migrate preserves persisted pkg
 		//     modes; a stale one (pkg uninstalled) reconciles → 'app' at runtime
 		//     in the activity bar. Additive — no persisted user holds a pkg mode.
+		// v15: removed telemetry consent and the telemetry onboarding step.
+		//     Migrate drops any persisted `telemetryConsent` and `onboarding.steps.telemetry`.
 		{
 			// Window-namespaced (plans/multi-window WP-05): the primary `main`
 			// window keeps the bare `shell-store` key (existing persisted state
@@ -853,14 +835,14 @@ export const useShellStore = create<ShellState>()(
 			// `activeMode`/onboarding writes don't clobber the primary's via the
 			// localStorage that all same-origin Tauri windows share (research 03).
 			name: scopedPersistName('shell-store'),
-			version: 14,
+			version: 15,
 			migrate: (persisted, version) => migrateShellStore(persisted, version) as ShellState,
 			// `projects` + `activeProjectId` are owned by Rust (migration 0015)
 			// and re-pulled every boot via `refreshProjects`. They must NOT be
 			// persisted here — a stale localStorage snapshot (e.g. a path-less
 			// `default` left over from an old session) would rehydrate over the
 			// authoritative Rust copy and make `activeProjectCwd()` fall back to
-			// `~`, so new terminals/chats spawn in $HOME instead of the active
+			// `~`, so new terminals spawn in $HOME instead of the active
 			// project root. Keep them out of the persisted blob.
 			partialize: (state) =>
 				Object.fromEntries(

@@ -45,8 +45,6 @@ export interface ApproveGatePanelProps {
 	onApprove: (draftId: string) => void;
 	/** pa-action-reject — draft discarded. */
 	onReject: (draftId: string) => void;
-	onSendToChat: (draftId: string) => void;
-	onContinueSession: (draftId: string) => void;
 	/** Persisted inline edits (⌘S). Optional — the harness logs them. */
 	onEdit?: (draftId: string, patch: { subject?: string; body?: string }) => void;
 	/** Re-queue a failed draft for another worker attempt (WP-12 / G-09). */
@@ -95,8 +93,6 @@ const IcoClock = svg(
 );
 const IcoUp = svg(<path d="M4 10l4-4 4 4" />);
 const IcoDown = svg(<path d="M4 6l4 4 4-4" />);
-const IcoChat = svg(<path d="M3 4h10v7H8l-3 2v-2H3z" />);
-const IcoContinue = svg(<path d="M3 5l3 3-3 3M8 5l3 3-3 3" />);
 const IcoPencil = svg(<path d="M10.5 3.5l2 2L6 12l-3 .8.8-3z" />);
 const IcoSeq = svg(
 	<>
@@ -106,15 +102,12 @@ const IcoSeq = svg(
 		<path d="M4 5.5v5M5.3 4.6L10.7 7M5.3 11.4L10.7 9" />
 	</>
 );
-const IcoRefresh = svg(
-	<path d="M13 8A5 5 0 1 1 8 3M13 3v5h-5" />
-);
+const IcoRefresh = svg(<path d="M13 8A5 5 0 1 1 8 3M13 3v5h-5" />);
 
 // ── Component ─────────────────────────────────────────────────────────────────────────────────
 
 export function ApproveGatePanel(props: ApproveGatePanelProps) {
-	const { drafts, onApprove, onReject, onSendToChat, onContinueSession, onEdit, onRetry, health } =
-		props;
+	const { drafts, onApprove, onReject, onEdit, onRetry, health } = props;
 
 	const [resolved, setResolved] = useState<Set<string>>(() => new Set());
 	// WP-11 — id of the row whose delivery-error popover is open (single-open).
@@ -132,7 +125,9 @@ export function ApproveGatePanel(props: ApproveGatePanelProps) {
 	const splitRef = useRef<HTMLDivElement>(null);
 	const rowRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 	const bodyRef = useAutoGrowTextarea(
-		selectedId ? (edits[selectedId]?.body ?? drafts.find((d) => d.id === selectedId)?.body ?? '') : ''
+		selectedId
+			? (edits[selectedId]?.body ?? drafts.find((d) => d.id === selectedId)?.body ?? '')
+			: ''
 	);
 
 	// Keep selection valid as rows arrive/resolve. Auto-select the first draft
@@ -315,7 +310,7 @@ export function ApproveGatePanel(props: ApproveGatePanelProps) {
 		else if (e.key === 'ArrowRight') setListWidth((w) => (w ?? LIST_W_DEFAULT) + 24);
 	}, []);
 
-	// ── keyboard: ⌘S save · ⌘↵ approve · ⌘K send-to-chat (in the editor) ──────────────────────────
+	// ── keyboard: ⌘S save · ⌘↵ approve ──────────────────────────
 	// Plain function (not memoized): it calls the un-memoized `save`, so it must re-read each render.
 	const onDetailKeyDown = (e: ReactKeyboardEvent) => {
 		if (!selected) return;
@@ -327,9 +322,6 @@ export function ApproveGatePanel(props: ApproveGatePanelProps) {
 		} else if (e.key === 'Enter') {
 			e.preventDefault();
 			startApprove(selected);
-		} else if (e.key === 'k') {
-			e.preventDefault();
-			onSendToChat(selected.id);
 		}
 	};
 
@@ -467,9 +459,7 @@ export function ApproveGatePanel(props: ApproveGatePanelProps) {
 													draft={d}
 													healthState={health?.state}
 													open={openErrId === d.id}
-													onToggleError={() =>
-														setOpenErrId((cur) => (cur === d.id ? null : d.id))
-													}
+													onToggleError={() => setOpenErrId((cur) => (cur === d.id ? null : d.id))}
 													onRetry={onRetry}
 												/>
 												<span className={`ob-chip channel-${d.channel}`}>
@@ -566,16 +556,12 @@ export function ApproveGatePanel(props: ApproveGatePanelProps) {
 									isSendPipelineStatus(selected.delivery.dbStatus) && (
 										<div className="dh-worker-note" role="alert">
 											<strong>Send worker offline.</strong> Retry will re-queue this draft as{' '}
-											<code>committed</code>, but nothing will pick it up until the worker is
-											back. It is safe to retry now — the row waits in the queue.
+											<code>committed</code>, but nothing will pick it up until the worker is back.
+											It is safe to retry now — the row waits in the queue.
 										</div>
 									)}
 								{selected.status === 'failed' && (
-									<div
-										className="ob-failed-callout"
-										role="alert"
-										aria-label="Send failure"
-									>
+									<div className="ob-failed-callout" role="alert" aria-label="Send failure">
 										<span className="ob-failed-callout-label">
 											Send failed
 											{selected.attempts != null && selected.attempts > 0
@@ -583,9 +569,7 @@ export function ApproveGatePanel(props: ApproveGatePanelProps) {
 												: ''}
 										</span>
 										{selected.errorMessage && (
-											<span className="ob-failed-callout-msg">
-												{selected.errorMessage}
-											</span>
+											<span className="ob-failed-callout-msg">{selected.errorMessage}</span>
 										)}
 										{onRetry && (
 											<button
@@ -722,7 +706,7 @@ export function ApproveGatePanel(props: ApproveGatePanelProps) {
 										</span>
 										<span>
 											<kbd>⌘</kbd>
-											<kbd>K</kbd> send to chat
+											<kbd>K</kbd> dispatch
 										</span>
 										{edits[selected.id]?.savedAt && (
 											<span className="saved">Saved {edits[selected.id]?.savedAt}</span>
@@ -737,24 +721,6 @@ export function ApproveGatePanel(props: ApproveGatePanelProps) {
 									<button type="button" className="btn btn-sm btn-ghost" onClick={() => move(-1)}>
 										<IcoBack />
 										<span className="btn-label">Back</span>
-									</button>
-								</div>
-								<div className="ob-actions-cluster">
-									<button
-										type="button"
-										className="btn btn-sm"
-										onClick={() => onSendToChat(selected.id)}
-									>
-										<IcoChat />
-										<span className="btn-label">Send to chat</span>
-									</button>
-									<button
-										type="button"
-										className="btn btn-sm"
-										onClick={() => onContinueSession(selected.id)}
-									>
-										<IcoContinue />
-										<span className="btn-label">Continue Claude session</span>
 									</button>
 								</div>
 								<div className="ob-actions-cluster">
@@ -941,8 +907,8 @@ function healthFacts(h: WorkerHealth): ReactNode {
 	if (h.state === 'degraded') {
 		return (
 			<>
-				oldest queued draft waiting <b>{formatDuration(h.oldestQueuedMsAgo)}</b> (expected &lt; 2m) ·
-				last activity <b>{formatMsAgo(h.lastActivityMsAgo)}</b> · <b>{h.failuresThisHour}</b>{' '}
+				oldest queued draft waiting <b>{formatDuration(h.oldestQueuedMsAgo)}</b> (expected &lt; 2m)
+				· last activity <b>{formatMsAgo(h.lastActivityMsAgo)}</b> · <b>{h.failuresThisHour}</b>{' '}
 				failures this hour
 			</>
 		);
@@ -1054,7 +1020,8 @@ function DeliveryChip({
 
 	if (state === 'sent') {
 		const ds = d.deliveryStatus;
-		const showDstat = ds === 'delivered' || ds === 'bounced' || ds === 'complained' || ds === 'errored';
+		const showDstat =
+			ds === 'delivered' || ds === 'bounced' || ds === 'complained' || ds === 'errored';
 		return (
 			<>
 				<span className="dl-chip sent">sent {formatClock(d.sentAt)}</span>

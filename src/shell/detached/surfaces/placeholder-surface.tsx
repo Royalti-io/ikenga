@@ -5,7 +5,7 @@
 // state subscribed at the root — so spawning/closing a sibling window from
 // the primary visibly updates here, demonstrating the cross-window event bus
 // with no second TanStack Query cache. WP-06 replaces this with the real
-// chat + viewer surfaces against the same `DetachedSurfaceProps` contract.
+// terminal + viewer surfaces against the same `DetachedSurfaceProps` contract.
 
 import type { DetachedSurfaceProps } from '../registry';
 
@@ -16,7 +16,7 @@ export default function PlaceholderSurface({ ctx, lifecycle }: DetachedSurfacePr
 				<h1 className="font-medium text-base text-foreground">Detached window</h1>
 				<p className="text-muted-foreground">
 					Thin single-surface entry — no activity bar, sidebar, or pane chrome. WP-06 mounts the
-					real chat / viewer surface here.
+					real terminal / viewer surface here.
 				</p>
 			</header>
 

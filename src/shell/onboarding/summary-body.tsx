@@ -1,4 +1,4 @@
-// Step 9 — Summary / finish.
+// Step 8 — Summary / finish.
 //
 // Reads each step's `payload` from the store, renders one card per
 // step with an Edit link that re-enters the wizard in edit mode, and
@@ -28,7 +28,6 @@ import type { AgentStepPayload } from './agent-body';
 import type { AppearancePayload } from './appearance-body';
 import type { RootsStepPayload } from './roots-body';
 import type { ScaffoldingPayload } from './scaffolding-body';
-import type { TelemetryPayload } from './telemetry-body';
 
 interface SummaryBodyProps {
 	/** From the wizard chrome. On the summary step `goNext` is wired to
@@ -226,7 +225,6 @@ const STEP_LABEL: Record<OnboardingStepId, string> = {
 	connectors: 'Connectors',
 	scaffolding: 'Scaffolding',
 	appearance: 'Appearance',
-	telemetry: 'Telemetry',
 	summary: 'Summary',
 };
 
@@ -347,15 +345,6 @@ function renderCard(
 				...base,
 				value: `${themeName(theme)} · ${capitalise(mode)} · ${capitalise(density)}`,
 				detail: `Theme ${theme}`,
-			};
-		}
-		case 'telemetry': {
-			const p = rec.payload as TelemetryPayload | undefined;
-			const enabled = p?.enabled ?? false;
-			return {
-				...base,
-				value: enabled ? 'Anonymous stats ON' : 'Off',
-				detail: enabled ? 'Batched daily · scrubbed at edge.' : 'Nothing leaves your machine.',
 			};
 		}
 		default:

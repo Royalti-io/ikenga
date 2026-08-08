@@ -169,7 +169,10 @@ const ONE_HOUR_MS = 60 * 60_000;
  * (dead → degraded → alive) so the overlapping predicates in the legend collapse
  * to the most actionable reading. Pure + `now`-injectable for tests.
  */
-export function deriveWorkerHealth(rows: PaActionDraftRow[], now: number = Date.now()): WorkerHealth {
+export function deriveWorkerHealth(
+	rows: PaActionDraftRow[],
+	now: number = Date.now()
+): WorkerHealth {
 	const parse = (s: string | null): number => (s ? Date.parse(s) : Number.NaN);
 
 	let sending = 0;

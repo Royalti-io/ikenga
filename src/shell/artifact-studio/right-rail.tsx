@@ -1,41 +1,44 @@
-// Studio right rail — Chat / Code / DOM / Manifest tab strip.
+// Studio right rail — Terminal / Code / DOM / Manifest tab strip.
 //
-// Loupe density renders all four tabs. Grid density renders Chat only.
-// Compare density renders Chat only (per the unified plan §"Right rail
+// Loupe density renders all four tabs. Grid density has no right rail.
+// Compare density has no right rail (per the unified plan §"Right rail
 // tabs" — Code/DOM/Manifest require a single focused artifact, which
 // compare doesn't have).
 //
-// The Chat slot is dual-purpose: when an embedded terminal is attached
-// to the Studio pane, the loupe swaps its body to the SingleTerminal
-// host and relabels the tab to "Terminal" via `tabLabelOverrides` /
-// `tabGlyphOverrides`. There is no separate Terminal tab — agent and
-// shell share the same rail slot, one mode at a time.
+// The Terminal slot is always the embedded PTY (or a picker when no
+// terminal is attached). Agent and shell share the same rail slot, one
+// mode at a time.
 //
 // This component is purely presentational: the parent owns the slot
 // content and decides which tabs are visible.
 
 import { useMemo, useState, type ReactNode } from 'react';
-import { Code as CodeIcon, MessageSquare, Settings as ManifestIcon, TreePine } from 'lucide-react';
+import {
+	Code as CodeIcon,
+	Settings as ManifestIcon,
+	Terminal as TerminalIcon,
+	TreePine,
+} from 'lucide-react';
 import { TabStrip, Tab } from '@/components/ui/tab-strip';
 
-export type RightRailTab = 'chat' | 'code' | 'dom' | 'manifest';
+export type RightRailTab = 'terminal' | 'code' | 'dom' | 'manifest';
 
 const TAB_GLYPHS: Record<RightRailTab, ReactNode> = {
-	chat: <MessageSquare className="h-3 w-3" />,
+	terminal: <TerminalIcon className="h-3 w-3" />,
 	code: <CodeIcon className="h-3 w-3" />,
 	dom: <TreePine className="h-3 w-3" />,
 	manifest: <ManifestIcon className="h-3 w-3" />,
 };
 
 const TAB_LABELS: Record<RightRailTab, string> = {
-	chat: 'Chat',
+	terminal: 'Terminal',
 	code: 'Code',
 	dom: 'DOM',
 	manifest: 'Manifest',
 };
 
 export interface RightRailSlots {
-	chat: ReactNode;
+	terminal: ReactNode;
 	code?: ReactNode;
 	dom?: ReactNode;
 	manifest?: ReactNode;
@@ -45,9 +48,6 @@ interface RightRailProps {
 	tab: RightRailTab;
 	onChangeTab: (tab: RightRailTab) => void;
 	slots: RightRailSlots;
-	/** Per-tab label override. Used by the loupe to relabel the chat tab
-	 *  to "Terminal" when an embedded PTY is attached, since the slot
-	 *  body switches accordingly. */
 	tabLabelOverrides?: Partial<Record<RightRailTab, string>>;
 	tabGlyphOverrides?: Partial<Record<RightRailTab, ReactNode>>;
 }
@@ -60,7 +60,7 @@ export function RightRail({
 	tabGlyphOverrides,
 }: RightRailProps) {
 	const visible = useMemo<RightRailTab[]>(() => {
-		const out: RightRailTab[] = ['chat'];
+		const out: RightRailTab[] = ['terminal'];
 		if (slots.code !== undefined) out.push('code');
 		if (slots.dom !== undefined) out.push('dom');
 		if (slots.manifest !== undefined) out.push('manifest');
@@ -68,11 +68,11 @@ export function RightRail({
 	}, [slots.code, slots.dom, slots.manifest]);
 
 	// Defensive: if the active tab was hidden by a density change, snap to
-	// Chat so we don't render an undefined slot.
-	const active: RightRailTab = visible.includes(tab) ? tab : 'chat';
+	// Terminal so we don't render an undefined slot.
+	const active: RightRailTab = visible.includes(tab) ? tab : 'terminal';
 	const slot =
-		active === 'chat'
-			? slots.chat
+		active === 'terminal'
+			? slots.terminal
 			: active === 'code'
 				? slots.code
 				: active === 'dom'
@@ -111,6 +111,6 @@ export function RightRail({
 
 /** Tab-state hook. Plain local state today; placeholder for future
  *  per-folder persistence without disturbing callers. */
-export function useRightRailTab(initial: RightRailTab = 'chat') {
+export function useRightRailTab(initial: RightRailTab = 'terminal') {
 	return useState<RightRailTab>(initial);
 }

@@ -9,7 +9,7 @@
 //
 // Replaces the per-call-site hardcoded developer-machine fallbacks that
 // used to live in dock.tsx, new-tab-menu.tsx, single-terminal.tsx, the
-// chat adapters, and the sessions dialog.
+// engine adapters, and the sessions dialog.
 
 import { homeDir } from '@tauri-apps/api/path';
 
@@ -27,7 +27,7 @@ export async function initDefaultCwd(): Promise<void> {
 	}
 }
 
-/** Synchronous best-guess cwd for chat/terminal/session fallbacks. */
+/** Synchronous best-guess cwd for terminal/session fallbacks. */
 export function defaultCwd(): string {
 	const roots = useShellStore.getState().fileRoots;
 	if (roots[0]) return roots[0];

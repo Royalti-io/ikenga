@@ -5,7 +5,7 @@
 import { useEffect, useState } from 'react';
 import { dbExec, dbQuery } from '@/lib/tauri-cmd';
 
-export type ViewerRecentSource = 'chat' | 'palette' | 'tree' | 'drag' | 'pane' | 'external';
+export type ViewerRecentSource = 'palette' | 'tree' | 'drag' | 'pane' | 'external';
 
 export interface ViewerRecent {
 	path: string;

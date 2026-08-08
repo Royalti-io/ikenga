@@ -35,18 +35,18 @@ interface MarkdownProps {
 	className?: string;
 	/** Working dir to resolve relative paths against. */
 	cwd?: string;
-	/** Allow embedded HTML (file viewer use case). Off by default for chat. */
+	/** Allow embedded HTML (file viewer use case). Off by default for safety. */
 	allowHtml?: boolean;
 	/**
 	 * `comfortable` (default) — doc viewer: GitHub-style large headings with
 	 * underlines, generous spacing.
-	 * `compact` — chat replies: smaller headings, no underlines, tight margins.
+	 * `compact` — terminal replies: smaller headings, no underlines, tight margins.
 	 */
 	density?: 'comfortable' | 'compact';
 	/**
 	 * Stamp `data-source-line="N"` (the 1-based markdown source line) onto every
 	 * rendered block element. Powers editor↔preview scroll sync in the markdown
-	 * editor. Off by default — chat and other consumers don't pay for it.
+	 * editor. Off by default — most consumers don't pay for it.
 	 */
 	sourceLines?: boolean;
 }
@@ -101,7 +101,7 @@ export function Markdown({
 	return (
 		<article
 			className={cn(
-				// Baseline: 16px / 1.5 by default (doc viewer). Chat callers override
+				// Baseline: 16px / 1.5 by default (doc viewer). Compact callers override
 				// via className with `text-sm` / `leading-relaxed` and pass density="compact".
 				'text-[16px] leading-[1.5] text-foreground',
 				// Heading scale: h1=2em, h2=1.5em, h3=1.25em, h4=1em (GitHub-style, em-based so it scales with body).
@@ -109,7 +109,7 @@ export function Markdown({
 				'[&_h2]:text-[1.5em] [&_h2]:font-semibold [&_h2]:tracking-tight',
 				'[&_h3]:text-[1.25em] [&_h3]:font-semibold',
 				'[&_h4]:text-[1em] [&_h4]:font-semibold',
-				// Heading margins + ornaments — comfortable (doc) vs compact (chat).
+				// Heading margins + ornaments — comfortable (doc) vs compact.
 				isCompact
 					? [
 							'[&_h1]:mt-4 [&_h1]:mb-2',
@@ -128,7 +128,7 @@ export function Markdown({
 				'[&_a.heading-anchor]:hidden',
 				// Paragraphs.
 				isCompact ? '[&_p]:my-2' : '[&_p]:my-4',
-				// Lists — chat uses tighter indent.
+				// Lists — compact density uses tighter indent.
 				isCompact
 					? '[&_ul]:my-2 [&_ol]:my-2 [&_ul]:pl-5 [&_ol]:pl-5 [&_ul]:list-disc [&_ol]:list-decimal'
 					: '[&_ul]:my-4 [&_ol]:my-4 [&_ul]:pl-8 [&_ol]:pl-8 [&_ul]:list-disc [&_ol]:list-decimal',

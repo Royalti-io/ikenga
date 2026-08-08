@@ -13,11 +13,7 @@ import { Button } from '@/components/ui/button';
 import { FeedbackState } from '@/components/ui/feedback-state';
 import type { PkgRowV2 } from '@/lib/pkgs/use-derived';
 import { usePkgsDerived } from '@/lib/pkgs/use-derived';
-import {
-	useUpdatePkgs,
-	type UpdateFailure,
-	type UpdateProgress,
-} from '@/lib/pkgs/use-update-pkgs';
+import { useUpdatePkgs, type UpdateFailure, type UpdateProgress } from '@/lib/pkgs/use-update-pkgs';
 import { PkgGroup } from './pkg-row';
 import { PkgInstallSheet } from './pkg-install-sheet';
 import { PkgLoupe, type LoupeTab } from './pkg-loupe';

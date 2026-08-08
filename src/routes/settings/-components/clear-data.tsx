@@ -33,7 +33,7 @@ export function ClearDataSectionBody() {
 
 	async function handleClear() {
 		const ok = await confirmDialog(
-			'This wipes locally cached app state: chat threads, viewer recents, render queue, mbox sync, storyboards, layout, dock, sequences, browser localStorage, AND the durable settings_kv mirror (theme/telemetry/agent/onboarding state). Stronghold secrets, screenshots on disk, and your Supabase data are kept. The app will reload.',
+			'This wipes locally cached app state: terminal sessions, viewer recents, render queue, mbox sync, storyboards, layout, dock, sequences, browser localStorage, AND the durable settings_kv mirror (theme/agent/onboarding state). Stronghold secrets, screenshots on disk, and your Supabase data are kept. The app will reload.',
 			{ title: 'Clear all local data', kind: 'warning' }
 		);
 		if (!ok) return;
@@ -52,8 +52,6 @@ export function ClearDataSectionBody() {
 					'storyboards',
 					'storyboard_beats',
 					'storyboard_jobs',
-					'chat_sessions',
-					'chat_messages',
 				];
 				for (const t of tables) {
 					try {
@@ -67,8 +65,8 @@ export function ClearDataSectionBody() {
 			}
 
 			// settings_kv mirror — wipe it too so the user gets a truly fresh
-			// state on reload. Without this, telemetry/agent/onboarding state
-			// would survive because hydrateSettingsFromRust pulls them back in.
+			// state on reload. Without this, the agent/onboarding state would
+			// survive because hydrateSettingsFromRust pulls them back in.
 			try {
 				await settingsClearAll();
 			} catch (e) {

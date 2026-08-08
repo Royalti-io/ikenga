@@ -19,9 +19,9 @@ describe('viewKey', () => {
 		expect(viewKey(a)).not.toBe(viewKey(b));
 	});
 
-	it('kind-prefixes so a terminal and a chat sharing an id never collide', () => {
+	it('kind-prefixes so a terminal and a route sharing an id never collide', () => {
 		const t: PaneView = { kind: 'terminal', sessionId: 'same-id' };
-		const c: PaneView = { kind: 'chat', sessionId: 'same-id' };
+		const c: PaneView = { kind: 'route', path: 'same-id' };
 		expect(viewKey(t)).not.toBe(viewKey(c));
 	});
 

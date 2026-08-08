@@ -36,9 +36,9 @@ pub struct NotifyPayload {
     pub kind: NotifyKind,
 }
 
-/// Distinguishes the source of the notification on the frontend. Currently
-/// just used for telemetry / future per-kind UX (e.g. a different icon for
-/// permission requests vs. plain agent notifications).
+/// Distinguishes the source of the notification on the frontend. Used for
+/// per-kind UX (e.g. a different icon for permission requests vs. plain
+/// agent notifications) and may feed usage metrics in the future.
 #[derive(Debug, Clone, Copy, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum NotifyKind {

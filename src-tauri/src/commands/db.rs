@@ -521,6 +521,29 @@ async fn ensure_schema(pool: &sqlx::SqlitePool) -> Result<(), String> {
             "0058_email_index",
             include_str!("../../migrations/0058_email_index.sql"),
         ),
+        // chi_cache is the local mapping layer for the Chi-first agent surface.
+        // Agent records (Claude JSONL, Devin sidecar ledger, etc.) remain the
+        // source of truth; this table only stores run_id → external_id mapping,
+        // one-off output metadata, and terminal session links for future
+        // persistence. WP-01 of plans/2026-08-08-ikenga-chi-first.
+        (
+            59,
+            "0059_chi_cache",
+            include_str!("../../migrations/0059_chi_cache.sql"),
+        ),
+        (
+            60,
+            "0060_drop_chat_sessions",
+            include_str!("../../migrations/0060_drop_chat_sessions.sql"),
+        ),
+        // WP-06 follow-up: the legacy chat_messages table predates
+        // 0011_chat_sessions.sql and was never referenced by the retired
+        // chat surface, so it is dropped now.
+        (
+            61,
+            "0061_drop_chat_messages",
+            include_str!("../../migrations/0061_drop_chat_messages.sql"),
+        ),
     ];
 
     for (id, name, sql) in migrations {
@@ -576,7 +599,6 @@ async fn bootstrap_default_project(pool: &sqlx::SqlitePool) -> Result<(), String
     .map_err(|e| format!("seed default project: {e}"))?;
 
     for table in [
-        "chat_sessions",
         "pkg_installed",
         "layout_state",
         "browser_sessions",
@@ -922,7 +944,7 @@ mod tests {
     /// (email_actions + email_triage_cursor) landed without a bump too;
     /// 0057 (iyke_todo_task_link, WP-10) brings it to 57; 0058 (email_index +
     /// email_ingest_cursor, headers-first mailbox ingest) brings it to 58.
-    const MIGRATION_COUNT: i64 = 58;
+    const MIGRATION_COUNT: i64 = 61;
 
     /// Schema init applies every embedded migration exactly once. The
     /// `_pa_migrations` table must end with one row per migration tuple.

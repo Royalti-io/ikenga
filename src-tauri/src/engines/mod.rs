@@ -22,7 +22,6 @@
 pub mod claude_code;
 pub mod codex_pty;
 pub mod cursor_agent;
-pub mod gemini_acp;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -32,7 +31,6 @@ use tokio::sync::RwLock;
 use crate::engines::claude_code::server::ClaudeCodeEngineState;
 use crate::engines::codex_pty::CodexPtyEngineState;
 use crate::engines::cursor_agent::CursorAgentEngineState;
-use crate::engines::gemini_acp::GeminiAcpEngineState;
 
 /// In-memory registry of available engine adapters, keyed by stable id.
 ///
@@ -55,7 +53,6 @@ pub struct EngineRegistry {
 #[derive(Clone)]
 pub enum EngineHandle {
     ClaudeCode(ClaudeCodeEngineState),
-    GeminiAcp(GeminiAcpEngineState),
     CodexPty(CodexPtyEngineState),
     /// Phase 4 scaffold (ADR-013). Runtime stubbed — see
     /// `cursor_agent::server` for the per-method error surface.

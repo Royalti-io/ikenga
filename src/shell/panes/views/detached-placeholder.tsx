@@ -12,9 +12,9 @@ import { FeedbackState } from '@/components/ui/feedback-state';
 import { reclaimSurface } from '@/lib/window/detached-surfaces';
 
 interface DetachedSurfacePlaceholderProps {
-	/** The `surface_set` id hosted by the detached window (e.g. `"chat:<id>"`). */
+	/** The `surface_set` id hosted by the detached window (e.g. `"terminal:<id>"`). */
 	surfaceId: string;
-	/** Surface noun for the copy, e.g. "chat", "terminal", "file". */
+	/** Surface noun for the copy, e.g. "terminal", "file". */
 	noun: string;
 }
 

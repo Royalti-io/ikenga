@@ -242,45 +242,10 @@ impl ClaudeCodeEngine {
             initial_mode = applied;
         }
 
-        // Rehydrate the claude resume id after an app restart. `handle_new_session`
-        // runs on every reopen, and `get_or_create` hands back a fresh session
-        // whose `claude_session_id` is None. Without re-seeding it, the first
-        // post-reload turn spawns claude with no `--resume` — minting a brand-new
-        // session that has no memory of the conversation AND churning
-        // `chat_sessions.claude_session_id`. Seed it from the persisted id so the
-        // spawn path (`session.rs` send_user_message → `--resume <id>`) continues
-        // the same claude session.
-        //
-        // Guard on transcript existence: a stale id whose `.jsonl` is gone would
-        // make `claude --resume` hard-fail the turn, so we only seed when the
-        // transcript is actually on disk (legacy root or per-session overlay).
-        // Only touches a session that doesn't already know its id, so a live
-        // session mid-conversation is never clobbered.
-        {
-            let mut guard = session.claude_session_id.lock().await;
-            if guard.is_none() {
-                let persisted: Option<(Option<String>, Option<String>)> = sqlx::query_as(
-                    "SELECT claude_session_id, project_dir FROM chat_sessions WHERE id = ?",
-                )
-                .bind(&thread_id)
-                .fetch_optional(&pool)
-                .await
-                .ok()
-                .flatten();
-                if let Some(sid) = persisted.and_then(|(sid, _)| sid).filter(|s| !s.is_empty()) {
-                    if crate::commands::claude::locate_jsonl_for_session(&app, &sid).is_some() {
-                        tracing::info!(
-                            "rehydrating resume id {sid} for reopened thread {thread_id}",
-                        );
-                        *guard = Some(sid);
-                    } else {
-                        tracing::warn!(
-                            "persisted claude_session_id {sid} for thread {thread_id} has no transcript on disk; spawning fresh (context will not resume)",
-                        );
-                    }
-                }
-            }
-        }
+        // WP-05: the chat surface (and `chat_sessions` table) has been removed.
+        // The session's `claude_session_id` is now captured from claude's own
+        // `SessionInit` event on first spawn (`claude::session::spawn_streaming`).
+        // No DB rehydration is performed here.
 
         // D-13 (`plans/2026-07-18-transcripts-and-terminal-architecture/07-retire-the-overlay.md`):
         // no per-session `CLAUDE_CONFIG_DIR` overlay is built here any more.
@@ -351,10 +316,9 @@ impl ClaudeCodeEngine {
         let request_channel = format!("chat://session/{thread_id}/claude-code/request");
         // Real claude session id, captured the first time we see a
         // `SessionInit`. We forward it to the FE on the notification `_meta`
-        // so the adapter can persist `chat_sessions.claude_session_id` — that
-        // id is what the reload path uses to find the on-disk JSONL and what
-        // `claude --resume` targets. Without it a reloaded thread renders
-        // empty and can't continue.
+        // so the in-memory session can use it for `claude --resume` and so
+        // the reload path can find the on-disk JSONL. Without it a reloaded
+        // thread renders empty and can't continue.
         let mut claude_sid: Option<String> = None;
         let stop_reason = loop {
             match rx.recv().await {
@@ -462,8 +426,8 @@ impl ClaudeCodeEngine {
                         // a real ACP JSON-RPC peer would send.
                         let mut notif =
                             SessionNotification::new(SessionId::new(thread_id.clone()), upd);
-                        // Forward the claude session id on `_meta` so the FE
-                        // adapter persists it (see claude-code.ts onNotification).
+                        // Forward the claude session id on `_meta` so the
+                        // session can use it for resume and transcript lookup.
                         if let Some(sid) = &claude_sid {
                             let mut meta = serde_json::Map::new();
                             meta.insert(
@@ -827,95 +791,16 @@ impl ClaudeCodeEngine {
         Ok(())
     }
 
-    /// Handle ACP `session/fork`. Phase 8 minimum implementation: clone an
-    /// existing session by recording a new `chat_sessions` row whose
-    /// `branched_from` points at the source thread. The new session's
-    /// `SessionOpts.resume_session_id` is seeded with the source's
-    /// `claude_session_id` so the first prompt on the forked thread spawns
-    /// `claude --resume <source_session_id>` (Phase 8 contract — see
-    /// `spawn_streaming` in `claude::session`).
-    ///
-    /// We deliberately do NOT copy the on-disk JSONL transcript byte-for-byte
-    /// here — that'd diverge the source's history and break the source's
-    /// resume. Letting both threads share the same claude session id at the
-    /// resume level is enough for the "branch from here" UX (the user gets
-    /// a separate Ikenga thread but continues the same claude conversation
-    /// from where they branched). TODO(phase-10/11): copy the JSONL up to
-    /// `up_to_turn` for true history divergence.
-    ///
-    /// Unknown `source_thread_id` becomes a clean error (the SELECT returns
-    /// no rows and we surface "no source thread"). We never throw a SQL FK
-    /// violation up to the frontend.
+    /// Handle ACP `session/fork`. WP-05: the chat surface has been removed,
+    /// so `chat_sessions` no longer exists and session forking is disabled.
+    /// Validation still runs so callers get a clean error for empty input.
     pub async fn handle_fork_session(
         &self,
-        db: &PaDb,
+        _db: &PaDb,
         req: ForkRequest,
     ) -> Result<ForkResult, String> {
         validate_fork_request(&req)?;
-        let pool = db.ensure_pool().await?;
-        let now_ms: i64 = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis() as i64)
-            .unwrap_or(0);
-
-        // Confirm the source exists + capture its claude_session_id / cwd so
-        // the fork can `--resume` against the same on-disk JSONL. Missing
-        // rows surface as a typed error rather than an FK violation on the
-        // INSERT below.
-        let row: Option<(Option<String>, Option<String>)> =
-            sqlx::query_as("SELECT claude_session_id, project_dir FROM chat_sessions WHERE id = ?")
-                .bind(&req.source_thread_id)
-                .fetch_optional(&pool)
-                .await
-                .map_err(|e| format!("fork lookup: {e}"))?;
-        let (source_claude_sid, source_cwd) =
-            row.ok_or_else(|| format!("no source thread for id {}", req.source_thread_id))?;
-
-        let new_thread_id = uuid::Uuid::new_v4().to_string();
-        let up_to_turn = req.up_to_turn.map(|v| v as i64);
-        let title = req.label.clone();
-
-        sqlx::query(
-            "INSERT INTO chat_sessions
-                (id, adapter, title, cwd, project_dir, claude_session_id,
-                 branched_from, branched_from_turn, engine_id, created_at, updated_at)
-             VALUES (?, 'cli', ?, ?, ?, ?, ?, ?, 'claude-code', ?, ?)",
-        )
-        .bind(&new_thread_id)
-        .bind(&title)
-        .bind(&source_cwd)
-        .bind(&source_cwd)
-        .bind(&source_claude_sid)
-        .bind(&req.source_thread_id)
-        .bind(up_to_turn)
-        .bind(now_ms)
-        .bind(now_ms)
-        .execute(&pool)
-        .await
-        .map_err(|e| format!("fork insert: {e}"))?;
-
-        // Pre-register the in-memory session so the first frontend
-        // `acpPrompt` finds it. Seeding `resume_session_id` here is the
-        // Phase 8 minimum: the next `spawn_streaming` call appends
-        // `--resume <source_claude_sid>` and the user continues the same
-        // claude conversation in a new Ikenga thread.
-        if let Some(sid) = source_claude_sid {
-            let cwd = source_cwd.unwrap_or_else(|| "/".to_string());
-            let opts = SessionOpts {
-                resume_session_id: Some(sid),
-                ..SessionOpts::default()
-            };
-            let _ = self
-                .sessions
-                .get_or_create(&new_thread_id, &cwd, opts)
-                .await;
-        }
-
-        Ok(ForkResult {
-            new_thread_id,
-            source_thread_id: req.source_thread_id,
-            branched_from_turn: req.up_to_turn,
-        })
+        Err("session fork is no longer supported after the chat surface was removed".into())
     }
 
     /// Handle ACP `session/load`. Phase 8: re-attach to an existing session

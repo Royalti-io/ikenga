@@ -27,7 +27,13 @@ const mockListWindows = vi.mocked(listWindows);
 const mockCloseWindow = vi.mocked(closeWindow);
 
 function descriptor(label: string, surfaces: string[]): WindowDescriptor {
-	return { label, kind: 'single-surface', surface_set: surfaces, project_id: null, layout_key: label };
+	return {
+		label,
+		kind: 'single-surface',
+		surface_set: surfaces,
+		project_id: null,
+		layout_key: label,
+	};
 }
 
 function isDetached(surfaceId: string): boolean {
@@ -37,7 +43,7 @@ function isDetached(surfaceId: string): boolean {
 // The `pendingReclaimNudge` Set is module-scope and survives between tests, so
 // clear every id the suite touches up front — otherwise an arm in one test
 // leaks into the next.
-const NUDGE_IDS = ['terminal:pty-1', 'terminal:pty-9', 'chat:thread-a', 'viewer:/a.md'];
+const NUDGE_IDS = ['terminal:pty-1', 'terminal:pty-9', 'viewer:/b.md', 'viewer:/a.md'];
 
 beforeEach(() => {
 	useDetachedSurfaces.setState({ surfaceToWindow: {} });
@@ -50,29 +56,31 @@ beforeEach(() => {
 describe('syncDetachedSurfaces', () => {
 	it('maps every detached window surface to its hosting label, skipping main', async () => {
 		mockListWindows.mockResolvedValue([
-			descriptor('detached-chat-1', ['chat:thread-a']),
+			descriptor('detached-viewer-1', ['viewer:/b.md']),
 			descriptor('detached-terminal-1', ['terminal:pty-9']),
 			// `main` (if ever listed) must never count as detached.
-			descriptor('main', ['chat:thread-a']),
+			descriptor('main', ['viewer:/b.md']),
 		]);
 
 		await syncDetachedSurfaces();
 
-		expect(isDetached('chat:thread-a')).toBe(true);
+		expect(isDetached('viewer:/b.md')).toBe(true);
 		expect(isDetached('terminal:pty-9')).toBe(true);
-		expect(useDetachedSurfaces.getState().surfaceToWindow['chat:thread-a']).toBe('detached-chat-1');
+		expect(useDetachedSurfaces.getState().surfaceToWindow['viewer:/b.md']).toBe(
+			'detached-viewer-1'
+		);
 		expect(isDetached('viewer:/no/such')).toBe(false);
 	});
 
 	it('drops surfaces whose windows have closed (full rebuild, not merge)', async () => {
-		markSurfaceDetached('chat:thread-a', 'detached-chat-1');
-		expect(isDetached('chat:thread-a')).toBe(true);
+		markSurfaceDetached('viewer:/b.md', 'detached-viewer-1');
+		expect(isDetached('viewer:/b.md')).toBe(true);
 
 		// The window closed → registry no longer lists it.
 		mockListWindows.mockResolvedValue([]);
 		await syncDetachedSurfaces();
 
-		expect(isDetached('chat:thread-a')).toBe(false);
+		expect(isDetached('viewer:/b.md')).toBe(false);
 	});
 
 	it('preserves prior state when the registry list call rejects', async () => {
@@ -95,35 +103,35 @@ describe('markSurfaceDetached', () => {
 
 describe('reclaimSurface', () => {
 	it('closes the hosting window and clears the surface from the map', async () => {
-		markSurfaceDetached('chat:thread-a', 'detached-chat-1');
+		markSurfaceDetached('viewer:/b.md', 'detached-viewer-1');
 
-		await reclaimSurface('chat:thread-a');
+		await reclaimSurface('viewer:/b.md');
 
-		expect(mockCloseWindow).toHaveBeenCalledWith('detached-chat-1');
-		expect(isDetached('chat:thread-a')).toBe(false);
+		expect(mockCloseWindow).toHaveBeenCalledWith('detached-viewer-1');
+		expect(isDetached('viewer:/b.md')).toBe(false);
 	});
 
 	it('no-ops when the surface is not detached', async () => {
-		await reclaimSurface('chat:not-open');
+		await reclaimSurface('viewer:/not-open');
 		expect(mockCloseWindow).not.toHaveBeenCalled();
 	});
 
 	it('reconciles from the registry if the close call fails', async () => {
-		markSurfaceDetached('chat:thread-a', 'detached-chat-1');
+		markSurfaceDetached('viewer:/b.md', 'detached-viewer-1');
 		mockCloseWindow.mockRejectedValue(new Error('close failed'));
 		// The window genuinely closed despite the error → registry lists none.
 		mockListWindows.mockResolvedValue([]);
 
-		await reclaimSurface('chat:thread-a');
+		await reclaimSurface('viewer:/b.md');
 
-		expect(isDetached('chat:thread-a')).toBe(false);
+		expect(isDetached('viewer:/b.md')).toBe(false);
 	});
 });
 
 // T-3a (reclaim half of T-2): a reclaim arms a one-shot SIGWINCH nudge that
 // TerminalView consumes on remount. Only `terminal:` surfaces are armed —
 // TerminalView is the sole consumer and therefore the sole caller of
-// `clearPendingReclaimNudge`, so arming a chat/viewer surface would leak a Set
+// `clearPendingReclaimNudge`, so arming a viewer surface would leak a Set
 // slot that nothing ever clears.
 describe('pendingReclaimNudge (T-3a reclaim arming)', () => {
 	it('arms the nudge when a terminal surface is reclaimed via the button', async () => {
@@ -135,13 +143,13 @@ describe('pendingReclaimNudge (T-3a reclaim arming)', () => {
 		expect(hasPendingReclaimNudge('terminal:pty-1')).toBe(true);
 	});
 
-	it('does NOT arm the nudge for a non-terminal (chat/viewer) reclaim', async () => {
-		markSurfaceDetached('chat:thread-a', 'detached-chat-1');
+	it('does NOT arm the nudge for a non-terminal (viewer) reclaim', async () => {
+		markSurfaceDetached('viewer:/b.md', 'detached-viewer-1');
 
-		await reclaimSurface('chat:thread-a');
+		await reclaimSurface('viewer:/b.md');
 
 		// Nothing would ever clear it — must never be armed in the first place.
-		expect(hasPendingReclaimNudge('chat:thread-a')).toBe(false);
+		expect(hasPendingReclaimNudge('viewer:/b.md')).toBe(false);
 	});
 
 	it('undoes the optimistic arm when the window close fails', async () => {
@@ -162,10 +170,10 @@ describe('pendingReclaimNudge (T-3a reclaim arming)', () => {
 		// Both were detached; the terminal window is closed via the OS chrome so
 		// only the map-diff in syncDetachedSurfaces sees the transition.
 		markSurfaceDetached('terminal:pty-9', 'detached-terminal-1');
-		markSurfaceDetached('chat:thread-a', 'detached-chat-1');
+		markSurfaceDetached('viewer:/b.md', 'detached-viewer-1');
 		mockListWindows.mockResolvedValue([
-			// terminal window gone; chat window still open.
-			descriptor('detached-chat-1', ['chat:thread-a']),
+			// terminal window gone; viewer window still open.
+			descriptor('detached-viewer-1', ['viewer:/b.md']),
 		]);
 
 		await syncDetachedSurfaces();
@@ -175,12 +183,12 @@ describe('pendingReclaimNudge (T-3a reclaim arming)', () => {
 	});
 
 	it('does NOT arm a non-terminal surface closed via the OS titlebar', async () => {
-		markSurfaceDetached('chat:thread-a', 'detached-chat-1');
+		markSurfaceDetached('viewer:/b.md', 'detached-viewer-1');
 		mockListWindows.mockResolvedValue([]);
 
 		await syncDetachedSurfaces();
 
-		expect(hasPendingReclaimNudge('chat:thread-a')).toBe(false);
+		expect(hasPendingReclaimNudge('viewer:/b.md')).toBe(false);
 	});
 
 	it('clearPendingReclaimNudge is idempotent — a double-clear is safe', () => {

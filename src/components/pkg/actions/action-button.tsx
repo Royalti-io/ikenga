@@ -1,23 +1,14 @@
 // WP-13 · WP-18b: one skill-action button.
 //
-// Dispatch routes the action through the shell's reusable New-Session dialog
-// (`openSessionDialog`, the `host.openSessionDialog` verb's core). The dialog is
-// the consent surface: it pre-fills an editable prompt (source-stamped
-// `[via: groundwork/<source>]`), lets the operator pick a target (Chat /
-// Terminal / Agent) + engine, and on Start mints + focuses + seeds a *fresh*
-// session by id.
+// Dispatch was the shell's reusable New-Session dialog (`openSessionDialog`,
+// the `host.openSessionDialog` verb's core). With the terminal surface removed,
+// dispatchAction is a no-op stub; the skill-action surface remains visible as
+// a placeholder while agents move to the CLI/MCP surface.
 //
 // Dispatchable modes: `confirm` (seed → review → send) and `approve` (run →
 // pause at the approve gate). WP-18b adds the well-known `setup` action: it
-// ships `ux_mode: streaming` but is enabled by *name*, dispatching into the
-// setup-chat flow (§1-§4). Every *other* streaming action stays disabled — a
-// visible placeholder with a mode badge.
-//
-// Why the dialog rather than `sendToActiveSession`: that core targets the
-// *currently-focused* pane-store chat, but clicking this button (a native pane
-// node) steals pane focus to the pkg pane first, so there is no focused chat at
-// dispatch time. The dialog opens its own session and seeds by thread id,
-// independent of pane focus. (Caught in WP-13 live-verify.)
+// ships `ux_mode: streaming` but is enabled by *name*. Every *other* streaming
+// action stays disabled — a visible placeholder with a mode badge.
 
 import { useState } from 'react';
 
@@ -45,8 +36,12 @@ export function ActionButton({ action }: { action: SkillAction }) {
 		setNote(null);
 		try {
 			const res = await dispatchAction(action, { interview });
-			if (!res.ok && res.reason === 'scope-denied') {
-				setNote('Scope denied');
+			if (!res.ok) {
+				if (res.reason === 'scope-denied') {
+					setNote('Scope denied');
+				} else if (res.reason === 'not-implemented') {
+					setNote('Action dispatch removed');
+				}
 			}
 		} catch (e) {
 			setNote(e instanceof Error ? e.message : String(e));
@@ -56,7 +51,7 @@ export function ActionButton({ action }: { action: SkillAction }) {
 	}
 
 	const title = isSetup
-		? `${label} — runs as a Chi conversation in the dock`
+		? `${label} — runs the setup workflow`
 		: canDispatch
 			? isApprove
 				? `${action.name} — runs, then pauses at the approve gate`

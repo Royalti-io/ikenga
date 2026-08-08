@@ -171,7 +171,9 @@ export function PkgHealthPanel() {
 											</div>
 										)}
 										{!r.enabled && (
-											<span className="font-mono text-[10px] text-muted-foreground/60">disabled</span>
+											<span className="font-mono text-[10px] text-muted-foreground/60">
+												disabled
+											</span>
 										)}
 									</td>
 									<td className="px-3 py-2">

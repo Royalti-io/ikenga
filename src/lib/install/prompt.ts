@@ -3,7 +3,7 @@
 // the user's selections) and Claude (which performs the actual install work).
 //
 // Two consumers today:
-//   1. The in-app spawn flow — feeds this string straight into claudeChatSpawn.
+//   1. The in-app spawn flow — feeds this string straight into the engine spawn.
 //   2. The clipboard handoff — copied verbatim for the user to paste into a
 //      terminal Claude session.
 // Both consumers must use the same prompt so an install run by either path

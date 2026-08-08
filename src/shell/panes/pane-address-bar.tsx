@@ -1,5 +1,5 @@
 // Browser-style URL bar shown above pane content for path-bearing views
-// (route, artifact). Chat/terminal panes render no address bar — they
+// (route, artifact). Terminal panes render no address bar — they
 // don't have a natural address.
 //
 // Layout:  [← back] [→ forward] [↻ refresh] [editable URL input]

@@ -6,13 +6,11 @@ import { FilesMode } from './sidebar-modes/files-mode';
 import { NgwaMode } from './sidebar-modes/ngwa-mode';
 import { PkgMode } from './sidebar-modes/pkg-mode';
 import { PkgsMode } from './sidebar-modes/pkgs-mode';
-import { SessionsMode } from './sidebar-modes/sessions-mode';
 import { SettingsMode } from './sidebar-modes/settings-mode';
 
 const CORE_TITLES = {
 	app: 'Ikenga',
 	files: 'Files',
-	sessions: 'Sessions',
 	'artifact-grid': 'Artifact grid',
 	ngwa: 'Ngwa',
 	pkgs: 'Packages',
@@ -47,10 +45,6 @@ export function Sidebar() {
 		case 'files':
 			title = CORE_TITLES.files;
 			body = <FilesMode />;
-			break;
-		case 'sessions':
-			title = CORE_TITLES.sessions;
-			body = <SessionsMode />;
 			break;
 		case 'artifact-grid':
 			title = CORE_TITLES['artifact-grid'];

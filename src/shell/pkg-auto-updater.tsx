@@ -15,11 +15,7 @@ import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Loader2 } from 'lucide-react';
 import { Banner } from '@/components/ui/banner';
 import { usePkgsDerived } from '@/lib/pkgs/use-derived';
-import {
-	useUpdatePkgs,
-	type UpdateFailure,
-	type UpdateProgress,
-} from '@/lib/pkgs/use-update-pkgs';
+import { useUpdatePkgs, type UpdateFailure, type UpdateProgress } from '@/lib/pkgs/use-update-pkgs';
 import { useShellStore } from '@/lib/shell/shell-store';
 
 export function PkgAutoUpdater() {

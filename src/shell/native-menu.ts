@@ -5,13 +5,12 @@
 // remain functional regardless.
 //
 // Menu items dispatch DOM CustomEvents on `window`. Listeners (terminal-eng,
-// chat-eng, etc.) subscribe to the event names below.
+// agent-eng, etc.) subscribe to the event names below.
 
 import { isMac } from '@/lib/platform';
 
 const EVT = {
 	newTerminal: 'cmd:new-terminal',
-	newChat: 'cmd:new-chat',
 	switchAdapter: 'cmd:switch-adapter',
 	openFile: 'cmd:open-file',
 	openProjectFolder: 'cmd:open-project-folder',
@@ -78,12 +77,6 @@ export async function installNativeMenu(): Promise<void> {
 					text: 'New Terminal',
 					accelerator: 'CmdOrCtrl+T',
 					action: () => emit(EVT.newTerminal),
-				}),
-				await MenuItem.new({
-					id: 'new-chat',
-					text: 'New Chat',
-					accelerator: 'CmdOrCtrl+Shift+T',
-					action: () => emit(EVT.newChat),
 				}),
 				await MenuItem.new({
 					id: 'switch-adapter',

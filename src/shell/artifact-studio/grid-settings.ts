@@ -2,7 +2,7 @@
 //
 // Backed by SQLite `settings_kv` via the existing settings_get/set Tauri
 // commands. Layout:
-//   artifact-grid.default-sink                  global default (auto|terminal|sidepane)
+//   artifact-grid.default-sink                  global default (auto|terminal|chi|clipboard)
 //   artifact-grid.stack-mode                    global default (collapsed|expanded)
 //   artifact-grid.folder.<path>.default-sink    per-folder override (or absent = follow global)
 //   artifact-grid.folder.<path>.stack-mode      per-folder override
@@ -19,16 +19,16 @@ import { settingsGet, settingsSet, type RouteSink } from '@/lib/tauri-cmd';
  * override for every pin click on the board.
  *
  * - `auto` — let the Rust dispatcher pick: active claude PTY when one
- *   exists, side-pane Chat otherwise.
- * - `terminal` — always send to the active claude PTY (fallback to
- *   side-pane if none).
- * - `sidepane` — always emit to the side-pane Chat channel.
- * - `both` — mirror mode: every pin click fans out to terminal *and*
- *   side-pane simultaneously. Useful when you want claude to see the
- *   structured payload while also keeping the side-pane thread as a
- *   user-facing audit log.
+ *   exists, clipboard otherwise.
+ * - `terminal` — always send to the active claude PTY (degrades to
+ *   clipboard if none is live).
+ * - `chi` — always spawn a headless one-off agent run for the pin.
+ * - `clipboard` — always copy the rendered prompt for manual paste.
+ *
+ * The pre-WP-05 `sidepane` and `both` values are migrated to `clipboard` on
+ * read: their only consumer was the removed side-pane Chat composer.
  */
-export type DefaultSink = 'auto' | 'terminal' | 'sidepane' | 'both';
+export type DefaultSink = 'auto' | 'terminal' | 'chi' | 'clipboard';
 export type StackMode = 'collapsed' | 'expanded';
 
 export const GLOBAL_KEYS = {
@@ -40,8 +40,15 @@ export function folderKey(path: string, leaf: 'default-sink' | 'stack-mode'): st
 	return `artifact-grid.folder.${path}.${leaf}`;
 }
 
-function parseDefaultSink(raw: string | null): DefaultSink | null {
-	if (raw === 'auto' || raw === 'terminal' || raw === 'sidepane' || raw === 'both') return raw;
+/** Parse a persisted `default-sink` value, migrating retired ones. Exported
+ *  so the settings route reads the same values the grid writes — a private
+ *  copy here previously silently coerced `chi`/`clipboard` back to `auto`. */
+export function parseDefaultSink(raw: string | null): DefaultSink | null {
+	if (raw === 'auto' || raw === 'terminal' || raw === 'chi' || raw === 'clipboard') return raw;
+	// Legacy values persisted before WP-05 dropped the chat surface. Both
+	// targeted the side-pane Chat composer, which no longer exists; clipboard
+	// is the closest surviving "don't touch my terminal" behaviour.
+	if (raw === 'sidepane' || raw === 'both') return 'clipboard';
 	return null;
 }
 

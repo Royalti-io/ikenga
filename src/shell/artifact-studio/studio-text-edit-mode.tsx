@@ -1,7 +1,7 @@
 // Text-edit mode overlay for the Studio's render panel.
 //
 // Twin of `studio-comment-mode.tsx` but instead of pinning the clicked
-// element as a chat chip, it flips the element to `contentEditable`,
+// element as a terminal chip, it flips the element to `contentEditable`,
 // focuses it, and commits the new inner HTML back to the artifact file
 // on blur (or `Cmd+Enter`). `Escape` aborts and restores the original
 // markup.

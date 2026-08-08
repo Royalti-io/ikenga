@@ -5,7 +5,7 @@
 // text from the user, shows the cropped element screenshot for context,
 // then writes the screenshot to disk, calls `commentCreate`, and asks
 // the routing dispatcher to deliver the structured prompt (terminal claude
-// if available, otherwise side-pane Chat fallback).
+// if available, otherwise side-pane terminal fallback).
 //
 // Lives under `shell/src/shell/artifact-studio/` because pins are a
 // Studio-surface concept after the unified plan collapsed grid into
@@ -22,7 +22,8 @@ import {
 	DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { commentCreate, commentRoute, pinScreenshotWrite } from '@/lib/tauri-cmd';
+import { routeOutcomeLabel, routePin } from '@/lib/artifact/route-pin';
+import { commentCreate, pinScreenshotWrite } from '@/lib/tauri-cmd';
 import {
 	readArtifactSink,
 	studioSinkToPreferredPtyId,
@@ -120,9 +121,9 @@ export function PinComposer({
 				// against the live PTY snapshot and falls back if it's gone.
 				preferredPtyId = studioSinkToPreferredPtyId(sink) ?? activeTerminalPtyId();
 			}
-			void commentRoute({ id: created.id, overrideSink, preferredPtyId }).catch((e) =>
-				console.error('[pin-composer] route failed', e)
-			);
+			void routePin({ id: created.id, overrideSink, preferredPtyId })
+				.then((res) => console.info('[pin-composer] pin routed:', routeOutcomeLabel(res)))
+				.catch((e) => console.error('[pin-composer] route failed', e));
 			// Bust the grid's pins query so the new pin pops in immediately.
 			void qc.invalidateQueries({ queryKey: ['artifact-grid'] });
 			onClose(true);

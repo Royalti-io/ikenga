@@ -86,16 +86,6 @@ struct PathColumn {
 
 const PATH_COLUMNS: &[PathColumn] = &[
     PathColumn {
-        table: "chat_sessions",
-        column: "cwd",
-        where_clause: None,
-    },
-    PathColumn {
-        table: "chat_sessions",
-        column: "project_dir",
-        where_clause: None,
-    },
-    PathColumn {
         table: "viewer_recents",
         column: "path",
         where_clause: None,

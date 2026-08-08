@@ -119,8 +119,6 @@ function viewsMatch(a: PaneView, b: PaneView): boolean {
 			return a.path === (b as Extract<PaneView, { kind: 'route' }>).path;
 		case 'terminal':
 			return a.sessionId === (b as Extract<PaneView, { kind: 'terminal' }>).sessionId;
-		case 'chat':
-			return a.sessionId === (b as Extract<PaneView, { kind: 'chat' }>).sessionId;
 		case 'artifact':
 			return a.path === (b as Extract<PaneView, { kind: 'artifact' }>).path;
 		case 'artifact-studio': {
@@ -138,10 +136,6 @@ function viewsMatch(a: PaneView, b: PaneView): boolean {
 		case 'scratchpad': {
 			const bb = b as Extract<PaneView, { kind: 'scratchpad' }>;
 			return a.scope === bb.scope && a.name === bb.name;
-		}
-		case 'tool-output': {
-			const bb = b as Extract<PaneView, { kind: 'tool-output' }>;
-			return a.threadId === bb.threadId && a.toolUseId === bb.toolUseId;
 		}
 	}
 }
@@ -240,23 +234,22 @@ function releaseAttachments(views: PaneView[]): void {
 
 	// Lazy imports: neither module imports pane-store at top level, but we
 	// still avoid the coupling so unit tests can mock cleanly.
-	void Promise.all([
-		import('@/terminal/session-store'),
-		import('@/terminal/pty-registry'),
-	]).then(([{ useTerminalStore }, { disposePty }]) => {
-		const st = useTerminalStore.getState();
-		// 1) Studio detach — ownership only, unchanged behavior.
-		for (const id of studioAttachedIds) st.detachFromStudio(id);
-		if (terminalSessionIds.length === 0) return;
-		// 2) Remove each closed terminal tab → cascades evictXtermCache.
-		for (const id of terminalSessionIds) st.remove(id);
-		// 3) Kill the PTY only when nothing live still points at the session.
-		//    Scan reads the post-`set()` tree (see the doc note above).
-		const stillLive = referencedTerminalIds(usePaneStore.getState().root);
-		for (const id of terminalSessionIds) {
-			if (!stillLive.has(id)) disposePty(id);
+	void Promise.all([import('@/terminal/session-store'), import('@/terminal/pty-registry')]).then(
+		([{ useTerminalStore }, { disposePty }]) => {
+			const st = useTerminalStore.getState();
+			// 1) Studio detach — ownership only, unchanged behavior.
+			for (const id of studioAttachedIds) st.detachFromStudio(id);
+			if (terminalSessionIds.length === 0) return;
+			// 2) Remove each closed terminal tab → cascades evictXtermCache.
+			for (const id of terminalSessionIds) st.remove(id);
+			// 3) Kill the PTY only when nothing live still points at the session.
+			//    Scan reads the post-`set()` tree (see the doc note above).
+			const stillLive = referencedTerminalIds(usePaneStore.getState().root);
+			for (const id of terminalSessionIds) {
+				if (!stillLive.has(id)) disposePty(id);
+			}
 		}
-	});
+	);
 }
 
 export const usePaneStore = create<PaneStoreState>((set, get) => ({

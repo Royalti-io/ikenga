@@ -87,13 +87,20 @@ function parseRequires(raw: unknown, i: number): RequiresEntry[] | undefined {
 		}
 		const e = r as Record<string, unknown>;
 		if (typeof e.kind !== 'string' || !KINDS.has(e.kind)) {
-			throw new Error(`primitives.json: entry ${i} requires[${j}] has invalid kind ${String(e.kind)}`);
+			throw new Error(
+				`primitives.json: entry ${i} requires[${j}] has invalid kind ${String(e.kind)}`
+			);
 		}
 		if (typeof e.name !== 'string') {
 			throw new Error(`primitives.json: entry ${i} requires[${j}] missing name`);
 		}
-		if (e.source !== undefined && (typeof e.source !== 'string' || !REQUIRE_SOURCES.has(e.source))) {
-			throw new Error(`primitives.json: entry ${i} requires[${j}] has invalid source ${String(e.source)}`);
+		if (
+			e.source !== undefined &&
+			(typeof e.source !== 'string' || !REQUIRE_SOURCES.has(e.source))
+		) {
+			throw new Error(
+				`primitives.json: entry ${i} requires[${j}] has invalid source ${String(e.source)}`
+			);
 		}
 		if (e.ref !== undefined && typeof e.ref !== 'string') {
 			throw new Error(`primitives.json: entry ${i} requires[${j}] has non-string ref`);

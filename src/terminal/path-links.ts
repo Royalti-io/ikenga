@@ -3,7 +3,8 @@
  *
  * `WebLinksAddon` only linkifies `http(s)://` URLs. This provider adds clickable
  * *file paths* — so a `/tmp/out.png` or `src/foo.ts` printed by a command opens
- * in the artifact viewer pane, the same destination a path pill opens from chat.
+ * in the artifact viewer pane, the same destination a path pill opens from a
+ * rendered document.
  *
  * Detection is shared with the markdown renderer via `looksLikePath`
  * (`@/lib/paths/file-paths`) so the two surfaces never disagree about what's a

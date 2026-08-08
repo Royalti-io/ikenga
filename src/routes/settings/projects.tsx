@@ -145,7 +145,7 @@ function ProjectsPage() {
 
 	async function handleResetLayout(project: Project) {
 		const ok = window.confirm(
-			`Reset saved pane layout for "${project.display_name}"? The next time you switch to this project, it will adopt whatever pane arrangement is currently visible. Chats, files, and other state are not affected.`
+			`Reset saved pane layout for "${project.display_name}"? The next time you switch to this project, it will adopt whatever pane arrangement is currently visible. Terminals, files, and other state are not affected.`
 		);
 		if (!ok) return;
 		try {
@@ -175,7 +175,7 @@ function ProjectsPage() {
 								Projects
 							</h2>
 							<p className="max-w-prose text-sm leading-relaxed text-muted-foreground">
-								First-class scoping containers for chats, packages, layout, memory, and todos.
+								First-class scoping containers for sessions, packages, layout, memory, and todos.
 								Switch the active project from the activity bar or with <kbd>⌘P</kbd>. The Default
 								project is built in and cannot be archived.
 							</p>
@@ -397,7 +397,7 @@ function ProjectDialog({
 								? 'A minimal .claude/ + CLAUDE.md stub was scaffolded. Confirm the name and slug.'
 								: addMode === 'adopt'
 									? 'Picked an existing folder. Confirm the name and slug.'
-									: 'Projects scope chats, pkgs, layout, memory, and todos.'}
+									: 'Projects scope sessions, pkgs, layout, memory, and todos.'}
 					</DialogDescription>
 				</DialogHeader>
 

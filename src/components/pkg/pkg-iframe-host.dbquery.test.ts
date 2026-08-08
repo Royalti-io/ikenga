@@ -68,8 +68,7 @@ describe('host.dbQuery (pkg-iframe read path)', () => {
 		withManifest({ sqlite: true, tables: ['tasks', 'sales_deals'] });
 		query.mockResolvedValue([] as never);
 
-		const sql =
-			'SELECT t.id FROM tasks t JOIN sales_deals d ON d.task_id = t.id WHERE d.stage = ?';
+		const sql = 'SELECT t.id FROM tasks t JOIN sales_deals d ON d.task_id = t.id WHERE d.stage = ?';
 		const res = await dispatchHostCall(PKG, 'host.dbQuery', { sql, params: ['won'] });
 
 		expect(query).toHaveBeenCalledWith(sql, ['won']);
@@ -170,9 +169,9 @@ describe('readSourceTables', () => {
 	});
 
 	it('excludes CTE names but keeps the real inner table', () => {
-		expect(
-			readSourceTables('WITH recent AS (SELECT * FROM tasks) SELECT * FROM recent')
-		).toEqual(['tasks']);
+		expect(readSourceTables('WITH recent AS (SELECT * FROM tasks) SELECT * FROM recent')).toEqual([
+			'tasks',
+		]);
 	});
 
 	it('picks up the inner table of a subquery source', () => {
@@ -180,9 +179,9 @@ describe('readSourceTables', () => {
 	});
 
 	it('de-duplicates repeated tables (case-insensitively)', () => {
-		expect(
-			readSourceTables('SELECT * FROM tasks a JOIN Tasks b ON a.id = b.parent_id')
-		).toEqual(['tasks']);
+		expect(readSourceTables('SELECT * FROM tasks a JOIN Tasks b ON a.id = b.parent_id')).toEqual([
+			'tasks',
+		]);
 	});
 
 	it('returns [] for a table-less SELECT', () => {

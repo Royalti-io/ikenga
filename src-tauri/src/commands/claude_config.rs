@@ -466,6 +466,7 @@ fn scan_all(project_roots: Vec<String>) -> Result<ClaudeConfig> {
         match layout.engine {
             EngineId::Claude => scan_claude(&project_roots, store_ref, &mut acc),
             EngineId::Gemini => scan_gemini(&layout, &project_roots, store_ref, &mut acc),
+            EngineId::Antigravity => scan_gemini(&layout, &project_roots, store_ref, &mut acc),
             // WP-18: the Codex reader — TOML agents/mcp/(inline)hooks +
             // JSON hooks.json + cross-tool `.agents/skills/` + deprecated
             // `prompts/`. Missing files/dirs yield zero entries (NOT an error).

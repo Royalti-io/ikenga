@@ -1,9 +1,9 @@
 // Sink picker for the Studio loupe.
 //
 // Lets the user choose where pin clicks from inside this artifact get
-// routed: terminal claude (default when one's running), side-pane
-// Chat, the Studio's own chat rail, both terminal+sidepane, or auto
-// (let the dispatcher pick). The choice is per-artifact, persisted in
+// routed: terminal claude (default when one's running), a headless chi
+// run, the clipboard, or auto (let the dispatcher pick).
+// The choice is per-artifact, persisted in
 // `settings_kv` under `artifact-studio.sink.<path>`.
 //
 // Falls through to the folder-level `default-sink` (artifact-grid
@@ -28,25 +28,24 @@ import { useTerminalStore } from '@/terminal/session-store';
  *
  * - `inherit` — follow folder-level / global default (no override).
  * - `auto` — let the Rust dispatcher pick (claude PTY when present,
- *   side-pane fallback otherwise).
+ *   clipboard fallback otherwise).
  * - `terminal` — always write to the active claude (or claude-family)
- *   PTY. Falls back to side-pane silently if none exists.
- * - `sidepane` — emit `pin://routed` for the side-pane Chat thread.
- * - `studio` — route into the Studio's own chat rail (loupe-local;
- *   only meaningful from inside the loupe).
- * - `both` — terminal + side-pane simultaneously (mirror mode).
+ *   PTY. Degrades to a clipboard copy if none is live.
+ * - `chi` — spawn a headless one-off agent run seeded with the pin.
+ * - `clipboard` — copy the rendered prompt for manual paste.
  * - `terminal:<ptyId>` — pin to a specific live PTY (encoded as
  *   `terminal:<id>`). Route override collapses to `'terminal'`; the
  *   `<id>` suffix is threaded through as `preferred_pty_id` so the Rust
  *   dispatcher prefers that PTY over the focused-tab fallback.
+ *
+ * The pre-WP-05 `sidepane` / `both` values migrate to `clipboard` on read.
  */
 export type StudioSink =
 	| 'inherit'
 	| 'auto'
 	| 'terminal'
-	| 'sidepane'
-	| 'studio'
-	| 'both'
+	| 'chi'
+	| 'clipboard'
 	| `terminal:${string}`;
 
 const SINK_KEY = (path: string) => `artifact-studio.sink.${path}`;
@@ -59,12 +58,15 @@ function parseSink(raw: string | null): StudioSink {
 		raw === 'inherit' ||
 		raw === 'auto' ||
 		raw === 'terminal' ||
-		raw === 'sidepane' ||
-		raw === 'studio' ||
-		raw === 'both'
+		raw === 'chi' ||
+		raw === 'clipboard'
 	) {
 		return raw;
 	}
+	// Legacy per-artifact overrides written before WP-05 removed the chat
+	// surface. Both targeted the side-pane Chat composer; clipboard is the
+	// closest surviving "keep it out of my terminal" behaviour.
+	if (raw === 'sidepane' || raw === 'both') return 'clipboard';
 	if (raw && TERMINAL_ID_RE.test(raw)) {
 		return raw as StudioSink;
 	}
@@ -72,22 +74,19 @@ function parseSink(raw: string | null): StudioSink {
 }
 
 /** Translate a Studio-level sink choice to the Rust `RouteSink` shape that
- *  `commentRoute` accepts. `studio` and `auto`/`inherit` produce
- *  `undefined` so the dispatcher's existing auto-detect runs. (The
- *  Studio-chat-rail sink needs a new `RouteSink::Studio` variant on the
- *  Rust side; until that lands, it falls back to auto.) */
+ *  `commentRoute` accepts. `auto`/`inherit` produce `undefined` so the
+ *  dispatcher's existing auto-detect runs. */
 export function studioSinkToRouteOverride(sink: StudioSink): RouteSink | undefined {
 	if (typeof sink === 'string' && sink.startsWith('terminal:')) return 'terminal';
 	switch (sink) {
 		case 'terminal':
 			return 'terminal';
-		case 'sidepane':
-			return 'sidepane';
-		case 'both':
-			return 'both';
+		case 'chi':
+			return 'chi';
+		case 'clipboard':
+			return 'clipboard';
 		case 'auto':
 		case 'inherit':
-		case 'studio':
 			return undefined;
 	}
 }
@@ -148,18 +147,17 @@ interface StudioSinkPopoverProps {
  *  `terminal:<id>` form, whose label is computed from the live tab). */
 type BasicSink = Exclude<StudioSink, `terminal:${string}`>;
 
-const ORDER: BasicSink[] = ['inherit', 'auto', 'studio', 'terminal', 'sidepane', 'both'];
+const ORDER: BasicSink[] = ['inherit', 'auto', 'terminal', 'chi', 'clipboard'];
 
 const LABELS: Record<BasicSink, { title: string; subtitle: string }> = {
 	inherit: { title: 'Follow folder default', subtitle: '(unset — use folder / global default)' },
-	auto: { title: 'Auto', subtitle: 'Terminal claude when present, side-pane Chat otherwise' },
-	studio: { title: 'Studio chat', subtitle: 'This loupe’s chat rail thread' },
+	auto: { title: 'Auto', subtitle: 'Terminal claude when present, clipboard otherwise' },
 	terminal: {
 		title: 'Terminal — Auto-detect claude PTY',
 		subtitle: 'First running claude/codex/gemini PTY',
 	},
-	sidepane: { title: 'Side-pane Chat', subtitle: 'Workspace-wide side-pane thread' },
-	both: { title: 'Mirror (both)', subtitle: 'Terminal *and* side-pane' },
+	chi: { title: 'Chi run', subtitle: 'Spawn a headless agent run for this pin' },
+	clipboard: { title: 'Copy to clipboard', subtitle: 'Paste into iyke chi, an MCP host, a shell' },
 };
 
 export function StudioSinkPopover({

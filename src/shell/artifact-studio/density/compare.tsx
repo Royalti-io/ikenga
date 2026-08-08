@@ -3,19 +3,18 @@
 // Layout: header chrome / [left renderer | right renderer | right rail] /
 //   footer with swap + close-left + close-right + per-side promote.
 //
-// Right rail is Chat-only at compare density (per the unified plan;
+// Right rail is Terminal-only at compare density (per the unified plan;
 // Code / DOM / Manifest need a single focused artifact — open either
 // side in loupe to use them).
 
+import { ArrowLeftRight, GitCompare, X } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
-import { ArrowLeftRight, GitCompare, X } from 'lucide-react';
 import { cn } from '@/components/ui/utils';
-import { fsRename } from '@/lib/tauri-cmd';
 import { usePaneStore } from '@/lib/panes/pane-store';
+import { fsRename } from '@/lib/tauri-cmd';
 import { pickRenderer } from '@/shell/artifact-studio/renderers';
 import { RightRail, useRightRailTab } from '@/shell/artifact-studio/right-rail';
-import { StudioFolderChat } from '@/shell/artifact-studio/studio-folder-chat';
 
 interface StudioCompareProps {
 	paneId: string;
@@ -35,7 +34,7 @@ function basename(path: string): string {
 
 export function StudioCompare({ paneId, a, b }: StudioCompareProps) {
 	const replaceView = usePaneStore((s) => s.replaceActiveViewAndPushHistory);
-	const [rightTab, setRightTab] = useRightRailTab('chat');
+	const [rightTab, setRightTab] = useRightRailTab('terminal');
 	// Local swap — flipping the slots is purely presentational; the
 	// canonical / variant promotion has its own button that renames on
 	// disk. `swapped: true` renders `b` on the left and `a` on the right.
@@ -44,12 +43,6 @@ export function StudioCompare({ paneId, a, b }: StudioCompareProps) {
 	const [error, setError] = useState<string | null>(null);
 
 	const [left, right] = swapped ? [b, a] : [a, b];
-
-	// Folder context for the chat thread. Compare typically spans
-	// variants of the same artifact, so both sides share a folder.
-	// When they don't (cross-folder compare), prefer the left side's
-	// folder — chat threads are keyed per folder by D3.
-	const folderPath = useMemo(() => dirname(left), [left]);
 
 	const LeftRenderer = useMemo(() => pickRenderer(left).Component, [left]);
 	const RightRenderer = useMemo(() => pickRenderer(right).Component, [right]);
@@ -154,7 +147,13 @@ export function StudioCompare({ paneId, a, b }: StudioCompareProps) {
 						<RightRail
 							tab={rightTab}
 							onChangeTab={setRightTab}
-							slots={{ chat: <StudioFolderChat folderPath={folderPath} /> }}
+							slots={{
+								terminal: (
+									<div className="flex h-full items-center justify-center p-4 text-xs text-muted-foreground">
+										Attach a terminal in loupe view to use it here.
+									</div>
+								),
+							}}
 						/>
 					</Panel>
 				</PanelGroup>
