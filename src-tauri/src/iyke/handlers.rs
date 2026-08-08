@@ -25,6 +25,8 @@ use tauri::{AppHandle, Emitter, LogicalSize, Manager};
 use super::rpc;
 use super::state::{IykeState, LogEntry, NetworkEntry};
 use super::IykeRpc;
+use crate::commands::chi::{chi_cancel, chi_list, chi_resume, chi_run, chi_status, ChiCache, ChiRunOpts, ChiRuntime};
+use crate::commands::db::PaDb;
 use crate::pty::PtyManager;
 
 const DOM_TIMEOUT: Duration = Duration::from_secs(5);
@@ -1769,6 +1771,97 @@ pub async fn post_devtools(
             "devtools only available in debug builds".into(),
         ))
     }
+}
+
+// --- chi ------------------------------------------------------------------
+
+#[derive(serde::Deserialize)]
+pub struct ChiResumeBody {
+    #[serde(rename = "runId")]
+    run_id: String,
+    prompt: String,
+}
+
+#[derive(serde::Deserialize)]
+pub struct ChiCancelBody {
+    #[serde(rename = "runId")]
+    run_id: String,
+}
+
+#[derive(serde::Deserialize)]
+pub struct ChiListQuery {
+    #[serde(rename = "engineId")]
+    engine_id: Option<String>,
+    limit: Option<i64>,
+}
+
+#[derive(serde::Deserialize)]
+pub struct ChiStatusQuery {
+    #[serde(rename = "runId")]
+    run_id: String,
+}
+
+pub async fn post_chi_run(
+    Extension(app): Extension<AppHandle>,
+    JsonBody(opts): JsonBody<ChiRunOpts>,
+) -> Result<Json<crate::commands::chi::ChiRunResult>, (StatusCode, String)> {
+    let app_for_call = app.clone();
+    let db = app.state::<std::sync::Arc<PaDb>>();
+    let cache = app.state::<ChiCache>();
+    let runtime = app.state::<std::sync::Arc<ChiRuntime>>();
+    chi_run(app_for_call, db, cache, runtime, opts)
+        .await
+        .map(Json)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))
+}
+
+pub async fn post_chi_resume(
+    Extension(app): Extension<AppHandle>,
+    JsonBody(body): JsonBody<ChiResumeBody>,
+) -> Result<Json<crate::commands::chi::ChiRunResult>, (StatusCode, String)> {
+    let app_for_call = app.clone();
+    let db = app.state::<std::sync::Arc<PaDb>>();
+    let cache = app.state::<ChiCache>();
+    let runtime = app.state::<std::sync::Arc<ChiRuntime>>();
+    chi_resume(app_for_call, db, cache, runtime, body.run_id, body.prompt)
+        .await
+        .map(Json)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))
+}
+
+pub async fn get_chi_status(
+    Extension(app): Extension<AppHandle>,
+    Query(q): Query<ChiStatusQuery>,
+) -> Result<Json<crate::commands::chi::ChiRunResult>, (StatusCode, String)> {
+    let db = app.state::<std::sync::Arc<PaDb>>();
+    let cache = app.state::<ChiCache>();
+    chi_status(db, cache, q.run_id)
+        .await
+        .map(Json)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))
+}
+
+pub async fn get_chi_list(
+    Extension(app): Extension<AppHandle>,
+    Query(q): Query<ChiListQuery>,
+) -> Result<Json<Vec<crate::commands::chi::ChiCacheRow>>, (StatusCode, String)> {
+    let db = app.state::<std::sync::Arc<PaDb>>();
+    chi_list(db, q.engine_id, q.limit)
+        .await
+        .map(Json)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))
+}
+
+pub async fn post_chi_cancel(
+    Extension(app): Extension<AppHandle>,
+    JsonBody(body): JsonBody<ChiCancelBody>,
+) -> Result<Json<crate::commands::chi::ChiRunResult>, (StatusCode, String)> {
+    let db = app.state::<std::sync::Arc<PaDb>>();
+    let runtime = app.state::<std::sync::Arc<ChiRuntime>>();
+    chi_cancel(db, runtime, body.run_id)
+        .await
+        .map(Json)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))
 }
 
 // --- helpers --------------------------------------------------------------
