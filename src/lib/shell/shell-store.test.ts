@@ -85,7 +85,7 @@ describe('shell-store onboarding migration', () => {
 		// Intentionally omit a step from the persisted record to simulate a
 		// future shape that adds a new step the user hasn't seen yet.
 		const stepsMinusOne = { ...partial.steps };
-		delete (stepsMinusOne as Record<string, unknown>).telemetry;
+		delete (stepsMinusOne as Record<string, unknown>).scaffolding;
 		const blob = {
 			activeMode: 'app',
 			onboarding: { ...partial, steps: stepsMinusOne },
@@ -94,7 +94,24 @@ describe('shell-store onboarding migration', () => {
 		const migrated = migrateShellStore(blob, 7) as { onboarding: OnboardingState };
 		expect(migrated.onboarding.steps.welcome.status).toBe('completed');
 		// Missing step got filled in from defaults.
-		expect(migrated.onboarding.steps.telemetry.status).toBe('pending');
+		expect(migrated.onboarding.steps.scaffolding.status).toBe('pending');
+	});
+
+	it('drops removed telemetry state during v15 migration', () => {
+		const partial = createDefaultOnboardingState();
+		(partial.steps as Record<string, any>).telemetry = { status: 'completed', completedAt: 123 };
+		const blob = {
+			activeMode: 'app',
+			telemetryConsent: true,
+			onboarding: { ...partial },
+		};
+
+		const migrated = migrateShellStore(blob, 14) as {
+			onboarding: OnboardingState;
+			telemetryConsent?: boolean;
+		};
+		expect(migrated.telemetryConsent).toBeUndefined();
+		expect((migrated.onboarding.steps as Record<string, any>).telemetry).toBeUndefined();
 	});
 
 	it('still honours the v7 activeMode-snap behaviour', () => {
