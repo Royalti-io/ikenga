@@ -1322,6 +1322,7 @@ mod tests {
             timeout_seconds: None,
             parent_id: None,
             resume_session_id: None,
+            persistent: false,
         };
 
         cache_insert(&db, &run_id, &opts, &output_path, "cli")
