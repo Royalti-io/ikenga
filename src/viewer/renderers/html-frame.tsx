@@ -50,8 +50,9 @@ interface HtmlFrameProps {
 // Sandbox flags:
 // - `allow-scripts`: required for legitimate Claude-generated HTML that uses
 //   inline scripts for interactivity.
-// - `allow-same-origin`: required for relative `<link>` and `<script src>`
-//   resolution and (now) for parent→iframe DOM access.
+// - `allow-same-origin`: removed for WP-01 containment probe. Same-origin
+//   access is what lets an artifact reach `window.parent.__TAURI_INTERNALS__`.
+//   Relative `<link>` / `<script src>` resolution is tested under this spike.
 // External script loads are blocked by the CSP header injected on every
 // response from the viewer server.
 export function HtmlFrame({ path, paneId }: HtmlFrameProps) {
@@ -226,7 +227,7 @@ export function HtmlFrame({ path, paneId }: HtmlFrameProps) {
 				ref={iframeRef}
 				title={path}
 				src={state.src}
-				sandbox="allow-scripts allow-same-origin"
+				sandbox="allow-scripts"
 				className="h-full w-full flex-1 border-0 bg-background"
 			/>
 			<PinComposer
