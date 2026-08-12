@@ -47,11 +47,18 @@ interface HtmlFrameProps {
 // modern-screenshot reach into the iframe DOM and lets the iyke iframe
 // bridge run without postMessage cross-origin gymnastics.
 //
+// Security consequence of same-origin: an artifact can read `window.parent`
+// and reach `window.parent.__TAURI_INTERNALS__.invoke`, which exposes every
+// command registered in `tauri::generate_handler![]`. See
+// ikenga/plans/2026-08-12-artifact-sandbox-escape/ for the containment plan.
+//
 // Sandbox flags:
 // - `allow-scripts`: required for legitimate Claude-generated HTML that uses
 //   inline scripts for interactivity.
 // - `allow-same-origin`: required for relative `<link>` and `<script src>`
-//   resolution and (now) for parent→iframe DOM access.
+//   resolution and (now) for parent→iframe DOM access. Removing this flag
+//   makes the frame opaque and blocks the parent-realm path above (per WP-01
+//   in the same plan).
 // External script loads are blocked by the CSP header injected on every
 // response from the viewer server.
 export function HtmlFrame({ path, paneId }: HtmlFrameProps) {

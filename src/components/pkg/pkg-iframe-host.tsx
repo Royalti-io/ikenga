@@ -21,11 +21,11 @@
 // On unmount: tears down the AppBridge and calls pkg_content_revoke to drop
 // the token.
 //
-// Sandbox: `allow-scripts allow-same-origin`. With `srcdoc`, the iframe is
-// already same-origin to the parent regardless of the sandbox attribute;
-// `allow-same-origin` is kept for parity with the existing viewer pattern
-// in src/viewer/renderers/html-frame.tsx and to keep AppBridge's same-origin
-// optimizations available. CSP is enforced on the subresource-server
+// Sandbox: `allow-scripts allow-same-origin`. With `srcdoc`, the iframe
+// inherits the parent origin only when the sandbox includes `allow-same-origin`;
+// without it, the frame is opaque. `allow-same-origin` is currently kept for
+// parity with src/viewer/renderers/html-frame.tsx and to keep AppBridge's
+// same-origin optimizations available. CSP is enforced on the subresource-server
 // response, not via the iframe sandbox attribute.
 //
 // Strict-mode safety per feedback_react_listener_strict_mode.md — bridge
