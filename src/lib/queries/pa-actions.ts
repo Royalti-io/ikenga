@@ -81,6 +81,15 @@ export function pausedDraftFromRow(row: PaActionDraftRow): PausedDraft | null {
 	// error popover without a second query. All fields are migration-0051 columns
 	// already on `row`; this is a pure mapping change (design grounding note).
 	const view = draft as PausedDraftView;
+	// THE ROW'S PRIMARY KEY IS THE ONLY ID THE HOST COMMANDS ACCEPT.
+	// `fromDraftItem` derives its id from the *payload*, which is not the
+	// `pa_action_drafts` key, so without this every action button sent
+	// `{ draftId: undefined }` — and an undefined value serialises to an ABSENT
+	// key, so Tauri rejected it with "missing required key draftId" rather than
+	// with a not-found. That silently broke Approve, Reject AND Retry: the panel
+	// optimistically marked the row resolved and removed it, so the gate looked
+	// like it had worked while nothing was ever written.
+	view.id = row.id;
 	view.delivery = {
 		dbStatus: row.status,
 		claimedAt: row.claimedAt,
