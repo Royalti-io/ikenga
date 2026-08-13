@@ -440,8 +440,16 @@ pub async fn pa_actions_reject(
 ) -> Result<(), String> {
     let pool = db.ensure_pool().await?;
     let affected = sqlx::query(
+        // `failed` is here deliberately. The panel renders Reject on failed rows —
+        // a send that will not succeed is precisely the thing an operator wants to
+        // discard — but this clause used to exclude it, so the button was offered
+        // on rows the command would refuse. Combined with the view-model never
+        // carrying the row id (see pausedDraftFromRow), rejecting a failed draft
+        // was broken twice over and failed silently: the panel removed the row
+        // optimistically while the DB was never written.
+        // `sending` stays out: that row is claimed by the worker right now.
         "UPDATE pa_action_drafts SET status = 'rejected' \
-         WHERE id = ? AND status IN ('awaiting', 'edited', 'committed')",
+         WHERE id = ? AND status IN ('awaiting', 'edited', 'committed', 'failed')",
     )
     .bind(&draft_id)
     .execute(&pool)
