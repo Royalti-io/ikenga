@@ -145,10 +145,10 @@ impl ViewerServerManager {
     /// Spawn the singleton server. Idempotent: subsequent calls are no-ops
     /// if the server is already bound.
     ///
-    /// In prod, the Tauri webview is configured (via `tauri.conf.json`
-    /// `frontendDist: "http://localhost:47821/"`) to load the shell itself
-    /// from this server, so a fallback route serves the bundled frontend
-    /// dist via Tauri's `AssetResolver`. That makes the shell and every
+    /// In prod, `src-tauri/tauri.conf.json` sets `frontendDist: "../dist"`, and
+    /// `lib.rs:502-510` builds the main window with `WebviewUrl::External` against
+    /// this viewer port, so the fallback route serves the bundled frontend dist
+    /// via Tauri's `AssetResolver`. That makes the shell and every
     /// `/__viewer/*` iframe share an origin in prod — which is what makes
     /// `iframe.contentDocument` access (Studio comment-mode, modern-screenshot,
     /// iyke iframe bridge) work end-to-end. In dev, Vite serves the shell
