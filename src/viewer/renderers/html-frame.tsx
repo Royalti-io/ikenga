@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertCircle, ExternalLink, Loader2, Pencil } from 'lucide-react';
 import {
 	fsListenWatch,
 	fsRead,
 	fsUnwatch,
 	fsWatch,
+	viewerPort,
 	viewerServe,
 	viewerStop,
 	type ViewerHandle,
@@ -20,11 +21,9 @@ import {
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { pickViewerRoot } from '../lib/relative-root';
-import {
-	attachElementPicker,
-	PinComposer,
-	type PickResult,
-} from '@/shell/artifact-studio/pin-composer';
+import { PinComposer, type PickResult } from '@/shell/artifact-studio/pin-composer';
+import * as M from '@/lib/artifact/bridge-messages';
+import { wrapHostMessage } from '@/lib/artifact/bridge-messages';
 
 function isHtmlPath(path: string): boolean {
 	const lower = path.toLowerCase();
@@ -41,18 +40,18 @@ interface HtmlFrameProps {
 
 // Renders HTML artifacts in a sandboxed iframe served by the shared Rust
 // viewer server (`viewer_serve` registers a token→root mount). The iframe
-// loads from a `/__viewer/<token>/<file>` path on the shell's own origin —
-// Vite proxies it in dev, tauri-plugin-localhost serves it in prod — so the
-// iframe is **same-origin** with the shell. That's what lets
-// modern-screenshot reach into the iframe DOM and lets the iyke iframe
-// bridge run without postMessage cross-origin gymnastics.
+// loads directly from the viewer server origin (`http://localhost:<viewer port>`)
+// so relative `<link>` / `<script src>` resolution and CSP work, but the
+// `sandbox` attribute omits `allow-same-origin`, so the child document has an
+// opaque origin and cannot read `window.parent`. Studio picking / commenting,
+// theme mirroring, and pin overlays all flow through the child-side artifact
+// bridge over `postMessage`.
 //
 // Sandbox flags:
 // - `allow-scripts`: required for legitimate Claude-generated HTML that uses
 //   inline scripts for interactivity.
-// - `allow-same-origin`: removed for WP-01 containment probe. Same-origin
-//   access is what lets an artifact reach `window.parent.__TAURI_INTERNALS__`.
-//   Relative `<link>` / `<script src>` resolution is tested under this spike.
+// - `allow-same-origin`: intentionally omitted. Same-origin access is what
+//   lets an artifact reach `window.parent.__TAURI_INTERNALS__`.
 // External script loads are blocked by the CSP header injected on every
 // response from the viewer server.
 export function HtmlFrame({ path, paneId }: HtmlFrameProps) {
@@ -73,9 +72,9 @@ export function HtmlFrame({ path, paneId }: HtmlFrameProps) {
 			.then((res) => {
 				const html = new TextDecoder('utf-8', { fatal: false }).decode(new Uint8Array(res.bytes));
 				const { root, file } = pickViewerRoot(path, html);
-				return viewerServe(root).then((h) => ({ h, file }));
+				return Promise.all([viewerServe(root), viewerPort()]).then(([h, port]) => ({ h, file, port }));
 			})
-			.then(({ h, file }) => {
+			.then(({ h, file, port }) => {
 				handle = h;
 				if (cancelled) {
 					// The mount was unmounted before the server finished spinning up —
@@ -83,11 +82,14 @@ export function HtmlFrame({ path, paneId }: HtmlFrameProps) {
 					void viewerStop(h.token);
 					return;
 				}
-				// `h.url` is now a relative path (`/__viewer/<token>/`). Resolving
-				// against `window.location.origin` keeps the iframe same-origin
-				// with the shell while giving us a proper absolute URL to display
-				// in the chrome strip.
-				const src = `${window.location.origin}${h.url}${file}`;
+				// The iframe is sandboxed without `allow-same-origin`, so its
+				// document has an opaque origin. It still loads from the viewer
+				// server's real origin (needed for CSP + resource resolution), but
+				// it cannot reach `window.parent`. `h.url` is a path relative to the
+				// viewer server's mount root; we prefix the bound viewer port so
+				// the child can fetch its own assets.
+				const port_ = port ?? 47821;
+				const src = `http://localhost:${port_}${h.url}${file}`;
 				setState({ kind: 'ready', src, handle: h });
 			})
 			.catch((err) => {
@@ -165,10 +167,10 @@ export function HtmlFrame({ path, paneId }: HtmlFrameProps) {
 	}, [paneId, readySrc]);
 
 	// Pin composer state. Right-clicking an element inside the iframe pops
-	// the composer; the picker stays attached for the lifetime of the
-	// iframe element. Skipped when there's no `paneId` because grid
-	// thumbnails (which have `pointer-events-none` and pass no paneId)
-	// shouldn't be capturing contextmenu events.
+	// the composer; the picker stays armed for the lifetime of the iframe.
+	// Skipped when there's no `paneId` because grid thumbnails (which have
+	// `pointer-events-none` and pass no paneId) shouldn't be capturing
+	// contextmenu events.
 	const [pick, setPick] = useState<PickResult | null>(null);
 	// Right-clicking inside the artifact opens a host context menu anchored at
 	// the cursor; "Add pin / comment here" is one item (it opens the composer
@@ -176,28 +178,85 @@ export function HtmlFrame({ path, paneId }: HtmlFrameProps) {
 	// to the pin composer on every right-click.
 	const [menu, setMenu] = useState<{ x: number; y: number; pick: PickResult } | null>(null);
 	const replaceView = usePaneStore((s) => s.replaceActiveViewAndPushHistory);
+
+	// Send a message to the child iframe. The frame is sandboxed to an opaque
+	// origin, so `targetOrigin` must be `'*'` and the child is expected to
+	// verify `event.origin === 'null'` on its side.
+	const postToChild = useCallback((msg: M.HostToChildMessage) => {
+		const cw = iframeRef.current?.contentWindow;
+		if (!cw) return;
+		cw.postMessage(wrapHostMessage(msg), '*');
+	}, []);
+
 	useEffect(() => {
 		if (!paneId || !readySrc) return;
-		const el = iframeRef.current;
-		if (!el) return;
-		// The iframe's contentDocument isn't available until the page-load
-		// event fires. Wait for that before attaching so the picker doesn't
-		// silently no-op on the loading-blank document.
-		let detach: (() => void) | undefined;
-		const wireUp = () => {
-			detach?.();
-			detach = attachElementPicker(el, (p, anchor) =>
-				setMenu({ x: anchor.x, y: anchor.y, pick: p })
-			);
+		const iframe = iframeRef.current;
+		if (!iframe) return;
+
+		const onMessage = (e: MessageEvent) => {
+			if (!M.isIkengaHostMessage(e.data)) return;
+			if (e.source !== iframe.contentWindow) return;
+			const m = (e.data as M.ChildMessageWrapper).data;
+			if (m.kind === 'pick') {
+				const r = iframe.getBoundingClientRect();
+				setMenu({
+					x: r.left + m.payload.clientX,
+					y: r.top + m.payload.clientY,
+					pick: {
+						selector: m.payload.selector,
+						positionX: m.payload.positionX,
+						positionY: m.payload.positionY,
+						screenshotBase64: m.payload.screenshotBase64,
+						screenshotWidth: m.payload.screenshotWidth,
+						screenshotHeight: m.payload.screenshotHeight,
+						elementLabel: m.payload.elementLabel,
+					},
+				});
+			} else if (m.kind === 'ready') {
+				postToChild({ kind: 'start-pick' });
+				syncThemeToChild();
+			}
 		};
-		// Attach immediately in case it's already loaded (re-mount races).
-		wireUp();
-		el.addEventListener('load', wireUp);
+
+		const syncThemeToChild = () => {
+			const html = document.documentElement;
+			const mode = html.getAttribute('data-mode');
+			if (mode !== 'light' && mode !== 'dark') return;
+			postToChild({
+				kind: 'theme',
+				payload: {
+					mode,
+					theme: html.getAttribute('data-theme') || 'A',
+					density: html.getAttribute('data-density') || 'comfortable',
+				},
+			});
+		};
+
+		// Listen to shell theme attribute changes and forward them to the child.
+		const obs = new MutationObserver(syncThemeToChild);
+		obs.observe(document.documentElement, {
+			attributes: true,
+			attributeFilter: ['data-mode', 'data-theme', 'data-density'],
+		});
+
+		window.addEventListener('message', onMessage);
+		postToChild({ kind: 'ping' });
+		syncThemeToChild();
+
+		// Re-arm the picker after hot-reloads.
+		const onLoad = () => {
+			postToChild({ kind: 'start-pick' });
+			syncThemeToChild();
+		};
+		iframe.addEventListener('load', onLoad);
+
 		return () => {
-			el.removeEventListener('load', wireUp);
-			detach?.();
+			window.removeEventListener('message', onMessage);
+			iframe.removeEventListener('load', onLoad);
+			obs.disconnect();
+			postToChild({ kind: 'stop-pick' });
 		};
-	}, [paneId, readySrc]);
+	}, [paneId, readySrc, postToChild]);
 
 	if (state.kind === 'loading') {
 		return (

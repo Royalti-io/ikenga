@@ -511,19 +511,50 @@ async fn inject_iyke_bridge(req: Request<Body>, next: Next) -> Response {
     Response::from_parts(parts, Body::from(new_bytes))
 }
 
+/// Append the request's host origin to every CSP directive. The child iframe
+/// is sandboxed without `allow-same-origin` (opaque origin), so `'self'` does
+/// not resolve to the document URL. It needs the real `http://host:port` origin
+/// in `script-src`, `style-src`, `img-src`, `font-src`, `media-src`, and
+/// especially `connect-src` so it can fetch its own relative assets and the
+/// artifact's data sources.
+fn csp_for_host(raw: &str, host: &str) -> String {
+    raw.split("; ")
+        .map(|directive| {
+            let trimmed = directive.trim_end();
+            if trimmed.is_empty() {
+                return String::new();
+            }
+            format!("{trimmed} http://{host}")
+        })
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
 async fn inject_security_headers(req: Request<Body>, next: Next) -> Response {
     // The viewer CSP locks down what artifact iframes can do; the shell's own
     // assets need a different (looser) CSP set by Tauri's own asset pipeline.
     // Same scoping as the bridge injectors.
     let is_viewer_path = req.uri().path().starts_with(VIEWER_PATH_PREFIX);
+    let host = req
+        .headers()
+        .get(header::HOST)
+        .and_then(|h| h.to_str().ok())
+        .map(|h| h.to_string());
     let mut resp = next.run(req).await;
     if !is_viewer_path {
         return resp;
     }
+    let csp = if let Some(host) = &host {
+        let expanded = csp_for_host(VIEWER_CSP, host);
+        HeaderValue::from_str(&expanded)
+            .unwrap_or_else(|_| HeaderValue::from_static(VIEWER_CSP))
+    } else {
+        HeaderValue::from_static(VIEWER_CSP)
+    };
     let headers = resp.headers_mut();
     headers.insert(
         header::CONTENT_SECURITY_POLICY,
-        HeaderValue::from_static(VIEWER_CSP),
+        csp,
     );
     headers.insert(
         header::X_CONTENT_TYPE_OPTIONS,
@@ -619,7 +650,7 @@ mod tests {
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
 
-        let body = to_bytes(resp.into_body(), 64 * 1024).await.unwrap();
+        let body = to_bytes(resp.into_body(), 512 * 1024).await.unwrap();
         let html = std::str::from_utf8(&body).unwrap();
 
         assert!(
@@ -728,7 +759,7 @@ mod tests {
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
 
-        let body = to_bytes(resp.into_body(), 64 * 1024).await.unwrap();
+        let body = to_bytes(resp.into_body(), 512 * 1024).await.unwrap();
         let html = std::str::from_utf8(&body).unwrap();
         assert_eq!(
             html.matches(ARTIFACT_INJECT_MARKER).count(),
