@@ -188,8 +188,9 @@ export function HtmlFrame({ path, paneId }: HtmlFrameProps) {
 	const replaceView = usePaneStore((s) => s.replaceActiveViewAndPushHistory);
 
 	// Send a message to the child iframe. The frame is sandboxed to an opaque
-	// origin, so `targetOrigin` must be `'*'` and the child is expected to
-	// verify `event.origin === 'null'` on its side.
+	// origin, so `targetOrigin` must be `'*'`: there is no origin string that
+	// would match it. The child authenticates us by comparing `e.source`
+	// against its `window.parent` instead — see `isFromExpectedSender`.
 	const postToChild = useCallback((msg: M.HostToChildMessage) => {
 		const cw = iframeRef.current?.contentWindow;
 		if (!cw) return;
@@ -203,7 +204,7 @@ export function HtmlFrame({ path, paneId }: HtmlFrameProps) {
 
 		const onMessage = (e: MessageEvent) => {
 			if (!M.isIkengaHostMessage(e.data)) return;
-			if (e.source !== iframe.contentWindow) return;
+			if (!M.isFromExpectedSender(e, iframe.contentWindow)) return;
 			const m = (e.data as M.ChildMessageWrapper).data;
 			if (m.kind === 'pick') {
 				const r = iframe.getBoundingClientRect();
@@ -295,6 +296,13 @@ export function HtmlFrame({ path, paneId }: HtmlFrameProps) {
 				title={path}
 				src={state.src}
 				sandbox="allow-scripts"
+				// Marks this frame as one the screenshot path must ask to render
+				// itself. Without `allow-same-origin` modern-screenshot cannot
+				// walk in, and `isUnwalkableIframe` would drop it — a blank pane
+				// where the artifact should be. Sniffing the sandbox string
+				// instead would silently stop working the day another renderer
+				// picks the same flags.
+				data-artifact-frame="true"
 				className="h-full w-full flex-1 border-0 bg-background"
 			/>
 			<PinComposer

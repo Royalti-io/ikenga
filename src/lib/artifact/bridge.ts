@@ -440,6 +440,13 @@ function setupHostBridge(themeHandle: ThemeHandle): void {
 
 	window.addEventListener('message', (e) => {
 		if (!M.isIkengaHostMessage(e.data)) return;
+		// Only the host frame drives this bridge. Without this the verbs below
+		// — start-text-edit, capture, start-pick — are reachable by anything
+		// that can get a handle to this window and post to it. The host has
+		// always checked its side (`e.source !== iframe.contentWindow`); this
+		// end checked nothing, so the "origin check on both ends" the channel
+		// contract calls for existed on one.
+		if (!M.isFromExpectedSender(e, window.parent)) return;
 		const m = (e.data as M.HostMessageWrapper).data;
 
 		switch (m.kind) {

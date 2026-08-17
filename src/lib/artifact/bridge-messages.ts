@@ -9,6 +9,21 @@
 
 export const IKENGA_HOST_MSG = '__ikenga_host';
 
+/**
+ * Envelope version. Both halves of the bridge ship from the same commit — the
+ * child bundle is rebuilt by `artifact:bundle` and *injected* by the viewer
+ * server into every `/__viewer/*` response, so it is never embedded in a
+ * stored artifact and cannot lag the host. Skew between our two halves is
+ * therefore not what this guards.
+ *
+ * What it guards is everything else on the `message` bus. An artifact's own
+ * code, an embedded widget, or any other frame can postMessage anything it
+ * likes; a strict equality check on a version we control means only our exact
+ * envelope shape is ever treated as a bridge message. Bump this when the verb
+ * lists below change shape, and keep the check `===` — default-deny.
+ */
+export const IKENGA_BRIDGE_VERSION = 1;
+
 /** Theme attributes the shell broadcasts and the child applies. */
 export interface ThemePayload {
 	mode: 'light' | 'dark';
@@ -78,35 +93,59 @@ export type ChildToHostMessage =
 	| { kind: 'text-edit-commit'; selector: string; innerHtml: string; originalHtml: string }
 	| { kind: 'text-edit-cancel'; selector: string };
 
-/** Wrapper the child must use so the host can distinguish Ikenga messages. */
+/**
+ * Wrapper the child must use so the host can distinguish Ikenga messages.
+ *
+ * There is deliberately no `origin` field. An earlier revision carried
+ * `origin: 'null'` described as an "origin guard", which it could not be: a
+ * value the sender writes into its own payload is not a guard, since anything
+ * posting to the bus can write it too. The real check is on the `MessageEvent`
+ * — `e.source` — and both ends now do it (see `isFromExpectedSender`).
+ */
 export interface ChildMessageWrapper {
 	[IKENGA_HOST_MSG]: true;
-	/** Origin guard: opaque frames serialize as the string `"null"`. */
-	origin: string;
+	v: number;
 	data: ChildToHostMessage;
 }
 
 /** Wrapper the host must use so the child can distinguish Ikenga messages. */
 export interface HostMessageWrapper {
 	[IKENGA_HOST_MSG]: true;
+	v: number;
 	data: HostToChildMessage;
 }
 
 export function isIkengaHostMessage(data: unknown): data is HostMessageWrapper | ChildMessageWrapper {
+	if (typeof data !== 'object' || data === null) return false;
+	const d = data as Record<string, unknown>;
 	return (
-		typeof data === 'object' &&
-		data !== null &&
-		IKENGA_HOST_MSG in data &&
-		(data as Record<string, unknown>)[IKENGA_HOST_MSG] === true &&
-		'data' in data &&
-		typeof (data as Record<string, unknown>).data === 'object'
+		d[IKENGA_HOST_MSG] === true &&
+		d.v === IKENGA_BRIDGE_VERSION &&
+		typeof d.data === 'object' &&
+		d.data !== null
 	);
 }
 
+/**
+ * Is this event from the window we expect to be talking to?
+ *
+ * `e.origin` cannot carry this. The child is sandboxed without
+ * `allow-same-origin`, so every message it sends arrives with origin `"null"` —
+ * and `"null"` is what *every* sandboxed frame reports, so matching on it
+ * proves nothing about which frame sent it. Comparing the `WindowProxy` in
+ * `e.source` against the specific window we mean is the check that holds:
+ * a `WindowProxy` is not forgeable across a postMessage.
+ *
+ * Host side passes `iframe.contentWindow`; child side passes `window.parent`.
+ */
+export function isFromExpectedSender(e: MessageEvent, expected: Window | null): boolean {
+	return expected !== null && e.source === expected;
+}
+
 export function wrapHostMessage(data: HostToChildMessage): HostMessageWrapper {
-	return { [IKENGA_HOST_MSG]: true, data };
+	return { [IKENGA_HOST_MSG]: true, v: IKENGA_BRIDGE_VERSION, data };
 }
 
 export function wrapChildMessage(data: ChildToHostMessage): ChildMessageWrapper {
-	return { [IKENGA_HOST_MSG]: true, origin: 'null', data };
+	return { [IKENGA_HOST_MSG]: true, v: IKENGA_BRIDGE_VERSION, data };
 }
