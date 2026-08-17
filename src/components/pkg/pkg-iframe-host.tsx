@@ -23,10 +23,11 @@
 //
 // Sandbox: `allow-scripts allow-same-origin`. With `srcdoc`, the iframe
 // inherits the parent origin only when the sandbox includes `allow-same-origin`;
-// without it, the frame is opaque. `allow-same-origin` is currently kept for
-// parity with src/viewer/renderers/html-frame.tsx and to keep AppBridge's
-// same-origin optimizations available. CSP is enforced on the subresource-server
-// response, not via the iframe sandbox attribute.
+// without it, the frame is opaque. `allow-same-origin` is kept so AppBridge can
+// use same-origin optimizations (note: artifact iframes in
+// src/viewer/renderers/html-frame.tsx are now sandboxed without it). CSP is
+// enforced on the subresource-server response, not via the iframe sandbox
+// attribute.
 //
 // Strict-mode safety per feedback_react_listener_strict_mode.md — bridge
 // instance is keyed by ref and torn down + recreated cleanly on each effect

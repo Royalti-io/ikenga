@@ -9,6 +9,8 @@
 
 import { domToBlob } from 'modern-screenshot';
 
+import { substituteArtifactFrames } from './artifact/capture-frames';
+
 export interface CaptureOutput {
 	base64: string;
 	width: number;
@@ -82,9 +84,10 @@ export async function captureToPng(target: HTMLElement): Promise<CaptureOutput> 
 	// reading the actual compositor; `backgroundColor: null` preserves
 	// transparency edges from rounded panel borders.
 	//
-	// Iframes are walked into (since Phase 1 same-origin viewer-server) so
-	// artifact pane content reaches the PNG. `data-screenshot="skip"` opts
-	// a node out.
+	// Same-origin iframes are walked into. Artifact frames are no longer
+	// same-origin — they reach the PNG via `substituteArtifactFrames` above,
+	// which renders them through the bridge and swaps in the result.
+	// `data-screenshot="skip"` opts a node out.
 	//
 	// `font: false` skips `embedWebFont` entirely. The shell's index.html
 	// loads Google Fonts via `<link>`; the resulting cross-origin
@@ -105,6 +108,12 @@ export async function captureToPng(target: HTMLElement): Promise<CaptureOutput> 
 	// remote images.
 	const rect = target.getBoundingClientRect();
 	const scale = clampScale(rect.width, rect.height);
+
+	// WP-09. Artifact frames are sandboxed to an opaque origin, so the filter
+	// below drops them and the pane comes out blank. Ask each to render itself
+	// and stand the PNG in for the frame. Must run before `domToBlob`, which
+	// clones the tree synchronously.
+	const restoreFrames = await substituteArtifactFrames(target);
 
 	const blobPromise = domToBlob(target, {
 		scale,
@@ -140,6 +149,9 @@ export async function captureToPng(target: HTMLElement): Promise<CaptureOutput> 
 		blob = await Promise.race([blobPromise, timeoutPromise]);
 	} finally {
 		if (timeoutId !== null) clearTimeout(timeoutId);
+		// Unconditional: leaving a stand-in <img> over a hidden iframe would
+		// freeze the pane's visible content at capture time.
+		restoreFrames();
 	}
 	if (!blob) throw new Error('capture produced empty blob');
 

@@ -30,8 +30,12 @@
 // Constraints (do not violate without updating bridge.entry.ts comment):
 //   - Pure browser-side. No Node/Tauri imports. Runs in an iframe.
 //   - No top-level await — must survive Babel-standalone compilation.
-//   - No external imports. Re-declare types inline.
 //   - Strict TypeScript.
+//   - External imports are fine: `bun run artifact:bundle` inlines them.
+
+import { domToPng } from 'modern-screenshot';
+import * as M from './bridge-messages';
+import { deriveSelector } from './selector';
 
 // ── Types (inline; mirrors @ikenga/contract manifest shape minimally) ────
 
@@ -110,6 +114,7 @@ interface ThemeHandle {
 	readonly mode: ThemeMode;
 	readonly theme: string;
 	readonly density: string;
+	applyFromHost: (payload: M.ThemePayload) => void;
 	subscribe: (fn: (t: ThemeSnapshot) => void) => () => void;
 }
 
@@ -215,19 +220,16 @@ function resolveArtifactRelative(path: string): string | null {
 /**
  * Make the artifact follow the host theme.
  *
- * Inside the shell the artifact iframe is same-origin with the shell (the
- * viewer-server serves it from the shell's own origin), so we read the live
- * `data-mode` / `data-theme` / `data-density` attributes the shell writes on
- * its `<html>` (see `lib/ikenga/theme-store.ts`) and mirror them onto the
- * artifact's own `<html>`. `@ikenga/tokens` is pre-injected by the viewer
- * server, so its `:root[data-mode=…]` / `[data-theme=…][data-mode=…]`
+ * The child iframe is sandboxed without `allow-same-origin`, so it cannot
+ * read `window.parent.document`. The host posts a `theme` message whenever
+ * the shell's `data-mode` / `data-theme` / `data-density` attributes change;
+ * the child applies them to its own `<html>`. `@ikenga/tokens` is pre-injected
+ * by the viewer server, so its `:root[data-mode=…]` / `[data-theme=…]`
  * selectors resolve once the attributes are present. We also toggle a `.dark`
  * class so Tailwind's class-strategy dark mode tracks the shell.
  *
- * A `MutationObserver` on the shell's `<html>` re-applies on every toggle —
- * the live-switch path. Outside the shell (`window.parent` is self or throws
- * cross-origin) we fall back to the OS `prefers-color-scheme` and follow it
- * live; the palette defaults to 'A'.
+ * Outside the shell (no theme message arrives) we fall back to the OS
+ * `prefers-color-scheme` and follow it live; the palette defaults to 'A'.
  *
  * Runs synchronously in `<head>` (the bridge is the first, non-deferred
  * script), so the first paint is already themed — no flash.
@@ -252,58 +254,32 @@ function setupTheme(): ThemeHandle {
 		}
 	}
 
-	/** Read the shell's `<html>`; null if not same-origin-readable. */
-	function readShell(): ThemeSnapshot | null {
-		try {
-			if (window.parent === window) return null;
-			const root = window.parent.document.documentElement;
-			const mode = root.getAttribute('data-mode');
-			if (mode !== 'light' && mode !== 'dark') return null;
-			return {
-				mode,
-				theme: root.getAttribute('data-theme') || 'A',
-				density: root.getAttribute('data-density') || 'comfortable',
-			};
-		} catch {
-			// Cross-origin (standalone embed) — caller falls back to OS.
-			return null;
-		}
+	// The host bridge (setupHostBridge) calls this when it receives a
+	// `theme` message. Exported on the returned handle for tests.
+	function applyFromHost(payload: M.ThemePayload): void {
+		apply({
+			mode: payload.mode,
+			theme: payload.theme,
+			density: payload.density,
+		});
 	}
 
-	const fromShell = readShell();
-	if (fromShell) {
-		apply(fromShell);
-		// Live-switch: re-mirror whenever the shell's attributes change.
-		try {
-			const target = window.parent.document.documentElement;
-			const obs = new MutationObserver(() => {
-				const next = readShell();
-				if (next) apply(next);
-			});
-			obs.observe(target, {
-				attributes: true,
-				attributeFilter: ['data-mode', 'data-theme', 'data-density'],
-			});
-		} catch {
-			// best-effort; the static apply above already themed the document.
-		}
-	} else {
-		// Standalone — follow the OS color scheme. Palette has no host source,
-		// so default to 'A'.
-		const mql = window.matchMedia('(prefers-color-scheme: dark)');
-		const fromOs = (): ThemeSnapshot => ({
-			mode: mql.matches ? 'dark' : 'light',
-			theme: 'A',
-			density: 'comfortable',
-		});
-		apply(fromOs());
-		const onChange = () => apply(fromOs());
-		if (typeof mql.addEventListener === 'function') {
-			mql.addEventListener('change', onChange);
-		} else if (typeof mql.addListener === 'function') {
-			// Safari < 14.
-			mql.addListener(onChange);
-		}
+	// Standalone fallback: follow the OS color scheme. Palette has no host
+	// source, so default to 'A'.
+	const mql = window.matchMedia('(prefers-color-scheme: dark)');
+	const fromOs = (): ThemeSnapshot => ({
+		mode: mql.matches ? 'dark' : 'light',
+		theme: 'A',
+		density: 'comfortable',
+	});
+
+	apply(fromOs());
+	const onChange = () => apply(fromOs());
+	if (typeof mql.addEventListener === 'function') {
+		mql.addEventListener('change', onChange);
+	} else if (typeof mql.addListener === 'function') {
+		// Safari < 14.
+		mql.addListener(onChange);
 	}
 
 	return {
@@ -316,6 +292,7 @@ function setupTheme(): ThemeHandle {
 		get density() {
 			return current.density;
 		},
+		applyFromHost,
 		subscribe: (fn) => {
 			subs.push(fn);
 			return () => {
@@ -324,6 +301,372 @@ function setupTheme(): ThemeHandle {
 			};
 		},
 	};
+}
+
+// ── Host postMessage bridge ──────────────────────────────────────────────
+
+/** Serialise a `DOMRect` so it can be sent to the host over postMessage. */
+function serialiseRect(r: DOMRect): M.SerializedRect {
+	return { top: r.top, left: r.left, width: r.width, height: r.height };
+}
+
+function clamp01(v: number): number {
+	if (!Number.isFinite(v)) return 0;
+	if (v < 0) return 0;
+	if (v > 1) return 1;
+	return v;
+}
+
+function labelFor(el: Element): string {
+	const tag = el.tagName.toLowerCase();
+	const text = (el.textContent ?? '').trim().slice(0, 40);
+	if (!text) return tag;
+	return `${tag} — ${text}${(el.textContent ?? '').length > 40 ? '…' : ''}`;
+}
+
+function elementFromEventTarget(e: Event): Element | null {
+	const t = e.target as { nodeType?: number } | null;
+	if (!t || t.nodeType !== 1) return null;
+	return e.target as Element;
+}
+
+function computePosition(el: Element): { x: number; y: number } {
+	const root = document.documentElement;
+	const rect = el.getBoundingClientRect();
+	const w = Math.max(1, root.scrollWidth || window.innerWidth);
+	const h = Math.max(1, root.scrollHeight || window.innerHeight);
+	const x = clamp01((rect.left + rect.width / 2 + (window.scrollX || 0)) / w);
+	const y = clamp01((rect.top + rect.height / 2 + (window.scrollY || 0)) / h);
+	return { x, y };
+}
+
+async function capturePng(el: Element): Promise<{ base64: string; width: number; height: number }> {
+	const dataUrl = await domToPng(el as HTMLElement, { scale: 1, backgroundColor: null, timeout: 5000 });
+	const base64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
+	const img = new Image();
+	img.src = dataUrl;
+	await img.decode();
+	return { base64, width: img.naturalWidth, height: img.naturalHeight };
+}
+
+function isExcludedRoot(el: Element): boolean {
+	return el === document.documentElement || el === document.body;
+}
+
+/** Capture a `PickPayload` for an element and mouse location. */
+async function makePickPayload(el: Element, clientX: number, clientY: number): Promise<M.PickPayload> {
+	const [shot, pos] = await Promise.all([capturePng(el), Promise.resolve(computePosition(el))]);
+	return {
+		selector: deriveSelector(el),
+		positionX: pos.x,
+		positionY: pos.y,
+		screenshotBase64: shot.base64,
+		screenshotWidth: shot.width,
+		screenshotHeight: shot.height,
+		elementLabel: labelFor(el),
+		clientX,
+		clientY,
+	};
+}
+
+function postToHost(data: M.ChildToHostMessage): void {
+	window.parent.postMessage(M.wrapChildMessage(data), '*');
+}
+
+function setupHostBridge(themeHandle: ThemeHandle): void {
+	let pickHandler: ((e: MouseEvent) => void) | null = null;
+	let hoverHandler: ((e: MouseEvent) => void) | null = null;
+	let clickHandler: ((e: MouseEvent) => void) | null = null;
+	let leaveHandler: (() => void) | null = null;
+	let textClickHandler: ((e: MouseEvent) => void) | null = null;
+	let ro: ResizeObserver | null = null;
+	let mo: MutationObserver | null = null;
+	let watchingSelectors: string[] = [];
+
+	const editingRef: { current: { el: HTMLElement; selector: string; originalHtml: string } | null } = { current: null };
+
+	function resolvePinRects(selectors: string[]): M.PinResolution[] {
+		return selectors.map((selector) => {
+			let el: Element | null = null;
+			try {
+				el = document.querySelector(selector);
+			} catch {
+				el = null;
+			}
+			return {
+				selector,
+				found: !!el,
+				rect: el ? serialiseRect(el.getBoundingClientRect()) : null,
+			};
+		});
+	}
+
+	function sendPinUpdate(): void {
+		postToHost({ kind: 'pin-update', results: resolvePinRects(watchingSelectors) });
+	}
+
+	function stopHover(): void {
+		if (hoverHandler) document.removeEventListener('mousemove', hoverHandler, true);
+		if (clickHandler) document.removeEventListener('click', clickHandler, true);
+		if (leaveHandler) document.removeEventListener('mouseleave', leaveHandler, true);
+		hoverHandler = null;
+		clickHandler = null;
+		leaveHandler = null;
+	}
+
+	function stopPick(): void {
+		if (pickHandler) document.removeEventListener('contextmenu', pickHandler, true);
+		pickHandler = null;
+	}
+
+	function stopTextEdit(): void {
+		const cur = editingRef.current;
+		if (cur) {
+			cur.el.innerHTML = cur.originalHtml;
+			cur.el.contentEditable = 'inherit';
+			editingRef.current = null;
+		}
+		if (textClickHandler) document.removeEventListener('click', textClickHandler, true);
+		textClickHandler = null;
+	}
+
+	function stopPinWatch(): void {
+		watchingSelectors = [];
+		ro?.disconnect();
+		mo?.disconnect();
+		ro = null;
+		mo = null;
+	}
+
+	window.addEventListener('message', (e) => {
+		if (!M.isIkengaHostMessage(e.data)) return;
+		// Only the host frame drives this bridge. Without this the verbs below
+		// — start-text-edit, capture, start-pick — are reachable by anything
+		// that can get a handle to this window and post to it. The host has
+		// always checked its side (`e.source !== iframe.contentWindow`); this
+		// end checked nothing, so the "origin check on both ends" the channel
+		// contract calls for existed on one.
+		if (!M.isFromExpectedSender(e, window.parent)) return;
+		const m = (e.data as M.HostMessageWrapper).data;
+
+		switch (m.kind) {
+			case 'ping': {
+				postToHost({ kind: 'pong' });
+				return;
+			}
+			case 'theme': {
+				themeHandle.applyFromHost(m.payload);
+				return;
+			}
+			case 'start-pick': {
+				stopPick();
+				pickHandler = (ev: MouseEvent) => {
+					const el = elementFromEventTarget(ev);
+					if (!el || isExcludedRoot(el)) return;
+					ev.preventDefault();
+					ev.stopPropagation();
+					void makePickPayload(el, ev.clientX, ev.clientY)
+						.then((payload) => postToHost({ kind: 'pick', payload }))
+						.catch((err) => console.error('[ikenga.bridge] pick capture failed', err));
+				};
+				document.addEventListener('contextmenu', pickHandler, true);
+				return;
+			}
+			case 'stop-pick': {
+				stopPick();
+				return;
+			}
+			case 'start-comment': {
+				stopHover();
+				hoverHandler = (ev: MouseEvent) => {
+					const el = elementFromEventTarget(ev);
+					if (!el) {
+						postToHost({ kind: 'hover', rect: null });
+						return;
+					}
+					postToHost({ kind: 'hover', rect: serialiseRect(el.getBoundingClientRect()) });
+				};
+				clickHandler = (ev: MouseEvent) => {
+					const el = elementFromEventTarget(ev);
+					if (!el || isExcludedRoot(el)) return;
+					ev.preventDefault();
+					ev.stopPropagation();
+					void makePickPayload(el, ev.clientX, ev.clientY)
+						.then((payload) => postToHost({ kind: 'comment-pick', payload }))
+						.catch((err) => console.error('[ikenga.bridge] comment capture failed', err));
+				};
+				leaveHandler = () => postToHost({ kind: 'hover', rect: null });
+				document.addEventListener('mousemove', hoverHandler, true);
+				document.addEventListener('click', clickHandler, true);
+				document.addEventListener('mouseleave', leaveHandler, true);
+				return;
+			}
+			case 'stop-comment': {
+				stopHover();
+				return;
+			}
+			case 'start-text-edit': {
+				stopHover();
+				hoverHandler = (ev: MouseEvent) => {
+					const el = elementFromEventTarget(ev);
+					postToHost({ kind: 'hover', rect: el ? serialiseRect(el.getBoundingClientRect()) : null });
+				};
+				textClickHandler = (ev: MouseEvent) => {
+					const el = elementFromEventTarget(ev) as HTMLElement | null;
+					if (!el || isExcludedRoot(el)) return;
+					ev.preventDefault();
+					ev.stopPropagation();
+					if (editingRef.current) return;
+					editingRef.current = {
+						el,
+						selector: deriveSelector(el),
+						originalHtml: el.innerHTML,
+					};
+					el.contentEditable = 'true';
+					el.focus();
+					postToHost({
+						kind: 'text-edit-pick',
+						selector: editingRef.current.selector,
+						rect: serialiseRect(el.getBoundingClientRect()),
+						originalHtml: editingRef.current.originalHtml,
+					});
+				};
+				leaveHandler = () => postToHost({ kind: 'hover', rect: null });
+				document.addEventListener('mousemove', hoverHandler, true);
+				document.addEventListener('click', textClickHandler, true);
+				document.addEventListener('mouseleave', leaveHandler, true);
+				return;
+			}
+			case 'stop-text-edit': {
+				stopTextEdit();
+				stopHover();
+				return;
+			}
+			case 'resolve-pins': {
+				postToHost({ kind: 'pins', requestId: m.requestId, results: resolvePinRects(m.selectors) });
+				return;
+			}
+			case 'watch-pins': {
+				stopPinWatch();
+				watchingSelectors = m.selectors;
+				ro = new ResizeObserver(() => sendPinUpdate());
+				ro.observe(document.documentElement);
+				mo = new MutationObserver(() => sendPinUpdate());
+				mo.observe(document.documentElement, {
+					attributes: true,
+					childList: true,
+					subtree: true,
+					characterData: true,
+				});
+				document.addEventListener('scroll', sendPinUpdate, true);
+				sendPinUpdate();
+				return;
+			}
+			case 'unwatch-pins': {
+				stopPinWatch();
+				return;
+			}
+			case 'capture': {
+				let el: Element | null = null;
+				try {
+					el = document.querySelector(m.selector);
+				} catch {
+					el = null;
+				}
+				if (!el) {
+					postToHost({
+						kind: 'capture-result',
+						requestId: m.requestId,
+						base64: '',
+						width: 0,
+						height: 0,
+						error: `selector did not resolve: ${m.selector}`,
+					});
+					return;
+				}
+				void capturePng(el)
+					.then((shot) =>
+						postToHost({
+							kind: 'capture-result',
+							requestId: m.requestId,
+							base64: shot.base64,
+							width: shot.width,
+							height: shot.height,
+						})
+					)
+					.catch((err) =>
+						postToHost({
+							kind: 'capture-result',
+							requestId: m.requestId,
+							base64: '',
+							width: 0,
+							height: 0,
+							// Include the stack: this runs inside an opaque-origin frame,
+							// so the host cannot open devtools on the child and the message
+							// alone rarely identifies the thrower.
+							error: err instanceof Error ? `${err.message} | ${err.stack ?? ''}` : String(err),
+						})
+					);
+				return;
+			}
+			default: {
+				// eslint-disable-next-line @typescript-eslint/no-explicit-any
+				const _exhaustive: never = m;
+				void _exhaustive;
+			}
+		}
+	});
+
+	// Text-edit keyboard lifecycle is handled once at bridge install.
+	document.addEventListener(
+		'keydown',
+		(e) => {
+			const cur = editingRef.current;
+			if (!cur) return;
+			if (e.key === 'Escape') {
+				e.preventDefault();
+				cur.el.innerHTML = cur.originalHtml;
+				cur.el.contentEditable = 'inherit';
+				editingRef.current = null;
+				postToHost({ kind: 'text-edit-cancel', selector: cur.selector });
+				return;
+			}
+			if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+				e.preventDefault();
+				const newHtml = cur.el.innerHTML;
+				cur.el.contentEditable = 'inherit';
+				editingRef.current = null;
+				postToHost({
+					kind: 'text-edit-commit',
+					selector: cur.selector,
+					innerHtml: newHtml,
+					originalHtml: cur.originalHtml,
+				});
+			}
+		},
+		true
+	);
+
+	document.addEventListener(
+		'blur',
+		(e) => {
+			const cur = editingRef.current;
+			if (!cur || e.target !== cur.el) return;
+			const newHtml = cur.el.innerHTML;
+			cur.el.contentEditable = 'inherit';
+			editingRef.current = null;
+			postToHost({
+				kind: 'text-edit-commit',
+				selector: cur.selector,
+				innerHtml: newHtml,
+				originalHtml: cur.originalHtml,
+			});
+		},
+		true
+	);
+
+	// Send ready so the host can forward its theme and any armed modes.
+	postToHost({ kind: 'ready' });
 }
 
 // ── Mount ────────────────────────────────────────────────────────────────
@@ -342,6 +685,10 @@ export function mountArtifactBridge(): void {
 	// early-returns below, so even a manifest-less HTML preview tracks the
 	// shell's dark/light + palette. The handle is re-exposed on `art.theme`.
 	const themeHandle = setupTheme();
+
+	// Start the postMessage host bridge so the sandboxed child can receive
+	// theme updates, picker/comment/text-edit commands, and pin requests.
+	setupHostBridge(themeHandle);
 
 	// Parse manifest. If absent or malformed, leave the host descriptor in
 	// place but skip installing the polyfill — any inline polyfill in the
