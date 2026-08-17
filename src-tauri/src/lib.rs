@@ -484,9 +484,14 @@ pub fn run() {
             })?;
 
             // Main window — built programmatically so the prod webview loads
-            // from our viewer-server (same origin as `/__viewer/*` iframes,
-            // which is what makes `iframe.contentDocument` work for Studio's
-            // comment-mode, modern-screenshot, and the iyke iframe bridge).
+            // from our viewer-server. That puts the shell on the same origin as
+            // `/__viewer/*`, which is what lets the audio/video renderers use
+            // relative URLs (in dev the Vite proxy stands in for it). It does
+            // NOT give the parent reach into artifact iframes: those are
+            // sandboxed without `allow-same-origin`, so their documents are
+            // opaque whatever URL they load from, and Studio comment-mode,
+            // screenshots and the iyke bridge all go through the postMessage
+            // bridge in `src/lib/artifact/bridge-messages.ts`.
             // In dev, Vite serves the shell at :1420; in prod the
             // viewer-server's catch-all serves the bundled dist at
             // `viewer_port`. The label "main" matches the capability target
