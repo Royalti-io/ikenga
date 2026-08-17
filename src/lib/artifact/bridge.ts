@@ -601,7 +601,10 @@ function setupHostBridge(themeHandle: ThemeHandle): void {
 							base64: '',
 							width: 0,
 							height: 0,
-							error: String(err),
+							// Include the stack: this runs inside an opaque-origin frame,
+							// so the host cannot open devtools on the child and the message
+							// alone rarely identifies the thrower.
+							error: err instanceof Error ? `${err.message} | ${err.stack ?? ''}` : String(err),
 						})
 					);
 				return;
