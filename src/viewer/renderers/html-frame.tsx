@@ -47,11 +47,19 @@ interface HtmlFrameProps {
 // theme mirroring, and pin overlays all flow through the child-side artifact
 // bridge over `postMessage`.
 //
+// Security consequence of same-origin: an artifact can read `window.parent`
+// and reach `window.parent.__TAURI_INTERNALS__.invoke`, which exposes every
+// command registered in `tauri::generate_handler![]`. See
+// ikenga/plans/2026-08-12-artifact-sandbox-escape/ for the containment plan.
+//
 // Sandbox flags:
 // - `allow-scripts`: required for legitimate Claude-generated HTML that uses
 //   inline scripts for interactivity.
 // - `allow-same-origin`: intentionally omitted. Same-origin access is what
-//   lets an artifact reach `window.parent.__TAURI_INTERNALS__`.
+//   lets an artifact reach `window.parent.__TAURI_INTERNALS__`. Relative
+//   `<link>` / `<script src>` resolution works because the `src` still points
+//   to the viewer server origin (see the `http://localhost:<port>` build
+//   below) and the CSP explicitly allows that origin.
 // External script loads are blocked by the CSP header injected on every
 // response from the viewer server.
 export function HtmlFrame({ path, paneId }: HtmlFrameProps) {
