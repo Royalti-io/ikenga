@@ -6,10 +6,12 @@
 // on blur (or `Cmd+Enter`). `Escape` aborts and restores the original
 // markup.
 //
-// Same-origin access is safe: viewer-server serves the iframe from the
-// shell's own origin, and the iframe carries `sandbox="allow-scripts
-// allow-same-origin"`, so `iframe.contentDocument` is reachable from
-// the parent.
+// The iframe is NOT same-origin. It is sandboxed without
+// `allow-same-origin`, so its document has an opaque origin and
+// `iframe.contentDocument` is null from here — the editable flip, the
+// focus, and the commit all happen inside the frame and travel as
+// `start-text-edit` / `text-edit-pick` / `text-edit-commit` over the
+// postMessage bridge (`src/lib/artifact/bridge-messages.ts`).
 //
 // Write-back strategy: surgical find-and-replace via DOMParser on the
 // current source string. The selector that `deriveSelector` produces
