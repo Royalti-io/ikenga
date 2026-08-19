@@ -544,6 +544,14 @@ async fn ensure_schema(pool: &sqlx::SqlitePool) -> Result<(), String> {
             "0061_drop_chat_messages",
             include_str!("../../migrations/0061_drop_chat_messages.sql"),
         ),
+        // WP-01 of the content-ops authoring layer: adds the approval axis
+        // (status/ref/doc_*/reviewable_after) to content_pieces. `stage` stays
+        // the production axis owned by com.ikenga.content and is untouched.
+        (
+            62,
+            "0062_content_review_axis",
+            include_str!("../../migrations/0062_content_review_axis.sql"),
+        ),
     ];
 
     for (id, name, sql) in migrations {
