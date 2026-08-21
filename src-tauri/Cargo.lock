@@ -2952,7 +2952,7 @@ dependencies = [
 
 [[package]]
 name = "ikenga-desktop"
-version = "0.7.1"
+version = "0.7.2"
 dependencies = [
  "age",
  "agent-client-protocol",
