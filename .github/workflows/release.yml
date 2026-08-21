@@ -6,9 +6,9 @@ name: Release
 # dispatch runs upload artifacts only.
 #
 # Workspace layout in CI mirrors the local dev tree:
-#   royalti-io/ikenga-contract  → contract/    (workspace:* in shell)
-#   royalti-io/ikenga-tokens    → tokens/      (workspace:* in shell)
-#   royalti-io/ikenga-pkgs      → ikenga-pkgs/ (canonical monorepo per ADR-009;
+#   ikenga-hq/ikenga-contract  → contract/    (workspace:* in shell)
+#   ikenga-hq/ikenga-tokens    → tokens/      (workspace:* in shell)
+#   ikenga-hq/ikenga-pkgs      → ikenga-pkgs/ (canonical monorepo per ADR-009;
 #                                               builtin pkg dist resolves
 #                                               into here via symlinks, and
 #                                               scripts/build-iyke-mcp.sh
@@ -22,7 +22,7 @@ name: Release
 # Setup before first run:
 #   1. If any of contract / tokens / ikenga-pkgs go private, add a
 #      fine-grained PAT with read access as `WORKSPACE_DEPS_PAT` secret
-#      on royalti-io/ikenga. While all three are public, the default
+#      on ikenga-hq/ikenga. While all three are public, the default
 #      GITHUB_TOKEN suffices.
 #   2. Push a tag matching `v*` (e.g. `git tag v0.0.5 && git push origin v0.0.5`).
 
@@ -131,14 +131,14 @@ jobs:
       - name: Checkout @ikenga/contract
         uses: actions/checkout@v6
         with:
-          repository: royalti-io/ikenga-contract
+          repository: ikenga-hq/ikenga-contract
           path: contract
           token: ${{ secrets.WORKSPACE_DEPS_PAT || secrets.GITHUB_TOKEN }}
 
       - name: Checkout @ikenga/tokens
         uses: actions/checkout@v6
         with:
-          repository: royalti-io/ikenga-tokens
+          repository: ikenga-hq/ikenga-tokens
           path: tokens
           token: ${{ secrets.WORKSPACE_DEPS_PAT || secrets.GITHUB_TOKEN }}
 
@@ -148,10 +148,10 @@ jobs:
       # NOTE: this is a separate, self-contained pnpm workspace — we do not
       # add its packages to the synthesized outer workspace (pnpm doesn't
       # support nested workspaces).
-      - name: Checkout royalti-io/ikenga-pkgs
+      - name: Checkout ikenga-hq/ikenga-pkgs
         uses: actions/checkout@v6
         with:
-          repository: royalti-io/ikenga-pkgs
+          repository: ikenga-hq/ikenga-pkgs
           path: ikenga-pkgs
           token: ${{ secrets.WORKSPACE_DEPS_PAT || secrets.GITHUB_TOKEN }}
 
