@@ -14,7 +14,9 @@
 // the right CSP / sandbox flags for this access pattern.
 
 import { useEffect, useRef, useState } from 'react';
-import { capture, type PickResult } from '@/shell/artifact-studio/pin-composer';
+import { type PickResult } from '@/shell/artifact-studio/pin-composer';
+import * as M from '@/lib/artifact/bridge-messages';
+import { wrapHostMessage } from '@/lib/artifact/bridge-messages';
 
 interface StudioCommentModeProps {
 	paneId: string;
@@ -34,34 +36,72 @@ export function StudioCommentMode({ paneId, onPick }: StudioCommentModeProps) {
 	const [busy, setBusy] = useState(false);
 
 	useEffect(() => {
-		// Find the artifact iframe by walking up to the Studio pane root and
-		// querying for the first iframe inside. The Studio root sets
-		// `data-pane-id` for exactly this kind of scoped lookup.
 		const root = document.querySelector<HTMLElement>(`[data-pane-id="${paneId}"]`);
 		if (!root) return;
-		// The iframe may not be mounted yet (viewer-server is async). Poll
-		// briefly; comment-mode is user-triggered so a 200ms window is plenty.
+
 		let cancelled = false;
-		let attached = false;
-		let teardown: (() => void) | null = null;
+		let iframe: HTMLIFrameElement | null = null;
+
+		const postToChild = (msg: M.HostToChildMessage) => {
+			const cw = iframe?.contentWindow;
+			if (!cw) return;
+			cw.postMessage(wrapHostMessage(msg), '*');
+		};
 
 		const tryAttach = () => {
-			if (cancelled || attached) return;
-			const iframe = root.querySelector('iframe');
-			if (!iframe?.contentDocument) return;
-			attached = true;
-			teardown = attachListeners(iframe, overlayRef.current, setHighlight, onPick, setBusy);
+			if (cancelled || iframe) return;
+			const el = root.querySelector('iframe');
+			if (!el) return;
+			iframe = el;
+			postToChild({ kind: 'start-comment' });
+		};
+
+		const onMessage = (e: MessageEvent) => {
+			if (!M.isIkengaHostMessage(e.data)) return;
+			if (e.source !== iframe?.contentWindow) return;
+			const m = (e.data as M.ChildMessageWrapper).data;
+
+			if (m.kind === 'hover') {
+				if (!m.rect) {
+					setHighlight(null);
+					return;
+				}
+				if (!iframe || !overlayRef.current) return;
+				const iframeRect = iframe.getBoundingClientRect();
+				const overlayRect = overlayRef.current.getBoundingClientRect();
+				setHighlight({
+					top: m.rect.top + (iframeRect.top - overlayRect.top),
+					left: m.rect.left + (iframeRect.left - overlayRect.left),
+					width: m.rect.width,
+					height: m.rect.height,
+				});
+			} else if (m.kind === 'comment-pick') {
+				setBusy(true);
+				const p = m.payload;
+				onPick({
+					selector: p.selector,
+					positionX: p.positionX,
+					positionY: p.positionY,
+					screenshotBase64: p.screenshotBase64,
+					screenshotWidth: p.screenshotWidth,
+					screenshotHeight: p.screenshotHeight,
+					elementLabel: p.elementLabel,
+				});
+				setBusy(false);
+			}
 		};
 
 		tryAttach();
 		const interval = window.setInterval(tryAttach, 100);
 		const stop = window.setTimeout(() => window.clearInterval(interval), 2000);
+		window.addEventListener('message', onMessage);
 
 		return () => {
 			cancelled = true;
 			window.clearInterval(interval);
 			window.clearTimeout(stop);
-			if (teardown) teardown();
+			window.removeEventListener('message', onMessage);
+			postToChild({ kind: 'stop-comment' });
 		};
 	}, [paneId, onPick]);
 
@@ -84,82 +124,4 @@ export function StudioCommentMode({ paneId, onPick }: StudioCommentModeProps) {
 			)}
 		</div>
 	);
-}
-
-/** Attach mousemove + click listeners to the iframe document. Returns a
- *  teardown function. `setHighlight` receives bounding rects in
- *  overlay-relative coords so the highlight box sits over the iframe. */
-function attachListeners(
-	iframe: HTMLIFrameElement,
-	overlay: HTMLElement | null,
-	setHighlight: (r: Rect | null) => void,
-	onPick: (result: PickResult) => void,
-	setBusy: (b: boolean) => void
-): () => void {
-	const doc = iframe.contentDocument;
-	if (!doc) return () => undefined;
-
-	const onMove = (e: MouseEvent) => {
-		// Cross-frame `instanceof Element` is unreliable when `e.target` lives
-		// in the iframe's document (different Element constructor). Duck-type
-		// against `nodeType === 1` so iframe elements pass the check.
-		const t = e.target as { nodeType?: number; getBoundingClientRect?: () => DOMRect } | null;
-		if (!t || t.nodeType !== 1 || typeof t.getBoundingClientRect !== 'function') {
-			setHighlight(null);
-			return;
-		}
-		const rect = t.getBoundingClientRect();
-		const iframeRect = iframe.getBoundingClientRect();
-		const overlayRect = overlay?.getBoundingClientRect();
-		// The overlay sits over the iframe. Translate the iframe-doc rect into
-		// overlay-relative coords by adding the iframe's offset from the
-		// overlay's top-left.
-		setHighlight({
-			top: rect.top + (iframeRect.top - (overlayRect?.top ?? iframeRect.top)),
-			left: rect.left + (iframeRect.left - (overlayRect?.left ?? iframeRect.left)),
-			width: rect.width,
-			height: rect.height,
-		});
-	};
-	let cancelled = false;
-	const onClick = (e: MouseEvent) => {
-		if (!(e.target instanceof Element)) {
-			// Cross-frame `instanceof Element` (iframe.contentWindow.Element !==
-			// window.Element) can fail even for real elements. Fall back to a
-			// duck-typed nodeType check before bailing.
-			const t = e.target as { nodeType?: number } | null;
-			if (!t || t.nodeType !== 1) return;
-		}
-		const el = e.target as Element;
-		// Skip bare <html>/<body> — same guard as the right-click picker.
-		if (el === doc.documentElement || el === doc.body) return;
-		e.preventDefault();
-		e.stopPropagation();
-		setBusy(true);
-		capture(iframe, el)
-			.then((result) => {
-				if (cancelled) return;
-				onPick(result);
-			})
-			.catch((err) => {
-				console.error('[comment-mode] capture failed', err);
-			})
-			.finally(() => {
-				if (!cancelled) setBusy(false);
-			});
-	};
-
-	const onLeave = () => setHighlight(null);
-
-	doc.addEventListener('mousemove', onMove, true);
-	doc.addEventListener('click', onClick, true);
-	doc.addEventListener('mouseleave', onLeave, true);
-
-	return () => {
-		cancelled = true;
-		doc.removeEventListener('mousemove', onMove, true);
-		doc.removeEventListener('click', onClick, true);
-		doc.removeEventListener('mouseleave', onLeave, true);
-		setHighlight(null);
-	};
 }

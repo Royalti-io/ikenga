@@ -1,10 +1,10 @@
 blank_issues_enabled: false
 contact_links:
   - name: 💬 Questions & ideas
-    url: https://github.com/orgs/Royalti-io/discussions
+    url: https://github.com/orgs/ikenga-hq/discussions
     about: Ask questions, share ideas, or discuss design in GitHub Discussions instead of opening an issue.
   - name: 🔒 Report a security vulnerability
-    url: https://github.com/Royalti-io/.github/blob/main/SECURITY.md
+    url: https://github.com/ikenga-hq/.github/blob/main/SECURITY.md
     about: Do NOT open a public issue for security problems. Use private vulnerability reporting — see our Security Policy.
   - name: 📦 Build a package
     url: https://ikenga.dev/docs/build-a-pkg

@@ -22,6 +22,8 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import * as M from '@/lib/artifact/bridge-messages';
+import { wrapHostMessage } from '@/lib/artifact/bridge-messages';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 import { IconButton } from '@/components/ui/icon-button';
 import { cn } from '@/components/ui/utils';
@@ -446,9 +448,9 @@ function LoupePinOverlay({
 	});
 	const pins = useMemo(() => pinsQuery.data ?? [], [pinsQuery.data]);
 
-	// Project each pin's selector through the same-origin iframe to a host-
-	// viewport rect, then into overlay-local coords. Re-runs whenever the
-	// iframe content scrolls / mutates / the host resizes.
+	// Project each pin's selector through the sandboxed iframe via postMessage.
+	// The child watches for scroll/resize/mutation changes and sends `pin-update`
+	// messages; the host translates child-viewport rects into overlay-local coords.
 	useEffect(() => {
 		const overlay = overlayRef.current;
 		if (!overlay) return;
@@ -458,76 +460,55 @@ function LoupePinOverlay({
 		}
 
 		let cancelled = false;
-		let raf = 0;
 		let iframe: HTMLIFrameElement | null = null;
-		const teardowns: Array<() => void> = [];
+		const selectors = pins.map((p) => p.selector);
 
-		const project = () => {
-			if (cancelled || !overlay) return;
+		const postToChild = (msg: M.HostToChildMessage) => {
+			const cw = iframe?.contentWindow;
+			if (!cw) return;
+			cw.postMessage(wrapHostMessage(msg), '*');
+		};
+
+		const computeResolved = (results: M.PinResolution[]): ResolvedPin[] => {
+			if (!overlay) return [];
 			const overlayRect = overlay.getBoundingClientRect();
-			const doc = iframe?.contentDocument;
 			const iframeRect = iframe?.getBoundingClientRect();
 			const next: ResolvedPin[] = pins.map((pin, i) => {
-				if (!doc || !iframeRect) return { pin, numbering: i + 1, rect: null };
-				let el: Element | null = null;
-				try {
-					el = doc.querySelector(pin.selector);
-				} catch {
-					el = null;
+				const found = results.find((r) => r.selector === pin.selector);
+				if (!found?.found || !found.rect || !iframeRect) {
+					return { pin, numbering: i + 1, rect: null };
 				}
-				if (!el) return { pin, numbering: i + 1, rect: null };
-				const er = el.getBoundingClientRect();
-				const x = iframeRect.left + er.left + er.width / 2 - overlayRect.left;
-				const y = iframeRect.top + er.top + er.height / 2 - overlayRect.top;
+				const r = found.rect;
+				const x = iframeRect.left + r.left + r.width / 2 - overlayRect.left;
+				const y = iframeRect.top + r.top + r.height / 2 - overlayRect.top;
 				return { pin, numbering: i + 1, rect: { x, y } };
 			});
-			setResolved(spreadOverlaps(next));
+			return spreadOverlaps(next);
 		};
 
-		const schedule = () => {
-			if (raf) cancelAnimationFrame(raf);
-			raf = requestAnimationFrame(project);
+		const onMessage = (e: MessageEvent) => {
+			if (!M.isIkengaHostMessage(e.data)) return;
+			if (e.source !== iframe?.contentWindow) return;
+			const m = (e.data as M.ChildMessageWrapper).data;
+			if (m.kind === 'pin-update') {
+				setResolved(computeResolved(m.results));
+			}
 		};
 
-		const attach = () => {
-			iframe = document.querySelector<HTMLIFrameElement>(`[data-pane-id="${paneId}"] iframe`);
-			if (!iframe) return false;
-			const doc = iframe.contentDocument;
-			if (!doc) return false;
-
-			// Initial projection.
-			project();
-
-			// Recompute on iframe content scroll, host resize, and DOM
-			// mutations (text-edit mode commits land here too).
-			const onScroll = () => schedule();
-			doc.addEventListener('scroll', onScroll, true);
-			teardowns.push(() => doc.removeEventListener('scroll', onScroll, true));
-
-			const ro = new ResizeObserver(schedule);
-			ro.observe(overlay);
-			if (doc.documentElement) ro.observe(doc.documentElement);
-			teardowns.push(() => ro.disconnect());
-
-			const mo = new MutationObserver(schedule);
-			mo.observe(doc.documentElement ?? doc, {
-				attributes: true,
-				childList: true,
-				subtree: true,
-				characterData: true,
-			});
-			teardowns.push(() => mo.disconnect());
-
-			return true;
+		const tryAttach = () => {
+			if (cancelled || iframe) return;
+			const el = document.querySelector<HTMLIFrameElement>(`[data-pane-id="${paneId}"] iframe`);
+			if (!el) return;
+			iframe = el;
+			window.addEventListener('message', onMessage);
+			postToChild({ kind: 'watch-pins', selectors });
 		};
 
-		// Iframe may not be in the DOM yet (HtmlFrame mounts after viewer
-		// HTTP server is ready). Poll briefly until it shows up + has a
-		// contentDocument, then attach the observers.
 		let pollHandle: ReturnType<typeof setTimeout> | null = null;
 		const poll = () => {
 			if (cancelled) return;
-			if (attach()) return;
+			if (iframe) return;
+			tryAttach();
 			pollHandle = setTimeout(poll, 200);
 		};
 		poll();
@@ -535,8 +516,8 @@ function LoupePinOverlay({
 		return () => {
 			cancelled = true;
 			if (pollHandle) clearTimeout(pollHandle);
-			if (raf) cancelAnimationFrame(raf);
-			for (const t of teardowns) t();
+			window.removeEventListener('message', onMessage);
+			postToChild({ kind: 'unwatch-pins' });
 		};
 	}, [pins, paneId]);
 

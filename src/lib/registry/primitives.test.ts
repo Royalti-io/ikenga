@@ -16,7 +16,7 @@ function cat(
 		version: '0.1.0',
 		description: null,
 		source: 'npx',
-		url: `royalti-io/${name}`,
+		url: `ikenga-hq/${name}`,
 		publisher: 'royalti-io',
 		...(requires ? { requires } : {}),
 		...over,
@@ -52,7 +52,7 @@ describe('resolveCatalogClosure (WP-15 consent surface)', () => {
 			resolution: 'catalog',
 			satisfied: false,
 			needsExtraConfirm: false,
-			provenance: 'npx · royalti-io/design-language',
+			provenance: 'npx · ikenga-hq/design-language',
 		});
 	});
 
