@@ -2721,7 +2721,7 @@ mod tests {
         let entry = install_bundle_core(
             &store,
             "atelier",
-            "royalti-io/atelier-bundle",
+            "ikenga-hq/atelier-bundle",
             false,
             &fetch,
         )
@@ -2742,7 +2742,7 @@ mod tests {
         assert_eq!(entry.provenance.source, ProvenanceSource::Npx);
         assert_eq!(
             entry.provenance.url.as_deref(),
-            Some("royalti-io/atelier-bundle")
+            Some("ikenga-hq/atelier-bundle")
         );
         assert!(entry.provenance.managed);
 
@@ -2962,7 +2962,7 @@ mod tests {
             kind: "bundle".into(),
             name: "studio-archetypes".into(),
             source: "npx".into(),
-            url: "royalti-io/studio-archetypes".into(),
+            url: "ikenga-hq/studio-archetypes".into(),
             members: vec!["alpha".into(), "beta".into()],
         }];
 
@@ -2970,7 +2970,7 @@ mod tests {
         // (proving the dispatch reads cat.url, not item.name), then writes 2 members.
         let fetch = |spec: &str, staging: &Path| {
             assert_eq!(
-                spec, "royalti-io/studio-archetypes",
+                spec, "ikenga-hq/studio-archetypes",
                 "bundle dispatch must pass the catalog url as the skills-add spec"
             );
             make_bundle_staging(staging, &["beta", "alpha"])

@@ -8,7 +8,7 @@
 			"version": "0.1.0",
 			"description": "Scaffold a research → design → plan → orchestrate → act folder for non-trivial work; drops a domain-agnostic spine plus stateless action-skills.",
 			"source": "npx",
-			"url": "royalti-io/groundwork",
+			"url": "ikenga-hq/groundwork",
 			"publisher": "royalti-io"
 		},
 		{
@@ -17,7 +17,7 @@
 			"version": "0.1.0",
 			"description": "Author a self-contained interactive HTML artifact that renders standalone and lights up with live data inside the Ikenga shell.",
 			"source": "npx",
-			"url": "royalti-io/ikenga-artifact-builder",
+			"url": "ikenga-hq/ikenga-artifact-builder",
 			"publisher": "royalti-io",
 			"requires": [{ "kind": "skill", "name": "design-language" }]
 		},
@@ -27,7 +27,7 @@
 			"version": "0.1.0",
 			"description": "Discover and apply a project's existing visual identity — token packages, tailwind/shadcn vars, theme files — into a JSON design contract for downstream artifact skills.",
 			"source": "npx",
-			"url": "royalti-io/design-language",
+			"url": "ikenga-hq/design-language",
 			"publisher": "royalti-io"
 		},
 		{
@@ -45,7 +45,7 @@
 			"version": "0.1.0",
 			"description": "Scroll-driven storytelling — pinned sections, progressive reveals, parallax, and scroll-linked animations for narrative landing pages.",
 			"source": "npx",
-			"url": "royalti-io/scrollytelling",
+			"url": "ikenga-hq/scrollytelling",
 			"publisher": "royalti-io"
 		},
 		{
@@ -54,7 +54,7 @@
 			"version": "0.1.0",
 			"description": "Design, critique, and polish frontend interfaces — visual hierarchy, information architecture, accessibility, theming, motion, micro-interactions, and anti-patterns.",
 			"source": "npx",
-			"url": "royalti-io/impeccable",
+			"url": "ikenga-hq/impeccable",
 			"publisher": "royalti-io"
 		},
 		{
@@ -63,7 +63,7 @@
 			"version": "0.1.0",
 			"description": "PreToolUse hook that auto-assigns a model to spawned subagents by task weight (haiku / sonnet / opus) when no model is set — a floor so Agent/Task calls don't silently inherit Opus.",
 			"source": "git",
-			"url": "https://github.com/royalti-io/claude-hooks",
+			"url": "https://github.com/ikenga-hq/claude-hooks",
 			"publisher": "royalti-io"
 		}
 	]

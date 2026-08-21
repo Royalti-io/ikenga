@@ -17,7 +17,7 @@ export interface GitHubRelease {
 	prerelease: boolean;
 }
 
-const RELEASES_URL = 'https://api.github.com/repos/Royalti-io/ikenga/releases?per_page=20';
+const RELEASES_URL = 'https://api.github.com/repos/ikenga-hq/ikenga/releases?per_page=20';
 
 async function fetchReleases(signal?: AbortSignal): Promise<GitHubRelease[]> {
 	const res = await fetch(RELEASES_URL, {

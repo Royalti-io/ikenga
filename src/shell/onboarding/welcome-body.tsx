@@ -35,15 +35,15 @@ const QUERY_KEY = ['onboarding', 'preflight'] as const;
 // Doc links per check id. The Rust side stamps stable ids; if it adds a
 // new one, the link falls back to the generic onboarding page.
 const DOC_LINKS: Record<string, string> = {
-	os: 'https://github.com/royalti-io/ikenga/blob/main/docs/system-requirements.md',
-	disk: 'https://github.com/royalti-io/ikenga/blob/main/docs/system-requirements.md',
-	app_data: 'https://github.com/royalti-io/ikenga/blob/main/docs/troubleshooting.md',
-	vault: 'https://github.com/royalti-io/ikenga/blob/main/docs/vault.md',
-	claude_projects: 'https://github.com/royalti-io/ikenga/blob/main/docs/agents.md',
-	network: 'https://github.com/royalti-io/ikenga/blob/main/docs/troubleshooting.md',
+	os: 'https://github.com/ikenga-hq/ikenga/blob/main/docs/system-requirements.md',
+	disk: 'https://github.com/ikenga-hq/ikenga/blob/main/docs/system-requirements.md',
+	app_data: 'https://github.com/ikenga-hq/ikenga/blob/main/docs/troubleshooting.md',
+	vault: 'https://github.com/ikenga-hq/ikenga/blob/main/docs/vault.md',
+	claude_projects: 'https://github.com/ikenga-hq/ikenga/blob/main/docs/agents.md',
+	network: 'https://github.com/ikenga-hq/ikenga/blob/main/docs/troubleshooting.md',
 };
 
-const DEFAULT_DOC = 'https://github.com/royalti-io/ikenga/blob/main/docs/onboarding.md';
+const DEFAULT_DOC = 'https://github.com/ikenga-hq/ikenga/blob/main/docs/onboarding.md';
 
 export function WelcomeBody({ onContinue }: WelcomeBodyProps) {
 	const { data, isLoading, isError, error, refetch } = useQuery<SystemReport>({

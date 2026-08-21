@@ -1,9 +1,9 @@
 # Ikenga
 
-[![Build](https://img.shields.io/badge/build-passing-brightgreen.svg)](https://github.com/Royalti-io/ikenga/actions)
-[![Version](https://img.shields.io/badge/version-v0.0.7-blue.svg)](https://github.com/Royalti-io/ikenga/releases)
+[![Build](https://img.shields.io/badge/build-passing-brightgreen.svg)](https://github.com/ikenga-hq/ikenga/actions)
+[![Version](https://img.shields.io/badge/version-v0.0.7-blue.svg)](https://github.com/ikenga-hq/ikenga/releases)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-[![Discussions](https://img.shields.io/badge/community-discussions-5865F2.svg)](https://github.com/Royalti-io/ikenga/discussions)
+[![Discussions](https://img.shields.io/badge/community-discussions-5865F2.svg)](https://github.com/ikenga-hq/ikenga/discussions)
 [![Newsletter](https://img.shields.io/badge/newsletter-Building%20in%20the%20Loop-e8590c.svg)](https://buildingintheloop.substack.com/subscribe)
 
 > An open-source desktop workspace for the multi-agent way of working — your agents,
@@ -62,7 +62,7 @@ curl -fsSL https://ikenga.dev/install.sh | sh
 ```
 
 Until the install script is live, build from source (below). Released builds, when
-available, are on the [Releases page](https://github.com/Royalti-io/ikenga/releases).
+available, are on the [Releases page](https://github.com/ikenga-hq/ikenga/releases).
 
 ## Quickstart
 
@@ -101,7 +101,7 @@ through onboarding. For dev convenience you can pre-seed values in `.env.local`
 
 Each pkg is a self-contained directory: a `manifest.json` plus whatever it contributes. The
 manifest is validated against the Zod schema in
-[`@ikenga/contract`](https://github.com/Royalti-io/ikenga-contract); the kernel registers
+[`@ikenga/contract`](https://github.com/ikenga-hq/ikenga-contract); the kernel registers
 each declared block against the matching registry. UI pkgs mount as **iframe** (the common
 case), **webview** (for sites that block iframe embedding), or **component** (built-ins
 only).
@@ -114,7 +114,7 @@ ikenga dev /path/to/your/pkg   # symlink-mount + watch; reload on save
 
 <!-- GIF: docs/media/pkg-dev.gif — `ikenga dev` mounting a pkg, then an edit-on-save triggering an in-place reload in the running shell -->
 
-First-party pkgs live in the [`ikenga-pkgs`](https://github.com/Royalti-io/ikenga-pkgs)
+First-party pkgs live in the [`ikenga-pkgs`](https://github.com/ikenga-hq/ikenga-pkgs)
 monorepo — read those for working examples of each archetype.
 
 ## Multi-engine chat
@@ -197,7 +197,7 @@ focus the Ikenga window.
 
 ## Status
 
-Released builds are on the [Releases page](https://github.com/Royalti-io/ikenga/releases)
+Released builds are on the [Releases page](https://github.com/ikenga-hq/ikenga/releases)
 (current: v0.0.7).
 
 ## Distribution
@@ -293,8 +293,8 @@ scale.
 
 - [ikenga.dev](https://ikenga.dev) — site + docs
 - [Documentation](https://ikenga.dev/docs)
-- [`ikenga-pkgs`](https://github.com/Royalti-io/ikenga-pkgs) — first-party pkg monorepo (working examples per archetype)
-- [`ikenga-contract`](https://github.com/Royalti-io/ikenga-contract) — manifest schema, RPC types, capability scopes
+- [`ikenga-pkgs`](https://github.com/ikenga-hq/ikenga-pkgs) — first-party pkg monorepo (working examples per archetype)
+- [`ikenga-contract`](https://github.com/ikenga-hq/ikenga-contract) — manifest schema, RPC types, capability scopes
 - [`CLAUDE.md`](CLAUDE.md) — detailed architecture for contributors
 - [Building in the Loop](https://buildingintheloop.substack.com/subscribe) — biweekly letters on running a real multi-agent Claude Code system
 
@@ -305,7 +305,7 @@ Apache-2.0 — both the platform and the first-party pkgs. See [`LICENSE`](LICEN
 ## Contributing & community
 
 Issues and PRs welcome — see [`.github/CONTRIBUTING.md`](.github/CONTRIBUTING.md). Start a
-thread in [Discussions](https://github.com/Royalti-io/ikenga/discussions); report security
+thread in [Discussions](https://github.com/ikenga-hq/ikenga/discussions); report security
 issues per [`.github/SECURITY.md`](.github/SECURITY.md). For workflow deep-dives and
 build-in-public notes from the founder, subscribe to
 [Building in the Loop](https://buildingintheloop.substack.com/subscribe) — biweekly.

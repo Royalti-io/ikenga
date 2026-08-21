@@ -20,4 +20,4 @@ git filter-repo \
   --path-rename ikenga-desktop/:./
 ```
 
-Then force-push to `royalti-io/ikenga`.
+Then force-push to `ikenga-hq/ikenga`.

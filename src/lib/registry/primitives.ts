@@ -315,7 +315,7 @@ export interface ConsentDep {
 	kind: ClaudeStoreKind;
 	name: string;
 	resolution: ConsentResolution;
-	/** Human-readable provenance for display (e.g. "npx · royalti-io/x"). */
+	/** Human-readable provenance for display (e.g. "npx · ikenga-hq/x"). */
 	provenance: string;
 	/** Already present in the local store — listed, not (re)installed. */
 	satisfied: boolean;

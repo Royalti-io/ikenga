@@ -28,7 +28,7 @@ git tag -a "$TAG" -m "Ikenga $TAG"
 # Falls back to a plain `git push origin` when RELEASE_PAT is absent — that's
 # fine for a local human-creds push (which also triggers workflows), and in CI
 # without the secret it degrades to the old "tag pushed but build must be
-# kicked manually" behaviour (see royalti-io/ikenga#26).
+# kicked manually" behaviour (see ikenga-hq/ikenga#26).
 #
 # THE #26 TRAP (silent, cost v0.3.0/v0.4.0/v0.5.0 a manual re-push each): the
 # token URL alone is NOT enough. `actions/checkout` runs with the default
@@ -43,7 +43,7 @@ git tag -a "$TAG" -m "Ikenga $TAG"
 # attributed to the PAT. (Scoped to the command; the persisted header is left
 # intact for every other git operation the job does.)
 if [ -n "${RELEASE_PAT:-}" ]; then
-  repo="${GITHUB_REPOSITORY:-royalti-io/ikenga}"
+  repo="${GITHUB_REPOSITORY:-ikenga-hq/ikenga}"
   # Try the PAT push (triggers release.yml). If the token lacks contents:write
   # or is expired, DON'T hard-fail the publish step — fall back to a plain push
   # so the tag still lands (build can be kicked manually). This keeps reusing a
