@@ -19,14 +19,14 @@ import {
 } from '@ikenga/registry-client';
 
 /** Live registry. Source: docs/plans/2026-05-13-ikenga-pkgs-migration.md Phase C. */
-export const REGISTRY_URL = 'https://royalti-io.github.io/ikenga-registry/index.json';
+export const REGISTRY_URL = 'https://registry.ikenga.dev/index.json';
 
 /**
  * Primitive catalog (Ọba WP-10b). A separate signed `primitives.json` published
  * to the same registry host, signed with the same key as `index.json`. Fetched
  * + minisign-verified by `lib/registry/primitives.ts::fetchPrimitiveCatalog`.
  */
-export const PRIMITIVES_URL = 'https://royalti-io.github.io/ikenga-registry/primitives.json';
+export const PRIMITIVES_URL = 'https://registry.ikenga.dev/primitives.json';
 
 /**
  * Minisign public key for the registry signer. Generated 2026-05-13 by the
